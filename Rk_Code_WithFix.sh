@@ -9,7 +9,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V37.08.02</title>
+    <title>RaveKandi V37.09.00</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style> body { background-color: #0a0014; color: white; margin: 0; padding: 0; } </style>
   </head>
@@ -66,7 +66,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.08.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.09.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -106,11 +106,16 @@ module.exports = {
         'fade-in-pulse': 'fadeInPulse 3s infinite',
         'tracer-glow': 'tracerGlow 4s linear infinite',
         'marquee-pause': 'marqueePause 15s linear infinite',
+        'marquee-scroll': 'marqueeScroll 18s linear infinite',
       },
       keyframes: {
         textShimmer: { '0%, 100%': { 'background-size': '200% 200%', 'background-position': 'left center' }, '50%': { 'background-size': '200% 200%', 'background-position': 'right center' } },
         fadeInPulse: { '0%, 100%': { opacity: '0.7', transform: 'scale(1)', filter: 'blur(1px)' }, '50%': { opacity: '1', transform: 'scale(1.05)', filter: 'blur(0px)' } },
         tracerGlow: { '0%': { backgroundPosition: '0% 50%' }, '50%': { backgroundPosition: '100% 50%' }, '100%': { backgroundPosition: '0% 50%' } },
+        marqueeScroll: {
+          '0%': { transform: 'translateX(100vw)' },
+          '100%': { transform: 'translateX(-100%)' },
+        },
         marqueePause: {
           '0%': { transform: 'translateX(100vw)' },
           '40%': { transform: 'translateX(0)' },
@@ -177,7 +182,16 @@ const BIO_CHAR_LIMIT = 200;
 const DEV_PIN = "666420";
 const DAILY_AI_LIMIT = 5;
 
-const PREMIUM_RADIO_URL = "https://cdn.pixabay.com/download/audio/2022/03/15/audio_7314545d17.mp3?filename=electronic-future-beats-117997.mp3";
+const RADIO_STATIONS = [
+    { id: 'house',  name: 'Deep House',     genre: 'House',                 url: 'https://ice1.somafm.com/beatblender-128-mp3',  color: '#ff50b4' },
+    { id: 'techno', name: 'Techno Trip',    genre: 'Techno / Trance',       url: 'https://ice1.somafm.com/thetrip-128-mp3',      color: '#b464ff' },
+    { id: 'edm',    name: 'EDM Mainstage',  genre: 'EDM / Big Room',        url: 'https://ice1.somafm.com/defcon-128-mp3',       color: '#64ffff' },
+    { id: 'chill',  name: 'Chill Vibes',    genre: 'Downtempo / Ambient',   url: 'https://ice1.somafm.com/groovesalad-128-mp3',  color: '#b4ff64' },
+    { id: 'dnb',    name: 'Bass & DnB',     genre: 'Drum & Bass / Dubstep', url: 'https://ice1.somafm.com/dubstep-128-mp3',      color: '#ffd700' },
+    { id: 'idm',    name: 'Glitch Lab',     genre: 'IDM / Glitch',          url: 'https://ice1.somafm.com/cliqhop-128-mp3',      color: '#ff8050' },
+    { id: 'space',  name: 'Space Station',  genre: 'Spaced-Out Beats',      url: 'https://ice1.somafm.com/spacestation-128-mp3', color: '#80ffff' },
+    { id: 'lush',   name: 'Lush Lounge',    genre: 'Chill Vocal Electronica', url: 'https://ice1.somafm.com/lush-128-mp3',       color: '#ff80bf' },
+];
 
 const NEON_COLORS = { 'primaryGlow': 'rgb(255, 80, 180)', 'accentGlow': 'rgb(100, 255, 255)', 'purpleGlow': 'rgb(180, 100, 255)', 'limeGlow': 'rgb(180, 255, 100)', 'goldGlow': 'rgb(255, 215, 0)' };
 const DEFAULT_INVENTORY = [
@@ -758,6 +772,137 @@ const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
                 </div>
             </div>
         </Modal>
+    );
+};
+
+const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
+    <div className="mb-3">
+        <div className="flex justify-between text-[10px] font-bold mb-1"><span className="text-cyan-400 uppercase tracking-widest">{label}</span><span className="text-lime-400">{value}{suffix}</span></div>
+        <input type="range" min={min} max={max} value={value} onChange={e => onChange(parseInt(e.target.value))} className="w-full accent-pink-500 h-2" />
+    </div>
+);
+
+const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange }) => {
+    const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
+    const [station, setStation] = useState(RADIO_STATIONS[0]);
+    const [playing, setPlaying] = useState(false);
+    const [status, setStatus] = useState('Select a station and press play.');
+    const [volume, setVolume] = useState(80);
+    const [bass, setBass] = useState(0);
+    const [mid, setMid] = useState(0);
+    const [treble, setTreble] = useState(0);
+    const [eqActive, setEqActive] = useState(false);
+
+    const audioRef = useRef(null);
+    const ctxRef = useRef(null);
+    const bassRef = useRef(null);
+    const midRef = useRef(null);
+    const trebleRef = useRef(null);
+    const gainRef = useRef(null);
+
+    const initEq = () => {
+        if (ctxRef.current || !audioRef.current) return;
+        try {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            const ctx = new Ctx();
+            const srcNode = ctx.createMediaElementSource(audioRef.current);
+            const b = ctx.createBiquadFilter(); b.type = 'lowshelf'; b.frequency.value = 200;
+            const m = ctx.createBiquadFilter(); m.type = 'peaking'; m.frequency.value = 1000; m.Q.value = 1;
+            const t = ctx.createBiquadFilter(); t.type = 'highshelf'; t.frequency.value = 3000;
+            const g = ctx.createGain();
+            srcNode.connect(b); b.connect(m); m.connect(t); t.connect(g); g.connect(ctx.destination);
+            ctxRef.current = ctx; bassRef.current = b; midRef.current = m; trebleRef.current = t; gainRef.current = g;
+            setEqActive(true);
+        } catch (e) { console.log('EQ unavailable, falling back to basic volume.', e); }
+    };
+
+    useEffect(() => { if (audioRef.current) audioRef.current.volume = volume / 100; }, [volume]);
+    useEffect(() => { if (bassRef.current) bassRef.current.gain.value = bass; }, [bass]);
+    useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
+    useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
+    useEffect(() => { if (onPlayingChange) onPlayingChange(playing); }, [playing]);
+
+    const grantPermission = () => {
+        try { localStorage.setItem('rk_audio_consent', 'true'); } catch(e) {}
+        setConsent(true);
+        initEq();
+        if (ctxRef.current && ctxRef.current.state === 'suspended') ctxRef.current.resume();
+        setStatus('Audio enabled. Pick a station!');
+    };
+
+    const playStation = async (st) => {
+        const a = audioRef.current; if (!a) return;
+        setStation(st); setStatus('Connecting to ' + st.name + '...');
+        try {
+            initEq();
+            if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume();
+            a.src = st.url; a.load();
+            await a.play();
+            setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre);
+        } catch (e) { setPlaying(false); setStatus('Stream failed. Check connection or try another station.'); }
+    };
+
+    const togglePlay = () => {
+        const a = audioRef.current; if (!a) return;
+        if (playing) { a.pause(); setPlaying(false); setStatus('Paused: ' + station.name); }
+        else { playStation(station); }
+    };
+
+    return (
+        <>
+            <audio ref={audioRef} crossOrigin="anonymous" onError={() => { if (playing) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
+            {isOpen && (
+                <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4 overflow-y-auto">
+                    <Card className="max-w-md w-full my-8 bg-[#0f001e]/95" glow="purpleGlow">
+                        <div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2">
+                            <h3 className="text-xl font-black italic flex items-center gap-2" style={getTextGlowStyle('purpleGlow')}><Radio size={20}/> RAVE RADIO</h3>
+                            <button onClick={onClose}><XCircle/></button>
+                        </div>
+                        {!profile?.isVIP ? (
+                            <div className="text-center py-6 space-y-4">
+                                <Crown size={48} className="mx-auto text-yellow-400"/>
+                                <p className="text-sm text-white">Rave Radio is a <strong>VIP</strong> feature. Unlock 8 live electronic stations, a full EQ, and custom backgrounds for a one-time $5.</p>
+                                <Button onClick={onGoVip} color="gold" className="w-full">Unlock VIP</Button>
+                            </div>
+                        ) : !consent ? (
+                            <div className="text-center py-6 space-y-4">
+                                <div className="flex justify-center"><Volume size={48} color="#64ffff"/></div>
+                                <p className="text-sm text-white font-bold">RaveKandi needs permission to play audio on this device.</p>
+                                <p className="text-xs text-white/60">This enables the live radio streams and the equalizer controls.</p>
+                                <Button onClick={grantPermission} color="lime" className="w-full">Allow Audio Playback</Button>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="bg-black/60 border border-white/10 rounded p-2 text-center">
+                                    <p className="text-[10px] font-mono truncate" style={{ color: station.color }}>{status}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                                    {RADIO_STATIONS.map(st => (
+                                        <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
+                                            <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
+                                            <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex justify-center">
+                                    <button onClick={togglePlay} className="w-16 h-16 rounded-full border-2 flex items-center justify-center transition-transform active:scale-90 bg-black/50" style={{ borderColor: station.color, boxShadow: '0 0 15px ' + station.color, color: station.color }}>
+                                        {playing ? <span className="font-black text-[10px] tracking-widest">PAUSE</span> : <Play size={28} fill="currentColor"/>}
+                                    </button>
+                                </div>
+                                <div className="bg-white/5 p-3 rounded border border-white/10">
+                                    <EqSlider label="Volume" value={volume} min={0} max={100} onChange={setVolume} suffix="%" />
+                                    <EqSlider label="Bass" value={bass} min={-12} max={12} onChange={setBass} suffix=" dB" />
+                                    <EqSlider label="Mid" value={mid} min={-12} max={12} onChange={setMid} suffix=" dB" />
+                                    <EqSlider label="Treble" value={treble} min={-12} max={12} onChange={setTreble} suffix=" dB" />
+                                    {!eqActive && <p className="text-[8px] text-yellow-400/80 text-center mt-1">EQ activates when playback starts.</p>}
+                                </div>
+                                <p className="text-[8px] text-center text-white/40">Live streams powered by SomaFM.com</p>
+                            </div>
+                        )}
+                    </Card>
+                </div>
+            )}
+        </>
     );
 };
 EOF
@@ -1422,6 +1567,7 @@ cat << 'EOF' >> src/App.js
 const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem }) => {
     const [liked, setLiked] = useState(item.likes?.includes(user?.uid));
     const [showComments, setShowComments] = useState(false);
+    const [descExpanded, setDescExpanded] = useState(false);
     
     const isOwner = user?.uid === item.ownerId;
     const isBuyer = item.buyers?.includes(user?.uid);
@@ -1454,7 +1600,14 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                         {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-white/50 italic bg-white/10 px-2 py-1 rounded">SOLD</span>}
                     </span>
                 </div>
-                <p className="text-[10px] opacity-70 truncate mt-1">{item.description}</p>
+                {item.description && (
+                    <div className={`mt-1 ${item.description.length > 60 ? 'cursor-pointer' : ''}`} onClick={(e) => { if (item.description.length > 60) { e.stopPropagation(); setDescExpanded(!descExpanded); } }}>
+                        <p className={`text-xs text-white/80 ${descExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>{item.description}</p>
+                        {item.description.length > 60 && (
+                            <span className="text-[9px] text-cyan-400 font-bold flex items-center gap-1 mt-0.5">{descExpanded ? (<>Show Less <ChevronUp size={10}/></>) : (<>Read More <ChevronDown size={10}/></>)}</span>
+                        )}
+                    </div>
+                )}
                 <div className="flex gap-2 mt-2">
                     <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {item.stockQty || 1}</span>
                     {item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>}
@@ -1713,11 +1866,11 @@ const InfoSection = () => {
             <div className="space-y-2">
                 {infos.map((info, i) => (
                     <div key={i} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden transition-all">
-                        <button onClick={() => setOpenIdx(openIdx === i ? null : i)} className="w-full p-4 text-left font-bold text-xs text-white flex justify-between items-center hover:bg-white/10">
+                        <button onClick={() => setOpenIdx(openIdx === i ? null : i)} className="w-full p-4 text-left font-bold text-sm text-white flex justify-between items-center hover:bg-white/10">
                             {info.title}
                             {openIdx === i ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
                         </button>
-                        {openIdx === i && <div className="p-4 pt-0 text-[10px] text-white/70 leading-relaxed bg-black/30">{info.content}</div>}
+                        {openIdx === i && <div className="p-4 pt-3 text-sm text-gray-100 leading-relaxed bg-black/40 border-t border-white/10">{info.content}</div>}
                     </div>
                 ))}
             </div>
@@ -1751,9 +1904,9 @@ export const ReferralProgramSection = ({ onNavigateToProfile }) => (
     <div className="mt-8 text-left max-w-md mx-auto mb-10">
         <h2 className="text-2xl font-black mb-4 italic tracking-tighter text-cyan-400">The PLUR RevShare Program</h2>
         <Card glow="accentGlow" className="p-5">
-            <p className="text-xs opacity-80 mb-4">Invite your rave fam and earn passive income forever! When someone signs up using your Friend UID, you earn a percentage of the app's commission on EVERY purchase they make.</p>
+            <p className="text-sm text-gray-100 mb-4">Invite your rave fam and earn passive income forever! When someone signs up using your Friend UID, you earn a percentage of the app's commission on EVERY purchase they make.</p>
             <div className="bg-black/50 p-3 rounded mb-4 max-h-40 overflow-y-auto border border-white/10">
-                <table className="w-full text-[10px]">
+                <table className="w-full text-xs">
                     <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Refs</th><th className="pb-1">RevShare</th></tr></thead>
                     <tbody>
                         {REFERRAL_TIERS.map(t => (
@@ -1762,9 +1915,9 @@ export const ReferralProgramSection = ({ onNavigateToProfile }) => (
                     </tbody>
                 </table>
             </div>
-            <div className="bg-cyan-900/20 p-3 rounded text-[10px] border border-cyan-500/30 mb-4">
+            <div className="bg-cyan-900/20 p-3 rounded text-xs border border-cyan-500/30 mb-4">
                 <span className="font-bold text-cyan-400 block mb-1">Quick Guide: How to find your Referral Portal</span>
-                <ol className="list-decimal pl-4 space-y-1 opacity-80">
+                <ol className="list-decimal pl-4 space-y-1 text-gray-100">
                     <li>Go to the <User size={10} className="inline"/> <strong>Profile Tab</strong>.</li>
                     <li>Scroll to your Stats grid.</li>
                     <li>Tap the <strong>Referrals</strong> box to open your dashboard!</li>
@@ -2100,15 +2253,9 @@ const App = () => {
     const [showAlphaModal, setShowAlphaModal] = useState(false);
     const [showVipModal, setShowVipModal] = useState(false);
     
-    // PHASE 7: Premium Radio State
+    // PHASE 8: Rave Radio State
     const [isRadioPlaying, setIsRadioPlaying] = useState(false);
-    const audioRef = useRef(null);
-
-    const toggleRadio = () => {
-        if (!profile?.isVIP) { setShowVipModal(true); return; }
-        if (isRadioPlaying) { audioRef.current?.pause(); setIsRadioPlaying(false); } 
-        else { audioRef.current?.play().catch(e=>console.log(e)); setIsRadioPlaying(true); }
-    };
+    const [radioOpen, setRadioOpen] = useState(false);
     
     // PHASE 7: Global Stats Hook
     const [globalStats, setGlobalStats] = useState({ userCount: 0 });
@@ -2257,21 +2404,13 @@ cat << 'EOF' >> src/App.js
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             
-            <audio ref={audioRef} src={PREMIUM_RADIO_URL} loop />
+            <RadioPlayerModal profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} />
 
-            <div className="w-full bg-black border-b border-white/10 text-[9px] py-1 text-lime-400 font-mono overflow-hidden flex items-center relative h-6">
-                <div className="whitespace-nowrap animate-marquee-pause absolute flex gap-12 items-center w-max pl-[100vw]">
-                    <span>⚡ GLOBAL VOLUME: {globalStats.userCount * 1337} KANDI ⚡</span>
-                    <span>★ TOP CREATOR: SYNTHETIC_SOUL ★</span>
-                    <span>🚀 ACTIVE RAVERS: {globalStats.userCount} 🚀</span>
-                    <span className="text-pink-400">💖 PLUR FACT: Handshakes end with a trade! 💖</span>
-                </div>
-            </div>
-
-            <header className="sticky top-0 z-50 bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
+            <div className="sticky top-0 z-50">
+            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
                 <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95"><Zap className="text-yellow-400" size={24} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
                 <div className="flex gap-5 items-center">
-                    <button onClick={toggleRadio} className={isRadioPlaying ? 'text-yellow-400 animate-pulse drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'text-white/50 hover:text-white'}><Radio size={18}/></button>
+                    <button onClick={() => setRadioOpen(true)} className={isRadioPlaying ? 'text-yellow-400 animate-pulse drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'text-white/50 hover:text-white'}><Radio size={18}/></button>
                     <div className="h-4 w-px bg-white/20 mx-0"></div>
                     <button onClick={() => setPage('feed')}><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white'} size={20}/></button>
                     <button onClick={() => setPage('shop')}><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white'} size={20}/></button>
@@ -2280,6 +2419,15 @@ cat << 'EOF' >> src/App.js
                     <button onClick={() => setCartOpen(true)}><ShoppingCart className="text-lime-400 shadow-neon-green" size={20}/></button>
                 </div>
             </header>
+            <div className="w-full bg-black border-b border-white/10 text-[9px] py-1 text-lime-400 font-mono overflow-hidden flex items-center relative h-6">
+                <div className="whitespace-nowrap animate-marquee-scroll flex gap-12 items-center w-max will-change-transform">
+                    <span>⚡ GLOBAL VOLUME: {globalStats.userCount * 1337} KANDI ⚡</span>
+                    <span>★ TOP CREATOR: SYNTHETIC_SOUL ★</span>
+                    <span>🚀 ACTIVE RAVERS: {globalStats.userCount} 🚀</span>
+                    <span className="text-pink-400">💖 PLUR FACT: Handshakes end with a trade! 💖</span>
+                </div>
+            </div>
+            </div>
             
             <main className="p-4 bg-black/40 min-h-screen backdrop-blur-sm">
                 {page === 'home' && (
@@ -2369,7 +2517,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed}/>}
             </main>
-            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 text-[9px] font-mono text-center p-1 text-white/30 uppercase z-50">V37.08.02 Phase 7 Completion & Integrity Validation</div>
+            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 text-[9px] font-mono text-center p-1 text-white/30 uppercase z-50">V37.09.00 Phase 8: Radio Engine, Sticky Marquee & UI Visibility</div>
         </div>
     );
 };
@@ -2425,9 +2573,35 @@ cat << 'EOF' > capacitor.config.json
 }
 EOF
 
-
 # Block 20
 cd ~/RaveKandi-Build
+
+echo "Verifying Termux Native Toolchain..."
+TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+command -v node >/dev/null 2>&1 || pkg install -y nodejs-lts
+command -v java >/dev/null 2>&1 || pkg install -y openjdk-21
+command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 || pkg install -y imagemagick
+
+if [ ! -f "$TERMUX_PREFIX/bin/aapt2" ]; then
+    echo "Native AAPT2 missing. Installing from Termux repository..."
+    pkg update -y || true
+    pkg install -y aapt2 || pkg install -y aapt || true
+fi
+
+if [ ! -f "$TERMUX_PREFIX/bin/aapt2" ]; then
+    echo "==========================================================="
+    echo "CRITICAL ERROR: AAPT2 could not be installed automatically."
+    echo "Run these two commands manually, then re-run this script:"
+    echo "  pkg update -y"
+    echo "  pkg install -y aapt2 aapt"
+    echo "==========================================================="
+    exit 1
+fi
+echo "AAPT2 verified: $TERMUX_PREFIX/bin/aapt2"
+
+if [ ! -d "$HOME/android-sdk" ]; then
+    echo "WARNING: ~/android-sdk folder not found. The Gradle build may fail without the Android SDK."
+fi
 
 echo "Deep cleaning build environment..."
 rm -rf node_modules package-lock.json build android
@@ -2457,6 +2631,38 @@ sed -i 's/gradle-[0-9\.]*-all\.zip/gradle-8.7-all.zip/g' android/gradle/wrapper/
 
 echo "Syncing Capacitor Native Bridge..."
 npx @capacitor/cli sync android
+
+echo "Adding Android audio permissions to Manifest..."
+MANIFEST="android/app/src/main/AndroidManifest.xml"
+if [ -f "$MANIFEST" ] && ! grep -q "MODIFY_AUDIO_SETTINGS" "$MANIFEST"; then
+    sed -i 's|<uses-permission android:name="android.permission.INTERNET" */>|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />|' "$MANIFEST"
+fi
+
+echo "Installing Custom App Icon (Icon.jpg from Downloads)..."
+IMG_TOOL=""
+command -v magick >/dev/null 2>&1 && IMG_TOOL="magick"
+[ -z "$IMG_TOOL" ] && command -v convert >/dev/null 2>&1 && IMG_TOOL="convert"
+
+ICON_SRC=""
+for P in "/storage/emulated/0/Download/Icon.jpg" "$HOME/storage/downloads/Icon.jpg" "$HOME/storage/shared/Download/Icon.jpg" "$HOME/Icon.jpg"; do
+    if [ -f "$P" ]; then ICON_SRC="$P"; break; fi
+done
+
+if [ -n "$ICON_SRC" ] && [ -n "$IMG_TOOL" ]; then
+    echo "Icon found at: $ICON_SRC"
+    rm -rf android/app/src/main/res/mipmap-anydpi-v26
+    for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+        D="${entry%%:*}"; S="${entry##*:}"
+        DIR="android/app/src/main/res/mipmap-$D"
+        mkdir -p "$DIR"
+        $IMG_TOOL "$ICON_SRC" -auto-orient -resize "${S}x${S}^" -gravity center -extent "${S}x${S}" "$DIR/ic_launcher.png"
+        cp "$DIR/ic_launcher.png" "$DIR/ic_launcher_round.png"
+        cp "$DIR/ic_launcher.png" "$DIR/ic_launcher_foreground.png"
+    done
+    echo "Custom icon installed for all screen densities."
+else
+    echo "WARNING: Icon.jpg not found in Downloads (or imagemagick unavailable). Keeping default icon."
+fi
 
 echo "Enforcing Termux Native AAPT2 globally..."
 mkdir -p ~/.gradle
@@ -2503,9 +2709,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V37.08.02)..."
-sed -i "s/versionCode 1/versionCode 46/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "37.08.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V37.09.00)..."
+sed -i "s/versionCode 1/versionCode 47/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "37.09.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -2552,7 +2758,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V37_08_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V37_09_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
