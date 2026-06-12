@@ -9,9 +9,15 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V37.09.00</title>
+    <title>RaveKandi V37.10.00</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style> body { background-color: #0a0014; color: white; margin: 0; padding: 0; } </style>
+    <style>
+      body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
+      @keyframes rkMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+      .rk-marquee-track { display: flex; width: max-content; animation: rkMarquee 25s linear infinite; will-change: transform; }
+      @keyframes rkGhostFlash { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
+      .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -66,7 +72,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.09.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.10.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -191,6 +197,9 @@ const RADIO_STATIONS = [
     { id: 'idm',    name: 'Glitch Lab',     genre: 'IDM / Glitch',          url: 'https://ice1.somafm.com/cliqhop-128-mp3',      color: '#ff8050' },
     { id: 'space',  name: 'Space Station',  genre: 'Spaced-Out Beats',      url: 'https://ice1.somafm.com/spacestation-128-mp3', color: '#80ffff' },
     { id: 'lush',   name: 'Lush Lounge',    genre: 'Chill Vocal Electronica', url: 'https://ice1.somafm.com/lush-128-mp3',       color: '#ff80bf' },
+    { id: 'trap',   name: 'Trap Temple',    genre: 'Trap EDM',              url: 'https://radiorecord.hostingradio.ru/trap96.aacp',    color: '#ff3864' },
+    { id: 'edmhh',  name: 'Beat Bodega',    genre: 'EDM Hip-Hop',           url: 'https://ice1.somafm.com/fluid-128-mp3',        color: '#9d4edd' },
+    { id: 'top100', name: 'Top 100 EDM',    genre: 'Top Dance Hits',        url: 'https://radiorecord.hostingradio.ru/rr_main96.aacp', color: '#00f5d4' },
 ];
 
 const NEON_COLORS = { 'primaryGlow': 'rgb(255, 80, 180)', 'accentGlow': 'rgb(100, 255, 255)', 'purpleGlow': 'rgb(180, 100, 255)', 'limeGlow': 'rgb(180, 255, 100)', 'goldGlow': 'rgb(255, 215, 0)' };
@@ -260,7 +269,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                     itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
                     referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
                     referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-                    isVIP: false, customBackground: null
+                    isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null
                 });
                 transaction.update(globalStatsRef, { userCount: newCount });
                 
@@ -326,16 +335,31 @@ const generateCustomKandi = async (prompt) => {
             };
         }
 
-        const cleanVisual = analysis.visual_description.replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 100);
+        const cleanVisual = (analysis.visual_description || prompt).replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 100);
         const visualStr = encodeURIComponent(`Macro photography rave kandi ${cleanVisual}`);
         const imageUrl = `https://image.pollinations.ai/prompt/${visualStr}?width=512&height=512&seed=${seed}&nologo=true`;
+
+        // V37.10 FIX: pre-fetch image bytes with retries. Pollinations generates on first
+        // request and can take 20-60s or return 5xx while queued; a single <img> attempt
+        // in the WebView timed out and the Lab showed only text + pricing with no visual.
+        let displayUrl = imageUrl;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+                const imgResp = await fetch(imageUrl, { cache: 'no-store' });
+                if (imgResp.ok) {
+                    const blob = await imgResp.blob();
+                    if (blob && blob.size > 2000) { displayUrl = URL.createObjectURL(blob); break; }
+                }
+            } catch (imgErr) { console.log('AI image attempt ' + (attempt + 1) + ' failed, retrying...'); }
+            await new Promise(r => setTimeout(r, 6000));
+        }
         
         const beads = analysis.total_bead_count || 100;
         const diff = analysis.difficulty_1_to_10 || 5;
         let estCost = ((beads * 0.05) + (diff * 2.00)) * PROFIT_MARGIN;
         if(estCost < 4.00) estCost = 4.00;
         
-        return { ...analysis, imageUrl, estimated_cost: estCost.toFixed(2), difficulty: diff };
+        return { ...analysis, imageUrl, displayUrl, estimated_cost: estCost.toFixed(2), difficulty: diff };
     } catch (e) { throw new Error("AI Assembly Failed: " + e.message); }
 };
 
@@ -380,7 +404,7 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
     return ( <button type={type} onClick={onClick} disabled={disabled} className={`px-4 py-2 font-bold rounded-lg uppercase tracking-wider transition-all active:scale-95 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02]'} ${className}`} style={{ backgroundColor: 'rgba(0,0,0,0.3)', color: 'white', border: `2px solid ${c}`, boxShadow: `0 0 5px ${c}, 0 0 15px ${c} inset`, textShadow: `0 0 3px ${c}` }}>{children}</button> );
 };
 
-const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete }) => ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input autoComplete={autoComplete} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> );
+const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name }) => ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input name={name} autoComplete={autoComplete} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> );
 
 const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return ( <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 overflow-y-auto"><Card className="max-w-md w-full my-8" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div> ); };
 
@@ -414,7 +438,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
     
     const postComment = async () => { 
         if (!comment.trim() || !user?.uid) return; 
-        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, time: Date.now() }; 
+        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now() }; 
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayUnion(newComment) }); 
         setComments([...comments, newComment]); 
         setComment(''); 
@@ -426,7 +450,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
             <div className="max-h-60 overflow-y-auto mb-4 space-y-2">
                 {comments.map((c, i) => (
                     <div key={i} className="bg-white/5 p-2 rounded text-sm">
-                        <span className="font-bold text-pink-400 cursor-pointer hover:underline" onClick={() => { onClose(); onViewProfile(c.uid); }}>{c.user}:</span> {c.text}
+                        <span className="font-bold text-pink-400 cursor-pointer hover:underline" onClick={() => { onClose(); onViewProfile(c.uid); }}>{c.user}</span><BadgeChip badge={c.badge} />: {c.text}
                     </div>
                 ))}
             </div>
@@ -905,11 +929,159 @@ const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange }
         </>
     );
 };
+
+const BadgeChip = ({ badge }) => {
+    if (!badge || !badge.id) return null;
+    const ach = ACHIEVEMENT_TIERS.find(a => a.id === badge.id);
+    if (!ach) return null;
+    const Icon = ach.icon;
+    return (
+        <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[8px] font-bold px-1 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
+            <Icon size={8}/> {badge.name || ach.name}
+        </span>
+    );
+};
+
+const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
+    const [saving, setSaving] = useState(false);
+    if (!isOpen) return null;
+    const all = getDisplayAchievements(profile);
+    const selectBadge = async (ach) => {
+        if (!ach.unlocked) return alert("Badge locked. Complete the requirement to unlock it.");
+        setSaving(true);
+        try {
+            const next = profile?.featuredBadge?.id === ach.id ? null : { id: ach.id, name: ach.name };
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { featuredBadge: next }, { merge: true });
+            alert(next ? '"' + ach.name + '" is now displayed next to your name!' : "Featured badge removed.");
+        } catch (e) { alert(e.message); } finally { setSaving(false); }
+    };
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="My Badges">
+            <p className="text-xs text-gray-100 mb-3">Tap an unlocked badge to feature it next to your name on comments, feed posts, and your profile. Tap it again to remove it.</p>
+            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                {all.map((ach, i) => {
+                    const isFeatured = profile?.featuredBadge?.id === ach.id;
+                    return (
+                        <button key={i} disabled={saving} onClick={() => selectBadge(ach)} className={`w-full flex items-center p-3 rounded-lg border text-left transition-all ${isFeatured ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_10px_rgba(250,204,21,0.4)]' : ach.unlocked ? 'border-lime-500/50 bg-lime-900/10 hover:bg-lime-900/30' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
+                            <ach.icon size={22} className={`mr-3 shrink-0 ${isFeatured ? 'text-yellow-400' : ach.unlocked ? 'text-lime-400' : 'text-white'}`}/>
+                            <div className="flex-1">
+                                <p className="font-bold text-sm flex items-center gap-2">{ach.name} {isFeatured && <span className="text-[8px] bg-yellow-400 text-black px-1 rounded font-black uppercase">Featured</span>}</p>
+                                <p className="text-[10px] opacity-70">{ach.desc}</p>
+                            </div>
+                            <span className={`text-[8px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Owned' : 'Locked'}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        </Modal>
+    );
+};
+
+const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
+    if (!isOpen) return null;
+    const code = profile?.publicUid || user?.uid || '';
+    const shareText = 'Join me on RaveKandi! Use my Friend UID "' + code + '" when you sign up and we both earn RevShare on the marketplace. PLUR!';
+    const doCopy = () => { try { navigator.clipboard.writeText(code); alert("Friend UID copied!"); } catch(e) { alert(code); } };
+    const doShare = async () => {
+        try { await navigator.share({ title: 'RaveKandi RevShare', text: shareText }); }
+        catch (e) { try { navigator.clipboard.writeText(shareText); alert("Share text copied! Paste it anywhere."); } catch(e2) {} }
+    };
+    const doStory = async () => {
+        try { await navigator.share({ title: 'RaveKandi', text: shareText + ' #RaveKandi #PLUR' }); }
+        catch (e) { try { navigator.clipboard.writeText(shareText + ' #RaveKandi #PLUR'); alert("Story caption copied! Open your social app and paste it into a new Story."); } catch(e2) {} }
+    };
+    const pct = profile?.customRevSharePct ?? getReferralTier(profile?.referrals || 0).sharePct;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="RevShare Program">
+            <div className="space-y-4">
+                <div className="bg-lime-900/20 border border-lime-500/40 p-3 rounded text-sm text-gray-100 leading-relaxed">
+                    Share your Friend UID. When friends sign up with it, you earn a percentage of the app's commission on <strong>everything they buy — for life</strong>. More referrals = higher tier = bigger cut.
+                </div>
+                <div className="bg-black/60 border border-white/20 rounded p-3 text-center">
+                    <p className="text-[9px] uppercase opacity-60 mb-1">Your Friend UID</p>
+                    <p className="font-mono text-lg font-black text-lime-400 break-all">{code}</p>
+                    <p className="text-[9px] mt-1 text-cyan-400">Current RevShare Rate: {pct}%</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <Button onClick={doCopy} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-3"><Copy size={16}/> Copy</Button>
+                    <Button onClick={doShare} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-3"><Share2 size={16}/> Share</Button>
+                    <Button onClick={doStory} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
+                </div>
+                <p className="text-[9px] text-center opacity-50">Share opens your phone's share sheet — send to any app, DM, or post straight to your Story.</p>
+            </div>
+        </Modal>
+    );
+};
+
+const TicketModal = ({ user, profile, isOpen, onClose }) => {
+    const [category, setCategory] = useState('Bug Report');
+    const [subject, setSubject] = useState('');
+    const [message, setMessage] = useState('');
+    const [sending, setSending] = useState(false);
+    if (!isOpen) return null;
+    const submit = async () => {
+        if (!subject.trim() || !message.trim()) return alert("Please fill out the subject and details.");
+        setSending(true);
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+                uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.10.00'
+            });
+            alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
+            setSubject(''); setMessage(''); onClose();
+        } catch (e) { alert("Could not submit: " + e.message); } finally { setSending(false); }
+    };
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Help & Bug Reports">
+            <Input label="Category" type="select" options={['Bug Report', 'Error / Crash', 'Help Request', 'Feedback / Idea', 'Payment Issue', 'Account Issue']} value={category} onChange={setCategory}/>
+            <Input label="Subject" value={subject} onChange={setSubject} placeholder="Short summary..." maxLength={80}/>
+            <Input label="Details" type="textarea" value={message} onChange={setMessage} placeholder="What happened? What did you expect? Steps to reproduce..."/>
+            <Button onClick={submit} disabled={sending} color="lime" className="w-full">{sending ? "Sending..." : "Submit Ticket"}</Button>
+        </Modal>
+    );
+};
+
+const PingBar = ({ show }) => {
+    const [ping, setPing] = useState(null);
+    const [offline, setOffline] = useState(!navigator.onLine);
+    useEffect(() => {
+        let alive = true;
+        const measure = async () => {
+            const t0 = performance.now();
+            try {
+                await fetch('https://www.gstatic.com/generate_204?_=' + Date.now(), { mode: 'no-cors', cache: 'no-store' });
+                if (alive) { setPing(Math.round(performance.now() - t0)); setOffline(false); }
+            } catch (e) { if (alive) setOffline(true); }
+        };
+        measure();
+        const int = setInterval(measure, 10000);
+        const goOff = () => setOffline(true);
+        const goOn = () => { setOffline(false); measure(); };
+        window.addEventListener('offline', goOff);
+        window.addEventListener('online', goOn);
+        return () => { alive = false; clearInterval(int); window.removeEventListener('offline', goOff); window.removeEventListener('online', goOn); };
+    }, []);
+    return (
+        <>
+            {offline && (
+                <div className="fixed bottom-6 left-0 w-full z-[60] flex justify-center pointer-events-none">
+                    <span className="rk-ghost-flash text-xs font-black uppercase tracking-[0.3em]" style={{ color: '#ffd1f7', textShadow: '0 0 12px #d8b4fe, 0 0 24px #a5f3fc' }}>Connection Lost — Offline Mode</span>
+                </div>
+            )}
+            {show && !offline && ping !== null && (
+                <span className={`font-mono ${ping < 120 ? 'text-lime-400' : ping < 300 ? 'text-yellow-400' : 'text-red-400'}`}>PING {ping}ms</span>
+            )}
+            {show && offline && <span className="font-mono text-red-400">OFFLINE</span>}
+            {(!show || (ping === null && !offline)) && <span className="w-14"></span>}
+        </>
+    );
+};
 EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
 const MainSettingsModal = ({ user, profile, isOpen, onClose }) => { 
+    const [showTicket, setShowTicket] = useState(false);
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState(''); 
     const [prefs, setPrefs] = useState({ phone: {}, email: {} });
@@ -978,8 +1150,23 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
 
         <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-2 text-pink-400">Contact Info</h4><Input value={phone} onChange={setPhone} placeholder="Phone Number" className="mb-2"/><Input value={email} onChange={setEmail} placeholder="Email Address"/></div>
         <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-3 text-cyan-400">Notifications</h4><div className="grid grid-cols-3 gap-2 text-[10px] mb-2 font-bold opacity-70"><span>Type</span><span className="text-center">Phone</span><span className="text-center">Email</span></div>{NOTIFICATION_TYPES.map(type => (<div key={type.id} className="grid grid-cols-3 gap-2 items-center mb-2 text-[10px]"><span className="truncate">{type.label}</span><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'phone')} className={`${prefs.phone?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.phone?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'email')} className={`${prefs.email?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.email?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div></div>))}</div>
+        <div className="border-b border-white/10 pb-4">
+            <h4 className="font-bold text-xs mb-2 text-lime-400">Display</h4>
+            <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { showPing: profile?.showPing === false ? true : false }, { merge: true }); }} className="w-full flex justify-between items-center bg-white/5 p-2 rounded border border-white/10">
+                <span className="text-[10px] font-bold">Show Ping (connection meter)</span>
+                {profile?.showPing !== false ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
+            </button>
+            <p className="text-[8px] opacity-50 mt-1">Displays live network latency at the bottom of the screen. On by default for new accounts.</p>
+        </div>
+
+        <div className="border-b border-white/10 pb-4">
+            <h4 className="font-bold text-xs mb-2 text-yellow-400">Support</h4>
+            <Button onClick={() => setShowTicket(true)} color="accent" className="w-full text-[10px] flex items-center justify-center gap-2"><HelpCircle size={14}/> Report a Bug / Get Help</Button>
+        </div>
+
         <Button onClick={saveSettings} color="lime" className="w-full text-xs">Save Changes</Button>
         <div className="flex gap-2 mt-4"><Button onClick={toggleAdmin} color="purple" className="flex-1 text-[10px]">DevMode</Button><Button onClick={handleLogout} color="accent" className="flex-1 text-[10px] bg-red-900/50 border-red-500">{user?.isAnonymous ? "Create Account" : "Log Out"}</Button></div>
+        <TicketModal user={user} profile={profile} isOpen={showTicket} onClose={() => setShowTicket(false)}/>
     </div></Modal> );
 };
 EOF
@@ -1039,7 +1226,7 @@ const CryptoCheckoutForm = ({ total, onComplete, onCancel }) => {
     );
 };
 
-const ShoppingCartModal = ({ user, isOpen, onClose }) => {
+const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
     const [cartItems, setCartItems] = useState([]);
     const [selectedIds, setSelectedIds] = useState([]);
     const [checkoutMode, setCheckoutMode] = useState('cart');
@@ -1049,11 +1236,46 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'));
         return onSnapshot(q, s => setCartItems(s.docs.map(d => ({id: d.id, ...d.data()}))));
     }, [isOpen, user]);
+
+    // V37.10: live availability — cross-reference each cart entry against the live tradeItems feed
+    const getStatus = (entry) => {
+        const live = (items || []).find(i => i.id === entry.originalId);
+        if (!live || live.status === 'dismissed' || live.removed) return 'cancelled';
+        if (live.buyers?.includes(user?.uid)) return 'purchased';
+        const stockDefined = live.stockQty !== undefined && live.stockQty !== null;
+        if (stockDefined ? live.stockQty <= 0 : (live.purchaseCount || 0) > 0) return 'sold';
+        return 'available';
+    };
+    const enriched = cartItems.map(c => ({ ...c, liveStatus: getStatus(c) }));
+    const STATUS_LABELS = { sold: 'UNAVAILABLE FOR PURCHASE: SOLD', cancelled: 'UNAVAILABLE FOR PURCHASE: REMOVED', purchased: 'ALREADY PURCHASED' };
     
-    const handleRemove = async (id) => { if(window.confirm("Permanently delete this item from your cart?")) await deleteDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, id)); };
-    const toggleSelection = (id) => { if (selectedIds.includes(id)) { setSelectedIds(selectedIds.filter(sid => sid !== id)); } else { setSelectedIds([...selectedIds, id]); } };
-    const totalCost = cartItems.filter(item => selectedIds.includes(item.id)).reduce((sum, item) => sum + (item.price || 0), 0);
+    const handleRemove = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, id)); setSelectedIds(prev => prev.filter(sid => sid !== id)); };
+    const bulkRemove = async (filterKey, label) => {
+        const targets = enriched.filter(c => filterKey === 'all' ? true : c.liveStatus === filterKey);
+        if (targets.length === 0) return alert("No " + label + " items to remove.");
+        if (!window.confirm("Remove " + targets.length + " item(s) from your cart?")) return;
+        const batch = writeBatch(db);
+        targets.forEach(t => batch.delete(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, t.id)));
+        await batch.commit();
+        setSelectedIds([]);
+    };
+    const toggleSelection = (entry) => {
+        if (entry.liveStatus !== 'available') return;
+        if (selectedIds.includes(entry.id)) setSelectedIds(selectedIds.filter(sid => sid !== entry.id));
+        else setSelectedIds([...selectedIds, entry.id]);
+    };
+    const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => sum + (item.price || 0), 0);
     
+    const startCheckout = () => {
+        const blocked = enriched.filter(c => selectedIds.includes(c.id) && c.liveStatus !== 'available');
+        if (blocked.length > 0) {
+            setSelectedIds(selectedIds.filter(id => !blocked.some(b => b.id === id)));
+            return alert("Some selected items just became unavailable and were deselected. Please review your cart.");
+        }
+        if (selectedIds.length === 0) return;
+        setCheckoutMode('select');
+    };
+
     const handleSuccess = async () => {
         try {
             const batch = writeBatch(db);
@@ -1061,8 +1283,9 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
             const buyerRef = doc(db, 'artifacts', appId, 'users', user.uid);
             const buyerSnap = await getDoc(buyerRef);
             const referrerUid = buyerSnap.data()?.referredBy;
+            const toBuy = enriched.filter(i => selectedIds.includes(i.id) && i.liveStatus === 'available');
 
-            for (const item of cartItems.filter(i => selectedIds.includes(i.id))) {
+            for (const item of toBuy) {
                 total += item.price;
                 const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.originalId);
                 batch.update(itemRef, { purchaseCount: increment(1), stockQty: increment(-1), buyers: arrayUnion(user.uid) });
@@ -1077,8 +1300,10 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
                     const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
                     const refSnap = await getDoc(refRef);
                     if (refSnap.exists()) {
-                        const tier = getReferralTier(refSnap.data()?.referrals || 0);
-                        const revShare = appCommission * (tier.sharePct / 100);
+                        const refData = refSnap.data();
+                        const tier = getReferralTier(refData?.referrals || 0);
+                        const pct = refData?.customRevSharePct ?? tier.sharePct;
+                        const revShare = appCommission * (pct / 100);
                         batch.update(refRef, { totalRevShareEarned: increment(revShare) });
                         const refListRef = doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', user.uid);
                         batch.set(refListRef, { earnedFromThisUser: increment(revShare) }, { merge: true });
@@ -1086,9 +1311,10 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
                 }
                 batch.delete(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, item.id));
             }
-            batch.update(buyerRef, { itemsBought: increment(selectedIds.length), totalBoughtValue: increment(total) });
+            batch.update(buyerRef, { itemsBought: increment(toBuy.length), totalBoughtValue: increment(total) });
             await batch.commit();
             alert("Order Processed Successfully!");
+            setSelectedIds([]);
             setCheckoutMode('cart');
             onClose();
         } catch(e) { alert("Checkout Error: " + e.message); }
@@ -1126,17 +1352,35 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
 
     return ( 
         <Modal isOpen={isOpen} onClose={onClose} title="Shopping Cart">
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto p-1">
+            {cartItems.length > 0 && (
+                <div className="grid grid-cols-4 gap-1 mb-3">
+                    <button onClick={() => bulkRemove('all', 'cart')} className="bg-white/5 hover:bg-red-900/40 border border-white/10 rounded py-1 text-[8px] font-black uppercase">Remove All</button>
+                    <button onClick={() => bulkRemove('sold', 'sold')} className="bg-white/5 hover:bg-red-900/40 border border-white/10 rounded py-1 text-[8px] font-black uppercase">Remove Sold</button>
+                    <button onClick={() => bulkRemove('cancelled', 'cancelled')} className="bg-white/5 hover:bg-red-900/40 border border-white/10 rounded py-1 text-[8px] font-black uppercase">Remove Cancelled</button>
+                    <button onClick={() => bulkRemove('purchased', 'purchased')} className="bg-white/5 hover:bg-red-900/40 border border-white/10 rounded py-1 text-[8px] font-black uppercase">Remove Purchased</button>
+                </div>
+            )}
+            <div className="space-y-4 max-h-[55vh] overflow-y-auto p-1">
                 {cartItems.length === 0 && <p className="text-center opacity-50 py-4">Your cart is empty.</p>}
-                {cartItems.map(item => (
-                    <div key={item.id} className="bg-white/5 p-3 rounded flex items-center gap-3">
-                        <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item.id)} className="accent-lime-400" />
-                        <img src={item.mediaUrls?.[0]?.url || item.imageUrl || 'https://placehold.co/50'} className="w-12 h-12 rounded object-cover"/>
-                        <div className="flex-1">
-                            <p className="text-xs font-bold truncate">{item.name}</p>
-                            <p className="text-xs text-lime-400">${item.price?.toFixed(2)}</p>
+                {enriched.map(item => (
+                    <div key={item.id} className={`bg-white/5 p-3 rounded relative ${item.liveStatus !== 'available' ? 'opacity-90' : ''}`}>
+                        <div className={`flex items-center gap-3 ${item.liveStatus !== 'available' ? 'grayscale opacity-40 pointer-events-none' : ''}`}>
+                            <input type="checkbox" disabled={item.liveStatus !== 'available'} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item)} className="accent-lime-400" />
+                            <img src={item.mediaUrls?.[0]?.url || item.imageUrl || 'https://placehold.co/50'} className="w-12 h-12 rounded object-cover"/>
+                            <div className="flex-1">
+                                <p className="text-xs font-bold truncate">{item.name}</p>
+                                <p className="text-xs text-lime-400">${item.price?.toFixed(2)}</p>
+                            </div>
                         </div>
-                        <button onClick={() => handleRemove(item.id)} className="text-red-400"><Trash size={16}/></button>
+                        {item.liveStatus !== 'available' && (
+                            <div className="mt-2 flex items-center justify-between gap-2 bg-black/70 border border-red-500/50 rounded p-2">
+                                <span className="text-[9px] font-black uppercase text-red-400 tracking-wide">{STATUS_LABELS[item.liveStatus]}</span>
+                                <button onClick={() => handleRemove(item.id)} className="bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase px-3 py-1 rounded">Remove</button>
+                            </div>
+                        )}
+                        {item.liveStatus === 'available' && (
+                            <button onClick={() => { if(window.confirm("Remove this item from your cart?")) handleRemove(item.id); }} className="absolute top-2 right-2 text-red-400"><Trash size={16}/></button>
+                        )}
                     </div>
                 ))}
             </div>
@@ -1144,7 +1388,7 @@ const ShoppingCartModal = ({ user, isOpen, onClose }) => {
                 <div className="flex justify-between items-center mb-4">
                     <span className="font-bold">Total:</span><span className="text-xl font-black text-lime-400">${totalCost.toFixed(2)}</span>
                 </div>
-                <Button disabled={selectedIds.length === 0} onClick={() => setCheckoutMode('select')} color="lime" className="w-full">Checkout ({selectedIds.length})</Button>
+                <Button disabled={selectedIds.length === 0} onClick={startCheckout} color="lime" className="w-full">Checkout ({selectedIds.length})</Button>
             </div>
         </Modal> 
     );
@@ -1399,7 +1643,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             else { await setDoc(userRef, { aiUsageCount: 1 }, { merge: true }); }
             setRemaining(prev => prev - 1);
             await updateDoc(docRef, { status: 'completed', imageUrl: r.imageUrl, visual_description: r.visual_description, estimated_materials: r.estimated_materials, estimated_cost: r.estimated_cost, difficulty: r.difficulty, name: "AI Custom Kandi", type: "Other" });
-        } catch(e){ alert(e.message); await updateDoc(docRef, { status: 'failed', error: e.message }); } finally { setLoading(false); setImageReady(true); } 
+        } catch(e){ alert(e.message); await updateDoc(docRef, { status: 'failed', error: e.message }); } finally { setLoading(false); } 
     };
 
     const submit = async () => {
@@ -1410,7 +1654,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         try {
             const inventoryData = { status: 'completed', imageUrl: res.imageUrl, visual_description: res.visual_description, estimated_materials: res.estimated_materials, estimated_cost: res.estimated_cost, difficulty: res.difficulty, name: itemName || "AI Custom Kandi", timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: "Other", viewCount: 0 };
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
-            if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', likes: [], comments: [] }); alert("Submitted for approval!"); } 
+            if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
             setPrompt(''); setRes(null); setAllowBuy(false); setItemName('');
         } catch (e) { alert("Error saving: " + e.message); } finally { setLoading(false); }
@@ -1427,7 +1671,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             {res && (
                 <div className={`mt-6 border-2 border-dashed border-white/20 rounded-lg p-2 min-h-[200px] flex items-center justify-center bg-black/40 ${res ? 'shadow-[0_0_20px_rgba(255,100,200,0.6)] border-pink-400' : ''}`}>
                     <div className="w-full">
-                        <img src={res.imageUrl} className={`rounded mb-2 w-full shadow-2xl transition-opacity duration-500 ${imageReady ? 'opacity-100' : 'opacity-0 h-0'}`} onLoad={() => setImageReady(true)} onError={(e) => { e.target.src = 'https://placehold.co/512x512/1a0033/ff00ff?text=AI+Image+Failed'; setImageReady(true); }} />
+                        <img src={res.displayUrl || res.imageUrl} className={`rounded mb-2 w-full shadow-2xl transition-opacity duration-500 ${imageReady ? 'opacity-100' : 'opacity-0 h-0'}`} onLoad={() => setImageReady(true)} onError={(e) => { const tries = parseInt(e.target.dataset.tries || '0'); if (tries < 4) { e.target.dataset.tries = tries + 1; setTimeout(() => { e.target.src = res.imageUrl + '&retry=' + Date.now(); }, 5000); } else { e.target.src = 'https://placehold.co/512x512/1a0033/ff00ff?text=AI+Image+Failed'; setImageReady(true); } }} />
                         {!imageReady && <div className="py-10"><LoadingBar progress={50} className="w-1/2 mx-auto"/> <p className="text-xs mt-2 opacity-50">Rendering Visuals...</p></div>}
                         {imageReady && (
                             <div className="animate-fade-in-pulse">
@@ -1505,7 +1749,7 @@ const DIYBuilder = ({ onSubmitRequest }) => {
     
     const add = (i) => setBuild(prev => [...prev, i]); 
     const remove = (index) => setBuild(prev => prev.filter((_, i) => i !== index));
-    const submitDesign = () => { onSubmitRequest({ name: "DIY Custom Request", price: total, components: build, description: desc, isDIYRequest: true, type: "Other", viewCount: 0, assignedCreatorId: activeCreator?.id }); setSuccess(true); setBuild([]); setDesc(''); setActiveCreator(null); };
+    const submitDesign = () => { onSubmitRequest({ name: "DIY Custom Request", price: total, components: build, description: desc, isDIYRequest: true, isRequest: true, type: "Other", viewCount: 0, assignedCreatorId: activeCreator?.id || null, assignedCreatorName: activeCreator?.name || activeCreator?.displayName || null, requestStatus: activeCreator?.id ? 'pending' : 'awaiting_assignment', status: 'request' }); setSuccess(true); setBuild([]); setDesc(''); setActiveCreator(null); };
 
     return ( 
         <div className="flex flex-col gap-4 max-h-[85vh]">
@@ -1595,7 +1839,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             <div className="mb-2">
                 <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
                 <div className="flex justify-between items-center">
-                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold hover:underline cursor-pointer">@{item.ownerName}</button>
+                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold hover:underline cursor-pointer flex items-center">@{item.ownerName}<BadgeChip badge={item.ownerBadge} /></button>
                     <span className="text-lime-400 font-bold">
                         {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-white/50 italic bg-white/10 px-2 py-1 rounded">SOLD</span>}
                     </span>
@@ -1655,7 +1899,7 @@ const SellKandiForm = ({ user, profile }) => {
             }
             setUploadPercent(99);
 
-            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkDiscountQty: parseInt(form.bulkDiscountQty||0), bulkDiscountPct: parseInt(form.bulkDiscountPct||0), mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
+            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkDiscountQty: parseInt(form.bulkDiscountQty||0), bulkDiscountPct: parseInt(form.bulkDiscountPct||0), mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -1723,11 +1967,19 @@ EOF
 # Block 15
 cat << 'EOF' >> src/App.js
 const AdminDashboard = () => {
+    const [adminTab, setAdminTab] = useState('tools');
     const [apps, setApps] = useState([]);
     const [targetUid, setTargetUid] = useState('');
     const [customRate, setCustomRate] = useState('');
+    const [tickets, setTickets] = useState([]);
+    const [ticketFilter, setTicketFilter] = useState('open');
+    const [searchUid, setSearchUid] = useState('');
+    const [managedUser, setManagedUser] = useState(null);
+    const [revPct, setRevPct] = useState('');
 
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('status', '==', 'pending')), s => setApps(s.docs.map(d => ({id: d.id, ...d.data()})))), []);
+    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tickets')), s => setTickets(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))), []);
+
     const approve = async (a) => { if(window.confirm("Approve?")) { await updateDoc(doc(db, 'artifacts', appId, 'users', a.uid), { isKandiCreator: true }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', a.id), { status: 'approved' }); } };
     
     const setCommRate = async () => {
@@ -1737,10 +1989,105 @@ const AdminDashboard = () => {
         setTargetUid(''); setCustomRate('');
     };
 
+    const findUser = async () => {
+        if (!searchUid.trim()) return;
+        try {
+            let found = null;
+            const q = query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', searchUid.trim()));
+            const snap = await getDocs(q);
+            if (!snap.empty) found = { id: snap.docs[0].id, ...snap.docs[0].data() };
+            else {
+                const direct = await getDoc(doc(db, 'artifacts', appId, 'users', searchUid.trim()));
+                if (direct.exists()) found = { id: direct.id, ...direct.data() };
+            }
+            if (!found) return alert("No user found with that Public UID or raw UID.");
+            setManagedUser(found);
+            setRevPct(found.customRevSharePct ?? '');
+        } catch (e) { alert(e.message); }
+    };
+
+    const saveRevShare = async (val) => {
+        if (!managedUser) return;
+        const pct = val === null || val === '' ? null : Math.min(100, Math.max(0, parseFloat(val)));
+        if (val !== null && val !== '' && isNaN(pct)) return alert("Enter a valid percentage (0-100).");
+        await updateDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { customRevSharePct: pct });
+        setManagedUser({ ...managedUser, customRevSharePct: pct });
+        alert(pct === null ? "Override removed - user returns to standard tier rates." : `RevShare locked at ${pct}% for ${managedUser.displayName}.`);
+    };
+
+    const banUser = async (durationMs, label) => {
+        if (!managedUser) return;
+        const reason = prompt(`Reason for ${label} ban of ${managedUser.displayName}:`);
+        if (reason === null) return;
+        const until = durationMs === 'permanent' ? 'permanent' : Date.now() + durationMs;
+        await updateDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { bannedUntil: until, banReason: reason || 'Violation of community guidelines' });
+        setManagedUser({ ...managedUser, bannedUntil: until });
+        alert(`${managedUser.displayName} banned ${label}.`);
+    };
+    const unban = async () => {
+        if (!managedUser) return;
+        await updateDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { bannedUntil: null, banReason: null });
+        setManagedUser({ ...managedUser, bannedUntil: null });
+        alert("User unbanned.");
+    };
+    const setTicketStatus = async (t, status) => { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', t.id), { status }); };
+
+    const isBanned = managedUser?.bannedUntil && (managedUser.bannedUntil === 'permanent' || managedUser.bannedUntil > Date.now());
+    const visibleTickets = tickets.filter(t => ticketFilter === 'all' ? true : (t.status || 'open') === ticketFilter);
+
     return (
         <Card className="mt-8 border-red-500/30">
+            <div className="flex gap-2 mb-4">
+                <button onClick={() => setAdminTab('tools')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${adminTab==='tools' ? 'bg-red-600 text-white' : 'bg-white/5 text-white/50'}`}>Admin Tools</button>
+                <button onClick={() => setAdminTab('tickets')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${adminTab==='tickets' ? 'bg-yellow-500 text-black' : 'bg-white/5 text-white/50'}`}>Feedback & Tickets ({tickets.filter(t=>(t.status||'open')==='open').length})</button>
+            </div>
+
+            {adminTab === 'tools' && (<>
             <h3 className="font-bold text-red-400 mb-4 uppercase italic">Admin Console</h3>
             
+            <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
+                <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2">User Manager — RevShare & Bans</h4>
+                <div className="flex gap-2 mb-3">
+                    <Input value={searchUid} onChange={setSearchUid} placeholder="Public UID or raw UID" className="mb-0 flex-1" />
+                    <Button onClick={findUser} color="cyan" className="text-[10px]">Find</Button>
+                </div>
+                {managedUser && (
+                    <div className="bg-black/50 border border-white/10 rounded p-3 space-y-3">
+                        <div className="flex justify-between items-center flex-wrap gap-1">
+                            <div><p className="font-bold text-sm text-white">@{managedUser.displayName}</p><p className="text-[8px] opacity-50 font-mono break-all">{managedUser.id}</p></div>
+                            {isBanned && <span className="text-[8px] font-black bg-red-600 px-2 py-1 rounded uppercase">BANNED {managedUser.bannedUntil === 'permanent' ? 'PERMANENTLY' : 'until ' + new Date(managedUser.bannedUntil).toLocaleDateString()}</span>}
+                        </div>
+                        <div>
+                            <p className="text-[9px] font-bold text-lime-400 uppercase mb-1">RevShare Override (Earned Tier: {getReferralTier(managedUser.referrals || 0).badge} @ {getReferralTier(managedUser.referrals || 0).sharePct}%)</p>
+                            <div className="flex gap-1 items-center flex-wrap">
+                                <select value={revPct} onChange={e=>setRevPct(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1 min-w-[100px]">
+                                    <option value="">— Pick Tier / % —</option>
+                                    {REFERRAL_TIERS.map(t => <option key={t.badge} value={t.sharePct}>{t.badge} ({t.sharePct}%)</option>)}
+                                    <option value="10">Promoter (10%)</option>
+                                    <option value="25">Partner (25%)</option>
+                                    <option value="50">Equity (50%)</option>
+                                    <option value="100">Full (100%)</option>
+                                </select>
+                                <input value={revPct} onChange={e=>setRevPct(e.target.value)} type="number" min="0" max="100" placeholder="%" className="bg-black border border-white/20 text-[10px] p-2 rounded w-16"/>
+                                <Button onClick={() => saveRevShare(revPct)} color="lime" className="text-[10px]">Set</Button>
+                                <Button onClick={() => saveRevShare(null)} color="accent" className="text-[10px]">Reset</Button>
+                            </div>
+                            {managedUser.customRevSharePct != null && <p className="text-[8px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces tier rate on all future RevShare payouts.</p>}
+                        </div>
+                        <div>
+                            <p className="text-[9px] font-bold text-red-400 uppercase mb-1">Account Bans</p>
+                            <div className="grid grid-cols-5 gap-1">
+                                <Button onClick={() => banUser(86400000, '24 hours')} color="accent" className="text-[8px] py-1 px-1">24h</Button>
+                                <Button onClick={() => banUser(604800000, '7 days')} color="accent" className="text-[8px] py-1 px-1">7d</Button>
+                                <Button onClick={() => banUser(2592000000, '30 days')} color="accent" className="text-[8px] py-1 px-1">30d</Button>
+                                <Button onClick={() => banUser('permanent', 'permanently')} color="red" className="text-[8px] py-1 px-1">Perm</Button>
+                                <Button onClick={unban} color="lime" className="text-[8px] py-1 px-1">Unban</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
                 <h4 className="text-[10px] uppercase font-bold text-red-400 mb-2">Custom Fee Overrides</h4>
                 <div className="flex gap-2">
@@ -1753,6 +2100,32 @@ const AdminDashboard = () => {
 
             {apps.length > 0 && <h4 className="text-[10px] uppercase font-bold text-red-400 mb-2">Pending Apps</h4>}
             {apps.map(a => <div key={a.id} className="bg-white/5 p-3 rounded mb-2 flex justify-between items-center"><span className="text-sm font-bold tracking-widest uppercase">{a.name}</span><Button onClick={() => approve(a)} color="lime" className="text-[10px] py-1 px-4 shadow-neon-green">Approve</Button></div>)}
+            </>)}
+
+            {adminTab === 'tickets' && (<>
+            <div className="flex gap-2 mb-3">
+                {['open', 'resolved', 'all'].map(f => <button key={f} onClick={() => setTicketFilter(f)} className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${ticketFilter===f ? 'bg-yellow-500 text-black' : 'bg-white/5 text-white/50'}`}>{f}</button>)}
+            </div>
+            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                {visibleTickets.length === 0 && <p className="text-center opacity-50 text-xs py-4">No {ticketFilter} tickets.</p>}
+                {visibleTickets.map(t => (
+                    <div key={t.id} className={`bg-white/5 p-3 rounded border ${(t.status||'open')==='open' ? 'border-yellow-500/40' : 'border-white/10 opacity-60'}`}>
+                        <div className="flex justify-between items-start mb-1">
+                            <span className="text-[8px] font-black uppercase bg-purple-500/30 text-purple-300 px-1 rounded">{t.category}</span>
+                            <span className="text-[8px] opacity-50">{new Date(t.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="font-bold text-xs text-white">{t.subject}</p>
+                        <p className="text-[10px] text-gray-100 mt-1 whitespace-pre-wrap break-words">{t.message}</p>
+                        <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/10">
+                            <span className="text-[8px] opacity-60">@{t.username} ({t.publicUid || t.uid})</span>
+                            {(t.status||'open') === 'open'
+                                ? <Button onClick={() => setTicketStatus(t, 'resolved')} color="lime" className="text-[8px] py-1 px-2">Mark Resolved</Button>
+                                : <Button onClick={() => setTicketStatus(t, 'open')} color="accent" className="text-[8px] py-1 px-2">Reopen</Button>}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            </>)}
         </Card>
     );
 };
@@ -1789,16 +2162,86 @@ const InventoryManager = ({ user, profile }) => {
     );
 };
 const CreatorProjectHub = ({ user, onClose }) => {
+    const [hubTab, setHubTab] = useState('awaiting_assignment');
     const [requests, setRequests] = useState([]);
+    const [legacyPending, setLegacyPending] = useState([]);
+
+    const TABS = [
+        { id: 'pending', label: 'Pending' },
+        { id: 'awaiting_assignment', label: 'Awaiting Creator' },
+        { id: 'active', label: 'Active' },
+        { id: 'completed', label: 'Completed' },
+        { id: 'denied', label: 'Denied' },
+    ];
+
+    useEffect(() => {
+        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('requestStatus', '==', hubTab));
+        const unsub = onSnapshot(q, s => setRequests(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        return () => unsub();
+    }, [hubTab]);
+
+    // Legacy support: pre-V37.10 submissions used status:'pending' with no requestStatus field
     useEffect(() => {
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('status', '==', 'pending'));
-        return onSnapshot(q, s => setRequests(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        const unsub = onSnapshot(q, s => setLegacyPending(s.docs.map(d => ({id: d.id, ...d.data()})).filter(d => !d.requestStatus)));
+        return () => unsub();
     }, []);
-    const handleApprove = async (item) => { if(!window.confirm("Approve and assign to yourself?")) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { status: 'approved', assigneeId: user.uid, assigneeName: user.displayName, approvedAt: Date.now() }); };
-    const handleDismiss = async (item) => { const r = prompt("Reason for dismissal:"); if(!r) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { status: 'dismissed', dismissReason: r }); };
-    return ( <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4"><div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black italic text-lime-400 uppercase tracking-widest">Creator Hub</h2><button onClick={onClose}><XCircle size={32}/></button></div><div className="grid gap-4">{requests.length === 0 ? <p className="opacity-50 italic uppercase text-xs">Queue Clean</p> : requests.map(req => (<Card key={req.id} className="border-lime-500/30"><div className="flex justify-between items-start"><div><h3 className="font-bold text-lg">{req.name}</h3><p className="text-xs opacity-70">Client: {req.ownerName}</p>{req.isAICreation && <span className="bg-purple-500/20 text-purple-400 text-[8px] px-1 rounded">AI Generated</span>}</div><span className="text-lime-400 font-bold">${req.price?.toFixed(2)}</span></div><div className="bg-white/5 p-2 rounded mt-2 text-xs"><p className="font-bold mb-1">Vision:</p><p>{req.description || req.visual_description}</p></div><div className="mt-4 flex gap-2"><Button onClick={()=>handleApprove(req)} color="lime" className="flex-1 text-xs shadow-neon-green uppercase font-black italic">Approve</Button><Button onClick={()=>handleDismiss(req)} color="accent" className="flex-1 text-xs uppercase font-black italic">Dismiss</Button></div></Card>))}</div></div> );
-};
 
+    const list = hubTab === 'pending' ? [...requests, ...legacyPending.filter(l => !requests.some(r => r.id === l.id))] : requests;
+
+    const setStage = async (item, requestStatus, extra = {}) => {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestStatus, ...extra });
+    };
+    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() }); };
+    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; await setStage(item, 'completed', { completedAt: Date.now() }); };
+    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() }); };
+
+    return (
+        <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-black italic text-lime-400 uppercase tracking-widest">Creator Hub</h2>
+                <button onClick={onClose}><XCircle size={32}/></button>
+            </div>
+            <div className="flex gap-1 mb-6 overflow-x-auto pb-2">
+                {TABS.map(t => (
+                    <button key={t.id} onClick={() => setHubTab(t.id)} className={`px-3 py-2 rounded-full font-black uppercase text-[9px] tracking-widest whitespace-nowrap ${hubTab===t.id ? 'bg-lime-500 text-black' : 'bg-white/5 text-white/50'}`}>{t.label}</button>
+                ))}
+            </div>
+            <div className="grid gap-4">
+                {list.length === 0 ? <p className="opacity-50 italic uppercase text-xs">No {TABS.find(t=>t.id===hubTab)?.label} requests</p> : list.map(req => (
+                    <Card key={req.id} className="border-lime-500/30">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="font-bold text-lg">{req.name}</h3>
+                                <p className="text-xs opacity-70">Client: {req.ownerName || 'Unknown'}</p>
+                                <div className="flex gap-1 mt-1 flex-wrap">
+                                    {req.isAICreation && <span className="bg-purple-500/20 text-purple-400 text-[8px] px-1 rounded">AI Generated</span>}
+                                    {req.isDIYRequest && <span className="bg-cyan-500/20 text-cyan-400 text-[8px] px-1 rounded">DIY Build</span>}
+                                    {req.assignedCreatorName && <span className="bg-pink-500/20 text-pink-400 text-[8px] px-1 rounded">Requested: {req.assignedCreatorName}</span>}
+                                    {req.assigneeName && <span className="bg-lime-500/20 text-lime-400 text-[8px] px-1 rounded">Assigned: {req.assigneeName}</span>}
+                                </div>
+                            </div>
+                            <span className="text-lime-400 font-bold">${req.price?.toFixed(2)}</span>
+                        </div>
+                        <div className="bg-white/5 p-2 rounded mt-2 text-xs"><p className="font-bold mb-1">Vision:</p><p>{req.description || req.visual_description || 'No description provided.'}</p></div>
+                        {req.dismissReason && <p className="text-[10px] text-red-400 mt-2">Denial reason: {req.dismissReason}</p>}
+                        <div className="mt-4 flex gap-2">
+                            {(hubTab === 'pending' || hubTab === 'awaiting_assignment') && (<>
+                                <Button onClick={()=>handleAccept(req)} color="lime" className="flex-1 text-xs uppercase font-black italic">Accept</Button>
+                                <Button onClick={()=>handleDeny(req)} color="accent" className="flex-1 text-xs uppercase font-black italic">Deny</Button>
+                            </>)}
+                            {hubTab === 'active' && (<>
+                                <Button onClick={()=>handleComplete(req)} color="cyan" className="flex-1 text-xs uppercase font-black italic">Mark Completed</Button>
+                                <Button onClick={()=>handleDeny(req)} color="accent" className="flex-1 text-xs uppercase font-black italic">Deny</Button>
+                            </>)}
+                            {(hubTab === 'completed' || hubTab === 'denied') && <p className="text-[9px] opacity-40 uppercase">Archived</p>}
+                        </div>
+                    </Card>
+                ))}
+            </div>
+        </div>
+    );
+};
 const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     if (!isOpen) return null;
     const refStats = getReferralTier(profile.referrals || 0);
@@ -1964,6 +2407,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     const [hideGuestPrompt, setHideGuestPrompt] = useState(false);
     
     const [pinnedItems, setPinnedItems] = useState([]);
+    const [showBadges, setShowBadges] = useState(false);
+    const [showRevShare, setShowRevShare] = useState(false);
     const [selectedPinned, setSelectedPinned] = useState(null);
     const [pinModalOpen, setPinModalOpen] = useState(false);
     
@@ -2014,6 +2459,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
+                <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
+                <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
                 
                 <div className="flex flex-col items-center md:flex-row gap-6 relative">
                     <div className="relative">
@@ -2021,7 +2468,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         {(profile.referrals > 0) && (
                             <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
                                 <span>{refStats.badge}</span>
-                                <span className="text-[8px] opacity-80">{refStats.sharePct}% RevShare</span>
+                                <span className="text-[8px] opacity-80">{profile.customRevSharePct ?? refStats.sharePct}% RevShare</span>
                             </div>
                         )}
                         {profile.isVIP && (
@@ -2031,7 +2478,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         )}
                     </div>
                     <div className="text-center md:text-left flex-1 w-full">
-                        <div className="flex items-center justify-center md:justify-start gap-2 mb-1"><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}</h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>
+                        <div className="flex items-center justify-center md:justify-start gap-2 mb-1"><h2 className="text-3xl font-black flex items-center" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}<BadgeChip badge={profile.featuredBadge} /></h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>
                         
                         {(profile.isKandiCreator || profile.isAdmin) && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-lime-400 rounded-r flex items-center justify-between">
@@ -2062,7 +2509,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                             </div>
                         )}
 
-                        <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={copyUid}><div className="bg-white/5 border border-white/10 px-4 py-2 rounded font-mono text-xs opacity-60 w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:bg-white/10">Friend UID: {profile.publicUid || user.uid} <Copy size={10} className="inline ml-2"/></div></div>
+                        <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={() => setShowRevShare(true)}><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{profile.publicUid || user.uid}</span> <Share2 size={10} className="inline ml-2 text-cyan-400"/> <span className="text-[8px] text-cyan-400 uppercase font-bold ml-1">RevShare</span></div></div>
                         
                         <div className="bg-white/5 p-3 rounded text-sm relative border border-white/10 flex items-start min-h-[60px]" onClick={()=>setModals({...modals, bio:true})}>
                             {!profile.bio && <span className="text-[10px] uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
@@ -2074,7 +2521,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         </div>
                         
                         <div className="grid grid-cols-4 gap-2 mb-2">
-                             {[{ label: "Items Sold", val: profile.itemsSold || 0 }, { label: "Bought", val: profile.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(profile.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(profile.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: profile.totalLikes || 0 }, { label: "Comments", val: profile.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(profile).filter(a=>a.unlocked).length }, { label: "Referrals", val: profile.referrals || 0, onClick: () => setModals({...modals, referrals:true}) }].map((s, i) => (
+                             {[{ label: "Items Sold", val: profile.itemsSold || 0 }, { label: "Bought", val: profile.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(profile.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(profile.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: profile.totalLikes || 0 }, { label: "Comments", val: profile.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(profile).filter(a=>a.unlocked).length, onClick: () => setShowBadges(true) }, { label: "Referrals", val: profile.referrals || 0, onClick: () => setModals({...modals, referrals:true}) }].map((s, i) => (
                                  <div key={i} onClick={s.onClick} className={`bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1 rounded text-center ${s.onClick ? 'cursor-pointer hover:bg-lime-900/40' : ''}`}><div className="text-[10px] font-bold text-lime-400">{s.val}</div><div className="text-[7px] opacity-70 uppercase leading-none text-white">{s.label}</div></div>
                              ))}
                         </div>
@@ -2148,9 +2595,10 @@ const AuthScreen = ({ setLoadMsg }) => {
 
     useEffect(() => {
         const savedEmail = localStorage.getItem('rk_auth_email');
-        const savedPass = localStorage.getItem('rk_auth_pass');
         if(savedEmail) setEmail(savedEmail);
-        if(savedPass) setPassword(savedPass);
+        // V37.10: plaintext password storage removed — credential saving is now handled
+        // by the device password manager (Google Password Manager / iCloud Keychain).
+        localStorage.removeItem('rk_auth_pass');
     }, []);
 
     const handleAuth = async () => {
@@ -2177,10 +2625,8 @@ const AuthScreen = ({ setLoadMsg }) => {
             
             if (rememberMe) {
                 localStorage.setItem('rk_auth_email', email);
-                localStorage.setItem('rk_auth_pass', password);
             } else {
                 localStorage.removeItem('rk_auth_email');
-                localStorage.removeItem('rk_auth_pass');
             }
 
         } catch(e) { alert(e.message); } finally { setLoading(false); }
@@ -2209,17 +2655,19 @@ const AuthScreen = ({ setLoadMsg }) => {
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-6 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
                 
-                {isReg && <Input label="DJ Name" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="username" />}
+                <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
+                {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
                 {isReg && <Input label="Friend UID (Optional)" value={refCode} onChange={setRefCode} placeholder="Enter Referral Code..." />}
-                <Input label="Email" type="email" value={email} onChange={setEmail} placeholder="dj@rave.com" autoComplete="email" />
-                <Input label="Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" autoComplete="current-password" />
+                <Input label="Email" type="email" name="email" value={email} onChange={setEmail} placeholder="dj@rave.com" autoComplete={isReg ? "email" : "username"} />
+                <Input label="Password" type="password" name="password" value={password} onChange={setPassword} placeholder="••••••••" autoComplete={isReg ? "new-password" : "current-password"} />
                 
                 <div className="mb-4 flex items-center justify-center gap-2">
                     <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} className="accent-lime-400" />
                     <label htmlFor="rememberMe" className="text-xs text-white/70 cursor-pointer">Save my info for faster login</label>
                 </div>
 
-                <Button onClick={handleAuth} disabled={loading} color="lime" className="w-full mb-4 py-3">{loading ? "Processing..." : (isReg ? "Sign Up" : "Log In")}</Button>
+                <Button type="submit" disabled={loading} color="lime" className="w-full mb-4 py-3">{loading ? "Processing..." : (isReg ? "Sign Up" : "Log In")}</Button>
+                </form>
                 <button onClick={() => setIsReg(!isReg)} className="text-xs text-cyan-400 w-full text-center hover:underline mb-6">{isReg ? "Already have an account? Log In" : "Need an account? Sign Up"}</button>
                 
                 <div className="border-t border-white/20 pt-4 mb-4">
@@ -2256,6 +2704,7 @@ const App = () => {
     // PHASE 8: Rave Radio State
     const [isRadioPlaying, setIsRadioPlaying] = useState(false);
     const [radioOpen, setRadioOpen] = useState(false);
+    const [ticketOpen, setTicketOpen] = useState(false);
     
     // PHASE 7: Global Stats Hook
     const [globalStats, setGlobalStats] = useState({ userCount: 0 });
@@ -2320,14 +2769,23 @@ const App = () => {
 
     useEffect(() => { if(!user || user.isAnonymous) return; const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid), s => setProfile(s.data() || {})); return () => unsub(); }, [user]);
     
+    // V37.10 FEED SYNC FIX: the feed listener now attaches only AFTER auth resolves and
+    // re-attaches whenever the user changes. Previously it attached pre-auth on fresh
+    // installs; if Firestore rejected the unauthenticated read, the listener died silently
+    // and old posts (including official merch) never loaded. Includes auto-retry on errors.
+    const [feedRetry, setFeedRetry] = useState(0);
     useEffect(() => { 
+        if (!user) return;
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems')), s => {
             setItems(s.docs.map(d => ({id: d.id, ...d.data()})));
             setIsSyncing(false);
+        }, err => {
+            console.error('Feed listener error, retrying in 4s...', err);
+            setTimeout(() => setFeedRetry(r => r + 1), 4000);
         });
         const timeout = setTimeout(() => setIsSyncing(false), 10000);
         return () => { unsub(); clearTimeout(timeout); };
-    }, []);
+    }, [user, feedRetry]);
     
     const addToCart = async (i) => { 
         if(!user?.uid) return; 
@@ -2349,10 +2807,21 @@ const App = () => {
     
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
+
+    const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
+    if (banActive) return (
+        <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 text-center z-[9999]">
+            <Lock size={64} className="text-red-500 mb-6"/>
+            <h1 className="text-3xl font-black text-red-500 uppercase italic mb-3">Account Suspended</h1>
+            <p className="text-sm text-white mb-2">{profile.bannedUntil === 'permanent' ? 'Your account has been permanently banned.' : `Your account is suspended until ${new Date(profile.bannedUntil).toLocaleString()}.`}</p>
+            {profile.banReason && <p className="text-xs text-white/60 mb-6">Reason: {profile.banReason}</p>}
+            <Button onClick={async () => { await signOut(auth); }} color="accent" className="px-8">Log Out</Button>
+        </div>
+    );
     
     const filteredItems = items.filter(i => {
-        if(i.status === 'pending') return false; 
-        if(i.isDIYRequest) return false; 
+        if(i.status === 'pending' || i.status === 'request') return false; 
+        if(i.isDIYRequest || i.isRequest) return false; 
         if(filters.searchUid && i.ownerPublicUid !== filters.searchUid && i.ownerId !== filters.searchUid) return false;
         if(filters.postType === 'official' && !i.isAppProduct) return false;
         if(filters.postType === 'user' && i.isAppProduct) return false;
@@ -2379,8 +2848,12 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V37.08.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V37.10.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
+                    <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
+                        <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
+                        <p className="text-[10px] text-white/80 leading-relaxed">The payment system is currently in <strong>TEST MODE</strong> and all transactions cannot be processed. If a glitch or bug allows a transaction to be processed, you may not receive the items or may experience issues as a result. The payment system will be removed from test mode after rollout from Alpha to Beta.</p>
+                    </div>
                     <p className="text-sm font-black text-pink-400 italic py-2">Thank you for being part of our beginnings! 💖</p>
                     <div className="bg-black/60 p-3 rounded text-[10px] italic text-cyan-400 border border-cyan-500/30">Fun Fact: {fact}</div>
                     <Button onClick={() => { localStorage.setItem('hideAlphaWarning', 'true'); setShowAlphaModal(false); }} color="lime" className="w-full mt-4">Acknowledge & Enter</Button>
@@ -2400,9 +2873,10 @@ cat << 'EOF' >> src/App.js
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             {user && <PublicProfileModal uid={viewingProfileId} onClose={() => setViewingProfileId(null)} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
-            {user && <ShoppingCartModal user={user} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
+            {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
+            <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             
             <RadioPlayerModal profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} />
 
@@ -2419,12 +2893,16 @@ cat << 'EOF' >> src/App.js
                     <button onClick={() => setCartOpen(true)}><ShoppingCart className="text-lime-400 shadow-neon-green" size={20}/></button>
                 </div>
             </header>
-            <div className="w-full bg-black border-b border-white/10 text-[9px] py-1 text-lime-400 font-mono overflow-hidden flex items-center relative h-6">
-                <div className="whitespace-nowrap animate-marquee-scroll flex gap-12 items-center w-max will-change-transform">
-                    <span>⚡ GLOBAL VOLUME: {globalStats.userCount * 1337} KANDI ⚡</span>
-                    <span>★ TOP CREATOR: SYNTHETIC_SOUL ★</span>
-                    <span>🚀 ACTIVE RAVERS: {globalStats.userCount} 🚀</span>
-                    <span className="text-pink-400">💖 PLUR FACT: Handshakes end with a trade! 💖</span>
+            <div className="w-full bg-black border-b border-white/10 text-[9px] py-1 text-lime-400 font-mono overflow-hidden h-6 flex items-center">
+                <div className="rk-marquee-track items-center whitespace-nowrap">
+                    {[0, 1].map(copy => (
+                        <div key={copy} className="flex gap-12 items-center pr-12">
+                            <span>⚡ GLOBAL VOLUME: {globalStats.userCount * 1337} KANDI ⚡</span>
+                            <span>★ TOP CREATOR: SYNTHETIC_SOUL ★</span>
+                            <span>🚀 ACTIVE RAVERS: {globalStats.userCount} 🚀</span>
+                            <span className="text-pink-400">💖 PLUR FACT: Handshakes end with a trade! 💖</span>
+                        </div>
+                    ))}
                 </div>
             </div>
             </div>
@@ -2458,6 +2936,13 @@ cat << 'EOF' >> src/App.js
                             <CreatorPerksSection onApply={() => setCreatorAppOpen(true)} />
                             <ReferralProgramSection onNavigateToProfile={() => setOpenReferrals(true)} />
                         </div>
+
+                        <Card className="border-yellow-500/30 text-center max-w-md mx-auto w-full">
+                            <HelpCircle size={28} className="mx-auto mb-2 text-yellow-400"/>
+                            <h3 className="font-black uppercase text-sm mb-1 text-yellow-400">Found a bug? Have an idea?</h3>
+                            <p className="text-xs text-gray-100 mb-3">Help shape RaveKandi during Alpha — send the team your feedback, bug reports, and help requests.</p>
+                            <Button onClick={() => setTicketOpen(true)} color="gold" className="w-full text-xs">Send Feedback / Report Issue</Button>
+                        </Card>
                     </div>
                 )}
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
@@ -2498,7 +2983,7 @@ cat << 'EOF' >> src/App.js
                     <div className="max-w-4xl mx-auto">
                         <div className="flex gap-2 justify-center mb-6">{['custom', 'diy', 'official'].map(t => (<button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest ${tab===t ? 'bg-pink-600 shadow-neon-pink text-white' : 'bg-white/5 text-white/50'}`}>{t === 'custom' ? 'AI KANDI LAB' : t}</button>))}</div>
                         {tab === 'custom' && <AICustomLab user={user} profile={profile} onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, timestamp: Date.now()})}/>}
-                        {tab === 'diy' && <DIYBuilder onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, timestamp: Date.now()})}/>}
+                        {tab === 'diy' && <DIYBuilder onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()})}/>}
                         {tab === 'official' && ( 
                             <div>
                                 <Card className="text-center py-12 border-dashed border-cyan-500/50 bg-[#0f001e] mb-6">
@@ -2517,7 +3002,11 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed}/>}
             </main>
-            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 text-[9px] font-mono text-center p-1 text-white/30 uppercase z-50">V37.09.00 Phase 8: Radio Engine, Sticky Marquee & UI Visibility</div>
+            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 text-[9px] font-mono p-1 text-white/30 uppercase z-50 flex items-center justify-between px-3">
+                <PingBar show={profile?.showPing !== false} />
+                <span className="flex-1 text-center">V37.10.00 Phase 9: Tickets, Bans, Hub Stages & Cart Guard</span>
+                <span className="w-14"></span>
+            </div>
         </div>
     );
 };
@@ -2709,9 +3198,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V37.09.00)..."
-sed -i "s/versionCode 1/versionCode 47/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "37.09.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V37.10.00)..."
+sed -i "s/versionCode 1/versionCode 48/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "37.10.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -2758,7 +3247,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V37_09_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V37_10_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
