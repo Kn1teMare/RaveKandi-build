@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V37.13.02 Build Script Starting"
+echo " RaveKandi V42.09.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,13 +21,16 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V37.13.02</title>
+    <title>RaveKandi V42.09.01</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
       @keyframes rkMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
       .rk-marquee-track { display: flex; width: max-content; animation: rkMarquee 60s linear infinite; will-change: transform; }
       @keyframes rkGhostFlash { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
+      @keyframes rkCascade { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+      .rk-radio-on { background: linear-gradient(60deg, #16ff8e, #00c853, #7CFC00, #16ff8e); background-size: 300% 300%; animation: rkCascade 2.2s linear infinite; box-shadow: 0 0 18px rgba(0,255,140,0.8); }
+      .rk-radio-off { background: linear-gradient(45deg, #ff1744, #b71c1c); box-shadow: 0 0 16px rgba(255,23,68,0.75); }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
   </head>
@@ -64,8 +67,12 @@ class ErrorBoundary extends React.Component {
       localStorage.setItem('rk_error_logs', JSON.stringify(newLogs));
     } catch(e) {}
   }
-  handleGlobalError = (event) => { this.logError(`Global: ${event.message || event.error}`); }
-  handlePromiseRejection = (event) => { this.logError(`Promise: ${event.reason}`); }
+  handleGlobalError = (event) => {
+    const m = event.message || (event.target && event.target.tagName ? event.target.tagName.toLowerCase() + ' failed to load: ' + (event.target.src || event.target.href || 'unknown source') : null);
+    if (!m || m === 'undefined') return; // V37.14: skip contextless resource events (was logging "Global: undefined")
+    this.logError(`Global: ${m}`);
+  }
+  handlePromiseRejection = (event) => { const r = event.reason; const m = (r && (r.message || (r.toString && r.toString()))) || 'Unhandled rejection (no detail)'; this.logError(`Promise: ${m}`); }
   
   componentDidCatch(error, errorInfo) { 
       this.setState({ hasError: true, error, errorInfo, minimized: false });
@@ -84,7 +91,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.13.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.09.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -232,6 +239,7 @@ const ACHIEVEMENT_TIERS = [
     { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, icon: MessageSquare, desc: "Interact with the community." },
     { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi.", isHidden: true },
     { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, icon: Crown, desc: "Reach #1 on the Creator Points leaderboard (sales, value, likes & trades). The badge is yours forever — but the marquee crown passes to whoever currently leads." },
+    { id: 'banner_5', name: 'Marquee Mogul', tier: 1, metric: 'bannerPosts', threshold: 5, icon: Zap, desc: "Post 5 banner messages on the live marquee." },
 ];
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
@@ -267,6 +275,30 @@ export const getIdleWindowHours = (price = 0, parts = 0) => {
     if (price >= 25 || parts >= 10) h = 48;
     if (price >= 75 || parts >= 20) h = 72;
     return h;
+};
+
+// V42.09: banner link safety — banners may only link to verified social platforms.
+// Structural checks block shorteners, redirect chains, IP hosts and embedded credentials.
+// (Following redirects isn't possible client-side, hence the strict allowlist approach.)
+const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app'];
+const BLOCKED_SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','rb.gy','cutt.ly','is.gd','shorturl.at','ow.ly','rebrand.ly'];
+const validateSocialLink = (raw) => {
+    try {
+        let s = (raw || '').trim();
+        if (!s) return { ok: false, reason: 'Empty link.' };
+        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+        const u = new URL(s);
+        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
+        if (u.username || u.password) return { ok: false, reason: 'Links with embedded credentials are blocked.' };
+        const host = u.hostname.toLowerCase().replace(/^www\./, '');
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return { ok: false, reason: 'Raw IP links are blocked.' };
+        if (BLOCKED_SHORTENERS.some(b => host === b || host.endsWith('.' + b))) return { ok: false, reason: 'Link shorteners are blocked — they can hide redirects to scam sites.' };
+        const allowed = SAFE_SOCIAL_HOSTS.some(h => host === h || host.endsWith('.' + h));
+        if (!allowed) return { ok: false, reason: 'Banners may only link to verified social platforms (Instagram, TikTok, X, YouTube, Twitch, SoundCloud, etc).' };
+        const qs = (u.search + u.hash).toLowerCase();
+        if (qs.includes('http%3a') || qs.includes('http://') || qs.includes('https://') || qs.includes('url=') || qs.includes('redirect')) return { ok: false, reason: 'Links containing redirect parameters are blocked.' };
+        return { ok: true, clean: u.toString() };
+    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' } }
 };
 
 // V37.13: simple chat encryption (per owner spec: lightweight for Alpha, upgradeable later).
@@ -357,7 +389,7 @@ const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
     reader.onerror = reject;
 });
 
-const generateCustomKandi = async (prompt) => {
+const generateCustomKandi = async (prompt, onProgress = () => {}) => {
     try {
         const seed = Math.floor(Math.random() * 9999999);
         const safePrompt = encodeURIComponent(`Rave kandi beads, festival apparel: ${prompt}`);
@@ -366,6 +398,7 @@ const generateCustomKandi = async (prompt) => {
         // V37.11: the text endpoint intermittently returns 5xx / rate-limits — retry with
         // backoff, then fall back to a structural template instead of crashing the Lab
         // (was: "AI Assembly Failed: AI Text endpoint failed").
+        onProgress(8);
         let rawText = '';
         for (let tAttempt = 0; tAttempt < 3; tAttempt++) {
             try {
@@ -395,11 +428,12 @@ const generateCustomKandi = async (prompt) => {
         const visualStr = encodeURIComponent(`Macro photography rave kandi ${cleanVisual}`);
         const imageUrl = `https://image.pollinations.ai/prompt/${visualStr}?width=512&height=512&seed=${seed}&nologo=true`;
 
-        // V37.10 FIX: pre-fetch image bytes with retries. Pollinations generates on first
-        // request and can take 20-60s or return 5xx while queued; a single <img> attempt
-        // in the WebView timed out and the Lab showed only text + pricing with no visual.
+        // V37.14: pre-fetch with 6 retries (~60s budget) and progress reporting.
+        // Pollinations generates on first request and can take a full minute while queued.
+        onProgress(32);
         let displayUrl = imageUrl;
-        for (let attempt = 0; attempt < 4; attempt++) {
+        for (let attempt = 0; attempt < 6; attempt++) {
+            onProgress(Math.min(90, 36 + attempt * 9));
             try {
                 const imgResp = await fetch(imageUrl, { cache: 'no-store' });
                 if (imgResp.ok) {
@@ -407,8 +441,9 @@ const generateCustomKandi = async (prompt) => {
                     if (blob && blob.size > 2000) { displayUrl = URL.createObjectURL(blob); break; }
                 }
             } catch (imgErr) { console.log('AI image attempt ' + (attempt + 1) + ' failed, retrying...'); }
-            await new Promise(r => setTimeout(r, 6000));
+            await new Promise(r => setTimeout(r, 8000));
         }
+        onProgress(95);
         
         const beads = analysis.total_bead_count || 100;
         const diff = analysis.difficulty_1_to_10 || 5;
@@ -420,7 +455,7 @@ const generateCustomKandi = async (prompt) => {
 };
 
 const getDisplayAchievements = (profile) => {
-    const stats = { totalItems: profile?.items?.length || 0, totalSalesValue: profile?.totalSalesValue || 0, isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, referrals: profile?.referrals||0, topCreatorUnlocked: profile?.topCreatorUnlocked?1:0 };
+    const stats = { totalItems: profile?.items?.length || 0, totalSalesValue: profile?.totalSalesValue || 0, isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, referrals: profile?.referrals||0, topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0 };
     return ACHIEVEMENT_TIERS.filter(ach => ach.tier === 1 || stats[ach.metric] >= ach.threshold).map(ach => ({ ...ach, unlocked: stats[ach.metric] >= ach.threshold }));
 };
 EOF
@@ -462,7 +497,7 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
 
 const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name }) => ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input name={name} autoComplete={autoComplete} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> );
 
-const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto"><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
+const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto" onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
 
 const MediaCarousel = ({ media, fallback }) => {
     const [idx, setIdx] = useState(0);
@@ -739,6 +774,7 @@ const CreatorApplicationForm = ({ user, onClose }) => {
             <CheckCircle size={48} className="text-lime-400 mx-auto mb-4"/>
             <h3 className="text-xl font-bold mb-2 text-lime-400">Application Sent!</h3>
             <p className="text-xs opacity-70">Our team will review your portfolio and vibe check your socials. You will be notified soon.</p>
+            <p className="text-[9px] text-cyan-300 mt-3">Tip: reopen the Apply window anytime to view or edit your submitted form.</p>
         </Card>
     );
     return (
@@ -748,6 +784,7 @@ const CreatorApplicationForm = ({ user, onClose }) => {
                 <Hammer className="text-pink-500" size={28}/>
                 <div><h3 className="text-xl font-black italic tracking-wider leading-none" style={getTextGlowStyle('primaryGlow')}>{existingId ? 'EDIT APP' : 'BECOME A CREATOR'}</h3><p className="text-[10px] opacity-70 mt-1">Unlock commissions & official drops</p></div>
             </div>
+            {existingId && <div className="bg-cyan-900/20 border border-cyan-500/40 rounded p-2 mb-3"><p className="text-[9px] text-cyan-300">📋 This is your <strong>submitted application</strong> — review it or make edits anytime by reopening this Apply window.</p></div>}
             <div className="space-y-1">
                 <Input label="Full Name / DJ Name" value={d.name} onChange={v=>setD({...d, name:v})}/>
                 <Input label="Contact Email" type="email" value={d.email} onChange={v=>setD({...d, email:v})}/>
@@ -790,6 +827,7 @@ const VIPCheckoutForm = ({ user, onClose }) => {
     const stripe = useStripe();
     const elements = useElements();
     const [loading, setLoading] = useState(false);
+    const [plan, setPlan] = useState('lifetime');
 
     const handleVIPSuccess = async (e) => {
         e.preventDefault();
@@ -797,8 +835,14 @@ const VIPCheckoutForm = ({ user, onClose }) => {
         setLoading(true);
         setTimeout(async () => {
             try {
-                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true });
-                alert("VIP Status Unlocked! Enjoy Premium Radio and Custom Backgrounds.");
+                let vipExpires = null;
+                if (plan === 'monthly') {
+                    const cur = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid));
+                    const base = Math.max(Date.now(), cur.data()?.vipExpires || 0);
+                    vipExpires = base + 2592000000; // renewals stack +30 days on remaining time
+                }
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: plan, vipSince: Date.now(), vipExpires });
+                alert(plan === 'monthly' ? "VIP Monthly active until " + new Date(vipExpires).toLocaleDateString() + "! Renewing later stacks +30 days." : "VIP Lifetime unlocked! Enjoy Radio, Themes, Banner Messages & Post Boosts forever.");
             } catch(err) { console.error(err); }
             setLoading(false);
             onClose();
@@ -808,13 +852,31 @@ const VIPCheckoutForm = ({ user, onClose }) => {
     return (
         <form onSubmit={handleVIPSuccess} className="text-center space-y-4">
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
-            <p className="text-sm">Get lifetime access to the <strong>Global EDM Radio Player</strong> and <strong>Custom App Backgrounds</strong> for a one-time payment of $5.00.</p>
+            <div className="text-left bg-white/5 p-3 rounded border border-white/10 text-[11px] space-y-1">
+                <p className="font-bold text-yellow-400 uppercase text-[10px] tracking-widest mb-1">VIP unlocks:</p>
+                <p>🎧 Global EDM Radio Player</p>
+                <p>🖼️ Custom App Backgrounds & Themes</p>
+                <p>📢 Banner Messages on the live marquee</p>
+                <p>⚡ Post Boosts — pin your items to the top of the feed</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setPlan('monthly')} className={`p-3 rounded-xl border-2 text-left ${plan === 'monthly' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
+                    <p className="font-black text-sm">$4.99<span className="text-[9px] font-normal opacity-60">/month</span></p>
+                    <p className="text-[8px] opacity-60 uppercase">Subscription</p>
+                </button>
+                <button type="button" onClick={() => setPlan('lifetime')} className={`p-3 rounded-xl border-2 text-left relative ${plan === 'lifetime' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
+                    <span className="absolute -top-2 right-1 bg-lime-500 text-black text-[7px] font-black px-1 rounded uppercase">Best Value</span>
+                    <p className="font-black text-sm">$20<span className="text-[9px] font-normal opacity-60"> once</span></p>
+                    <p className="text-[8px] opacity-60 uppercase">Lifetime</p>
+                </button>
+            </div>
             <div className="bg-white/10 p-3 rounded border border-white/20 text-left">
                 <CardElement options={{style:{base:{color:'#fff'}}}}/>
             </div>
             <Button type="submit" disabled={!stripe || loading} color="gold" className="w-full">
-                {loading ? "Processing..." : "Pay $5.00 to Unlock"}
+                {loading ? "Processing..." : plan === 'monthly' ? "Subscribe — $4.99/month" : "Pay $20 — Lifetime Access"}
             </Button>
+            <p className="text-[8px] opacity-40">Payments are in TEST MODE during Alpha — no real charge occurs.</p>
         </form>
     );
 };
@@ -1141,7 +1203,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.13.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.09.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1231,18 +1293,21 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => 
         batch.commit().catch(()=>{});
     }, [isOpen, tab, notifs]);
 
-    // user search (exact Friend UID, then exact username)
-    useEffect(() => {
-        const t = term.trim();
+    // user search (exact Friend UID, then exact username); button = loud, typing = quiet
+    const runSearch = async (tv, loud) => {
+        const t = (tv || '').trim();
         setSearchHit(null);
-        if (!isOpen || tab !== 'msgs' || t.length < 3) return;
-        const h = setTimeout(async () => {
-            try {
-                let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
-                if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
-                if (!snap.empty && snap.docs[0].id !== myUid) setSearchHit({ id: snap.docs[0].id, ...snap.docs[0].data() });
-            } catch (e) {}
-        }, 500);
+        if (t.length < 2) { if (loud) alert('Type a Friend UID or exact username first.'); return; }
+        try {
+            let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
+            if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
+            if (!snap.empty && snap.docs[0].id !== myUid) setSearchHit({ id: snap.docs[0].id, ...snap.docs[0].data() });
+            else if (loud) alert('No raver found with that exact UID or username.');
+        } catch (e) { if (loud) alert('Search failed: ' + e.message); }
+    };
+    useEffect(() => {
+        if (!isOpen || tab !== 'msgs' || term.trim().length < 3) { setSearchHit(null); return; }
+        const h = setTimeout(() => runSearch(term, false), 600);
         return () => clearTimeout(h);
     }, [term, isOpen, tab]);
 
@@ -1297,7 +1362,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => 
     const threadKey = activeThread ? rkKey(...activeThread.split('_')) : null;
 
     return createPortal(
-        <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex min-h-full items-center justify-center p-3">
                 <Card className="max-w-md w-full my-2 flex flex-col" glow="purpleGlow">
                     <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-2">
@@ -1315,6 +1380,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => 
                     {tab === 'msgs' && !activeThread && (<>
                         <div className="flex gap-2 mb-2">
                             <Input value={term} onChange={setTerm} placeholder="Search Friend UID or Username..." className="mb-0 flex-1"/>
+                            <Button onClick={() => runSearch(term, true)} color="cyan" className="px-3"><Search size={14}/></Button>
                             <select value={sortMode} onChange={e => setSortMode(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded">
                                 <option value="recent">Recent</option><option value="favorites">Favorites</option><option value="unread">Unread</option><option value="read">Read</option>
                             </select>
@@ -1398,6 +1464,253 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => 
                 </Card>
             </div>
         </div>, document.body
+    );
+};
+
+const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
+    const [bTab, setBTab] = useState('post');
+    const [bMode, setBMode] = useState('msg');
+    const [slots, setSlots] = useState([]);
+    const [text, setText] = useState('');
+    const [customLink, setCustomLink] = useState('');
+    const [chosenLink, setChosenLink] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [confirmation, setConfirmation] = useState(null);
+    const W = 900000; // 15 minutes
+
+    useEffect(() => {
+        if (!isOpen) return;
+        return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bannerSlots')), s => setSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log(e));
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    const todayKey = new Date().toDateString();
+    const usedToday = profile?.bannerDay === todayKey ? (profile?.bannerCountToday || 0) : 0;
+    const mySocials = SOCIAL_PLATFORMS.filter(p => profile?.socialLinks?.[p.id]);
+
+    const pickSocial = (p) => {
+        const url = 'https://' + p.baseUrl + profile.socialLinks[p.id];
+        const v = validateSocialLink(url);
+        if (!v.ok) return alert(v.reason);
+        setChosenLink({ url: v.clean, label: p.name + ': ' + profile.socialLinks[p.id] });
+    };
+    const useCustomLink = () => {
+        const v = validateSocialLink(customLink);
+        if (!v.ok) return alert('Link rejected: ' + v.reason);
+        setChosenLink({ url: v.clean, label: v.clean.replace('https://', '').slice(0, 50) });
+    };
+
+    const submitBanner = async () => {
+        const isSocial = bMode === 'social';
+        if (isSocial && !chosenLink) return alert("Pick one of your saved socials or validate a custom link first.");
+        if (!isSocial && !text.trim()) return alert("Type your banner message first.");
+        if (usedToday >= 5) return alert("Daily limit reached — 5 banner posts per day (messages and social links combined). Resets at midnight.");
+        setBusy(true);
+        try {
+            const now = Date.now();
+            const curStart = Math.floor(now / W) * W;
+            const taken = new Set(slots.map(s => s.start));
+            let assigned = [];
+            if (!taken.has(curStart)) { assigned = [curStart, curStart + W]; } // missed-window rule: remainder + next full block
+            else { let s = curStart + W; while (taken.has(s)) s += W; assigned = [s]; }
+            const bodyText = isSocial ? ('Follow me → ' + chosenLink.label) : text.trim().slice(0, 90);
+            const payload = { uid: user.uid, name: profile?.displayName || 'VIP Raver', ownerPublicUid: profile?.publicUid || user.uid, text: bodyText, type: isSocial ? 'social' : 'message', linkUrl: isSocial ? chosenLink.url : null, postedAt: now };
+            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', String(st)), { ...payload, start: st, end: st + W }); }
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { bannerPosts: increment(1), bannerDay: todayKey, bannerCountToday: usedToday + 1 }, { merge: true });
+            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
+            const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
+            setConfirmation({ startsAt, endsAt, queueAhead, live: startsAt <= Date.now() });
+            setText(''); setChosenLink(null); setCustomLink('');
+        } catch (e) { alert("Banner failed: " + e.message); } finally { setBusy(false); }
+    };
+
+    const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const history = [...slots].sort((a, b) => b.start - a.start);
+    const upcoming = slots.filter(s => s.start > Date.now()).sort((a, b) => a.start - b.start);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="📢 Banner Messages">
+            <div className="flex gap-2 mb-3">
+                <button onClick={() => setBTab('post')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'post' ? 'bg-cyan-600 text-white' : 'bg-white/5 text-white/50'}`}>Post Banner</button>
+                <button onClick={() => setBTab('history')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'history' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/50'}`}>All Banners</button>
+            </div>
+
+            {bTab === 'post' && (!profile?.isVIP ? (
+                <div className="text-center space-y-3 py-4">
+                    <Crown size={36} className="mx-auto text-yellow-400"/>
+                    <p className="text-xs opacity-80">Banner Messages are a <strong>VIP subscriber</strong> feature. Put your message — or your social links — in rotation on the live marquee that every raver sees!</p>
+                    <Button onClick={() => { onClose(); onGoVip(); }} color="gold" className="w-full">Unlock VIP</Button>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <div className="bg-white/5 border border-white/10 rounded p-2 text-[9px] text-gray-100 leading-relaxed">
+                        <strong className="text-cyan-400">How it works:</strong> Your banner joins the scrolling marquee for a <strong>15-minute window</strong> (windows start on the dot: :00, :15, :30, :45). One banner runs at a time — submissions queue for the next free window; an empty current window grants its remainder <strong>plus</strong> the next full block. You can post a <strong>message OR one of your social links</strong> — each counts as one of your <strong>5 daily posts</strong>. The daily limit resets at <strong>midnight</strong>. Social links are safety-checked and restricted to verified platforms.
+                    </div>
+                    {confirmation && (
+                        <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
+                            <p className="text-xs font-bold text-lime-300">{confirmation.live ? '🟢 Your banner is LIVE NOW!' : '✅ Banner queued!'}</p>
+                            <p className="text-[10px] mt-1">Window: <strong>{fmtT(confirmation.startsAt)} – {fmtT(confirmation.endsAt)}</strong></p>
+                            {!confirmation.live && <p className="text-[9px] opacity-70">Queue position: #{confirmation.queueAhead + 1}</p>}
+                        </div>
+                    )}
+                    <div className="flex gap-2">
+                        <button onClick={() => setBMode('msg')} className={`flex-1 py-1.5 rounded-full text-[9px] font-black uppercase ${bMode === 'msg' ? 'bg-cyan-500 text-black' : 'bg-white/5 text-white/50'}`}>💬 Message</button>
+                        <button onClick={() => setBMode('social')} className={`flex-1 py-1.5 rounded-full text-[9px] font-black uppercase ${bMode === 'social' ? 'bg-pink-500 text-black' : 'bg-white/5 text-white/50'}`}>🔗 Social Link</button>
+                    </div>
+                    {bMode === 'msg' ? (
+                        <div>
+                            <textarea value={text} onChange={e => setText(e.target.value)} maxLength={90} placeholder="Your marquee message (90 chars max)..." className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs h-16"/>
+                            <p className="text-[8px] text-right opacity-50">{text.length}/90 · {5 - usedToday} posts left today</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {mySocials.length > 0 && (<>
+                                <p className="text-[9px] font-bold text-pink-400 uppercase">Your saved socials:</p>
+                                <div className="grid grid-cols-2 gap-1">
+                                    {mySocials.map(p => (
+                                        <button key={p.id} onClick={() => pickSocial(p)} className={`flex items-center gap-1.5 p-2 rounded border text-left ${chosenLink?.label?.startsWith(p.name) ? 'border-pink-400 bg-pink-900/30' : 'border-white/10 bg-white/5'}`}>
+                                            <p.icon size={12} color={p.color}/><span className="text-[9px] font-bold truncate">{p.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </>)}
+                            <div className="flex gap-1">
+                                <input value={customLink} onChange={e => setCustomLink(e.target.value)} placeholder="…or paste a social link" className="flex-1 p-2 rounded bg-white/10 border-2 border-white/30 text-[10px]"/>
+                                <Button onClick={useCustomLink} color="cyan" className="text-[9px] px-2">Check</Button>
+                            </div>
+                            {chosenLink && <p className="text-[9px] text-lime-300 bg-lime-900/20 border border-lime-500/40 rounded p-1.5">✅ Verified: {chosenLink.label}</p>}
+                            <p className="text-[8px] opacity-50 text-right">{5 - usedToday} posts left today</p>
+                        </div>
+                    )}
+                    {upcoming.length > 0 && <p className="text-[8px] opacity-60">⏳ {upcoming.length} banner(s) currently queued — next free window assigned automatically.</p>}
+                    <Button onClick={submitBanner} disabled={busy || usedToday >= 5} color="cyan" className="w-full">{busy ? "Posting..." : bMode === 'social' ? "Post Social Link to Marquee" : "Post to Marquee"}</Button>
+                </div>
+            ))}
+
+            {bTab === 'history' && (
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                    {history.length === 0 && <p className="text-center opacity-50 text-xs py-6">No banners posted yet — be the first!</p>}
+                    {history.map(s => (
+                        <div key={s.id} className={`bg-white/5 p-2 rounded border ${s.start <= Date.now() && Date.now() < s.end ? 'border-lime-400/60' : 'border-white/10'}`}>
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-cyan-300">@{s.name} {s.type === 'social' && <span className="text-[7px] bg-pink-500/30 text-pink-300 px-1 rounded uppercase">Social</span>}</span>
+                                <span className="text-[8px] opacity-50">{new Date(s.start).toLocaleDateString()} {fmtT(s.start)}–{fmtT(s.end)}</span>
+                            </div>
+                            <p className="text-[11px] text-gray-100 mt-1 break-words">{s.text}</p>
+                            {s.start <= Date.now() && Date.now() < s.end && <span className="text-[7px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
+    const [bTab, setBTab] = useState('boost');
+    const [slots, setSlots] = useState([]);
+    const [myItems, setMyItems] = useState([]);
+    const [pick, setPick] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [confirmation, setConfirmation] = useState(null);
+    const H = 3600000; // 1 hour
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const u1 = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'boostSlots')), s => setSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log(e));
+        getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid)))
+            .then(s => setMyItems(s.docs.map(d => ({ ...d.data(), id: d.id })).filter(i => !i.isRequest && !i.isDIYRequest && i.status !== 'request')))
+            .catch(() => {});
+        return () => u1();
+    }, [isOpen, user]);
+
+    if (!isOpen) return null;
+
+    const todayKey = new Date().toDateString();
+    const usedToday = profile?.boostDay === todayKey ? (profile?.boostCountToday || 0) : 0;
+    const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const submitBoost = async () => {
+        if (!pick) return alert("Select one of your posts to boost.");
+        if (usedToday >= 3) return alert("Daily limit reached — 3 boosts per day. Resets at midnight.");
+        setBusy(true);
+        try {
+            const now = Date.now();
+            let start = Math.ceil(now / H) * H; // boosts start exactly on a fresh hour
+            const countAt = (st) => slots.filter(s => s.start === st).length;
+            while (countAt(start) >= 5) start += H; // 5 boost lanes per hour, then queue
+            const lane = countAt(start);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boostSlots', start + '_' + lane), {
+                uid: user.uid, name: profile?.displayName || 'VIP Raver', ownerPublicUid: profile?.publicUid || user.uid,
+                itemId: pick.id, itemName: pick.name, start, end: start + H, lane, postedAt: now
+            });
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { boostDay: todayKey, boostCountToday: usedToday + 1, boostsUsed: increment(1) }, { merge: true });
+            const queueAhead = slots.filter(s => s.start >= now && s.start < start).length;
+            setConfirmation({ start, end: start + H, lane, queueAhead });
+            setPick(null);
+        } catch (e) { alert("Boost failed: " + e.message); } finally { setBusy(false); }
+    };
+
+    const history = [...slots].sort((a, b) => b.start - a.start);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="⚡ Post Boosts">
+            <div className="flex gap-2 mb-3">
+                <button onClick={() => setBTab('boost')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'boost' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white/50'}`}>Boost a Post</button>
+                <button onClick={() => setBTab('history')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'history' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/50'}`}>All Boosts</button>
+            </div>
+
+            {bTab === 'boost' && (!profile?.isVIP ? (
+                <div className="text-center space-y-3 py-4">
+                    <Crown size={36} className="mx-auto text-yellow-400"/>
+                    <p className="text-xs opacity-80">Post Boosts are a <strong>VIP subscriber</strong> feature. Pin your item to the top 5 feed slots for a full hour!</p>
+                    <Button onClick={() => { onClose(); onGoVip(); }} color="gold" className="w-full">Unlock VIP</Button>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <div className="bg-white/5 border border-white/10 rounded p-2 text-[9px] text-gray-100 leading-relaxed">
+                        <strong className="text-pink-400">How it works:</strong> Boosted posts get pinned into the <strong>top 5 feed slots</strong> with a ⚡ BOOSTED badge for <strong>1 hour</strong>. Boost windows start exactly on the hour — up to 5 boosts run per hour; extras queue for the next free hour. Limit: <strong>3 boosts/day</strong>.
+                    </div>
+                    {confirmation && (
+                        <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
+                            <p className="text-xs font-bold text-lime-300">✅ Boost scheduled!</p>
+                            <p className="text-[10px] mt-1">Window: <strong>{fmtT(confirmation.start)} – {fmtT(confirmation.end)}</strong> · Lane {confirmation.lane + 1}/5</p>
+                            {confirmation.queueAhead > 0 && <p className="text-[9px] opacity-70">{confirmation.queueAhead} boost(s) scheduled before yours.</p>}
+                        </div>
+                    )}
+                    <p className="text-[9px] font-bold text-pink-400 uppercase">Pick a post ({3 - usedToday} boosts left today):</p>
+                    <div className="space-y-1 max-h-[28vh] overflow-y-auto pr-1">
+                        {myItems.length === 0 && <p className="text-center opacity-50 text-[10px] py-4">You have no live posts yet.</p>}
+                        {myItems.map(i => (
+                            <button key={i.id} onClick={() => setPick(i)} className={`w-full flex items-center gap-2 p-2 rounded border text-left ${pick?.id === i.id ? 'border-pink-400 bg-pink-900/30' : 'border-white/10 bg-white/5'}`}>
+                                <img src={i.mediaUrls?.[0]?.url || i.imageUrl || 'https://placehold.co/40'} className="w-8 h-8 rounded object-cover"/>
+                                <span className="text-[10px] font-bold flex-1 truncate">{i.name}</span>
+                                <span className="text-[9px] text-lime-400">${i.price?.toFixed(2)}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <button onClick={() => { onClose(); onGoSell(); }} className="w-full text-[9px] text-cyan-400 underline">…or create a new post in the Trade Hub, then come back and boost it</button>
+                    <Button onClick={submitBoost} disabled={busy || !pick || usedToday >= 3} color="primary" className="w-full">{busy ? "Scheduling..." : "Boost for 1 Hour ⚡"}</Button>
+                </div>
+            ))}
+
+            {bTab === 'history' && (
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                    {history.length === 0 && <p className="text-center opacity-50 text-xs py-6">No boosts yet.</p>}
+                    {history.map(s => (
+                        <div key={s.id} className={`bg-white/5 p-2 rounded border ${s.start <= Date.now() && Date.now() < s.end ? 'border-lime-400/60' : 'border-white/10'}`}>
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-pink-300">@{s.name}</span>
+                                <span className="text-[8px] opacity-50">{new Date(s.start).toLocaleDateString()} {fmtT(s.start)}–{fmtT(s.end)}</span>
+                            </div>
+                            <p className="text-[10px] text-gray-100 mt-1">⚡ Boosted: <strong>{s.itemName}</strong> (lane {(s.lane || 0) + 1})</p>
+                            {s.start <= Date.now() && Date.now() < s.end && <span className="text-[7px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Modal>
     );
 };
 EOF
@@ -1986,10 +2299,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         checkLimits();
     }, [user]);
 
+    const [genPct, setGenPct] = useState(0);
     const gen = async () => { 
         if(!prompt || !user?.uid) return;
         if(remaining <= 0) return alert("Daily limit reached. Resets at 12PM CST.");
-        setLoading(true); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
+        setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
         const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), { 
             status: 'generating', prompt: prompt, timestamp: Date.now(), name: "AI Design (Pending)",
@@ -1997,7 +2311,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         });
         
         try { 
-            const r = await generateCustomKandi(prompt); setRes(r);
+            const r = await generateCustomKandi(prompt, setGenPct); setGenPct(98); setRes(r);
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
             const snap = await getDoc(userRef);
             if (snap.exists()) { await updateDoc(userRef, { aiUsageCount: increment(1) }); } 
@@ -2026,9 +2340,10 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             <Bot size={48} className="mx-auto mb-4 text-pink-500"/>
             <h2 className="text-2xl font-bold mb-2 uppercase">AI KANDI LAB</h2>
             <div className="flex justify-center gap-2 mb-4"><span className={`text-[10px] font-bold px-2 py-1 rounded ${remaining > 0 ? 'bg-lime-500/20 text-lime-400' : 'bg-red-500/20 text-red-400'}`}>Daily Limit: {remaining}/{DAILY_AI_LIMIT}</span></div>
+            <div className="bg-yellow-900/20 border border-yellow-500/40 rounded p-2 mb-4 text-left"><p className="text-[9px] text-yellow-300 leading-relaxed"><strong>⚠ Heads up:</strong> the AI image renderer is unstable right now and may not produce a picture every time. Descriptions, materials & pricing still work — keep using the Lab and submit builds as normal.</p></div>
             {!res && ( <div className="mb-4 flex items-center justify-center gap-2 bg-white/5 p-2 rounded"><input type="checkbox" checked={allowBuy} onChange={e => setAllowBuy(e.target.checked)} className="accent-pink-500"/><label className="text-xs">Allow others to buy this design?</label></div> )}
             <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="E.g. Neon green cuff with alien charms..." disabled={!!res}/>
-            {!res && ( loading ? ( <div className="mt-4"><Button disabled color="purple" className="w-full">Generating...</Button><LoadingBar progress={100} /></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Generate Design" : "Limit Reached"}</Button> ) )}
+            {!res && ( loading ? ( <div className="mt-4 space-y-2 text-center"><LoadingBar progress={genPct} className="h-2"/><p className="text-lime-400 font-mono text-lg font-bold">{genPct}%</p><p className="text-[10px] text-pink-300 animate-pulse">{genPct < 30 ? 'Consulting the Kandi Oracle...' : genPct < 92 ? 'Rendering visuals — image generation can take up to a minute. Hang tight! 🎨' : 'Polishing beads...'}</p></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Generate Design" : "Limit Reached"}</Button> ) )}
             {res && (
                 <div className={`mt-6 border-2 border-dashed border-white/20 rounded-lg p-2 min-h-[200px] flex items-center justify-center bg-black/40 ${res ? 'shadow-[0_0_20px_rgba(255,100,200,0.6)] border-pink-400' : ''}`}>
                     <div className="w-full">
@@ -2259,6 +2574,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     </div>
                 )}
                 <div className="flex gap-2 mt-2">
+                    {item._boosted && <span className="text-[8px] bg-gradient-to-r from-yellow-300 to-pink-500 text-black px-1 rounded font-black uppercase">⚡ BOOSTED</span>}
                     {(item.stockQty ?? 1) <= 0 ? <span className="text-[8px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
                     {isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[8px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
                     {item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>}
@@ -2830,6 +3146,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     const [pinnedItems, setPinnedItems] = useState([]);
     const [showBadges, setShowBadges] = useState(false);
     const [showRevShare, setShowRevShare] = useState(false);
+    const [showBanner, setShowBanner] = useState(false);
+    const [showBoost, setShowBoost] = useState(false);
     const [selectedPinned, setSelectedPinned] = useState(null);
     const [pinModalOpen, setPinModalOpen] = useState(false);
     
@@ -2882,6 +3200,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
+                <BannerModal user={user} profile={profile} isOpen={showBanner} onClose={() => setShowBanner(false)} onGoVip={() => setModals({...modals, vip: true})} />
+                <BoostModal user={user} profile={profile} isOpen={showBoost} onClose={() => setShowBoost(false)} onGoVip={() => setModals({...modals, vip: true})} onGoSell={() => onViewFeed(profile?.publicUid || user.uid)} />
                 
                 <div className="flex flex-col items-center md:flex-row gap-6 relative">
                     <div className="relative">
@@ -2953,7 +3273,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         {/* PHASE 7: VIP Ecosystem Access */}
                         {!profile.isVIP ? (
                             <div className="mt-4 p-3 bg-gradient-to-r from-yellow-500/10 to-transparent border border-yellow-500/30 rounded-xl flex items-center justify-between cursor-pointer hover:bg-yellow-500/20" onClick={() => setModals({...modals, vip: true})}>
-                                <div><span className="text-[10px] font-bold text-yellow-400 block tracking-widest uppercase">Go VIP</span><span className="text-[8px] opacity-70">Unlock Radio & Custom Backgrounds</span></div>
+                                <div><span className="text-[10px] font-bold text-yellow-400 block tracking-widest uppercase">Go VIP</span><span className="text-[8px] opacity-70">Radio · Themes · Banner Msgs · Post Boosts</span></div>
                                 <Crown size={18} className="text-yellow-400"/>
                             </div>
                         ) : (
@@ -2962,6 +3282,20 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                                 <ImageIcon size={18} className="text-cyan-400"/>
                             </div>
                         )}
+
+                        <div className="mt-3 p-3 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/40 rounded-xl">
+                            <p className="text-[10px] font-black text-purple-300 tracking-widest uppercase mb-2 flex items-center gap-1"><Crown size={12} className="text-yellow-400"/> Subscriber Tools</p>
+                            {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
+                                <p className="text-[8px] text-yellow-300 mb-2">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
+                            )}
+                            {profile?.vipPlan === 'expired' && !profile?.isVIP && (
+                                <p className="text-[8px] text-red-300 mb-2">Your monthly VIP has expired. <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew now</button></p>
+                            )}
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={() => setShowBanner(true)} className="p-2 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-[10px] font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[8px] opacity-70">Post on the live marquee</span></button>
+                                <button onClick={() => setShowBoost(true)} className="p-2 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20"><span className="text-[10px] font-bold text-pink-400 block uppercase tracking-widest">⚡ Post Boosts</span><span className="text-[8px] opacity-70">Pin your item to the top</span></button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -3304,6 +3638,34 @@ const App = () => {
         return () => { u1(); u2(); };
     }, [user]);
 
+    // V37.14: VIP banner & boost slot feeds + minute ticker for window math + merch popup
+    const [bannerSlots, setBannerSlots] = useState([]);
+    const [boostSlots, setBoostSlots] = useState([]);
+    const [nowTick, setNowTick] = useState(Date.now());
+    const [merchPopup, setMerchPopup] = useState(false);
+    useEffect(() => {
+        if (!user) return;
+        const u3 = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bannerSlots')), s => setBannerSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('banners', e));
+        const u4 = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'boostSlots')), s => setBoostSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('boosts', e));
+        return () => { u3(); u4(); };
+    }, [user]);
+    useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 30000); return () => clearInterval(t); }, []);
+    useEffect(() => {
+        if (page === 'shop' && tab === 'official') {
+            try { if (localStorage.getItem('rk_hide_merch_popup') !== '1') setMerchPopup(true); } catch (e) { setMerchPopup(true); }
+        }
+    }, [page, tab]);
+
+    // V42.09: monthly VIP enforcement — auto-downgrade the moment the paid window ends.
+    // Re-checks every 30s via nowTick while the app is open and on every fresh launch.
+    useEffect(() => {
+        if (!user?.uid || !profile?.isVIP) return;
+        if (profile.vipPlan === 'monthly' && profile.vipExpires && Date.now() > profile.vipExpires) {
+            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: false, vipPlan: 'expired' }, { merge: true }).catch(() => {});
+            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore Radio, Themes, Banner Messages & Post Boosts.');
+        }
+    }, [user, profile?.isVIP, profile?.vipPlan, profile?.vipExpires, nowTick]);
+
     // V37.13: self-sync computed stats so the marquee leaderboards can query them,
     // and self-notify on newly unlocked achievements.
     useEffect(() => {
@@ -3378,14 +3740,12 @@ const App = () => {
     const uTerm = (filters.searchUid || '').toLowerCase();
     const visibleUsers = usersDir.filter(u => !uTerm || (u.displayName || '').toLowerCase().includes(uTerm) || (u.publicUid || u.id || '').toLowerCase().includes(uTerm));
 
-    // V37.12: marquee data
+    // V37.14: marquee data — entries are {t, uid} so user references are tappable links
     const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
     const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
     const mqCommission = mqTotalSales * COMMISSION_RATE;
-    const topPosterName = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) c[i.ownerName] = (c[i.ownerName] || 0) + 1; }); const e = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return e ? e[0] + ' (' + e[1] + ' posts)' : null; })();
+    const topPoster = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) { c[i.ownerName] = c[i.ownerName] || { n: 0, uid: i.ownerPublicUid || i.ownerId }; c[i.ownerName].n++; } }); const e = Object.entries(c).sort((a, b) => b[1].n - a[1].n)[0]; return e ? { name: e[0], n: e[1].n, uid: e[1].uid } : null; })();
     const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY'];
-    // V37.13: PLUR generator — deterministic combinator that produces a fresh PLUR line
-    // every 10 minutes from rotating word banks (always new, never repeats back-to-back)
     const plurLine = (() => {
         const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam'];
         const B = ['recharges', 'heals', 'uplifts', 'connects', 'electrifies', 'glows through', 'amplifies', 'protects', 'inspires', 'unites'];
@@ -3394,30 +3754,38 @@ const App = () => {
         const s = Math.floor(Date.now() / 600000);
         return E[s % E.length] + ' ' + A[s % A.length].toUpperCase() + ' ' + B[(s * 7 + 3) % B.length].toUpperCase() + ' ' + C[(s * 13 + 5) % C.length].toUpperCase() + ' ' + E[(s * 3 + 1) % E.length];
     })();
+    const uref = (x) => x ? (x.publicUid || x.id) : null;
+    const activeBanner = bannerSlots.find(s => s.start <= nowTick && nowTick < s.end) || null;
     const mq = [
-        '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡',
-        '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀',
-        '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2),
-        '🧾 COMMISSION POOL: $' + mqCommission.toFixed(2),
-        '📦 ITEMS LISTED: ' + mqItemsListed,
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? '🏆 TOP SELLER: @' + topStats.seller.displayName + ' ($' + Number(topStats.seller.totalSalesValue || 0).toFixed(0) + ' SOLD)' : null,
-        topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? '💎 TOP REVSHARE EARNER: @' + topStats.earner.displayName + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')' : null,
-        topStats.referrer && (topStats.referrer.referrals > 0) ? '🤝 MOST REFERRALS: @' + topStats.referrer.displayName + ' (' + topStats.referrer.referrals + ')' : null,
-        topPosterName ? '📣 TOP POSTER: @' + topPosterName : null,
-        topStats.creator && (topStats.creator.creatorPoints > 0) ? '👑 TOP CREATOR: @' + topStats.creator.displayName + ' (' + topStats.creator.creatorPoints + ' PTS)' : null,
-        topStats.active && ((topStats.active.activeMinutes || 0) > 0) ? '🔥 MOST ACTIVE: @' + topStats.active.displayName + ' (' + (((topStats.active.activeMinutes || 0) / 60) + (topStats.active.activeHours || 0)).toFixed(1) + ' HRS)' : null,
-        topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)' : null,
-        topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')' : null,
-        topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')' : null,
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - (topStats.seller.customCommissionRate ?? COMMISSION_RATE))).toFixed(2) + ')' : null,
-        RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length],
-        plurLine,
-        '💖 PLUR FACT: Handshakes end with a trade! 💖',
+        activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null } : null,
+        { t: '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡' },
+        { t: '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀' },
+        { t: '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2) },
+        { t: '🧾 COMMISSION POOL: $' + mqCommission.toFixed(2) },
+        { t: '📦 ITEMS LISTED: ' + mqItemsListed },
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '🏆 TOP SELLER: @' + topStats.seller.displayName + ' ($' + Number(topStats.seller.totalSalesValue || 0).toFixed(0) + ' SOLD)', uid: uref(topStats.seller) } : null,
+        topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? { t: '💎 TOP REVSHARE EARNER: @' + topStats.earner.displayName + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')', uid: uref(topStats.earner) } : null,
+        topStats.referrer && (topStats.referrer.referrals > 0) ? { t: '🤝 MOST REFERRALS: @' + topStats.referrer.displayName + ' (' + topStats.referrer.referrals + ')', uid: uref(topStats.referrer) } : null,
+        topPoster ? { t: '📣 TOP POSTER: @' + topPoster.name + ' (' + topPoster.n + ' posts)', uid: topPoster.uid } : null,
+        topStats.creator && (topStats.creator.creatorPoints > 0) ? { t: '👑 TOP CREATOR: @' + topStats.creator.displayName + ' (' + topStats.creator.creatorPoints + ' PTS)', uid: uref(topStats.creator) } : null,
+        topStats.active && ((topStats.active.activeMinutes || 0) > 0) ? { t: '🔥 MOST ACTIVE: @' + topStats.active.displayName + ' (' + (((topStats.active.activeMinutes || 0) / 60) + (topStats.active.activeHours || 0)).toFixed(1) + ' HRS)', uid: uref(topStats.active) } : null,
+        topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? { t: '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)', uid: uref(topStats.listener) } : null,
+        topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? { t: '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')', uid: uref(topStats.buyer) } : null,
+        topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - (topStats.seller.customCommissionRate ?? COMMISSION_RATE))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
+        { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
+        { t: plurLine },
+        { t: '💖 PLUR FACT: Handshakes end with a trade! 💖' },
     ].filter(Boolean);
+
+    // V37.14: boosted posts — pinned to the top 5 feed slots during their hour window
+    const activeBoosts = boostSlots.filter(s => s.start <= nowTick && nowTick < s.end).sort((a, b) => (a.start - b.start) || ((a.lane || 0) - (b.lane || 0))).slice(0, 5);
+    const boostRank = new Map(activeBoosts.map((s, i) => [s.itemId, i]));
+    const displayedFeedItems = filteredItems.map(i => boostRank.has(i.id) ? { ...i, _boosted: true } : i).sort((a, b) => { const ra = boostRank.has(a.id) ? boostRank.get(a.id) : 99; const rb = boostRank.has(b.id) ? boostRank.get(b.id) : 99; return ra - rb; });
 
     const unreadMsgs = threads.reduce((s, t) => s + ((t.unread && t.unread[user?.uid]) || 0), 0);
     const unreadNotifs = notifs.filter(n => !n.read).length;
-    const inboxBadge = unreadMsgs + unreadNotifs;
+    const inboxBadge = unreadMsgs + unreadNotifs;    const inboxBadge = unreadMsgs + unreadNotifs;
     
     const WelcomeAlphaModal = () => {
         const facts = ["PLUR stands for Peace, Love, Unity, Respect!", "Kandi trading originated in the 90s rave scene.", "Neon colors glow under UV light because of phosphors!", "The PLUR handshake ends with a bracelet trade."];
@@ -3428,7 +3796,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V37.13.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.09.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -3459,6 +3827,17 @@ cat << 'EOF' >> src/App.js
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
             {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} />}
+            <Modal isOpen={merchPopup} onClose={() => setMerchPopup(false)} title="Official Merch">
+                <div className="text-center space-y-4">
+                    {['OFFICIAL', 'DROPS', 'SOON'].map((word, i) => (<h1 key={i} className="text-4xl font-black animate-text-shimmer opacity-90" style={{ backgroundImage: 'linear-gradient(45deg, #00ffff, #ffffff, #00ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>{word}.</h1>))}
+                    <p className="text-sm opacity-70">Official Items are still under construction, design, and fabrication. They will be added in a future update.</p>
+                    <Button onClick={() => { setMerchPopup(false); setForceSettings(true); }} color="cyan" className="w-full">Enable Drop Notifications</Button>
+                    <div className="flex gap-2">
+                        <Button onClick={() => { try { localStorage.setItem('rk_hide_merch_popup', '1'); } catch(e) {} setMerchPopup(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
+                        <Button onClick={() => setMerchPopup(false)} color="purple" className="flex-1 text-xs">Close</Button>
+                    </div>
+                </div>
+            </Modal>
             
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
 
@@ -3466,7 +3845,6 @@ cat << 'EOF' >> src/App.js
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
                 <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95"><Zap className="text-yellow-400" size={24} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
                 <div className="flex gap-5 items-center">
-                    <button onClick={() => setRadioOpen(true)} className={isRadioPlaying ? 'text-yellow-400 animate-pulse drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'text-white/50 hover:text-white'}><Radio size={18}/></button>
                     <button onClick={() => setMsgOpen(true)} className="relative text-white/50 hover:text-white"><Mail size={18}/>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-2 bg-pink-600 text-white text-[8px] font-black rounded-full px-1 min-w-[14px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
                     <div className="h-4 w-px bg-white/20 mx-0"></div>
                     <button onClick={() => setPage('feed')}><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white'} size={20}/></button>
@@ -3480,19 +3858,22 @@ cat << 'EOF' >> src/App.js
                 <div className="rk-marquee-track items-center whitespace-nowrap">
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            {mq.map((m, i) => <span key={i} className={i % 3 === 2 ? 'text-pink-400' : i % 3 === 1 ? 'text-cyan-300' : ''}>{m}</span>)}
+                            {mq.map((m, i) => <span key={i} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href) ? 'underline decoration-dotted underline-offset-2 cursor-pointer' : '')}>{m.t}</span>)}
                         </div>
                     ))}
                 </div>
             </div>
             </div>
             
+            <button onClick={() => setRadioOpen(true)} className={`fixed left-2 z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`} style={{ top: '112px' }} title="Rave Radio"><Radio size={32} className="text-white drop-shadow"/></button>
             <main className="p-4 bg-black/50 min-h-screen">
                 {page === 'home' && (
                     <div className="text-center pt-8 flex flex-col gap-8 pb-10">
                         <div className="space-y-3">{['TRADE', 'RAVE', 'PLUR'].map((word, i) => (<h1 key={i} className="text-7xl font-black animate-text-shimmer" style={{ backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff, #bf80ff, #ff80bf)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 0 10px rgba(255,100,255,0.4))', backgroundSize: '200% 200%' }}>{word}.</h1>))}</div>
                         
                         <div className="px-4 opacity-90 text-sm max-w-md mx-auto leading-relaxed"><p className="bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent font-bold">Welcome to your digital festival grounds! 🌈✨ The ultimate PLUR-powered marketplace to trade, sell, and discover magical, one-of-a-kind Kandi creations. Spread the vibe!</p></div>
+
+                        <p className="px-4 text-xl font-black uppercase tracking-wider bg-gradient-to-r from-lime-300 via-cyan-300 to-pink-400 bg-clip-text text-transparent max-w-md mx-auto" style={{ filter: 'drop-shadow(0 0 8px rgba(0,255,200,0.45))' }}>Want to sell your wares? Click Enter Exchange below ⬇</p>
                         
                         <div className="flex flex-col gap-4">
                             <Button onClick={() => setPage('feed')} color="cyan" className="mx-auto px-8 py-3 text-lg shadow-neon-blue w-3/4 max-w-xs">Enter Exchange</Button>
@@ -3517,16 +3898,19 @@ cat << 'EOF' >> src/App.js
                             <ReferralProgramSection onNavigateToProfile={() => setOpenReferrals(true)} />
                         </div>
 
-                        <div className="max-w-md mx-auto w-full bg-yellow-900/10 border border-yellow-500/30 rounded-xl p-3 text-left">
-                            <p className="text-[10px] text-yellow-300 font-bold uppercase mb-1">⚖ Creator Fairness Window</p>
-                            <p className="text-[10px] text-gray-100 leading-relaxed">Custom & DIY requests sent to a specific Creator stay exclusive to them for <strong>24–72 hours</strong> (scaled by price and complexity). If unaccepted in that window, the request automatically opens to ALL Creators — keeping commissions fair for users and Creators alike.</p>
+                        <div className="max-w-md mx-auto w-full">
+                            <h3 className="text-lg font-black uppercase tracking-widest text-center mb-2 animate-text-shimmer" style={{ backgroundImage: 'linear-gradient(45deg, #fde047, #fff7c2, #facc15, #fde047)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', backgroundSize: '200% 200%', filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.5))' }}>Custom and DIY Requests</h3>
+                            <div className="w-full bg-yellow-900/15 border-2 border-yellow-400/70 rounded-xl p-4 text-left shadow-[0_0_14px_rgba(250,204,21,0.25)]">
+                                <p className="text-sm text-yellow-300 font-bold uppercase mb-2">⚖ Creator Fairness Window</p>
+                                <p className="text-xs text-gray-100 leading-relaxed">Custom & DIY requests sent to a specific Creator stay exclusive to them for <strong>24–72 hours</strong> (scaled by price and complexity). If unaccepted in that window, the request automatically opens to ALL Creators — keeping commissions fair for users and Creators alike.</p>
+                            </div>
                         </div>
 
                         <Card className="border-yellow-500/30 text-center max-w-md mx-auto w-full">
                             <HelpCircle size={28} className="mx-auto mb-2 text-yellow-400"/>
                             <h3 className="font-black uppercase text-sm mb-1 text-yellow-400">Found a bug? Have an idea?</h3>
-                            <p className="text-xs text-gray-100 mb-3">Help shape RaveKandi during Alpha — send the team your feedback, bug reports, and help requests.</p>
-                            <Button onClick={() => setTicketOpen(true)} color="gold" className="w-full text-xs">Send Feedback / Report Issue</Button>
+                            <p className="text-sm text-gray-100 mb-3">Help shape RaveKandi during Alpha — send the team your feedback, bug reports, and help requests.</p>
+                            <Button onClick={() => setTicketOpen(true)} color="gold" className="w-full text-sm">Send Feedback / Report Issue</Button>
                         </Card>
                     </div>
                 )}
@@ -3579,7 +3963,7 @@ cat << 'EOF' >> src/App.js
                             ))}
                         </div>
                     ) : (
-                    <div className="grid grid-cols-1 gap-6">{filteredItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
+                    <div className="grid grid-cols-1 gap-6">{displayedFeedItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
                     )}</div>)}
                 {page === 'shop' && (
                     <div className="max-w-4xl mx-auto">
@@ -3588,13 +3972,6 @@ cat << 'EOF' >> src/App.js
                         {tab === 'diy' && <DIYBuilder onSubmitRequest={async (i) => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()}); if (i.assignedCreatorId) pushNotif(i.assignedCreatorId, 'queue', '🔨 New direct build request from ' + (profile?.displayName || 'a raver') + ' — $' + (i.price || 0).toFixed(2) + ' (' + (i.idleWindowHours || 24) + 'h priority window)'); }}/>}
                         {tab === 'official' && ( 
                             <div>
-                                <Card className="text-center py-12 border-dashed border-cyan-500/50 bg-[#0f001e] mb-6">
-                                    <div className="space-y-2 mb-8">
-                                        {['OFFICIAL', 'DROPS', 'SOON'].map((word, i) => (<h1 key={i} className="text-5xl font-black animate-text-shimmer opacity-80" style={{ backgroundImage: 'linear-gradient(45deg, #00ffff, #ffffff, #00ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>{word}.</h1>))}
-                                    </div>
-                                    <p className="max-w-md mx-auto text-sm opacity-70 mb-6">Official Items are still under construction, design, and fabrication. They will be added in a future update.</p>
-                                    <Button onClick={() => setForceSettings(true)} color="cyan" className="px-8">Enable Drop Notifications</Button>
-                                </Card>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {officialItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}
                                 </div>
@@ -3613,7 +3990,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V37.13.02 Phase 12: Messenger, Notifications & PLUR Engine</span>
+                    <span className="flex-1 text-center">V42.09.01 Phase 13: Subscriber Tools, Boosts & Banner Queue</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -3808,9 +4185,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V37.13.02)..."
-sed -i "s/versionCode 1/versionCode 53/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "37.13.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.09.01)..."
+sed -i "s/versionCode 1/versionCode 55/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.09.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -3857,7 +4234,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V37_13_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_09_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
