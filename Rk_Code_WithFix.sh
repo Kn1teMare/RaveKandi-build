@@ -9,12 +9,12 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V37.10.00</title>
+    <title>RaveKandi V37.12.00</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
       @keyframes rkMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-      .rk-marquee-track { display: flex; width: max-content; animation: rkMarquee 25s linear infinite; will-change: transform; }
+      .rk-marquee-track { display: flex; width: max-content; animation: rkMarquee 60s linear infinite; will-change: transform; }
       @keyframes rkGhostFlash { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
@@ -72,7 +72,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.10.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.12.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -139,16 +139,17 @@ EOF
 rm -f src/App.js
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInAnonymously } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, increment, runTransaction, writeBatch } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
-  AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, 
+  AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
   Clock, Code, Copy, CreditCard, DollarSign, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
@@ -246,6 +247,13 @@ cat << 'EOF' >> src/App.js
 const getTextGlowStyle = (color = 'primaryGlow') => ({ textShadow: `0 0 10px ${NEON_COLORS[color]}, 0 0 20px ${NEON_COLORS[color]}`, fontFamily: '"Inter", sans-serif' });
 const getBoxGlowStyle = (color = 'accentGlow') => ({ boxShadow: `0 0 8px ${NEON_COLORS[color]}, 0 0 15px ${NEON_COLORS[color]} inset`, borderColor: NEON_COLORS[color] });
 const getBulkDiscount = (qty) => { if (qty >= 100) return 0.20; if (qty >= 50) return 0.15; if (qty >= 25) return 0.10; if (qty >= 10) return 0.05; return 0; };
+// V37.12: fairness window — higher price/complexity gives the requested Creator more time
+export const getIdleWindowHours = (price = 0, parts = 0) => {
+    let h = 24;
+    if (price >= 25 || parts >= 10) h = 48;
+    if (price >= 75 || parts >= 20) h = 72;
+    return h;
+};
 
 export const ensureUserExists = async (uid, customName = null, referrerUid = null) => {
     if (!uid) return;
@@ -315,9 +323,17 @@ const generateCustomKandi = async (prompt) => {
         const safePrompt = encodeURIComponent(`Rave kandi beads, festival apparel: ${prompt}`);
         const textUrl = `https://text.pollinations.ai/prompt/You%20are%20a%20master%20Rave%20Kandi%20builder.%20The%20user%20wants:%20${safePrompt}.%20Return%20ONLY%20a%20JSON%20object%20with%20NO%20MARKDOWN.%20Format:%20{%22visual_description%22:%22detailed%20description%22,%22total_bead_count%22:150,%22difficulty_1_to_10%22:6,%22estimated_materials%22:[{%22name%22:%22string%22,%22qty%22:%22string%22}]}`;
         
-        const response = await fetch(textUrl);
-        if (!response.ok) throw new Error("AI Text endpoint failed.");
-        const rawText = await response.text();
+        // V37.11: the text endpoint intermittently returns 5xx / rate-limits — retry with
+        // backoff, then fall back to a structural template instead of crashing the Lab
+        // (was: "AI Assembly Failed: AI Text endpoint failed").
+        let rawText = '';
+        for (let tAttempt = 0; tAttempt < 3; tAttempt++) {
+            try {
+                const response = await fetch(textUrl, { cache: 'no-store' });
+                if (response.ok) { rawText = await response.text(); if (rawText && rawText.length > 5) break; }
+            } catch (tErr) { console.log('AI text attempt ' + (tAttempt + 1) + ' failed.'); }
+            await new Promise(r => setTimeout(r, 4000));
+        }
         
         let analysis;
         try {
@@ -406,7 +422,7 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
 
 const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name }) => ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input name={name} autoComplete={autoComplete} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> );
 
-const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return ( <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 overflow-y-auto"><Card className="max-w-md w-full my-8" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div> ); };
+const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto"><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
 
 const MediaCarousel = ({ media, fallback }) => {
     const [idx, setIdx] = useState(0);
@@ -420,9 +436,13 @@ const MediaCarousel = ({ media, fallback }) => {
                 <img src={current.url} className="max-w-full max-h-full object-contain" />
             )}
             {media.length > 1 && (
-                <div className="absolute bottom-2 left-0 w-full flex justify-center gap-1 z-20">
-                    {media.map((_, i) => <button key={i} onClick={(e)=>{e.stopPropagation(); setIdx(i);}} className={`w-2 h-2 rounded-full ${i===idx ? 'bg-pink-500' : 'bg-white/50'}`} />)}
-                </div>
+                <>
+                    <button onClick={(e)=>{e.stopPropagation(); setIdx((idx - 1 + media.length) % media.length);}} className="absolute left-1 top-1/2 -translate-y-1/2 z-20 bg-black/60 rounded-full p-1 text-white/80 hover:text-white"><ChevronLeft size={18}/></button>
+                    <button onClick={(e)=>{e.stopPropagation(); setIdx((idx + 1) % media.length);}} className="absolute right-1 top-1/2 -translate-y-1/2 z-20 bg-black/60 rounded-full p-1 text-white/80 hover:text-white"><ChevronRight size={18}/></button>
+                    <div className="absolute bottom-2 left-0 w-full flex justify-center gap-1 z-20">
+                        {media.map((_, i) => <button key={i} onClick={(e)=>{e.stopPropagation(); setIdx(i);}} className={`w-2 h-2 rounded-full ${i===idx ? 'bg-pink-500' : 'bg-white/50'}`} />)}
+                    </div>
+                </>
             )}
         </div>
     );
@@ -576,7 +596,7 @@ const ReferralModal = ({ user, profile, isOpen, onClose }) => {
     useEffect(() => {
         if(!isOpen || !user?.uid) return;
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'myReferrals'), orderBy('timestamp', 'desc'));
-        return onSnapshot(q, s => setRefs(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        return onSnapshot(q, s => setRefs(s.docs.map(d => ({...d.data(), id: d.id}))));
     }, [isOpen, user]);
 
     const submitRetroCode = async () => {
@@ -784,12 +804,25 @@ const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="Custom Theming">
             <div className="space-y-4">
                 <p className="text-xs opacity-70">Paste an image URL, or upload a file directly to replace the app's default dark background.</p>
+                <div className="bg-black/50 border border-purple-500/40 p-3 rounded">
+                    <h4 className="text-[10px] uppercase font-bold text-purple-400 mb-2 flex items-center gap-1"><Sparkles size={12}/> RaveKandi Official Themes</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[1,2,3].map(n => (
+                            <div key={n} className="h-16 rounded border border-dashed border-white/20 bg-white/5 flex flex-col items-center justify-center opacity-60">
+                                <Lock size={12} className="text-purple-400 mb-1"/>
+                                <span className="text-[7px] uppercase font-bold text-center leading-tight">HD Animated<br/>Coming Soon</span>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-[8px] opacity-50 mt-2">Exclusive animated HD backgrounds made by the RaveKandi team — dropping in a future update.</p>
+                </div>
                 <Input value={url} onChange={setUrl} placeholder="https://my-custom-gif.com/image.gif" />
                 <div className="bg-white/5 p-3 rounded border border-white/10">
                     <label className="text-[10px] font-bold text-pink-400 mb-1 block">Upload Background</label>
                     <input type="file" accept="image/*" onChange={handleFile} className="text-[10px] w-full" disabled={uploading}/>
                     {uploading && <p className="text-[10px] text-lime-400 mt-1">Processing...</p>}
                 </div>
+                <p className="text-[9px] text-yellow-400 bg-yellow-900/20 border border-yellow-500/30 rounded p-2 text-center font-bold">⚠ You must press SAVE THEME for changes to apply — including after uploading an image or after clearing your theme.</p>
                 <div className="flex gap-2">
                     <Button onClick={() => setUrl('')} color="red" className="flex-1">Clear Theme</Button>
                     <Button onClick={saveTheme} color="lime" className="flex-1">Save Theme</Button>
@@ -806,7 +839,7 @@ const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
     </div>
 );
 
-const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange }) => {
+const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying }) => {
     const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
     const [station, setStation] = useState(RADIO_STATIONS[0]);
     const [playing, setPlaying] = useState(false);
@@ -845,6 +878,29 @@ const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange }
     useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
     useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
     useEffect(() => { if (onPlayingChange) onPlayingChange(playing); }, [playing]);
+
+    // V37.11: now-playing song polling. SomaFM exposes a public JSON now-playing API;
+    // other stations report as a live stream (no track metadata available).
+    useEffect(() => {
+        if (!onNowPlaying) return;
+        if (!playing || !station) { onNowPlaying(null); return; }
+        let alive = true;
+        const isSoma = station.url.includes('somafm.com/');
+        const channel = isSoma ? station.url.split('somafm.com/')[1].split('-')[0] : null;
+        const pull = async () => {
+            let song = '';
+            if (channel) {
+                try {
+                    const r = await fetch('https://somafm.com/songs/' + channel + '.json', { cache: 'no-store' });
+                    if (r.ok) { const j = await r.json(); const s0 = j.songs && j.songs[0]; if (s0) song = (s0.artist ? s0.artist + ' — ' : '') + (s0.title || ''); }
+                } catch (e) {}
+            }
+            if (alive) onNowPlaying({ name: station.name, song: song || 'Live Stream', color: station.color });
+        };
+        pull();
+        const int = setInterval(pull, 25000);
+        return () => { alive = false; clearInterval(int); };
+    }, [playing, station]);
 
     const grantPermission = () => {
         try { localStorage.setItem('rk_audio_consent', 'true'); } catch(e) {}
@@ -1025,7 +1081,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.10.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.12.00'
             });
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
             setSubject(''); setMessage(''); onClose();
@@ -1234,7 +1290,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
     useEffect(() => {
         if(!isOpen || !user?.uid) return;
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'));
-        return onSnapshot(q, s => setCartItems(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        return onSnapshot(q, s => setCartItems(s.docs.map(d => ({...d.data(), id: d.id}))));
     }, [isOpen, user]);
 
     // V37.10: live availability — cross-reference each cart entry against the live tradeItems feed
@@ -1408,9 +1464,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
     const [reviews, setReviews] = useState([]);
 
     useEffect(() => {
-        if(isOpen && item && user && user.uid !== item.ownerId) {
-            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { viewCount: increment(1) }).catch(e=>console.log(e));
-        }
+        // V37.11: view counting moved to App.handleViewItem (unique per UID)
         if(item) {
             setEditForm({ name: item.name, price: item.price, description: item.description, stockQty: item.stockQty });
             setReviews(item.reviews || []);
@@ -1477,7 +1531,32 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={item.name || "Item Details"}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image} />
+                <div className="h-72 w-full rounded-lg overflow-hidden border border-white/10 bg-black/60">
+                    <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image} />
+                </div>
+
+                {item.description && (
+                    <div className="bg-white/5 p-3 rounded border border-white/10">
+                        <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-1">Description</h4>
+                        <p className="text-xs text-gray-100 whitespace-pre-wrap break-words">{item.description}</p>
+                    </div>
+                )}
+
+                <div className="bg-white/5 p-3 rounded border border-white/10">
+                    <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2">Item Analytics</h4>
+                    <div className="grid grid-cols-3 gap-2 text-[10px] text-center">
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-white">{item.viewCount || 0}</div><div className="opacity-50">Views</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-pink-400">{item.likes?.length || 0}</div><div className="opacity-50">Likes</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-cyan-400">{item.comments?.length || 0}</div><div className="opacity-50">Comments</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-lime-400">{item.purchaseCount || 0}</div><div className="opacity-50">Sold</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-yellow-400">{item.shareCount || 0}</div><div className="opacity-50">Shares</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-white">{Math.max(0, item.stockQty ?? 1)}</div><div className="opacity-50">In Stock</div></div>
+                    </div>
+                    <div className="flex justify-between mt-2 text-[9px] opacity-70 px-1">
+                        <span>Price: <span className="text-lime-400 font-bold">${item.price?.toFixed(2) || '0.00'}</span></span>
+                        <span>Posted: {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : '—'}</span>
+                    </div>
+                </div>
                 
                 {(isOwner || isBuyer) && item.purchaseCount > 0 && (
                     <div className="bg-black/50 border border-lime-500/50 p-3 rounded">
@@ -1571,7 +1650,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed }) => {
         if(!isOpen || !user?.uid) return;
         let q = type === 'posts' ? query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), orderBy('timestamp', 'desc')) : query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
         return onSnapshot(q, s => {
-            const allItems = s.docs.map(d => ({id: d.id, ...d.data()}));
+            const allItems = s.docs.map(d => ({...d.data(), id: d.id}));
             if (type === 'posts') setItems(allItems.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(allItems.filter(i => i.isCraftingStock));
         });
@@ -1701,7 +1780,7 @@ const CreatorSelectCarousel = ({ onSelectCreator }) => {
 
     useEffect(() => {
         const q = query(collection(db, 'artifacts', appId, 'users'), where('isKandiCreator', '==', true));
-        getDocs(q).then(snap => setCreators(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+        getDocs(q).then(snap => setCreators(snap.docs.map(d => ({...d.data(), id: d.id}))));
     }, []);
 
     const handleSelect = (c) => {
@@ -1732,15 +1811,25 @@ const DIYBuilder = ({ onSubmitRequest }) => {
     const [desc, setDesc] = useState(''); const [success, setSuccess] = useState(false);
     const [activeCreator, setActiveCreator] = useState(null);
     const [creatorStock, setCreatorStock] = useState([]);
+    const [openMode, setOpenMode] = useState(false);
+    const [budget, setBudget] = useState('');
+    const [lastSubmit, setLastSubmit] = useState(null);
 
     useEffect(() => {
+        if(openMode) {
+            // Open requests pull parts from the shared public DIY inventory
+            getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'inventory')))
+                .then(snap => setCreatorStock(snap.docs.map(d => ({...d.data(), id: d.id})).filter(i => i.isCraftingStock)))
+                .catch(() => setCreatorStock([]));
+            return;
+        }
         if(!activeCreator) { setCreatorStock([]); return; }
         const q = query(collection(db, 'artifacts', appId, 'users', activeCreator.id, 'inventory'));
         getDocs(q).then(snap => {
-            const stock = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(i => i.isCraftingStock);
+            const stock = snap.docs.map(d => ({...d.data(), id: d.id})).filter(i => i.isCraftingStock);
             setCreatorStock(stock);
         });
-    }, [activeCreator]);
+    }, [activeCreator, openMode]);
     
     const total = useMemo(() => {
         const raw = build.reduce((s, i) => s + (parseFloat(i.sell) || parseFloat(i.cost) || 0), 0);
@@ -1749,30 +1838,59 @@ const DIYBuilder = ({ onSubmitRequest }) => {
     
     const add = (i) => setBuild(prev => [...prev, i]); 
     const remove = (index) => setBuild(prev => prev.filter((_, i) => i !== index));
-    const submitDesign = () => { onSubmitRequest({ name: "DIY Custom Request", price: total, components: build, description: desc, isDIYRequest: true, isRequest: true, type: "Other", viewCount: 0, assignedCreatorId: activeCreator?.id || null, assignedCreatorName: activeCreator?.name || activeCreator?.displayName || null, requestStatus: activeCreator?.id ? 'pending' : 'awaiting_assignment', status: 'request' }); setSuccess(true); setBuild([]); setDesc(''); setActiveCreator(null); };
+    const effTotal = build.length > 0 ? total : (parseFloat(budget) || 0);
+    const submitDesign = () => {
+        const windowH = getIdleWindowHours(effTotal, build.length);
+        const targeted = !openMode && !!activeCreator?.id;
+        setLastSubmit({ creator: activeCreator?.displayName || activeCreator?.name || null, hours: windowH, open: !targeted });
+        onSubmitRequest({ name: openMode && build.length === 0 ? "Custom Design Request" : "DIY Custom Request", price: effTotal, components: build, description: desc, isDIYRequest: true, isRequest: true, openRequest: !targeted, type: "Other", viewCount: 0, assignedCreatorId: targeted ? activeCreator.id : null, assignedCreatorName: targeted ? (activeCreator?.name || activeCreator?.displayName || null) : null, requestStatus: targeted ? 'pending' : 'awaiting_assignment', idleWindowHours: windowH, idleExpiresAt: targeted ? Date.now() + windowH * 3600000 : null, status: 'request' });
+        setSuccess(true); setBuild([]); setDesc(''); setActiveCreator(null); setBudget('');
+    };
 
     return ( 
-        <div className="flex flex-col gap-4 max-h-[85vh]">
-            <CreatorSelectCarousel onSelectCreator={setActiveCreator} />
+        <div className="flex flex-col gap-4">
+            <Card className="border-cyan-500/30">
+                <h3 className="font-black uppercase text-sm text-cyan-400 mb-2 italic tracking-widest">How DIY Builds Work</h3>
+                <div className="text-[11px] text-gray-100 space-y-1 leading-relaxed">
+                    <p><span className="text-pink-400 font-bold">1.</span> Pick a Creator above to load their real crafting inventory (beads, strings, charms).</p>
+                    <p><span className="text-pink-400 font-bold">2.</span> Tap parts to add them to Your Build — the price totals automatically as you design.</p>
+                    <p><span className="text-pink-400 font-bold">3.</span> Describe your vision (colors, pattern, sizing) and hit Submit Build.</p>
+                    <p><span className="text-pink-400 font-bold">4.</span> Track your request in your Collection — Pending → Active → Completed as the Creator works.</p>
+                    <p><span className="text-pink-400 font-bold">5.</span> ⚖ Fairness window: a requested Creator gets <strong>24–72h</strong> (scaled by price & complexity) to accept before your request automatically opens to ALL Creators.</p>
+                </div>
+            </Card>
+            <CreatorSelectCarousel onSelectCreator={(c) => { setActiveCreator(c); setOpenMode(false); }} />
+
+            <button onClick={() => { const next = !openMode; setOpenMode(next); if (next) setActiveCreator(null); }} className={`w-full p-3 rounded-xl border-2 border-dashed font-black uppercase text-xs tracking-widest transition-all ${openMode ? 'border-lime-400 bg-lime-900/30 text-lime-300 shadow-[0_0_15px_rgba(163,230,53,0.4)]' : 'border-white/20 bg-white/5 text-white/60 hover:bg-white/10'}`}>
+                📢 All Inventory / Open Request to ALL Creators {openMode && '✓ ACTIVE'}
+            </button>
+            {openMode && <p className="text-[9px] text-lime-300/80 -mt-2 px-1">Open mode: your request goes straight to the Awaiting Creator queue where every Creator can see and accept it. Add parts from the shared inventory (if available) or just describe your vision and set a budget.</p>}
             
-            <div className="flex flex-col md:flex-row gap-4 flex-1 overflow-hidden min-h-[500px]">
+            <div className="flex flex-col md:flex-row gap-4">
                 {success && (
                     <Modal isOpen={success} onClose={() => setSuccess(false)} title="Submission Received">
                         <div className="text-center py-4 space-y-4">
                             <CheckCircle size={48} className="text-lime-400 mx-auto"/>
-                            <div className="text-left bg-white/5 p-4 rounded text-xs space-y-2 opacity-80"><p>1. Your build has been sent directly to <strong>{activeCreator?.displayName || 'the Creator'}</strong>.</p><p>2. They will review your design and accept the commission within <strong>24 hours</strong>.</p></div>
+                            <div className="text-left bg-white/5 p-4 rounded text-xs space-y-2 opacity-80">
+                                {lastSubmit?.open ? (
+                                    <p>1. Your open request is now live in the <strong>Awaiting Creator</strong> queue — visible to ALL Creators. The first to accept takes the commission.</p>
+                                ) : (<>
+                                    <p>1. Your build has been sent directly to <strong>{lastSubmit?.creator || 'the Creator'}</strong>.</p>
+                                    <p>2. They have a <strong>{lastSubmit?.hours || 24}-hour priority window</strong> (scaled by price & complexity) to accept. If they don't respond in time, your request automatically opens to ALL Creators — keeping things fair for you and for busy Creators.</p>
+                                </>)}
+                            </div>
                             <Button onClick={() => setSuccess(false)} color="primary" className="w-full">Got it</Button>
                         </div>
                     </Modal>
                 )}
                 
-                <Card className="flex-none h-1/2 md:h-full md:w-1/2 overflow-hidden flex flex-col">
+                <Card className="flex-none h-72 md:h-[500px] md:w-1/2 overflow-hidden flex flex-col">
                     <h3 className="font-bold mb-2 shrink-0 italic tracking-widest uppercase">DIY STUDIO</h3>
-                    {!activeCreator ? (
-                        <div className="flex-1 flex items-center justify-center text-[10px] opacity-50 border border-dashed border-white/10 rounded">Select a Creator above to load their inventory.</div>
+                    {(!activeCreator && !openMode) ? (
+                        <div className="flex-1 flex items-center justify-center text-[10px] opacity-50 border border-dashed border-white/10 rounded text-center px-4">Select a Creator above — or tap Open Request — to load an inventory.</div>
                     ) : (
                         <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-1 content-start p-1">
-                            {creatorStock.length === 0 && <p className="col-span-3 text-center text-[10px] opacity-50 pt-10">This creator has no active crafting stock.</p>}
+                            {creatorStock.length === 0 && <p className="col-span-3 text-center text-[10px] opacity-50 pt-10">{openMode ? 'No shared DIY stock yet — describe your vision below and set a budget.' : 'This creator has no active crafting stock.'}</p>}
                             {creatorStock.map(i => (
                                 <div key={i.id} onClick={() => add(i)} className="bg-white/5 p-2 rounded cursor-pointer border border-transparent relative h-24 flex flex-col items-center justify-center transition hover:bg-white/10">
                                     <PlusCircle size={16} className="absolute top-1 right-1 text-lime-400"/>
@@ -1784,10 +1902,11 @@ const DIYBuilder = ({ onSubmitRequest }) => {
                         </div>
                     )}
                 </Card>
-                <div className="flex-1 flex flex-col gap-2 h-full overflow-hidden">
-                    <Card className="flex-1 overflow-hidden flex flex-col" glow="purpleGlow">
+                <div className="flex-1 flex flex-col gap-2">
+                    <Card className="shrink-0 flex flex-col" glow="purpleGlow">
                         <h3 className="font-bold mb-2 shrink-0" style={getTextGlowStyle('purpleGlow')}>Your Build ({build.length})</h3>
-                        <div className="flex-1 overflow-y-auto bg-black/20 p-2 rounded">
+                        <div className="h-40 overflow-y-auto bg-black/20 p-2 rounded">
+                            {build.length === 0 && <p className="text-[10px] opacity-40 text-center pt-12">Tap parts on the left to add them here.</p>}
                             {build.map((b, i) => (
                                 <div key={i} className="text-xs flex justify-between items-center p-2 border-b border-white/5 bg-white/5 mb-1 rounded">
                                     <span className="truncate flex-1">{b.name || b.subType}</span>
@@ -1798,7 +1917,11 @@ const DIYBuilder = ({ onSubmitRequest }) => {
                         </div>
                     </Card>
                     <Card className="shrink-0" glow="purpleGlow"><label className="text-[10px] font-bold mb-1 block">Describe Vision</label><textarea value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Describe color order, exact pattern..." className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-[10px] h-16"/></Card>
-                    <Card className="shrink-0 flex justify-between items-center bg-[#1a0033]" glow="limeGlow"><div className="text-xl font-bold text-white">Total: <span className="text-lime-400">${total.toFixed(2)}</span></div><Button onClick={submitDesign} disabled={build.length===0 || !activeCreator} color="lime" className="shadow-neon-green">Submit Build</Button></Card>
+                    {openMode && build.length === 0 && (
+                        <Card className="shrink-0" glow="limeGlow"><label className="text-[10px] font-bold mb-1 block text-lime-400">Budget Offer ($) — required when sending without parts</label><input type="number" min="1" value={budget} onChange={e=>setBudget(e.target.value)} placeholder="e.g. 25" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs"/></Card>
+                    )}
+                    <Card className="shrink-0 flex justify-between items-center bg-[#1a0033]" glow="limeGlow"><div className="text-xl font-bold text-white">Total: <span className="text-lime-400">${effTotal.toFixed(2)}</span></div><Button onClick={submitDesign} disabled={openMode ? (!desc || effTotal <= 0) : (build.length===0 || !activeCreator)} color="lime" className="shadow-neon-green">{openMode ? 'Send Open Request' : 'Submit Build'}</Button></Card>
+                    <p className="text-[8px] opacity-50 text-center shrink-0">⚖ Requested Creators get a {getIdleWindowHours(effTotal, build.length)}h priority window — unaccepted requests then open to all Creators.</p>
                 </div>
             </div>
         </div> 
@@ -1815,7 +1938,8 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     
     const isOwner = user?.uid === item.ownerId;
     const isBuyer = item.buyers?.includes(user?.uid);
-    const canSeePrice = item.purchaseCount === 0 || isOwner || isBuyer;
+    const inStock = (item.stockQty ?? (item.purchaseCount > 0 ? 0 : 1)) > 0;
+    const canSeePrice = inStock || isOwner || isBuyer;
 
     const toggleLike = async () => { if(!user?.uid) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id); if(liked) await updateDoc(ref, { likes: arrayRemove(user.uid) }); else await updateDoc(ref, { likes: arrayUnion(user.uid) }); setLiked(!liked); };
     
@@ -1841,7 +1965,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 <div className="flex justify-between items-center">
                     <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold hover:underline cursor-pointer flex items-center">@{item.ownerName}<BadgeChip badge={item.ownerBadge} /></button>
                     <span className="text-lime-400 font-bold">
-                        {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-white/50 italic bg-white/10 px-2 py-1 rounded">SOLD</span>}
+                        {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
                 </div>
                 {item.description && (
@@ -1853,7 +1977,8 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     </div>
                 )}
                 <div className="flex gap-2 mt-2">
-                    <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {item.stockQty || 1}</span>
+                    {(item.stockQty ?? 1) <= 0 ? <span className="text-[8px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
+                    {isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[8px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
                     {item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>}
                     <span className="text-[8px] bg-black/50 px-1 rounded border border-white/10 flex items-center gap-1"><Eye size={8}/> {item.viewCount || 0}</span>
                     {avgRating && <span className="text-[8px] bg-yellow-900/30 px-1 rounded border border-yellow-500/50 flex items-center gap-1 text-yellow-400"><StarIcon size={8} fill="currentColor"/> {avgRating}</span>}
@@ -1862,7 +1987,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             
             <div className="mt-auto flex justify-between items-center pt-3 border-t border-white/10">
                 <div className="flex gap-3"><button onClick={toggleLike} className={liked ? 'text-pink-500' : 'text-white/50'}><Heart size={18} fill={liked?"currentColor":"none"}/></button><button onClick={() => setShowComments(true)} className="text-white/50 hover:text-white"><MessageSquare size={18}/></button><button onClick={handleShare} className="text-white/50 hover:text-cyan-400"><Share2 size={18}/></button></div>
-                {item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={item.purchaseCount > 0 && item.stockQty <= 1} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
+                {item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
             </div>
         </Card> 
     );
@@ -1977,8 +2102,8 @@ const AdminDashboard = () => {
     const [managedUser, setManagedUser] = useState(null);
     const [revPct, setRevPct] = useState('');
 
-    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('status', '==', 'pending')), s => setApps(s.docs.map(d => ({id: d.id, ...d.data()})))), []);
-    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tickets')), s => setTickets(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))), []);
+    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('status', '==', 'pending')), s => setApps(s.docs.map(d => ({...d.data(), id: d.id})))), []);
+    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tickets')), s => setTickets(s.docs.map(d => ({...d.data(), id: d.id})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))), []);
 
     const approve = async (a) => { if(window.confirm("Approve?")) { await updateDoc(doc(db, 'artifacts', appId, 'users', a.uid), { isKandiCreator: true }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', a.id), { status: 'approved' }); } };
     
@@ -2176,16 +2301,23 @@ const CreatorProjectHub = ({ user, onClose }) => {
 
     useEffect(() => {
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('requestStatus', '==', hubTab));
-        const unsub = onSnapshot(q, s => setRequests(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        const unsub = onSnapshot(q, s => setRequests(s.docs.map(d => ({...d.data(), id: d.id}))));
         return () => unsub();
     }, [hubTab]);
 
     // Legacy support: pre-V37.10 submissions used status:'pending' with no requestStatus field
     useEffect(() => {
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('status', '==', 'pending'));
-        const unsub = onSnapshot(q, s => setLegacyPending(s.docs.map(d => ({id: d.id, ...d.data()})).filter(d => !d.requestStatus)));
+        const unsub = onSnapshot(q, s => setLegacyPending(s.docs.map(d => ({...d.data(), id: d.id})).filter(d => !d.requestStatus)));
         return () => unsub();
     }, []);
+
+    // V37.12: release expired priority windows when viewing the pending queue
+    useEffect(() => {
+        if (hubTab !== 'pending') return;
+        requests.filter(r => r.requestStatus === 'pending' && r.idleExpiresAt && Date.now() > r.idleExpiresAt)
+            .forEach(r => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', r.id), { requestStatus: 'awaiting_assignment', autoReleasedAt: Date.now() }).catch(()=>{}));
+    }, [requests, hubTab]);
 
     const list = hubTab === 'pending' ? [...requests, ...legacyPending.filter(l => !requests.some(r => r.id === l.id))] : requests;
 
@@ -2207,6 +2339,7 @@ const CreatorProjectHub = ({ user, onClose }) => {
                     <button key={t.id} onClick={() => setHubTab(t.id)} className={`px-3 py-2 rounded-full font-black uppercase text-[9px] tracking-widest whitespace-nowrap ${hubTab===t.id ? 'bg-lime-500 text-black' : 'bg-white/5 text-white/50'}`}>{t.label}</button>
                 ))}
             </div>
+            {hubTab === 'pending' && <p className="text-[9px] text-yellow-300 bg-yellow-900/20 border border-yellow-500/30 rounded p-2 mb-4">⚖ Fairness window: requested Creators get 24–72h (scaled by price & complexity) to accept. Expired requests auto-release to the Awaiting Creator queue for all Creators.</p>}
             <div className="grid gap-4">
                 {list.length === 0 ? <p className="opacity-50 italic uppercase text-xs">No {TABS.find(t=>t.id===hubTab)?.label} requests</p> : list.map(req => (
                     <Card key={req.id} className="border-lime-500/30">
@@ -2218,6 +2351,7 @@ const CreatorProjectHub = ({ user, onClose }) => {
                                     {req.isAICreation && <span className="bg-purple-500/20 text-purple-400 text-[8px] px-1 rounded">AI Generated</span>}
                                     {req.isDIYRequest && <span className="bg-cyan-500/20 text-cyan-400 text-[8px] px-1 rounded">DIY Build</span>}
                                     {req.assignedCreatorName && <span className="bg-pink-500/20 text-pink-400 text-[8px] px-1 rounded">Requested: {req.assignedCreatorName}</span>}
+                                    {req.requestStatus === 'pending' && req.idleExpiresAt && <span className="bg-yellow-500/20 text-yellow-300 text-[8px] px-1 rounded">{req.idleExpiresAt > Date.now() ? '⏳ Opens to all in ' + Math.max(1, Math.ceil((req.idleExpiresAt - Date.now()) / 3600000)) + 'h' : '⏳ Releasing to all...'}</span>}
                                     {req.assigneeName && <span className="bg-lime-500/20 text-lime-400 text-[8px] px-1 rounded">Assigned: {req.assigneeName}</span>}
                                 </div>
                             </div>
@@ -2288,6 +2422,8 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
                         <div className="bg-white/5 p-2 rounded"><span className="block opacity-70 mb-1">Items Sold</span><span className="font-bold">{profile.itemsSold || 0}</span></div>
                         <div className="bg-white/5 p-2 rounded"><span className="block opacity-70 mb-1">Orders</span><span className="font-bold">{profile.completedTrades || 0}</span></div>
                         <div className="bg-white/5 p-2 rounded"><span className="block opacity-70 mb-1">Recruits</span><span className="font-bold">{profile.referrals || 0}</span></div>
+                        <div className="bg-white/5 p-2 rounded"><span className="block opacity-70 mb-1">Active Hrs</span><span className="font-bold text-lime-400">{(((profile.activeMinutes || 0) / 60) + (profile.activeHours || 0)).toFixed(1)}</span></div>
+                        <div className="bg-white/5 p-2 rounded"><span className="block opacity-70 mb-1">App Opens</span><span className="font-bold">{profile.activeOpens || 0}</span></div>
                     </div>
                 </div>
             </div>
@@ -2378,7 +2514,7 @@ const PinSelectModal = ({ user, isOpen, onClose }) => {
     const [inv, setInv] = useState([]);
     useEffect(() => {
         if(!isOpen || !user?.uid) return;
-        getDocs(query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'))).then(s => setInv(s.docs.map(d=>({id: d.id, ...d.data()}))));
+        getDocs(query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'))).then(s => setInv(s.docs.map(d=>({...d.data(), id: d.id}))));
     }, [isOpen, user]);
     const togglePin = async (item) => {
         await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.id), { isPinned: true });
@@ -2422,7 +2558,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     useEffect(() => {
         if(!user?.uid || !profile?.isKandiCreator) return;
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), where('isPinned', '==', true));
-        return onSnapshot(q, s => setPinnedItems(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        return onSnapshot(q, s => setPinnedItems(s.docs.map(d => ({...d.data(), id: d.id}))));
     }, [user, profile]);
     
     const unpinItem = async (itemId) => { await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', itemId), { isPinned: false }); };
@@ -2705,6 +2841,8 @@ const App = () => {
     const [isRadioPlaying, setIsRadioPlaying] = useState(false);
     const [radioOpen, setRadioOpen] = useState(false);
     const [ticketOpen, setTicketOpen] = useState(false);
+    const [viewingItem, setViewingItem] = useState(null);
+    const [nowPlaying, setNowPlaying] = useState(null);
     
     // PHASE 7: Global Stats Hook
     const [globalStats, setGlobalStats] = useState({ userCount: 0 });
@@ -2713,6 +2851,29 @@ const App = () => {
         return () => unsub();
     }, []);
     
+    // V37.12: full active-time logging. Every minute the app is open is counted into a
+    // local buffer, then synced to the database in ONE write per 6-hour window — all
+    // session time is captured (even short sessions) without per-minute database traffic.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous) return;
+        const uid = user.uid;
+        const bufKey = 'rk_act_buf_' + uid, openKey = 'rk_act_opens_' + uid, flushKey = 'rk_act_flush_' + uid;
+        const num = (k) => parseInt(localStorage.getItem(k) || '0') || 0;
+        localStorage.setItem(openKey, String(num(openKey) + 1));
+        const flush = () => {
+            const last = num(flushKey);
+            if (last && (Date.now() - last) < 21600000) return; // sync window: 6h
+            const mins = num(bufKey), opens = num(openKey);
+            const ref = doc(db, 'artifacts', appId, 'users', uid);
+            setDoc(ref, { lastActiveAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens) }, { merge: true })
+                .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
+                .catch(() => {});
+        };
+        flush();
+        const tick = setInterval(() => { localStorage.setItem(bufKey, String(num(bufKey) + 1)); flush(); }, 60000);
+        return () => clearInterval(tick);
+    }, [user]);
+
     const syncMsgs = ["Synching Posts...", "Loading Creations...", "PLUR'ing the Posts", "💕 Catching a Vibe 🌈", "Finding the Gear 👕", "Locating Art 🎨"];
     const [syncMsgIdx, setSyncMsgIdx] = useState(0);
     const [isSyncing, setIsSyncing] = useState(true);
@@ -2777,7 +2938,7 @@ const App = () => {
     useEffect(() => { 
         if (!user) return;
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems')), s => {
-            setItems(s.docs.map(d => ({id: d.id, ...d.data()})));
+            setItems(s.docs.map(d => ({...d.data(), id: d.id})));
             setIsSyncing(false);
         }, err => {
             console.error('Feed listener error, retrying in 4s...', err);
@@ -2786,16 +2947,61 @@ const App = () => {
         const timeout = setTimeout(() => setIsSyncing(false), 10000);
         return () => { unsub(); clearTimeout(timeout); };
     }, [user, feedRetry]);
+
+    // V37.12: User Directory for the feed "User Profiles" mode
+    const [usersDir, setUsersDir] = useState([]);
+    useEffect(() => {
+        if (page !== 'feed' || filters.postType !== 'users' || !user) return;
+        getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
+            .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
+            .catch(e => console.log('User dir load failed', e));
+    }, [page, filters.postType, user]);
+    useEffect(() => {
+        const term = filters.searchUid.trim();
+        if (page !== 'feed' || filters.postType !== 'users' || term.length < 5) return;
+        const t = setTimeout(async () => {
+            try {
+                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', term)));
+                if (!snap.empty) setUsersDir(prev => { const found = { ...snap.docs[0].data(), id: snap.docs[0].id }; return prev.some(p => p.id === found.id) ? prev : [found, ...prev]; });
+            } catch (e) {}
+        }, 600);
+        return () => clearTimeout(t);
+    }, [filters.searchUid, page, filters.postType]);
+
+    // V37.12: live marquee leaderboards (top seller / RevShare earner / referrer)
+    const [topStats, setTopStats] = useState({});
+    useEffect(() => {
+        if (!user) return;
+        const pull = async () => {
+            try {
+                const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(1))); return s.empty ? null : s.docs[0].data(); };
+                const [seller, earner, referrer] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals')]);
+                setTopStats({ seller, earner, referrer });
+            } catch (e) { console.log('Marquee stats unavailable', e); }
+        };
+        pull();
+        const int = setInterval(pull, 300000);
+        return () => clearInterval(int);
+    }, [user]);
+
+    // V37.12: fairness window — auto-release pending requests whose priority window expired
+    const releasedRef = useRef(new Set());
+    useEffect(() => {
+        items.filter(i => i.requestStatus === 'pending' && i.idleExpiresAt && Date.now() > i.idleExpiresAt && !releasedRef.current.has(i.id))
+            .forEach(i => { releasedRef.current.add(i.id); updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', i.id), { requestStatus: 'awaiting_assignment', autoReleasedAt: Date.now() }).catch(()=>{}); });
+    }, [items]);
     
     const addToCart = async (i) => { 
         if(!user?.uid) return; 
         if(user.isAnonymous) { alert("Please create an account to purchase items."); return; }
-        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'), { ...i, addedAt: Date.now(), originalId: i.id }); alert("Added to Cart!"); 
+        const { id: _srcId, ...cartPayload } = i; await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'), { ...cartPayload, addedAt: Date.now(), originalId: i.id }); alert("Added to Cart!"); 
     };
     
     const handleViewItem = async (item) => {
-        if(user && user.uid !== item.ownerId) {
-            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { viewCount: increment(1) }).catch(e=>console.log(e));
+        setViewingItem(item);
+        // V37.11: unique views — one view per UID, never the owner, counted once forever
+        if(user?.uid && user.uid !== item.ownerId && !item.viewedBy?.includes(user.uid)) {
+            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { viewCount: increment(1), viewedBy: arrayUnion(user.uid) }).catch(e=>console.log(e));
         }
     };
     
@@ -2838,6 +3044,29 @@ const App = () => {
     });
     
     const officialItems = items.filter(i => i.isAppProduct && i.status === 'approved').sort((a,b)=>b.timestamp - a.timestamp);
+
+    const uTerm = (filters.searchUid || '').toLowerCase();
+    const visibleUsers = usersDir.filter(u => !uTerm || (u.displayName || '').toLowerCase().includes(uTerm) || (u.publicUid || u.id || '').toLowerCase().includes(uTerm));
+
+    // V37.12: marquee data
+    const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
+    const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
+    const mqCommission = mqTotalSales * COMMISSION_RATE;
+    const topPosterName = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) c[i.ownerName] = (c[i.ownerName] || 0) + 1; }); const e = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return e ? e[0] + ' (' + e[1] + ' posts)' : null; })();
+    const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE'];
+    const mq = [
+        '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡',
+        '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀',
+        '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2),
+        '🧾 COMMISSION POOL: $' + mqCommission.toFixed(2),
+        '📦 ITEMS LISTED: ' + mqItemsListed,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? '🏆 TOP SELLER: @' + topStats.seller.displayName + ' ($' + Number(topStats.seller.totalSalesValue || 0).toFixed(0) + ' SOLD)' : null,
+        topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? '💎 TOP REVSHARE EARNER: @' + topStats.earner.displayName + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')' : null,
+        topStats.referrer && (topStats.referrer.referrals > 0) ? '🤝 MOST REFERRALS: @' + topStats.referrer.displayName + ' (' + topStats.referrer.referrals + ')' : null,
+        topPosterName ? '📣 TOP POSTER: @' + topPosterName : null,
+        RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length],
+        '💖 PLUR FACT: Handshakes end with a trade! 💖',
+    ].filter(Boolean);
     
     const WelcomeAlphaModal = () => {
         const facts = ["PLUR stands for Peace, Love, Unity, Respect!", "Kandi trading originated in the 90s rave scene.", "Neon colors glow under UV light because of phosphors!", "The PLUR handshake ends with a bracelet trade."];
@@ -2848,7 +3077,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V37.10.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V37.12.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -2868,7 +3097,7 @@ cat << 'EOF' >> src/App.js
     const appBackgroundStyle = profile.isVIP && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' } : { backgroundColor: '#0f001e' };
 
     return (
-        <div className="min-h-screen pb-20 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
+        <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
             <WelcomeAlphaModal />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             {user && <PublicProfileModal uid={viewingProfileId} onClose={() => setViewingProfileId(null)} />}
@@ -2877,8 +3106,9 @@ cat << 'EOF' >> src/App.js
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
+            <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
             
-            <RadioPlayerModal profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} />
+            <RadioPlayerModal profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
 
             <div className="sticky top-0 z-50">
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
@@ -2893,21 +3123,18 @@ cat << 'EOF' >> src/App.js
                     <button onClick={() => setCartOpen(true)}><ShoppingCart className="text-lime-400 shadow-neon-green" size={20}/></button>
                 </div>
             </header>
-            <div className="w-full bg-black border-b border-white/10 text-[9px] py-1 text-lime-400 font-mono overflow-hidden h-6 flex items-center">
+            <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
                 <div className="rk-marquee-track items-center whitespace-nowrap">
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            <span>⚡ GLOBAL VOLUME: {globalStats.userCount * 1337} KANDI ⚡</span>
-                            <span>★ TOP CREATOR: SYNTHETIC_SOUL ★</span>
-                            <span>🚀 ACTIVE RAVERS: {globalStats.userCount} 🚀</span>
-                            <span className="text-pink-400">💖 PLUR FACT: Handshakes end with a trade! 💖</span>
+                            {mq.map((m, i) => <span key={i} className={i % 3 === 2 ? 'text-pink-400' : i % 3 === 1 ? 'text-cyan-300' : ''}>{m}</span>)}
                         </div>
                     ))}
                 </div>
             </div>
             </div>
             
-            <main className="p-4 bg-black/40 min-h-screen backdrop-blur-sm">
+            <main className="p-4 bg-black/50 min-h-screen">
                 {page === 'home' && (
                     <div className="text-center pt-8 flex flex-col gap-8 pb-10">
                         <div className="space-y-3">{['TRADE', 'RAVE', 'PLUR'].map((word, i) => (<h1 key={i} className="text-7xl font-black animate-text-shimmer" style={{ backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff, #bf80ff, #ff80bf)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 0 10px rgba(255,100,255,0.4))', backgroundSize: '200% 200%' }}>{word}.</h1>))}</div>
@@ -2937,6 +3164,11 @@ cat << 'EOF' >> src/App.js
                             <ReferralProgramSection onNavigateToProfile={() => setOpenReferrals(true)} />
                         </div>
 
+                        <div className="max-w-md mx-auto w-full bg-yellow-900/10 border border-yellow-500/30 rounded-xl p-3 text-left">
+                            <p className="text-[10px] text-yellow-300 font-bold uppercase mb-1">⚖ Creator Fairness Window</p>
+                            <p className="text-[10px] text-gray-100 leading-relaxed">Custom & DIY requests sent to a specific Creator stay exclusive to them for <strong>24–72 hours</strong> (scaled by price and complexity). If unaccepted in that window, the request automatically opens to ALL Creators — keeping commissions fair for users and Creators alike.</p>
+                        </div>
+
                         <Card className="border-yellow-500/30 text-center max-w-md mx-auto w-full">
                             <HelpCircle size={28} className="mx-auto mb-2 text-yellow-400"/>
                             <h3 className="font-black uppercase text-sm mb-1 text-yellow-400">Found a bug? Have an idea?</h3>
@@ -2948,7 +3180,7 @@ cat << 'EOF' >> src/App.js
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
-                            <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="user">User</option></select></div>
+                            <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="user">User</option><option value="users">User Profiles</option></select></div>
                             <div>
                                 <label className="text-[8px] font-bold opacity-50 uppercase ml-1">Sort</label>
                                 <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
@@ -2964,21 +3196,38 @@ cat << 'EOF' >> src/App.js
                             <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Item Type</label><MultiSelectDropdown options={KANDI_TYPES} selected={filters.itemTypes} onChange={v => setFilters({...filters, itemTypes: v})}/></div>
                         </div>
                         <div className="flex justify-between items-center border-t border-white/10 pt-3">
-                            <div className="flex gap-2 flex-1 mr-2"><Search size={16} className="mt-2 text-white/50"/><Input placeholder="Search by Public UID..." value={filters.searchUid} onChange={v=>setFilters({...filters, searchUid: v})} className="mb-0 w-full"/></div>
+                            <div className="flex gap-2 flex-1 mr-2"><Search size={16} className="mt-2 text-white/50"/><Input placeholder="Search UID or Username..." value={filters.searchUid} onChange={v=>setFilters({...filters, searchUid: v})} className="mb-0 w-full"/></div>
                             <div className="flex gap-2 items-center">
                                 <button onClick={manualRefresh} className={`text-white/50 hover:text-white transition-transform ${isSyncing ? 'animate-spin text-lime-400' : ''}`}><RefreshCw size={16}/></button>
                                 <button onClick={() => setFilters({ postType: 'all', itemTypes: [], sort: 'recent', searchUid: '' })} className="bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded">Clear Filters</button>
                             </div>
                         </div>
                     </Card>
-                    <SellKandiForm user={user} profile={profile}/>
+                    {filters.postType !== 'users' && <SellKandiForm user={user} profile={profile}/>}
                     {isSyncing && (
                         <div className="flex flex-col items-center justify-center py-6 mb-4 bg-black/40 border border-white/10 rounded-xl">
                             <RefreshCw size={32} className="animate-spin text-lime-400 mb-3" />
                             <p className="text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 font-bold animate-pulse text-sm">{syncMsgs[syncMsgIdx]}</p>
                         </div>
                     )}
-                    <div className="grid grid-cols-1 gap-6">{filteredItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div></div>)}
+                    {filters.postType === 'users' ? (
+                        <div className="grid grid-cols-1 gap-3">
+                            {visibleUsers.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No ravers match that search.</p>}
+                            {visibleUsers.map(u => (
+                                <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
+                                    <img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 shrink-0"/>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
+                                        <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
+                                        <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
+                                    </div>
+                                    <Button onClick={() => setViewingProfileId(u.publicUid || u.id)} color="purple" className="text-[10px] py-1 px-3 shrink-0">View Profile</Button>
+                                </Card>
+                            ))}
+                        </div>
+                    ) : (
+                    <div className="grid grid-cols-1 gap-6">{filteredItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
+                    )}</div>)}
                 {page === 'shop' && (
                     <div className="max-w-4xl mx-auto">
                         <div className="flex gap-2 justify-center mb-6">{['custom', 'diy', 'official'].map(t => (<button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest ${tab===t ? 'bg-pink-600 shadow-neon-pink text-white' : 'bg-white/5 text-white/50'}`}>{t === 'custom' ? 'AI KANDI LAB' : t}</button>))}</div>
@@ -3002,10 +3251,18 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed}/>}
             </main>
-            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 text-[9px] font-mono p-1 text-white/30 uppercase z-50 flex items-center justify-between px-3">
-                <PingBar show={profile?.showPing !== false} />
-                <span className="flex-1 text-center">V37.10.00 Phase 9: Tickets, Bans, Hub Stages & Cart Guard</span>
-                <span className="w-14"></span>
+            <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 font-mono uppercase z-50 px-3 py-1.5">
+                {nowPlaying && (
+                    <div className="flex items-center justify-center gap-2 text-[11px] font-bold pb-1 mb-1 border-b border-white/10" style={{ color: nowPlaying.color || '#bef264' }}>
+                        <Radio size={12} className="shrink-0 animate-pulse"/>
+                        <span className="truncate">{nowPlaying.name} · {nowPlaying.song}</span>
+                    </div>
+                )}
+                <div className="flex items-center justify-between text-[10px] text-white/40">
+                    <PingBar show={profile?.showPing !== false} />
+                    <span className="flex-1 text-center">V37.12.00 Phase 11: User Cards, Open Requests & Live Marquee</span>
+                    <span className="w-14"></span>
+                </div>
             </div>
         </div>
     );
@@ -3198,9 +3455,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V37.10.00)..."
-sed -i "s/versionCode 1/versionCode 48/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "37.10.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V37.12.00)..."
+sed -i "s/versionCode 1/versionCode 50/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "37.12.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -3247,7 +3504,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V37_10_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V37_12_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
