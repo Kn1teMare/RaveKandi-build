@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
 echo " RaveKandi V37.13.02 Build Script Starting"
 echo "============================================"
@@ -12,6 +12,7 @@ echo "============================================"
 # Block 1
 mkdir -p ~/ravekandi-app/public
 mkdir -p ~/ravekandi-app/src
+mkdir -p ~/.gradle
 cd ~/ravekandi-app
 
 cat << 'EOF' > public/index.html
