@@ -9,7 +9,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V37.12.00</title>
+    <title>RaveKandi V37.13.01</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
@@ -72,7 +72,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.12.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V37.13.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -219,7 +219,9 @@ const ACHIEVEMENT_TIERS = [
     { id: 'sales_1', name: 'Hustler (Iron)', tier: 1, metric: 'totalSalesValue', threshold: 100, icon: DollarSign, desc: "Complete $100 USD in total processed sales." },
     { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, icon: MessageSquare, desc: "Interact with the community." },
     { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi.", isHidden: true },
+    { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, icon: Crown, desc: "Reach #1 on the Creator Points leaderboard (sales, value, likes & trades). The badge is yours forever — but the marquee crown passes to whoever currently leads." },
 ];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
 const REFERRAL_TIERS = [
     { min: 1, max: 4, badge: 'Neon Pink', sharePct: 1, color: 'text-pink-500' },
@@ -255,10 +257,34 @@ export const getIdleWindowHours = (price = 0, parts = 0) => {
     return h;
 };
 
+// V37.13: simple chat encryption (per owner spec: lightweight for Alpha, upgradeable later).
+// Message text is XOR-ciphered with a key derived from both participant UIDs, then base64'd
+// before it ever leaves the device — stored ciphertext is unreadable at a glance.
+const rkKey = (a, b) => { const s = [a, b].sort().join('|') + '|rkV1'; let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; } return Math.abs(h).toString(36) + s.length; };
+const rkEnc = (text, key) => { try { let out = ''; for (let i = 0; i < text.length; i++) { out += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length)); } return btoa(unescape(encodeURIComponent(out))); } catch (e) { try { return btoa(text); } catch (e2) { return text; } } };
+const rkDec = (b64, key) => { try { const raw = decodeURIComponent(escape(atob(b64))); let out = ''; for (let i = 0; i < raw.length; i++) { out += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length)); } return out; } catch (e) { return '[unreadable]'; } };
+
+export const pushNotif = async (toUid, type, text, refId = null) => {
+    if (!toUid || toUid === 'guest') return;
+    try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); } catch (e) {}
+};
+
+export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text) => {
+    const tid = [fromUid, toUid].sort().join('_');
+    const key = rkKey(fromUid, toUid);
+    const enc = rkEnc(text, key);
+    const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
+    await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid, unread: { [toUid]: increment(1) } }, { merge: true });
+    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now() });
+    pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid);
+    return tid;
+};
+
 export const ensureUserExists = async (uid, customName = null, referrerUid = null) => {
     if (!uid) return;
     const userRef = doc(db, 'artifacts', appId, 'users', uid);
     const globalStatsRef = doc(db, 'artifacts', appId, 'global', 'stats');
+    let createdName = null;
     try {
         await runTransaction(db, async (transaction) => {
             const userDoc = await transaction.get(userRef);
@@ -270,6 +296,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
 
                 const newCount = currentCount + 1;
                 const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
+                createdName = newUsername;
 
                 transaction.set(userRef, { 
                     displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
@@ -292,6 +319,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                 }
             }
         });
+        if (createdName && referrerUid) pushNotif(referrerUid, 'referral', '🎉 ' + createdName + ' just joined RaveKandi using your code! +1 referral');
     } catch (e) { console.error("User Creation Error", e); }
 };
 
@@ -380,7 +408,7 @@ const generateCustomKandi = async (prompt) => {
 };
 
 const getDisplayAchievements = (profile) => {
-    const stats = { totalItems: profile?.items?.length || 0, totalSalesValue: profile?.totalSalesValue || 0, isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, referrals: profile?.referrals||0 };
+    const stats = { totalItems: profile?.items?.length || 0, totalSalesValue: profile?.totalSalesValue || 0, isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, referrals: profile?.referrals||0, topCreatorUnlocked: profile?.topCreatorUnlocked?1:0 };
     return ACHIEVEMENT_TIERS.filter(ach => ach.tier === 1 || stats[ach.metric] >= ach.threshold).map(ach => ({ ...ach, unlocked: stats[ach.metric] >= ach.threshold }));
 };
 EOF
@@ -460,6 +488,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
         if (!comment.trim() || !user?.uid) return; 
         const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now() }; 
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayUnion(newComment) }); 
+        if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
         setComments([...comments, newComment]); 
         setComment(''); 
     };
@@ -558,21 +587,30 @@ const UsernameModal = ({ user, profile, isOpen, onClose }) => {
 const PublicProfileModal = ({ uid, onClose }) => {
     const [targ, setTarg] = useState(null);
     useEffect(() => {
+        setTarg(null); // V37.13.01: clear stale profile between opens
         if(!uid) return;
         const q = query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', uid));
         getDocs(q).then(snap => {
-            if(!snap.empty) { setTarg(snap.docs[0].data()); } 
+            if(!snap.empty) { setTarg({ ...snap.docs[0].data(), id: snap.docs[0].id }); }
             else {
-                getDoc(doc(db, 'artifacts', appId, 'users', uid)).then(s => { if(s.exists()) setTarg(s.data()); else setTarg('not_found'); });
+                getDoc(doc(db, 'artifacts', appId, 'users', uid))
+                    .then(s => { if(s.exists()) setTarg({ ...s.data(), id: s.id }); else setTarg('not_found'); })
+                    .catch(e => { console.log('Profile load (direct) failed', e); setTarg('error'); });
             }
-        });
+        }).catch(e => { console.log('Profile load failed', e); setTarg('error'); });
     }, [uid]);
     if(!uid) return null;
     return (
-        <Modal isOpen={!!uid} onClose={onClose} title={targ === 'not_found' ? "Not Found" : (targ?.displayName || 'Loading...')}>
-            {targ === 'not_found' ? <p className="opacity-50 text-center">User no longer exists.</p> : !targ ? <LoadingBar className="w-full"/> : (
+        <Modal isOpen={!!uid} onClose={onClose} title={targ === 'not_found' ? "Not Found" : targ === 'error' ? "Connection Issue" : (targ?.displayName ? '@' + targ.displayName : 'Loading...')}>
+            {targ === 'not_found' ? <p className="opacity-50 text-center">User no longer exists.</p>
+            : targ === 'error' ? <p className="text-red-300 text-xs text-center py-4">Couldn't load this profile. Check your connection and try again.</p>
+            : !targ ? <div className="py-6"><LoadingBar className="w-full"/><p className="text-center text-[10px] opacity-50 mt-2">Loading profile...</p></div> : (
                 <div className="text-center space-y-4">
                     <img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
+                    <div>
+                        <p className="font-black text-lg flex items-center justify-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}<BadgeChip badge={targ.featuredBadge} /></p>
+                        <p className="text-[9px] font-mono opacity-50">Friend UID: {targ.publicUid || targ.id}</p>
+                    </div>
                     <p className="italic opacity-80 bg-white/5 p-2 rounded text-xs">{targ.bio || "No vibe check yet."}</p>
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
                         <div className="bg-black/50 p-2 rounded border border-white/10"><p className="text-lime-400 font-bold">{targ.itemsSold || 0}</p><p className="opacity-50 uppercase">Items Sold</p></div>
@@ -616,6 +654,7 @@ const ReferralModal = ({ user, profile, isOpen, onClose }) => {
                 uid: user.uid, displayName: profile?.displayName || 'Raver', earnedFromThisUser: 0, timestamp: Date.now()
             });
             await batch.commit();
+            pushNotif(referrerUid, 'referral', '🤝 ' + (profile?.displayName || 'A raver') + ' linked you as their referrer! +1 referral');
             alert("Referral code accepted!");
         } catch(e) { alert(e.message); } finally { setLoading(false); }
     };
@@ -672,7 +711,7 @@ const CreatorApplicationForm = ({ user, onClose }) => {
         setLoading(true);
         try {
             if(existingId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', existingId), { ...d, updatedAt: Date.now() }); } 
-            else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), { ...d, uid: user.uid, status: 'pending', submittedAt: Date.now() }); }
+            else { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), { ...d, uid: user.uid, status: 'pending', submittedAt: Date.now() }); try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '📋 New Creator application from ' + (d.name || 'a raver'))); } catch (e) {} }
             setS('success'); 
         } catch (e) { alert("Error: " + e.message); } finally { setLoading(false); }
     };
@@ -839,7 +878,7 @@ const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
     </div>
 );
 
-const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying }) => {
+const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying }) => {
     const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
     const [station, setStation] = useState(RADIO_STATIONS[0]);
     const [playing, setPlaying] = useState(false);
@@ -901,6 +940,15 @@ const RadioPlayerModal = ({ profile, isOpen, onClose, onGoVip, onPlayingChange, 
         const int = setInterval(pull, 25000);
         return () => { alive = false; clearInterval(int); };
     }, [playing, station]);
+
+    // V37.13: top-listener tracking — buffer listening minutes locally; the App's 6h
+    // activity sync flushes them to the profile alongside active time.
+    useEffect(() => {
+        if (!playing || !user?.uid || user.isAnonymous) return;
+        const k = 'rk_radio_buf_' + user.uid;
+        const t = setInterval(() => { try { localStorage.setItem(k, String((parseInt(localStorage.getItem(k) || '0') || 0) + 1)); } catch (e) {} }, 60000);
+        return () => clearInterval(t);
+    }, [playing, user]);
 
     const grantPermission = () => {
         try { localStorage.setItem('rk_audio_consent', 'true'); } catch(e) {}
@@ -1081,8 +1129,9 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.12.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V37.13.01'
             });
+            try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
             setSubject(''); setMessage(''); onClose();
         } catch (e) { alert("Could not submit: " + e.message); } finally { setSending(false); }
@@ -1130,6 +1179,213 @@ const PingBar = ({ show }) => {
             {show && offline && <span className="font-mono text-red-400">OFFLINE</span>}
             {(!show || (ping === null && !offline)) && <span className="w-14"></span>}
         </>
+    );
+};
+
+const NOTIF_ICONS = { message: Mail, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Pickaxe, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
+
+const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => {
+    const [tab, setTab] = useState('msgs');
+    const [activeThread, setActiveThread] = useState(null);
+    const [activeName, setActiveName] = useState('');
+    const [msgs, setMsgs] = useState([]);
+    const [input, setInput] = useState('');
+    const [term, setTerm] = useState('');
+    const [sortMode, setSortMode] = useState('recent');
+    const [notifFilter, setNotifFilter] = useState('all');
+    const [searchHit, setSearchHit] = useState(null);
+    const [sending, setSending] = useState(false);
+
+    const myUid = user?.uid;
+    const otherOf = (t) => (t.participants || []).find(p => p !== myUid) || myUid;
+
+    // live messages for the open thread
+    useEffect(() => {
+        if (!isOpen || !activeThread) { setMsgs([]); return; }
+        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread, 'messages'), orderBy('at', 'asc'));
+        const unsub = onSnapshot(q, s => setMsgs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('msgs', e));
+        // mark thread read
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread), { unread: { [myUid]: 0 } }, { merge: true }).catch(()=>{});
+        return () => unsub();
+    }, [isOpen, activeThread]);
+
+    // mark notifications read when viewing the alerts tab
+    useEffect(() => {
+        if (!isOpen || tab !== 'alerts' || !myUid) return;
+        const unreadOnes = notifs.filter(n => !n.read);
+        if (unreadOnes.length === 0) return;
+        const batch = writeBatch(db);
+        unreadOnes.forEach(n => batch.update(doc(db, 'artifacts', appId, 'users', myUid, 'notifications', n.id), { read: true }));
+        batch.commit().catch(()=>{});
+    }, [isOpen, tab, notifs]);
+
+    // user search (exact Friend UID, then exact username)
+    useEffect(() => {
+        const t = term.trim();
+        setSearchHit(null);
+        if (!isOpen || tab !== 'msgs' || t.length < 3) return;
+        const h = setTimeout(async () => {
+            try {
+                let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
+                if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
+                if (!snap.empty && snap.docs[0].id !== myUid) setSearchHit({ id: snap.docs[0].id, ...snap.docs[0].data() });
+            } catch (e) {}
+        }, 500);
+        return () => clearTimeout(h);
+    }, [term, isOpen, tab]);
+
+    if (!isOpen) return null;
+
+    const openThreadWith = (otherUid, otherName) => {
+        const tid = [myUid, otherUid].sort().join('_');
+        setActiveThread(tid); setActiveName(otherName || 'Raver'); setTerm(''); setSearchHit(null);
+    };
+
+    const send = async () => {
+        if (!input.trim() || !activeThread || sending) return;
+        setSending(true);
+        try {
+            const otherUid = activeThread.split('_').find(p => p !== myUid) || myUid;
+            await sendDirectMessage(myUid, profile?.displayName || 'Raver', otherUid, activeName, input.trim());
+            setInput('');
+        } catch (e) { alert('Send failed: ' + e.message); } finally { setSending(false); }
+    };
+
+    const delMsg = async (m) => {
+        if (!window.confirm('Permanently delete this message? It cannot be stored or restored once gone.')) return;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread, 'messages', m.id)); } catch (e) { alert(e.message); }
+    };
+
+    const delThread = async () => {
+        if (!window.confirm('Permanently delete this ENTIRE chat log for both users? Messages cannot be restored.')) return;
+        try {
+            const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread, 'messages'));
+            const batch = writeBatch(db);
+            snap.docs.slice(0, 450).forEach(d => batch.delete(d.ref));
+            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread));
+            await batch.commit();
+            setActiveThread(null);
+        } catch (e) { alert(e.message); }
+    };
+
+    const toggleFav = async (t) => {
+        const cur = t.favorites?.[myUid] === true;
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', t.id), { favorites: { [myUid]: !cur } }, { merge: true }).catch(()=>{});
+    };
+
+    const lTerm = term.toLowerCase();
+    let list = threads.filter(t => { const nm = (t.names?.[otherOf(t)] || '').toLowerCase(); return !lTerm || nm.includes(lTerm) || otherOf(t).toLowerCase().includes(lTerm); });
+    if (sortMode === 'favorites') list = list.filter(t => t.favorites?.[myUid]);
+    if (sortMode === 'unread') list = list.filter(t => (t.unread?.[myUid] || 0) > 0);
+    if (sortMode === 'read') list = list.filter(t => (t.unread?.[myUid] || 0) === 0);
+    list = list.sort((a, b) => ((b.favorites?.[myUid] ? 1 : 0) - (a.favorites?.[myUid] ? 1 : 0)) || ((b.lastAt || 0) - (a.lastAt || 0)));
+
+    const visNotifs = notifs.filter(n => (profile?.inAppNotifs?.[n.type] !== false) && (notifFilter === 'all' || n.type === notifFilter));
+    const unreadAlertCount = notifs.filter(n => !n.read).length;
+    const threadKey = activeThread ? rkKey(...activeThread.split('_')) : null;
+
+    return createPortal(
+        <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-3">
+                <Card className="max-w-md w-full my-2 flex flex-col" glow="purpleGlow">
+                    <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-2">
+                        <h3 className="text-lg font-black uppercase italic tracking-widest" style={getTextGlowStyle('purpleGlow')}>Messenger</h3>
+                        <button onClick={() => { setActiveThread(null); onClose(); }}><XCircle/></button>
+                    </div>
+
+                    {!activeThread && (
+                        <div className="flex gap-2 mb-3">
+                            <button onClick={() => setTab('msgs')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${tab==='msgs' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/50'}`}>Messages</button>
+                            <button onClick={() => setTab('alerts')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${tab==='alerts' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white/50'}`}>Notifications{unreadAlertCount > 0 ? ' (' + unreadAlertCount + ')' : ''}</button>
+                        </div>
+                    )}
+
+                    {tab === 'msgs' && !activeThread && (<>
+                        <div className="flex gap-2 mb-2">
+                            <Input value={term} onChange={setTerm} placeholder="Search Friend UID or Username..." className="mb-0 flex-1"/>
+                            <select value={sortMode} onChange={e => setSortMode(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded">
+                                <option value="recent">Recent</option><option value="favorites">Favorites</option><option value="unread">Unread</option><option value="read">Read</option>
+                            </select>
+                        </div>
+                        {searchHit && (
+                            <button onClick={() => openThreadWith(searchHit.id, searchHit.displayName)} className="w-full flex items-center gap-2 bg-lime-900/20 border border-lime-500/40 rounded p-2 mb-2 text-left">
+                                <img src={searchHit.photoURL || 'https://placehold.co/40?text=U'} className="w-8 h-8 rounded-full object-cover"/>
+                                <span className="text-xs font-bold flex-1">@{searchHit.displayName}</span>
+                                <span className="text-[9px] text-lime-400 font-black uppercase">Start Chat →</span>
+                            </button>
+                        )}
+                        <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                            {list.length === 0 && <p className="text-center opacity-50 text-xs py-6">No conversations yet. Search a raver above to start one!</p>}
+                            {list.map(t => {
+                                const other = otherOf(t); const un = t.unread?.[myUid] || 0;
+                                const preview = t.lastMessage ? rkDec(t.lastMessage, rkKey(myUid, other)) : '';
+                                return (
+                                    <div key={t.id} className={`flex items-center gap-2 p-2 rounded border ${un > 0 ? 'bg-purple-900/30 border-purple-400/50' : 'bg-white/5 border-white/10'}`}>
+                                        <button onClick={() => toggleFav(t)} className={t.favorites?.[myUid] ? 'text-yellow-400' : 'text-white/20'}><Star size={14} fill={t.favorites?.[myUid] ? 'currentColor' : 'none'}/></button>
+                                        <button onClick={() => openThreadWith(other, t.names?.[other])} className="flex-1 min-w-0 text-left">
+                                            <p className="text-xs font-bold truncate flex items-center gap-1">@{t.names?.[other] || 'Raver'} {un > 0 && <span className="bg-pink-600 text-white text-[8px] font-black rounded-full px-1.5">{un}</span>}</p>
+                                            <p className="text-[10px] opacity-50 truncate">{t.lastSender === myUid ? 'You: ' : ''}{preview}</p>
+                                        </button>
+                                        <span className="text-[8px] opacity-40 shrink-0">{t.lastAt ? new Date(t.lastAt).toLocaleDateString() : ''}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[8px] text-center text-lime-400/70 mt-3">🔒 All chats are encrypted — only you and the recipient can read them.</p>
+                    </>)}
+
+                    {tab === 'msgs' && activeThread && (<>
+                        <div className="flex items-center justify-between mb-2 bg-white/5 rounded p-2">
+                            <button onClick={() => setActiveThread(null)} className="flex items-center gap-1 text-[10px] text-cyan-400 font-bold"><ChevronLeft size={14}/> Back</button>
+                            <span className="text-xs font-black">@{activeName}</span>
+                            <button onClick={delThread} className="text-red-400" title="Delete chat log"><Trash2 size={14}/></button>
+                        </div>
+                        <div className="h-[40vh] overflow-y-auto bg-black/40 rounded p-2 space-y-2 flex flex-col">
+                            {msgs.length === 0 && <p className="text-center opacity-40 text-[10px] py-8">No messages yet. Say hi! 👋</p>}
+                            {msgs.map(m => {
+                                const mine = m.sender === myUid;
+                                return (
+                                    <div key={m.id} className={`max-w-[80%] ${mine ? 'self-end' : 'self-start'}`}>
+                                        <div className={`p-2 rounded-lg text-xs relative group ${mine ? 'bg-purple-600/60 rounded-br-none' : 'bg-white/10 rounded-bl-none'}`}>
+                                            <p className="whitespace-pre-wrap break-words">{rkDec(m.text, threadKey)}</p>
+                                            {mine && <button onClick={() => delMsg(m)} className="absolute -left-5 top-1 text-red-400 opacity-40 hover:opacity-100"><Trash size={11}/></button>}
+                                        </div>
+                                        <p className={`text-[7px] opacity-40 mt-0.5 ${mine ? 'text-right' : ''}`}>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                            <Input value={input} onChange={setInput} placeholder="Spread PLUR..." className="mb-0 flex-1"/>
+                            <Button onClick={send} disabled={sending || !input.trim()} color="purple" className="text-[10px] px-3"><Send size={14}/></Button>
+                        </div>
+                        <p className="text-[8px] text-center text-lime-400/70 mt-2">🔒 Encrypted · Deleted messages are gone forever for both users.</p>
+                    </>)}
+
+                    {tab === 'alerts' && (<>
+                        <select value={notifFilter} onChange={e => setNotifFilter(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded w-full mb-2">
+                            <option value="all">All Notifications</option>
+                            {NOTIF_INAPP_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                        </select>
+                        <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                            {visNotifs.length === 0 && <p className="text-center opacity-50 text-xs py-6">No notifications here yet.</p>}
+                            {visNotifs.map(n => {
+                                const Icon = NOTIF_ICONS[n.type] || Bell;
+                                return (
+                                    <div key={n.id} className={`flex items-start gap-2 p-2 rounded border ${!n.read ? 'bg-pink-900/20 border-pink-500/40' : 'bg-white/5 border-white/10 opacity-70'}`}>
+                                        <Icon size={14} className="text-pink-400 shrink-0 mt-0.5"/>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[11px] text-gray-100 break-words">{n.text}</p>
+                                            <p className="text-[8px] opacity-40">{new Date(n.at).toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>)}
+                </Card>
+            </div>
+        </div>, document.body
     );
 };
 EOF
@@ -1213,6 +1469,19 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
                 {profile?.showPing !== false ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
             </button>
             <p className="text-[8px] opacity-50 mt-1">Displays live network latency at the bottom of the screen. On by default for new accounts.</p>
+        </div>
+
+        <div className="border-b border-white/10 pb-4">
+            <h4 className="font-bold text-xs mb-3 text-purple-400">In-App Notifications</h4>
+            <div className="grid grid-cols-2 gap-2">
+                {NOTIF_INAPP_TYPES.filter(t => t.id !== 'admin' || profile?.isAdmin).map(t => (
+                    <button key={t.id} onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { inAppNotifs: { [t.id]: profile?.inAppNotifs?.[t.id] === false ? true : false } }, { merge: true }); }} className="flex justify-between items-center bg-white/5 p-2 rounded border border-white/10 text-[10px]">
+                        <span className="truncate mr-1">{t.label}</span>
+                        {profile?.inAppNotifs?.[t.id] !== false ? <CheckSquare size={14} className="text-lime-400 shrink-0"/> : <Square size={14} className="text-white/30 shrink-0"/>}
+                    </button>
+                ))}
+            </div>
+            <p className="text-[8px] opacity-50 mt-1">Controls which alerts show in your Messenger's Notifications tab. All on by default.</p>
         </div>
 
         <div className="border-b border-white/10 pb-4">
@@ -1369,6 +1638,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
             }
             batch.update(buyerRef, { itemsBought: increment(toBuy.length), totalBoughtValue: increment(total) });
             await batch.commit();
+            toBuy.forEach(it => { if (it.ownerId) pushNotif(it.ownerId, 'sold', '💰 "' + it.name + '" was purchased for $' + (it.price || 0).toFixed(2) + '!', it.originalId); });
             alert("Order Processed Successfully!");
             setSelectedIds([]);
             setCheckoutMode('cart');
@@ -1941,7 +2211,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     const inStock = (item.stockQty ?? (item.purchaseCount > 0 ? 0 : 1)) > 0;
     const canSeePrice = inStock || isOwner || isBuyer;
 
-    const toggleLike = async () => { if(!user?.uid) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id); if(liked) await updateDoc(ref, { likes: arrayRemove(user.uid) }); else await updateDoc(ref, { likes: arrayUnion(user.uid) }); setLiked(!liked); };
+    const toggleLike = async () => { if(!user?.uid) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id); if(liked) { await updateDoc(ref, { likes: arrayRemove(user.uid) }); } else { await updateDoc(ref, { likes: arrayUnion(user.uid) }); if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'like', (profile?.displayName || 'Someone') + ' liked "' + item.name + '"', item.id); } setLiked(!liked); };
     
     const handleShare = async () => {
         try { await navigator.share({ title: 'RaveKandi', text: `Check out ${item.name}!`, url: window.location.href }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { shareCount: increment(1) }); } catch (err) { navigator.clipboard.writeText(`Check out ${item.name} on RaveKandi!`); alert("Link copied!"); }
@@ -1963,7 +2233,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             <div className="mb-2">
                 <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
                 <div className="flex justify-between items-center">
-                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold hover:underline cursor-pointer flex items-center">@{item.ownerName}<BadgeChip badge={item.ownerBadge} /></button>
+                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex items-center gap-0.5"><User size={10}/>@{item.ownerName}<BadgeChip badge={item.ownerBadge} /></button>
                     <span className="text-lime-400 font-bold">
                         {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
@@ -2091,7 +2361,7 @@ EOF
 
 # Block 15
 cat << 'EOF' >> src/App.js
-const AdminDashboard = () => {
+const AdminDashboard = ({ user, profile }) => {
     const [adminTab, setAdminTab] = useState('tools');
     const [apps, setApps] = useState([]);
     const [targetUid, setTargetUid] = useState('');
@@ -2241,11 +2511,14 @@ const AdminDashboard = () => {
                         </div>
                         <p className="font-bold text-xs text-white">{t.subject}</p>
                         <p className="text-[10px] text-gray-100 mt-1 whitespace-pre-wrap break-words">{t.message}</p>
-                        <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/10">
-                            <span className="text-[8px] opacity-60">@{t.username} ({t.publicUid || t.uid})</span>
-                            {(t.status||'open') === 'open'
-                                ? <Button onClick={() => setTicketStatus(t, 'resolved')} color="lime" className="text-[8px] py-1 px-2">Mark Resolved</Button>
-                                : <Button onClick={() => setTicketStatus(t, 'open')} color="accent" className="text-[8px] py-1 px-2">Reopen</Button>}
+                        <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/10 gap-1">
+                            <span className="text-[8px] opacity-60 truncate">@{t.username}</span>
+                            <div className="flex gap-1 shrink-0">
+                                {t.uid && t.uid !== 'guest' && <Button onClick={async () => { const txt = prompt('Reply to @' + t.username + ' about "' + t.subject + '":'); if (!txt) return; try { await sendDirectMessage(user.uid, profile?.displayName || 'RaveKandi Admin', t.uid, t.username, '🎫 RE: ' + t.subject + '\n' + txt); pushNotif(t.uid, 'ticket', '🎫 Admin replied to your ticket "' + t.subject + '" — check your messages!', t.id); alert('Reply sent via DM.'); } catch (e) { alert(e.message); } }} color="purple" className="text-[8px] py-1 px-2">Reply via DM</Button>}
+                                {(t.status||'open') === 'open'
+                                    ? <Button onClick={() => setTicketStatus(t, 'resolved')} color="lime" className="text-[8px] py-1 px-2">Resolved</Button>
+                                    : <Button onClick={() => setTicketStatus(t, 'open')} color="accent" className="text-[8px] py-1 px-2">Reopen</Button>}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -2324,9 +2597,9 @@ const CreatorProjectHub = ({ user, onClose }) => {
     const setStage = async (item, requestStatus, extra = {}) => {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestStatus, ...extra });
     };
-    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() }); };
-    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; await setStage(item, 'completed', { completedAt: Date.now() }); };
-    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() }); };
+    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
+    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; await setStage(item, 'completed', { completedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
+    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
 
     return (
         <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4">
@@ -2574,7 +2847,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <h2 className="text-2xl font-black italic text-red-500 uppercase tracking-widest">Admin Portal</h2>
                 <button onClick={() => setShowAdminPortal(false)} className="text-white"><XCircle size={32}/></button>
             </div>
-            <AdminDashboard/>
+            <AdminDashboard user={user} profile={profile}/>
         </div>
     );
 
@@ -2863,10 +3136,11 @@ const App = () => {
         const flush = () => {
             const last = num(flushKey);
             if (last && (Date.now() - last) < 21600000) return; // sync window: 6h
-            const mins = num(bufKey), opens = num(openKey);
+            const radioKey = 'rk_radio_buf_' + uid;
+            const mins = num(bufKey), opens = num(openKey), rmins = num(radioKey);
             const ref = doc(db, 'artifacts', appId, 'users', uid);
-            setDoc(ref, { lastActiveAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens) }, { merge: true })
-                .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
+            setDoc(ref, { lastActiveAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
+                .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(radioKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
                 .catch(() => {});
         };
         flush();
@@ -2974,9 +3248,9 @@ const App = () => {
         if (!user) return;
         const pull = async () => {
             try {
-                const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(1))); return s.empty ? null : s.docs[0].data(); };
-                const [seller, earner, referrer] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals')]);
-                setTopStats({ seller, earner, referrer });
+                const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(1))); return s.empty ? null : { ...s.docs[0].data(), id: s.docs[0].id }; };
+                const [seller, earner, referrer, buyer, active, listener, ach, creator] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints')]);
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -2984,26 +3258,70 @@ const App = () => {
         return () => clearInterval(int);
     }, [user]);
 
+    // V37.13: unique view registration — fires the moment a post is opened. One view per
+    // UID forever (viewedBy ledger), never the owner. Optimistic local bump so the count
+    // visibly updates instantly, with a merge-write fallback if the update is rejected.
+    useEffect(() => {
+        const it = viewingItem;
+        if (!it || !user?.uid) return;
+        if (user.uid === it.ownerId) return;
+        if (it.viewedBy?.includes(user.uid)) return;
+        setItems(prev => prev.map(p => p.id === it.id ? { ...p, viewCount: (p.viewCount || 0) + 1, viewedBy: [...(p.viewedBy || []), user.uid] } : p));
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', it.id);
+        updateDoc(ref, { viewCount: increment(1), viewedBy: arrayUnion(user.uid) })
+            .catch(() => setDoc(ref, { viewCount: increment(1), viewedBy: arrayUnion(user.uid) }, { merge: true }).catch(e => console.log('view save', e)));
+    }, [viewingItem, user]);
+
     // V37.12: fairness window — auto-release pending requests whose priority window expired
     const releasedRef = useRef(new Set());
     useEffect(() => {
         items.filter(i => i.requestStatus === 'pending' && i.idleExpiresAt && Date.now() > i.idleExpiresAt && !releasedRef.current.has(i.id))
             .forEach(i => { releasedRef.current.add(i.id); updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', i.id), { requestStatus: 'awaiting_assignment', autoReleasedAt: Date.now() }).catch(()=>{}); });
     }, [items]);
+
+    // V37.13: Messenger — live threads + notifications (powers the header badge too)
+    const [msgOpen, setMsgOpen] = useState(false);
+    const [threads, setThreads] = useState([]);
+    const [notifs, setNotifs] = useState([]);
+    useEffect(() => {
+        if (!user?.uid) return;
+        const tq = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads'), where('participants', 'array-contains', user.uid));
+        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('threads', e));
+        const nq = query(collection(db, 'artifacts', appId, 'users', user.uid, 'notifications'), orderBy('at', 'desc'), limit(60));
+        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('notifs', e));
+        return () => { u1(); u2(); };
+    }, [user]);
+
+    // V37.13: self-sync computed stats so the marquee leaderboards can query them,
+    // and self-notify on newly unlocked achievements.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        const unlocked = getDisplayAchievements(profile).filter(a => a.unlocked).length;
+        const pts = profile.isKandiCreator ? Math.round((profile.itemsSold || 0) * 5 + (profile.totalSalesValue || 0) * 0.5 + (profile.totalLikes || 0) + (profile.completedTrades || 0) * 3) : 0;
+        const upd = {};
+        if ((profile.achievementsUnlocked || 0) !== unlocked) upd.achievementsUnlocked = unlocked;
+        if ((profile.creatorPoints || 0) !== pts) upd.creatorPoints = pts;
+        if (Object.keys(upd).length === 0) return;
+        if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) pushNotif(user.uid, 'achievement', '🏅 You unlocked a new achievement! (' + unlocked + ' total)');
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(() => {});
+    }, [user, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined]);
+
+    // V37.13: Crowned Creator — permanent unlock when you hit #1 on Creator Points
+    useEffect(() => {
+        if (!user?.uid || !topStats.creator) return;
+        if (topStats.creator.id === user.uid && (topStats.creator.creatorPoints || 0) > 0 && !profile?.topCreatorUnlocked) {
+            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { topCreatorUnlocked: 1 }, { merge: true }).catch(() => {});
+            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.');
+        }
+    }, [topStats, user, profile?.topCreatorUnlocked]);
     
     const addToCart = async (i) => { 
         if(!user?.uid) return; 
         if(user.isAnonymous) { alert("Please create an account to purchase items."); return; }
-        const { id: _srcId, ...cartPayload } = i; await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'), { ...cartPayload, addedAt: Date.now(), originalId: i.id }); alert("Added to Cart!"); 
+        const { id: _srcId, ...cartPayload } = i; await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'), { ...cartPayload, addedAt: Date.now(), originalId: i.id }); if (i.ownerId && i.ownerId !== user.uid) pushNotif(i.ownerId, 'cart', (profile?.displayName || 'A raver') + ' added "' + i.name + '" to their cart', i.id); alert("Added to Cart!"); 
     };
     
-    const handleViewItem = async (item) => {
-        setViewingItem(item);
-        // V37.11: unique views — one view per UID, never the owner, counted once forever
-        if(user?.uid && user.uid !== item.ownerId && !item.viewedBy?.includes(user.uid)) {
-            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { viewCount: increment(1), viewedBy: arrayUnion(user.uid) }).catch(e=>console.log(e));
-        }
-    };
+    const handleViewItem = (item) => { setViewingItem(item); };
     
     const handleViewFeed = (targetUid) => {
         if (items.length === 0 || isSyncing) { alert("Posts are currently syncing. Please wait a moment."); return; }
@@ -3053,7 +3371,17 @@ const App = () => {
     const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
     const mqCommission = mqTotalSales * COMMISSION_RATE;
     const topPosterName = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) c[i.ownerName] = (c[i.ownerName] || 0) + 1; }); const e = Object.entries(c).sort((a, b) => b[1] - a[1])[0]; return e ? e[0] + ' (' + e[1] + ' posts)' : null; })();
-    const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE'];
+    const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY'];
+    // V37.13: PLUR generator — deterministic combinator that produces a fresh PLUR line
+    // every 10 minutes from rotating word banks (always new, never repeats back-to-back)
+    const plurLine = (() => {
+        const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam'];
+        const B = ['recharges', 'heals', 'uplifts', 'connects', 'electrifies', 'glows through', 'amplifies', 'protects', 'inspires', 'unites'];
+        const C = ['the dancefloor', 'every raver', 'your crew', 'the night', 'the universe', 'all of us', 'strangers into family', 'the main stage', 'your spirit', 'the kandi kids'];
+        const E = ['💖', '🌈', '✨', '⚡', '🪩', '🫶', '🔮', '🌀'];
+        const s = Math.floor(Date.now() / 600000);
+        return E[s % E.length] + ' ' + A[s % A.length].toUpperCase() + ' ' + B[(s * 7 + 3) % B.length].toUpperCase() + ' ' + C[(s * 13 + 5) % C.length].toUpperCase() + ' ' + E[(s * 3 + 1) % E.length];
+    })();
     const mq = [
         '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡',
         '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀',
@@ -3064,9 +3392,20 @@ const App = () => {
         topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? '💎 TOP REVSHARE EARNER: @' + topStats.earner.displayName + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')' : null,
         topStats.referrer && (topStats.referrer.referrals > 0) ? '🤝 MOST REFERRALS: @' + topStats.referrer.displayName + ' (' + topStats.referrer.referrals + ')' : null,
         topPosterName ? '📣 TOP POSTER: @' + topPosterName : null,
+        topStats.creator && (topStats.creator.creatorPoints > 0) ? '👑 TOP CREATOR: @' + topStats.creator.displayName + ' (' + topStats.creator.creatorPoints + ' PTS)' : null,
+        topStats.active && ((topStats.active.activeMinutes || 0) > 0) ? '🔥 MOST ACTIVE: @' + topStats.active.displayName + ' (' + (((topStats.active.activeMinutes || 0) / 60) + (topStats.active.activeHours || 0)).toFixed(1) + ' HRS)' : null,
+        topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)' : null,
+        topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')' : null,
+        topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')' : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - (topStats.seller.customCommissionRate ?? COMMISSION_RATE))).toFixed(2) + ')' : null,
         RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length],
+        plurLine,
         '💖 PLUR FACT: Handshakes end with a trade! 💖',
     ].filter(Boolean);
+
+    const unreadMsgs = threads.reduce((s, t) => s + ((t.unread && t.unread[user?.uid]) || 0), 0);
+    const unreadNotifs = notifs.filter(n => !n.read).length;
+    const inboxBadge = unreadMsgs + unreadNotifs;
     
     const WelcomeAlphaModal = () => {
         const facts = ["PLUR stands for Peace, Love, Unity, Respect!", "Kandi trading originated in the 90s rave scene.", "Neon colors glow under UV light because of phosphors!", "The PLUR handshake ends with a bracelet trade."];
@@ -3077,7 +3416,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V37.12.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V37.13.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -3107,14 +3446,16 @@ cat << 'EOF' >> src/App.js
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
+            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} />}
             
-            <RadioPlayerModal profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
+            <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
 
             <div className="sticky top-0 z-50">
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
                 <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95"><Zap className="text-yellow-400" size={24} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
                 <div className="flex gap-5 items-center">
                     <button onClick={() => setRadioOpen(true)} className={isRadioPlaying ? 'text-yellow-400 animate-pulse drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' : 'text-white/50 hover:text-white'}><Radio size={18}/></button>
+                    <button onClick={() => setMsgOpen(true)} className="relative text-white/50 hover:text-white"><Mail size={18}/>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-2 bg-pink-600 text-white text-[8px] font-black rounded-full px-1 min-w-[14px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
                     <div className="h-4 w-px bg-white/20 mx-0"></div>
                     <button onClick={() => setPage('feed')}><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white'} size={20}/></button>
                     <button onClick={() => setPage('shop')}><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white'} size={20}/></button>
@@ -3215,8 +3556,8 @@ cat << 'EOF' >> src/App.js
                             {visibleUsers.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No ravers match that search.</p>}
                             {visibleUsers.map(u => (
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
-                                    <img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 shrink-0"/>
-                                    <div className="flex-1 min-w-0">
+                                    <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
+                                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
                                         <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
                                         <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                         <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
@@ -3232,7 +3573,7 @@ cat << 'EOF' >> src/App.js
                     <div className="max-w-4xl mx-auto">
                         <div className="flex gap-2 justify-center mb-6">{['custom', 'diy', 'official'].map(t => (<button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest ${tab===t ? 'bg-pink-600 shadow-neon-pink text-white' : 'bg-white/5 text-white/50'}`}>{t === 'custom' ? 'AI KANDI LAB' : t}</button>))}</div>
                         {tab === 'custom' && <AICustomLab user={user} profile={profile} onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, timestamp: Date.now()})}/>}
-                        {tab === 'diy' && <DIYBuilder onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()})}/>}
+                        {tab === 'diy' && <DIYBuilder onSubmitRequest={async (i) => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()}); if (i.assignedCreatorId) pushNotif(i.assignedCreatorId, 'queue', '🔨 New direct build request from ' + (profile?.displayName || 'a raver') + ' — $' + (i.price || 0).toFixed(2) + ' (' + (i.idleWindowHours || 24) + 'h priority window)'); }}/>}
                         {tab === 'official' && ( 
                             <div>
                                 <Card className="text-center py-12 border-dashed border-cyan-500/50 bg-[#0f001e] mb-6">
@@ -3260,7 +3601,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V37.12.00 Phase 11: User Cards, Open Requests & Live Marquee</span>
+                    <span className="flex-1 text-center">V37.13.01 Phase 12: Messenger, Notifications & PLUR Engine</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -3455,9 +3796,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V37.12.00)..."
-sed -i "s/versionCode 1/versionCode 50/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "37.12.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V37.13.01)..."
+sed -i "s/versionCode 1/versionCode 52/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "37.13.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -3504,7 +3845,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V37_12_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V37_13_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
