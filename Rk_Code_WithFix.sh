@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.10.01 Build Script Starting"
+echo " RaveKandi V42.12.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,13 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.10.01</title>
+    <title>RaveKandi V42.12.00</title>
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RaveKandi">
+    <meta name="theme-color" content="#0f001e">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
@@ -41,6 +47,24 @@ cat << 'EOF' > public/index.html
   </body>
 </html>
 EOF
+
+cat << 'EOF' > public/manifest.json
+{
+  "name": "RaveKandi",
+  "short_name": "RaveKandi",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f001e",
+  "theme_color": "#0f001e",
+  "icons": [ { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" } ]
+}
+EOF
+
+# V42.12: app icon for Add-to-Home-Screen / PWA installs (192x192 neon bolt)
+base64 -d > public/apple-touch-icon.png << 'B64EOF'
+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
+B64EOF
+cp public/apple-touch-icon.png public/icon-192.png
 
 cat << 'EOF' > src/index.js
 import React from 'react';
@@ -92,7 +116,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.10.01'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.12.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -206,7 +230,19 @@ const COMMISSION_RATE = 0.20;
 const KANDI_TYPES = ['Bracelet', 'Cuff', 'Perler', 'Mask', 'Necklace', 'Clothing', 'Other'];
 const NAME_CHANGE_LIMIT_DAYS = 30;
 const BIO_CHAR_LIMIT = 200;
-const DEV_PIN = "666420";
+// V42.11: DEV_PIN backdoor removed for launch (Firestore rules deny the write anyway).
+// Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
+// Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
+const APP_VERSION = '42.12.00';
+const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
+// V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
+// as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
+// off in Remote Config at full release; paid plans then resume.
+const isEffVIP = (profile) => !!(profile?.isVIP || RK_CFG.launchPerks);
+const effCommissionRate = (base) => { const b = (base === null || base === undefined) ? COMMISSION_RATE : base; return RK_CFG.launchPerks ? Math.max(0, b - 0.10) : b; };
+// V42.12: iOS-in-browser detection for the Add-to-Home-Screen guide
+const IS_IOS_BROWSER = (() => { try { const ua = navigator.userAgent || ''; const ios = /iphone|ipad|ipod/i.test(ua); const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; return ios && !standalone; } catch (e) { return false; } })();
 const DAILY_AI_LIMIT = 5;
 
 const RADIO_STATIONS = [
@@ -843,6 +879,8 @@ const VIPCheckoutForm = ({ user, onClose }) => {
     const handleVIPSuccess = async (e) => {
         e.preventDefault();
         if (!stripe || !elements) return;
+        if (!RK_CFG.checkoutEnabled) return alert(RK_CFG.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
+        if (RK_CFG.paymentsLive) return alert('Live payments are not wired into this build yet — keep "Payments LIVE" OFF in remote config until real billing ships.');
         setLoading(true);
         setTimeout(async () => {
             try {
@@ -860,6 +898,18 @@ const VIPCheckoutForm = ({ user, onClose }) => {
         }, 1500);
     };
 
+    if (RK_CFG.launchPerks) return (
+        <div className="text-center space-y-4">
+            <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
+            <div className="bg-lime-900/25 border-2 border-lime-400/70 rounded-xl p-4 text-left space-y-2">
+                <p className="text-sm font-black text-lime-300 uppercase tracking-wide">🎉 Launch Special — VIP is FREE!</p>
+                <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — Global Radio, Custom Themes, Banner Messages and Post Boosts are unlocked for you right now.</p>
+                <p className="text-[11px] text-gray-100 leading-relaxed">🪙 Launch perk #2: <strong>seller commission is automatically cut from 20% to just 10%</strong> on every sale for as long as the launch period lasts.</p>
+                <p className="text-[9px] opacity-60">These launch perks will be retired at full release, when the paid plans below return. Enjoy the festival! 💖</p>
+            </div>
+            <Button type="button" onClick={onClose} color="gold" className="w-full">Awesome — Let's Rave!</Button>
+        </div>
+    );
     return (
         <form onSubmit={handleVIPSuccess} className="text-center space-y-4">
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
@@ -1071,10 +1121,10 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                             <h3 className="text-xl font-black italic flex items-center gap-2" style={getTextGlowStyle('purpleGlow')}><Radio size={20}/> RAVE RADIO</h3>
                             <button onClick={onClose}><XCircle/></button>
                         </div>
-                        {!profile?.isVIP ? (
+                        {!isEffVIP(profile) ? (
                             <div className="text-center py-6 space-y-4">
                                 <Crown size={48} className="mx-auto text-yellow-400"/>
-                                <p className="text-sm text-white">Rave Radio is a <strong>VIP</strong> feature. Unlock 8 live electronic stations, a full EQ, and custom backgrounds for a one-time $5.</p>
+                                <p className="text-sm text-white">Rave Radio is a <strong>VIP</strong> feature. Unlock live electronic stations, a full EQ, and custom backgrounds — $4.99/month or $20 lifetime.</p>
                                 <Button onClick={onGoVip} color="gold" className="w-full">Unlock VIP</Button>
                             </div>
                         ) : !consent ? (
@@ -1214,7 +1264,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.10.01'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.12.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1522,6 +1572,7 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
     };
 
     const submitBanner = async () => {
+        if (!RK_CFG.bannersEnabled) return alert('Banner posting is temporarily disabled by the admin team.');
         const isSocial = bMode === 'social';
         if (isSocial && !chosenLink) return alert("Pick one of your saved socials or validate a custom link first.");
         if (!isSocial && !text.trim()) return alert("Type your banner message first.");
@@ -1556,7 +1607,7 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
                 <button onClick={() => setBTab('history')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'history' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/50'}`}>All Banners</button>
             </div>
 
-            {bTab === 'post' && (!profile?.isVIP ? (
+            {bTab === 'post' && (!isEffVIP(profile) ? (
                 <div className="text-center space-y-3 py-4">
                     <Crown size={36} className="mx-auto text-yellow-400"/>
                     <p className="text-xs opacity-80">Banner Messages are a <strong>VIP subscriber</strong> feature. Put your message — or your social links — in rotation on the live marquee that every raver sees!</p>
@@ -1652,6 +1703,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
     const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const submitBoost = async () => {
+        if (!RK_CFG.boostsEnabled) return alert('Post boosting is temporarily disabled by the admin team.');
         if (!pick) return alert("Select one of your posts to boost.");
         if (usedToday >= 3) return alert("Daily limit reached — 3 boosts per day. Resets at midnight.");
         setBusy(true);
@@ -1681,7 +1733,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                 <button onClick={() => setBTab('history')} className={`flex-1 py-2 rounded font-black uppercase text-[10px] tracking-widest ${bTab === 'history' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/50'}`}>All Boosts</button>
             </div>
 
-            {bTab === 'boost' && (!profile?.isVIP ? (
+            {bTab === 'boost' && (!isEffVIP(profile) ? (
                 <div className="text-center space-y-3 py-4">
                     <Crown size={36} className="mx-auto text-yellow-400"/>
                     <p className="text-xs opacity-80">Post Boosts are a <strong>VIP subscriber</strong> feature. Pin your item to the top 5 feed slots for a full hour!</p>
@@ -1752,7 +1804,6 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
     }, [profile, user]);
     
     const togglePref = (type, channel) => { setPrefs(prev => ({ ...prev, [channel]: { ...prev[channel], [type]: !prev[channel]?.[type] } })); };
-    const toggleAdmin = async () => { if(!user?.uid) return; const pin = prompt("Enter DevCode (PIN):"); if(pin === DEV_PIN) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isAdmin: true, isKandiCreator: true }, { merge: true }); alert("DevMode Activated."); } else { alert("Invalid DevCode."); } };
     const handleLogout = async () => { await signOut(auth); onClose(); };
     
     const changeUid = async () => {
@@ -1835,7 +1886,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
         </div>
 
         <Button onClick={saveSettings} color="lime" className="w-full text-xs">Save Changes</Button>
-        <div className="flex gap-2 mt-4"><Button onClick={toggleAdmin} color="purple" className="flex-1 text-[10px]">DevMode</Button><Button onClick={handleLogout} color="accent" className="flex-1 text-[10px] bg-red-900/50 border-red-500">{user?.isAnonymous ? "Create Account" : "Log Out"}</Button></div>
+        <div className="flex gap-2 mt-4"><Button onClick={handleLogout} color="accent" className="flex-1 text-[10px] bg-red-900/50 border-red-500">{user?.isAnonymous ? "Create Account" : "Log Out"}</Button></div>
         <TicketModal user={user} profile={profile} isOpen={showTicket} onClose={() => setShowTicket(false)}/>
     </div></Modal> );
 };
@@ -1947,6 +1998,8 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
     };
 
     const handleSuccess = async () => {
+        if (!RK_CFG.checkoutEnabled) return alert(RK_CFG.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
+        if (RK_CFG.paymentsLive) return alert('Live payments are not wired into this build yet — the admin team should keep "Payments LIVE" OFF in remote config until real billing ships.');
         try {
             const batch = writeBatch(db);
             let total = 0;
@@ -1964,7 +2017,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
                 
                 if (referrerUid) {
                     const sellerSnap = await getDoc(sellerRef);
-                    const sellerRate = sellerSnap.data()?.customCommissionRate ?? COMMISSION_RATE;
+                    const sellerRate = effCommissionRate(sellerSnap.data()?.customCommissionRate);
                     const appCommission = item.price * sellerRate;
                     
                     const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
@@ -2323,6 +2376,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const gen = async () => { 
         if(!prompt || !user?.uid) return;
         if(remaining <= 0) return alert("Daily limit reached. Resets at 12PM CST.");
+        if (!RK_CFG.aiLabEnabled) return alert("The AI Kandi Lab is temporarily disabled by the admin team — check back soon!");
         setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
         const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), { 
@@ -2709,6 +2763,29 @@ EOF
 
 # Block 15
 cat << 'EOF' >> src/App.js
+const RemoteConfigPanel = () => {
+    const [cfg, setCfg] = useState(null);
+    const [saving, setSaving] = useState(false);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
+    const T = ({ k, label }) => (
+        <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
+    );
+    const save = async () => { setSaving(true); try { await setDoc(doc(db, 'artifacts', appId, 'global', 'config'), cfg, { merge: true }); alert('Config pushed live to all users.'); } catch (e) { alert('Save failed: ' + e.message); } finally { setSaving(false); } };
+    return (
+        <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+                <T k="checkoutEnabled" label="Checkout"/><T k="aiLabEnabled" label="AI Lab"/><T k="bannersEnabled" label="Banners"/><T k="boostsEnabled" label="Boosts"/><T k="launchPerks" label="Launch Perks"/><T k="paymentsLive" label="Payments LIVE"/>
+            </div>
+            <Input label="Maintenance Message (blank = hidden banner)" value={cfg.maintenanceMessage || ''} onChange={v => setCfg({ ...cfg, maintenanceMessage: v })}/>
+            <Input label="Minimum Version (e.g. 42.11.00 — blank = no gate)" value={cfg.minVersion || ''} onChange={v => setCfg({ ...cfg, minVersion: v })}/>
+            <p className="text-[8px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
+            <p className="text-[8px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
+            <Button onClick={save} disabled={saving} color="purple" className="w-full text-xs">{saving ? 'Pushing…' : 'Push Config Live'}</Button>
+        </div>
+    );
+};
+
 const AdminDashboard = ({ user, profile }) => {
     const [adminTab, setAdminTab] = useState('tools');
     const [apps, setApps] = useState([]);
@@ -2787,7 +2864,12 @@ const AdminDashboard = ({ user, profile }) => {
 
             {adminTab === 'tools' && (<>
             <h3 className="font-bold text-red-400 mb-4 uppercase italic">Admin Console</h3>
-            
+
+            <div className="bg-white/5 p-3 rounded mb-4 border border-purple-500/40">
+                <h4 className="text-[10px] uppercase font-bold text-purple-300 mb-2">🛰 Remote Config — live for all users</h4>
+                <RemoteConfigPanel />
+            </div>
+
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
                 <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2">User Manager — RevShare & Bans</h4>
                 <div className="flex gap-2 mb-3">
@@ -2892,7 +2974,7 @@ const InventoryManager = ({ user, profile }) => {
         setNewItem({ type: 'Bead', subType: 'Pony', size: 'M', cost: '', sell: '', quantity: '', description: '', image: null, imageUrl: '' });
     };
     
-    const profit = (parseFloat(newItem.sell || 0) - parseFloat(newItem.cost || 0) - (parseFloat(newItem.sell || 0) * COMMISSION_RATE)).toFixed(2);
+    const profit = (parseFloat(newItem.sell || 0) - parseFloat(newItem.cost || 0) - (parseFloat(newItem.sell || 0) * effCommissionRate(null))).toFixed(2);
     
     return ( 
         <Card className="mt-8 border-cyan-500/40">
@@ -3000,7 +3082,7 @@ const CreatorProjectHub = ({ user, onClose }) => {
 const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     if (!isOpen) return null;
     const refStats = getReferralTier(profile.referrals || 0);
-    const activeCommRate = profile.customCommissionRate !== null ? profile.customCommissionRate : COMMISSION_RATE;
+    const activeCommRate = effCommissionRate(profile.customCommissionRate);
     
     const totalRevenue = profile.totalSalesValue || 0;
     const totalFees = totalRevenue * activeCommRate;
@@ -3232,7 +3314,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                                 <span className="text-[8px] opacity-80">{profile.customRevSharePct ?? refStats.sharePct}% RevShare</span>
                             </div>
                         )}
-                        {profile.isVIP && (
+                        {isEffVIP(profile) && (
                             <div className="absolute -top-2 -left-2 bg-yellow-500/20 text-yellow-400 p-1.5 rounded-full border border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]">
                                 <Crown size={14}/>
                             </div>
@@ -3291,7 +3373,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         <div className="flex gap-2 mt-4 justify-center md:justify-start"><Button onClick={()=>setModals({...modals, settings:true})} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Settings size={14}/> Settings</Button><Button onClick={()=>setModals({...modals, socials:true})} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2">Socials</Button></div>
                         
                         {/* PHASE 7: VIP Ecosystem Access */}
-                        {!profile.isVIP ? (
+                        {!isEffVIP(profile) ? (
                             <div className="mt-4 p-3 bg-gradient-to-r from-yellow-500/10 to-transparent border border-yellow-500/30 rounded-xl flex items-center justify-between cursor-pointer hover:bg-yellow-500/20" onClick={() => setModals({...modals, vip: true})}>
                                 <div><span className="text-[10px] font-bold text-yellow-400 block tracking-widest uppercase">Go VIP</span><span className="text-[8px] opacity-70">Radio · Themes · Banner Msgs · Post Boosts</span></div>
                                 <Crown size={18} className="text-yellow-400"/>
@@ -3308,8 +3390,11 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                             {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
                                 <p className="text-[8px] text-yellow-300 mb-2">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
                             )}
-                            {profile?.vipPlan === 'expired' && !profile?.isVIP && (
+                            {profile?.vipPlan === 'expired' && !profile?.isVIP && !RK_CFG.launchPerks && (
                                 <p className="text-[8px] text-red-300 mb-2">Your monthly VIP has expired. <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew now</button></p>
+                            )}
+                            {RK_CFG.launchPerks && (
+                                <p className="text-[8px] text-lime-300 mb-2">🎉 Launch Perks active — VIP is free for every raver & seller commission is cut to 10%. <button onClick={() => setModals({...modals, vip: true})} className="underline">Details</button></p>
                             )}
                             <div className="grid grid-cols-2 gap-2">
                                 <button onClick={() => setShowBanner(true)} className="p-2 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-[10px] font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[8px] opacity-70">Post on the live marquee</span></button>
@@ -3687,6 +3772,22 @@ const App = () => {
         }
     }, [user, profile?.isVIP, profile?.vipPlan, profile?.vipExpires, nowTick]);
 
+    // V42.11: remote config — admin-controlled kill switches, maintenance & version gate
+    const [rkConfig, setRkConfig] = useState(RK_CFG);
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => {
+            if (s.exists()) { const c = { ...RK_CFG, ...s.data() }; RK_CFG = c; setRkConfig(c); }
+        }, e => console.log('config', e));
+        return () => unsub();
+    }, []);
+
+    // V42.12: iPhone users browsing the hosted web app get a one-time install guide
+    const [iosGuide, setIosGuide] = useState(false);
+    useEffect(() => {
+        if (!IS_IOS_BROWSER) return;
+        try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
+    }, []);
+
     // V37.13: self-sync computed stats so the marquee leaderboards can query them,
     // and self-notify on newly unlocked achievements.
     useEffect(() => {
@@ -3775,7 +3876,7 @@ const App = () => {
     // V37.14: marquee data — entries are {t, uid} so user references are tappable links
     const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
     const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
-    const mqCommission = mqTotalSales * COMMISSION_RATE;
+    const mqCommission = mqTotalSales * effCommissionRate(null);
     const topPoster = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) { c[i.ownerName] = c[i.ownerName] || { n: 0, uid: i.ownerPublicUid || i.ownerId }; c[i.ownerName].n++; } }); const e = Object.entries(c).sort((a, b) => b[1].n - a[1].n)[0]; return e ? { name: e[0], n: e[1].n, uid: e[1].uid } : null; })();
     const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY'];
     const plurLine = (() => {
@@ -3804,7 +3905,7 @@ const App = () => {
         topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? { t: '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)', uid: uref(topStats.listener) } : null,
         topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? { t: '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')', uid: uref(topStats.buyer) } : null,
         topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - (topStats.seller.customCommissionRate ?? COMMISSION_RATE))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - effCommissionRate(topStats.seller.customCommissionRate))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
         { t: '💖 PLUR FACT: Handshakes end with a trade! 💖' },
@@ -3828,7 +3929,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.10.01</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.12.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -3845,7 +3946,7 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
-    const appBackgroundStyle = profile.isVIP && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' } : { backgroundColor: '#0f001e' };
+    const appBackgroundStyle = isEffVIP(profile) && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' } : { backgroundColor: '#0f001e' };
 
     return (
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
@@ -3867,6 +3968,20 @@ cat << 'EOF' >> src/App.js
                     <div className="flex gap-2">
                         <Button onClick={() => { try { localStorage.setItem('rk_hide_merch_popup', '1'); } catch(e) {} setMerchPopup(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
                         <Button onClick={() => setMerchPopup(false)} color="purple" className="flex-1 text-xs">Close</Button>
+                    </div>
+                </div>
+            </Modal>
+            <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Install RaveKandi">
+                <div className="space-y-3 text-sm">
+                    <p className="text-xs opacity-80">Get the full app experience on your iPhone — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
+                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+                        <p><strong className="text-cyan-400">1.</strong> Tap the <strong>Share</strong> button in Safari's toolbar (the square with an arrow pointing up).</p>
+                        <p><strong className="text-cyan-400">2.</strong> Scroll down the menu and tap <strong>"Add to Home Screen."</strong></p>
+                        <p><strong className="text-cyan-400">3.</strong> Tap <strong>Add</strong> — done! Launch RaveKandi from your Home Screen from now on. 🌈</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button onClick={() => { try { localStorage.setItem('rk_ios_a2hs', '1'); } catch (e) {} setIosGuide(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
+                        <Button onClick={() => setIosGuide(false)} color="cyan" className="flex-1 text-xs">Got It!</Button>
                     </div>
                 </div>
             </Modal>
@@ -3898,6 +4013,15 @@ cat << 'EOF' >> src/App.js
             </div>
             
             <button onClick={() => setRadioOpen(true)} className={`fixed left-2 z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`} style={{ top: '112px' }} title="Rave Radio"><Radio size={32} className="text-white drop-shadow"/></button>
+            {rkConfig.maintenanceMessage ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
+            {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
+                <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6 text-center">
+                    <div>
+                        <h2 className="text-2xl font-black text-pink-500 mb-2">UPDATE REQUIRED</h2>
+                        <p className="text-sm opacity-80 max-w-xs mx-auto">This build (V{APP_VERSION}) is below the minimum supported version (V{rkConfig.minVersion}). Grab the latest from the official RaveKandi download link to keep raving!</p>
+                    </div>
+                </div>
+            ) : null}
             <main className="p-4 bg-black/50 min-h-screen">
                 {page === 'home' && (
                     <div className="text-center pt-8 flex flex-col gap-8 pb-10">
@@ -4035,7 +4159,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.10.01 Phase 14: 25% RevShare, Promo Callout & Social Cards</span>
+                    <span className="flex-1 text-center">V42.12.00 Phase 16: Web Launch, iOS Guide & Launch Perks</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4230,9 +4354,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.10.01)..."
-sed -i "s/versionCode 1/versionCode 58/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.10.01"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.12.00)..."
+sed -i "s/versionCode 1/versionCode 60/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.12.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4279,7 +4403,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_10_01_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_12_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
@@ -4316,4 +4440,41 @@ else
     echo "navigate to Internal Storage -> Android -> data -> com.termux -> files -> home -> RaveKandi_Output"
     echo "Or run: termux-setup-storage, then try copying manually."
     echo "==========================================================="
+fi
+
+# Block 21 — Web deploy (Firebase Hosting). Opt-in so APK-only builds stay fast.
+echo ""
+echo "============================================"
+RK_WEB="n"
+read -t 45 -p "🌐 Deploy the WEB version to Firebase Hosting now? (y/N) " RK_WEB || RK_WEB="n"
+if [ "$RK_WEB" = "y" ] || [ "$RK_WEB" = "Y" ]; then
+    cd ~/ravekandi-app
+    [ -d build ] || npm run build
+    cat << 'EOF' > firebase.json
+{
+  "hosting": {
+    "public": "build",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [ { "source": "**", "destination": "/index.html" } ]
+  }
+}
+EOF
+    cat << 'EOF' > .firebaserc
+{ "projects": { "default": "ravekandi" } }
+EOF
+    command -v firebase >/dev/null 2>&1 || npm install -g firebase-tools
+    if ! firebase projects:list >/dev/null 2>&1; then
+        echo "First-time Firebase login — follow the URL it prints, sign in, paste the code back here:"
+        firebase login --no-localhost
+    fi
+    if firebase deploy --only hosting; then
+        echo ""
+        echo "🌐 WEB VERSION LIVE AT: https://ravekandi.web.app"
+        echo "   (alias: https://ravekandi.firebaseapp.com)"
+        echo "   iPhone users: open that link in Safari → Share → Add to Home Screen."
+    else
+        echo "⚠ Web deploy failed — check the error above (usually login or project access)."
+    fi
+else
+    echo "Skipped web deploy. To deploy later: cd ~/ravekandi-app && firebase deploy --only hosting"
 fi
