@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.09.02 Build Script Starting"
+echo " RaveKandi V42.10.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.09.02</title>
+    <title>RaveKandi V42.10.01</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
@@ -31,6 +31,7 @@ cat << 'EOF' > public/index.html
       @keyframes rkCascade { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
       .rk-radio-on { background: linear-gradient(60deg, #16ff8e, #00c853, #7CFC00, #16ff8e); background-size: 300% 300%; animation: rkCascade 2.2s linear infinite; box-shadow: 0 0 18px rgba(0,255,140,0.8); }
       .rk-radio-off { background: linear-gradient(45deg, #ff1744, #b71c1c); box-shadow: 0 0 16px rgba(255,23,68,0.75); }
+      .rk-pastel-shift { background-size: 300% 300%; -webkit-background-clip: text; background-clip: text; animation: rkCascade 5s ease infinite; }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
   </head>
@@ -91,7 +92,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.09.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.10.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -243,16 +244,19 @@ const ACHIEVEMENT_TIERS = [
 ];
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
+// V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
 const REFERRAL_TIERS = [
-    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 1, color: 'text-pink-500' },
-    { min: 5, max: 9, badge: 'Slime Green', sharePct: 1.5, color: 'text-lime-400' },
-    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 2, color: 'text-cyan-400' },
-    { min: 25, max: 49, badge: 'Holographic', sharePct: 2.5, color: 'text-purple-400' },
-    { min: 50, max: 99, badge: 'Laser Core', sharePct: 3, color: 'text-yellow-400' },
-    { min: 100, max: 249, badge: 'Plasma', sharePct: 3.5, color: 'text-red-500' },
-    { min: 250, max: 499, badge: 'Supernova', sharePct: 4, color: 'text-orange-400' },
-    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 4.5, color: 'text-gray-400' },
-    { min: 1000, max: 5000, badge: 'PLUR God', sharePct: 5, color: 'text-white' }
+    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 2, color: 'text-pink-500' },
+    { min: 5, max: 9, badge: 'Slime Green', sharePct: 3.5, color: 'text-lime-400' },
+    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 5, color: 'text-cyan-400' },
+    { min: 25, max: 49, badge: 'Holographic', sharePct: 7, color: 'text-purple-400' },
+    { min: 50, max: 99, badge: 'Laser Core', sharePct: 9, color: 'text-yellow-400' },
+    { min: 100, max: 249, badge: 'Plasma', sharePct: 11.5, color: 'text-red-500' },
+    { min: 250, max: 499, badge: 'Supernova', sharePct: 14, color: 'text-orange-400' },
+    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 17, color: 'text-gray-400' },
+    { min: 1000, max: 2499, badge: 'PLUR God', sharePct: 20, color: 'text-white' },
+    { min: 2500, max: 4999, badge: 'Cosmic Forge', sharePct: 22.5, color: 'text-fuchsia-400' },
+    { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300' }
 ];
 export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
 
@@ -659,6 +663,13 @@ const PublicProfileModal = ({ uid, onClose }) => {
                         <p className="text-[9px] font-mono opacity-50">Friend UID: {targ.publicUid || targ.id}</p>
                     </div>
                     <p className="italic opacity-80 bg-white/5 p-2 rounded text-xs">{targ.bio || "No vibe check yet."}</p>
+                    {SOCIAL_PLATFORMS.filter(p => targ.socialLinks?.[p.id]).length > 0 && (
+                        <div className="flex justify-center gap-4 py-1">
+                            {SOCIAL_PLATFORMS.filter(p => targ.socialLinks?.[p.id]).slice(0, 8).map(p => (
+                                <button key={p.id} onClick={() => { try { window.open('https://' + p.baseUrl + targ.socialLinks[p.id], '_blank', 'noopener'); } catch (e) {} }} title={p.name} className="hover:scale-125 transition-transform"><p.icon size={18} color={p.color}/></button>
+                            ))}
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2 text-[10px]">
                         <div className="bg-black/50 p-2 rounded border border-white/10"><p className="text-lime-400 font-bold">{targ.itemsSold || 0}</p><p className="opacity-50 uppercase">Items Sold</p></div>
                         <div className="bg-black/50 p-2 rounded border border-white/10"><p className="text-cyan-400 font-bold">{targ.totalLikes || 0}</p><p className="opacity-50 uppercase">Total Likes</p></div>
@@ -1173,7 +1184,7 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="RevShare Program">
             <div className="space-y-4">
                 <div className="bg-lime-900/20 border border-lime-500/40 p-3 rounded text-sm text-gray-100 leading-relaxed">
-                    Share your Friend UID. When friends sign up with it, you earn a percentage of the app's commission on <strong>everything they buy — for life</strong>. More referrals = higher tier = bigger cut.
+                    Share your Friend UID. When friends sign up with it, you earn a percentage of the app's commission on <strong>everything they buy — for life</strong>. More referrals = higher tier = bigger cut, up to <strong>25% of the commission</strong> at Eternal Rave.
                 </div>
                 <div className="bg-black/60 border border-white/20 rounded p-3 text-center">
                     <p className="text-[9px] uppercase opacity-60 mb-1">Your Friend UID</p>
@@ -1203,7 +1214,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.09.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.10.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1258,7 +1269,7 @@ const PingBar = ({ show }) => {
 
 const NOTIF_ICONS = { message: Mail, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
-const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => {
+const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget }) => {
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
     const [activeName, setActiveName] = useState('');
@@ -1292,6 +1303,15 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs }) => 
         unreadOnes.forEach(n => batch.update(doc(db, 'artifacts', appId, 'users', myUid, 'notifications', n.id), { read: true }));
         batch.commit().catch(()=>{});
     }, [isOpen, tab, notifs]);
+
+    // V42.10: deep-link straight into a thread (e.g. "Message the Admin" on the homepage)
+    useEffect(() => {
+        if (isOpen && initialTarget?.uid && myUid) {
+            const tid = [myUid, initialTarget.uid].sort().join('_');
+            setActiveThread(tid); setActiveName(initialTarget.name || 'Raver'); setTab('msgs');
+            if (onConsumeTarget) onConsumeTarget();
+        }
+    }, [isOpen, initialTarget]);
 
     // user search (exact Friend UID, then exact username); button = loud, typing = quiet
     const runSearch = async (tv, loud) => {
@@ -3036,7 +3056,7 @@ const InfoSection = () => {
     const [openIdx, setOpenIdx] = useState(null);
     const infos = [
         { title: "💸 Payouts & Commission", content: "Sellers keep the majority of every sale. We can take up to 20% commission, typically starting at 20% and going as low as zero, on the back-end to cover Stripe transaction fees, servers, and RevShare payouts. Sellers can customize their payout schedule directly through their secure Stripe Connect portal." },
-        { title: "🤝 The PLUR Reward System (RevShare)", content: "We share our profits with you. When you refer a friend using your UID, you unlock RevShare. You earn 1% to 5% of our app's commission every time your referral makes a purchase—forever. Tier 1 starts at 1 referral. Maximum cap is Tier 9 (5,000 referrals)." },
+        { title: "🤝 The PLUR Reward System (RevShare)", content: "We share our profits with you. When you refer a friend using your UID, you unlock RevShare. You earn 2% to 25% of our app's commission every time your referral makes a purchase—forever. Tier 1 starts at 1 referral. The ladder tops out at Tier 11 — Eternal Rave (5,000+ referrals) at a full 25% of the commission." },
         { title: "📦 Mandatory Tracking Numbers", content: "To protect both buyers and sellers, tracking numbers are mandatory for all physical goods. Once a tracking number is uploaded by the seller, it is permanently locked and only viewable by the direct Buyer and the Seller in their private collection dashboard. No funds are fully cleared until tracking is active." },
         { title: "🛡️ Safe Checkout (Stripe & Solana)", content: "We offer dual checkout. Pay instantly with practically zero fees and full anonymity using Solana/USDC crypto wallets (Phantom, Coinbase, MetaMask). Or, pay traditionally with standard credit/debit cards via Stripe's encrypted portal." }
     ];
@@ -3084,8 +3104,8 @@ export const ReferralProgramSection = ({ onNavigateToProfile }) => (
     <div className="mt-8 text-left max-w-md mx-auto mb-10">
         <h2 className="text-2xl font-black mb-4 italic tracking-tighter text-cyan-400">The PLUR RevShare Program</h2>
         <Card glow="accentGlow" className="p-5">
-            <p className="text-sm text-gray-100 mb-4">Invite your rave fam and earn passive income forever! When someone signs up using your Friend UID, you earn a percentage of the app's commission on EVERY purchase they make.</p>
-            <div className="bg-black/50 p-3 rounded mb-4 max-h-40 overflow-y-auto border border-white/10">
+            <p className="text-sm text-gray-100 mb-4">Invite your rave fam and earn passive income forever! When someone signs up using your Friend UID, you earn a percentage of the app's commission on EVERY purchase they make — climbing all the way to <strong className="text-lime-300">25% of the commission</strong> at the top tier.</p>
+            <div className="bg-black/50 p-3 rounded mb-4 max-h-52 overflow-y-auto border border-white/10">
                 <table className="w-full text-xs">
                     <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Refs</th><th className="pb-1">RevShare</th></tr></thead>
                     <tbody>
@@ -3627,6 +3647,7 @@ const App = () => {
 
     // V37.13: Messenger — live threads + notifications (powers the header badge too)
     const [msgOpen, setMsgOpen] = useState(false);
+    const [msgTarget, setMsgTarget] = useState(null);
     const [threads, setThreads] = useState([]);
     const [notifs, setNotifs] = useState([]);
     useEffect(() => {
@@ -3696,6 +3717,17 @@ const App = () => {
     };
     
     const handleViewItem = (item) => { setViewingItem(item); };
+
+    // V42.10: homepage promo-video callout — opens a DM straight to the admin team
+    const contactAdmin = async () => {
+        try {
+            const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true), limit(1)));
+            if (s.empty) return alert('No admin account is set up yet — use the Feedback button below instead!');
+            const a = { id: s.docs[0].id, ...s.docs[0].data() };
+            setMsgTarget({ uid: a.id, name: a.displayName || 'RaveKandi Admin' });
+            setMsgOpen(true);
+        } catch (e) { alert('Could not reach the admin directory: ' + e.message); }
+    };
     
     const handleViewFeed = (targetUid) => {
         if (items.length === 0 || isSyncing) { alert("Posts are currently syncing. Please wait a moment."); return; }
@@ -3796,7 +3828,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.09.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.10.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -3826,7 +3858,7 @@ cat << 'EOF' >> src/App.js
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
-            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} />}
+            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} />}
             <Modal isOpen={merchPopup} onClose={() => setMerchPopup(false)} title="Official Merch">
                 <div className="text-center space-y-4">
                     {['OFFICIAL', 'DROPS', 'SOON'].map((word, i) => (<h1 key={i} className="text-4xl font-black animate-text-shimmer opacity-90" style={{ backgroundImage: 'linear-gradient(45deg, #00ffff, #ffffff, #00ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>{word}.</h1>))}
@@ -3898,6 +3930,12 @@ cat << 'EOF' >> src/App.js
                             <ReferralProgramSection onNavigateToProfile={() => setOpenReferrals(true)} />
                         </div>
 
+                        <div className="max-w-md mx-auto w-full bg-black/60 border-2 border-dashed border-purple-400/50 rounded-xl p-4 text-center" style={{ boxShadow: '0 0 18px rgba(216,180,254,0.35)' }}>
+                            <p className="text-lg font-black uppercase tracking-wide rk-pastel-shift bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7)' }}>🎬 Calling all video creators!</p>
+                            <p className="text-xs text-gray-100 mt-1 mb-3">We're looking for a video creator to make the official RaveKandi promo — this spot is reserved for the finished video. Think you've got the vibe?</p>
+                            <Button onClick={contactAdmin} color="purple" className="w-full text-xs">📩 Message the Admin Team</Button>
+                        </div>
+
                         <div className="max-w-md mx-auto w-full">
                             <h3 className="text-lg font-black uppercase tracking-widest text-center mb-2 animate-text-shimmer" style={{ backgroundImage: 'linear-gradient(45deg, #fde047, #fff7c2, #facc15, #fde047)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', backgroundSize: '200% 200%', filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.5))' }}>Custom and DIY Requests</h3>
                             <div className="w-full bg-yellow-900/15 border-2 border-yellow-400/70 rounded-xl p-4 text-left shadow-[0_0_14px_rgba(250,204,21,0.25)]">
@@ -3957,6 +3995,13 @@ cat << 'EOF' >> src/App.js
                                         <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
                                         <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                         <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
+                                        {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
+                                            <div className="flex gap-2.5 mt-1.5">
+                                                {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).slice(0, 6).map(p => (
+                                                    <button key={p.id} onClick={(e) => { e.stopPropagation(); try { window.open('https://' + p.baseUrl + u.socialLinks[p.id], '_blank', 'noopener'); } catch (err) {} }} title={p.name} className="hover:scale-125 transition-transform"><p.icon size={13} color={p.color}/></button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <Button onClick={() => setViewingProfileId(u.publicUid || u.id)} color="purple" className="text-[10px] py-1 px-3 shrink-0">View Profile</Button>
                                 </Card>
@@ -3990,7 +4035,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.09.02 Phase 13: Subscriber Tools, Boosts & Banner Queue</span>
+                    <span className="flex-1 text-center">V42.10.01 Phase 14: 25% RevShare, Promo Callout & Social Cards</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4185,9 +4230,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.09.02)..."
-sed -i "s/versionCode 1/versionCode 56/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.09.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.10.01)..."
+sed -i "s/versionCode 1/versionCode 58/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.10.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4234,7 +4279,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_09_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_10_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
