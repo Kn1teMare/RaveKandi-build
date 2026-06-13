@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.15.02 Build Script Starting"
+echo " RaveKandi V42.15.03 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.15.02</title>
+    <title>RaveKandi V42.15.03</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.03'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -236,7 +236,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.15.02';
+const APP_VERSION = '42.15.03';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1324,7 +1324,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.03'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3883,7 +3883,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.02</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.03</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4212,6 +4212,16 @@ const App = () => {
         setFilters({...filters, searchUid: targetUid});
         setPage('feed');
     };
+
+    // V42.15.03 FIX: these hooks MUST run on every render. They were below the
+    // early returns (loading/!user/ban), so hook count changed once loading
+    // finished → React #310 crash on launch, every platform. Moved above guards.
+    const [textScale, setTextScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
+    useEffect(() => {
+        const handler = (e) => { if (e.detail) { setTextScale(e.detail); try { localStorage.setItem('rk_text_scale', String(e.detail)); } catch (er) {} } };
+        window.addEventListener('rk-text-scale', handler);
+        return () => window.removeEventListener('rk-text-scale', handler);
+    }, []);
     
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
@@ -4306,7 +4316,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.03</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4323,12 +4333,6 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
-    const [textScale, setTextScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
-    useEffect(() => {
-        const handler = (e) => { if (e.detail) { setTextScale(e.detail); try { localStorage.setItem('rk_text_scale', String(e.detail)); } catch (er) {} } };
-        window.addEventListener('rk-text-scale', handler);
-        return () => window.removeEventListener('rk-text-scale', handler);
-    }, []);
     const appBackgroundStyle = isEffVIP(profile) && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
 
     return (
@@ -4541,7 +4545,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.15.02 Phase 17: Staging-Gated Deploys</span>
+                    <span className="flex-1 text-center">V42.15.03 Phase 17: Launch Crash Fix (hooks order)</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4736,9 +4740,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.15.02)..."
-sed -i "s/versionCode 1/versionCode 69/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.15.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.15.03)..."
+sed -i "s/versionCode 1/versionCode 70/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.15.03"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4785,7 +4789,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_15_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_15_03_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
