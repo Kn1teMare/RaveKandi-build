@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.15.04 Build Script Starting"
+echo " RaveKandi V42.19.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.15.04</title>
+    <title>RaveKandi V42.19.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.04'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.19.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -229,14 +229,20 @@ cat << 'EOF' >> src/App.js
 const GEMINI_API_KEY = "AIzaSyBVM6ot4YUYk4RpD4AgAymh4PuDczwJSh0";
 const PROFIT_MARGIN = 2.2;
 const COMMISSION_RATE = 0.20;
-const KANDI_TYPES = ['Bracelet', 'Cuff', 'Perler', 'Mask', 'Necklace', 'Clothing', 'Other'];
+const KANDI_TYPES = [
+    'Single (Bracelet)', 'Cuff', 'Multi-Bead Set', 'Charm Bracelet', 'Beaded Ring', 'Anklet', 'Necklace', 'Choker', 'Earrings', 'Beaded Watch',
+    'Perler / Fuse Art', 'Mask', 'Goggles', 'Pacifier / Bottle',
+    'Pashmina', 'Hat / Cap', 'Bucket Hat', 'Beanie', 'Sunglasses / Shades', 'Gloves / Fluffies', 'Leg Warmers', 'Bra / Top', 'Bodysuit', 'Shorts / Bottoms', 'Pasties', 'Harness', 'Hood', 'Tutu / Skirt', 'Wings', 'Boot Covers', 'Arm Sleeves',
+    'Hair Clip / Accessory', 'Pin / Button', 'Patch', 'Keychain', 'Bag / Purse', 'Belt',
+    'Full Outfit / Set', 'Bead Supplies', 'Charms (loose)', 'String / Cord', 'Custom Commission', 'Other'
+];
 const NAME_CHANGE_LIMIT_DAYS = 30;
 const BIO_CHAR_LIMIT = 200;
 // V42.11: DEV_PIN backdoor removed for launch (Firestore rules deny the write anyway).
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.15.04';
+const APP_VERSION = '42.19.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -245,6 +251,9 @@ const isEffVIP = (profile) => !!(profile?.isVIP || RK_CFG.launchPerks);
 const effCommissionRate = (base) => { const b = (base === null || base === undefined) ? COMMISSION_RATE : base; return RK_CFG.launchPerks ? Math.max(0, b - 0.10) : b; };
 // V42.12: iOS-in-browser detection for the Add-to-Home-Screen guide
 const IS_IOS_BROWSER = (() => { try { const ua = navigator.userAgent || ''; const ios = /iphone|ipad|ipod/i.test(ua); const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; return ios && !standalone; } catch (e) { return false; } })();
+// V42.16: true when running in a normal browser tab (NOT the installed home-screen app).
+const IS_STANDALONE = (() => { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } })();
+const IS_IOS = (() => { try { return /iphone|ipad|ipod/i.test(navigator.userAgent || ''); } catch (e) { return false; } })();
 const DAILY_AI_LIMIT = 5;
 
 const RADIO_STATIONS = [
@@ -259,6 +268,23 @@ const RADIO_STATIONS = [
     { id: 'trap',   name: 'Trap Temple',    genre: 'Trap EDM',              url: 'https://radiorecord.hostingradio.ru/trap96.aacp',    color: '#ff3864' },
     { id: 'edmhh',  name: 'Beat Bodega',    genre: 'EDM Hip-Hop',           url: 'https://ice1.somafm.com/fluid-128-mp3',        color: '#9d4edd' },
     { id: 'top100', name: 'Top 100 EDM',    genre: 'Top Dance Hits',        url: 'https://radiorecord.hostingradio.ru/rr_main96.aacp', color: '#00f5d4' },
+    { id: 'hardstyle', name: 'Hardstyle HQ', genre: 'Hardstyle / Hardcore',  url: 'https://radiorecord.hostingradio.ru/hardstyle96.aacp', color: '#ff2079' },
+    { id: 'psy',    name: 'Psytrance',      genre: 'Psy / Goa Trance',      url: 'https://radiorecord.hostingradio.ru/goa96.aacp',     color: '#39ff14' },
+    { id: 'future', name: 'Future House',   genre: 'Future / Bass House',   url: 'https://radiorecord.hostingradio.ru/fbass96.aacp',    color: '#7b2fff' },
+    { id: 'trance2',name: 'Trance Mission', genre: 'Uplifting Trance',      url: 'https://radiorecord.hostingradio.ru/tm96.aacp',       color: '#00bfff' },
+];
+// V42.19 Phase 4: curated well-known YouTube genre live-streams / playlists. YouTube
+// can't be piped through the <audio> EQ player, so these open the stream on YouTube
+// in a new tab (full visuals + chat). Surfaced in the radio modal as a separate list.
+const YOUTUBE_STATIONS = [
+    { id: 'yt_lofi_edm', name: 'EDM / Future Bass Mix', genre: 'YouTube · Future Bass', url: 'https://www.youtube.com/results?search_query=future+bass+mix+2025', color: '#ff50b4' },
+    { id: 'yt_house',    name: 'House & Tech House Mix', genre: 'YouTube · House',       url: 'https://www.youtube.com/results?search_query=tech+house+mix+2025', color: '#b464ff' },
+    { id: 'yt_techno',   name: 'Techno Livestream',      genre: 'YouTube · Techno',      url: 'https://www.youtube.com/results?search_query=techno+livestream', color: '#64ffff' },
+    { id: 'yt_trance',   name: 'Trance Classics Mix',    genre: 'YouTube · Trance',      url: 'https://www.youtube.com/results?search_query=trance+mix+2025', color: '#00bfff' },
+    { id: 'yt_dubstep',  name: 'Dubstep / Riddim Mix',   genre: 'YouTube · Dubstep',     url: 'https://www.youtube.com/results?search_query=dubstep+mix+2025', color: '#ffd700' },
+    { id: 'yt_hardstyle',name: 'Hardstyle Mix',          genre: 'YouTube · Hardstyle',   url: 'https://www.youtube.com/results?search_query=hardstyle+mix+2025', color: '#ff2079' },
+    { id: 'yt_dnb',      name: 'Drum & Bass Mix',        genre: 'YouTube · DnB',         url: 'https://www.youtube.com/results?search_query=drum+and+bass+mix+2025', color: '#39ff14' },
+    { id: 'yt_festival', name: 'Festival Sets (Tomorrowland etc.)', genre: 'YouTube · Live Sets', url: 'https://www.youtube.com/results?search_query=tomorrowland+2025+mainstage', color: '#ff8050' },
 ];
 
 const NEON_COLORS = { 'primaryGlow': 'rgb(255, 80, 180)', 'accentGlow': 'rgb(100, 255, 255)', 'purpleGlow': 'rgb(180, 100, 255)', 'limeGlow': 'rgb(180, 255, 100)', 'goldGlow': 'rgb(255, 215, 0)' };
@@ -272,13 +298,55 @@ const DEFAULT_INVENTORY = [
 ];
 const NOTIFICATION_TYPES = [{ id: 'promos', label: 'Promos' }, { id: 'app_updates', label: 'App Updates' }, { id: 'merch', label: 'Merch Drops' }, { id: 'discounts', label: 'Discounts' }, { id: 'projects', label: 'Project Updates' }];
 const ACHIEVEMENT_TIERS = [
-    { id: 'kandi_creator', name: 'Official Creator', tier: 1, metric: 'isKandiCreator', threshold: 1, icon: Hammer, desc: "Submit application and get approved as a Verified Creator." },
-    { id: 'collector_1', name: 'Kandi Collector', tier: 1, metric: 'totalItems', threshold: 5, icon: Package, desc: "List at least 5 unique Kandi items in your collection." },
-    { id: 'sales_1', name: 'Hustler (Iron)', tier: 1, metric: 'totalSalesValue', threshold: 100, icon: DollarSign, desc: "Complete $100 USD in total processed sales." },
-    { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, icon: MessageSquare, desc: "Interact with the community." },
-    { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi.", isHidden: true },
-    { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, icon: Crown, desc: "Reach #1 on the Creator Points leaderboard (sales, value, likes & trades). The badge is yours forever — but the marquee crown passes to whoever currently leads." },
+    // Creator / status
+    { id: 'kandi_creator', name: 'Official Creator', tier: 1, metric: 'isKandiCreator', threshold: 1, icon: Hammer, desc: "Get approved as a Verified Creator." },
+    { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, icon: Crown, desc: "Reach #1 on the Creator Points leaderboard. The badge is yours forever." },
+    // Listing / collection
+    { id: 'collector_1', name: 'Kandi Collector', tier: 1, metric: 'totalItems', threshold: 5, icon: Package, desc: "List 5 unique Kandi items." },
+    { id: 'collector_2', name: 'Kandi Curator', tier: 1, metric: 'totalItems', threshold: 25, icon: Package, desc: "List 25 unique Kandi items." },
+    { id: 'collector_3', name: 'Kandi Hoarder', tier: 1, metric: 'totalItems', threshold: 100, icon: Package, desc: "List 100 unique Kandi items." },
+    // Sales value
+    { id: 'sales_1', name: 'Hustler (Iron)', tier: 1, metric: 'totalSalesValue', threshold: 100, icon: DollarSign, desc: "Reach $100 in total sales." },
+    { id: 'sales_2', name: 'Hustler (Bronze)', tier: 1, metric: 'totalSalesValue', threshold: 500, icon: DollarSign, desc: "Reach $500 in total sales." },
+    { id: 'sales_3', name: 'Hustler (Silver)', tier: 1, metric: 'totalSalesValue', threshold: 1000, icon: DollarSign, desc: "Reach $1,000 in total sales." },
+    { id: 'sales_4', name: 'Hustler (Gold)', tier: 1, metric: 'totalSalesValue', threshold: 5000, icon: DollarSign, desc: "Reach $5,000 in total sales." },
+    { id: 'sales_5', name: 'Kandi Tycoon', tier: 1, metric: 'totalSalesValue', threshold: 10000, icon: TrendingUp, desc: "Reach $10,000 in total sales." },
+    // Items sold (count)
+    { id: 'sold_1', name: 'First Sale', tier: 1, metric: 'itemsSold', threshold: 1, icon: Tag, desc: "Sell your very first item." },
+    { id: 'sold_2', name: 'Shopkeeper', tier: 1, metric: 'itemsSold', threshold: 25, icon: Tag, desc: "Sell 25 items." },
+    { id: 'sold_3', name: 'Kandi Merchant', tier: 1, metric: 'itemsSold', threshold: 100, icon: Tag, desc: "Sell 100 items." },
+    // Buying
+    { id: 'buy_1', name: 'First Haul', tier: 1, metric: 'itemsBought', threshold: 1, icon: ShoppingBag, desc: "Buy your first item." },
+    { id: 'buy_2', name: 'Supporter', tier: 1, metric: 'itemsBought', threshold: 10, icon: ShoppingBag, desc: "Buy 10 items from the community." },
+    { id: 'buy_3', name: 'Patron of PLUR', tier: 1, metric: 'itemsBought', threshold: 50, icon: ShoppingBag, desc: "Buy 50 items." },
+    { id: 'spent_1', name: 'Big Spender', tier: 1, metric: 'totalBoughtValue', threshold: 500, icon: CreditCard, desc: "Spend $500 supporting other ravers." },
+    // Likes / comments / social
+    { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, icon: MessageSquare, desc: "Interact with the community 10 times." },
+    { id: 'social_2', name: 'Social Butterfly', tier: 1, metric: 'socialInteractions', threshold: 50, icon: MessageSquare, desc: "Interact with the community 50 times." },
+    { id: 'likes_1', name: 'Crowd Favorite', tier: 1, metric: 'totalLikes', threshold: 25, icon: Heart, desc: "Receive 25 likes across your posts." },
+    { id: 'likes_2', name: 'Kandi Famous', tier: 1, metric: 'totalLikes', threshold: 100, icon: Heart, desc: "Receive 100 likes across your posts." },
+    { id: 'comments_1', name: 'Conversation Starter', tier: 1, metric: 'totalComments', threshold: 25, icon: MessageSquare, desc: "Receive 25 comments across your posts." },
+    // Referrals
+    { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi." },
+    { id: 'ref_2', name: 'Recruiter', tier: 1, metric: 'referrals', threshold: 10, icon: Users, desc: "Refer 10 ravers." },
+    { id: 'ref_3', name: 'Rave Evangelist', tier: 1, metric: 'referrals', threshold: 50, icon: Users, desc: "Refer 50 ravers." },
+    // Trades
+    { id: 'trade_1', name: 'Trader', tier: 1, metric: 'completedTrades', threshold: 1, icon: Gift, desc: "Complete your first trade." },
+    { id: 'trade_2', name: 'Trade Master', tier: 1, metric: 'completedTrades', threshold: 25, icon: Gift, desc: "Complete 25 trades." },
+    // Radio listening
+    { id: 'radio_1', name: 'Tuned In', tier: 1, metric: 'radioMinutes', threshold: 60, icon: Radio, desc: "Listen to Rave Radio for 1 hour." },
+    { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, icon: Radio, desc: "Listen to Rave Radio for 10 hours." },
+    // Activity / loyalty
+    { id: 'active_1', name: 'Regular', tier: 1, metric: 'activeMinutes', threshold: 300, icon: Activity, desc: "Spend 5 active hours in the app." },
+    { id: 'active_2', name: 'Always Raving', tier: 1, metric: 'activeMinutes', threshold: 3000, icon: Activity, desc: "Spend 50 active hours in the app." },
+    // VIP features
     { id: 'banner_5', name: 'Marquee Mogul', tier: 1, metric: 'bannerPosts', threshold: 5, icon: Zap, desc: "Post 5 banner messages on the live marquee." },
+    { id: 'boost_5', name: 'Spotlight Seeker', tier: 1, metric: 'boostsUsed', threshold: 5, icon: TrendingUp, desc: "Boost your posts 5 times." },
+    { id: 'video_1', name: 'Festival Filmmaker', tier: 1, metric: 'videosPosted', threshold: 1, icon: Video, desc: "Feature a festival clip in the Spotlight." },
+    { id: 'video_5', name: 'Content Creator', tier: 1, metric: 'videosPosted', threshold: 5, icon: Video, desc: "Feature 5 festival clips." },
+    // Meta
+    { id: 'ach_5', name: 'Achiever', tier: 1, metric: 'achievementsUnlocked', threshold: 5, icon: Award, desc: "Unlock 5 achievements." },
+    { id: 'ach_15', name: 'Completionist', tier: 1, metric: 'achievementsUnlocked', threshold: 15, icon: Award, desc: "Unlock 15 achievements." },
 ];
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
@@ -453,26 +521,42 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
     } catch (e) { console.error("User Creation Error", e); throw e; }
 };
 
+// V42.16: handles images (canvas-compressed) AND videos (read as-is). Previously
+// fed videos into new Image() whose onload never fires -> upload hung forever at
+// "Processing Media". Now resolves for both, never hangs (img errors reject), and
+// rejects oversized media that would blow past Firestore's ~1MB document limit.
+const MAX_MEDIA_BYTES = 900000; // ~0.9MB base64 ceiling for a Firestore doc field
 const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
-    const reader = new FileReader(); 
-    reader.onprogress = (data) => { if (data.lengthComputable && onProgress) { onProgress(parseInt(((data.loaded / data.total) * 50), 10)); } };
+    const isVideo = file.type.startsWith('video/');
+    if (isVideo) {
+        // Videos can't be canvas-compressed. Base64-inlining video into Firestore is
+        // not viable (size), so reject with a clear, actionable message.
+        return reject(new Error('Video uploads on posts aren\'t supported yet — they\'re too large to store. Share festival video clips via the homepage Festival Spotlight (YouTube/TikTok/Instagram link) instead, and use an image here.'));
+    }
+    const reader = new FileReader();
+    reader.onprogress = (data) => { if (data.lengthComputable && onProgress) onProgress(parseInt(((data.loaded / data.total) * 50), 10)); };
+    reader.onerror = () => reject(new Error('Could not read that file. Try a different image (JPG or PNG).'));
+    reader.onload = (e) => {
+        if (onProgress) onProgress(60);
+        const img = new Image();
+        img.onerror = () => reject(new Error('That image format isn\'t supported. iPhone HEIC photos often fail — save as JPG or take a screenshot, then upload that.'));
+        img.onload = () => {
+            try {
+                if (onProgress) onProgress(80);
+                const cvs = document.createElement('canvas');
+                const scale = Math.min(1, 800 / img.width);
+                cvs.width = img.width * scale; cvs.height = img.height * scale;
+                cvs.getContext('2d').drawImage(img, 0, 0, cvs.width, cvs.height);
+                let q = 0.6, result = cvs.toDataURL('image/jpeg', q);
+                while (result.length > MAX_MEDIA_BYTES && q > 0.25) { q -= 0.1; result = cvs.toDataURL('image/jpeg', q); }
+                if (result.length > MAX_MEDIA_BYTES) return reject(new Error('That image is too large even after compression — please use a smaller one.'));
+                if (onProgress) onProgress(100);
+                resolve(result);
+            } catch (err) { reject(err); }
+        };
+        img.src = e.target.result;
+    };
     reader.readAsDataURL(file);
-    reader.onload = (e) => { 
-        if(onProgress) onProgress(60);
-        const img = new Image(); 
-        img.src = e.target.result; 
-        img.onload = () => { 
-            if(onProgress) onProgress(80);
-            const cvs = document.createElement('canvas'); 
-            const scale = Math.min(1, 400 / img.width);
-            cvs.width = img.width * scale; cvs.height = img.height * scale; 
-            cvs.getContext('2d').drawImage(img, 0, 0, cvs.width, cvs.height); 
-            const result = cvs.toDataURL('image/jpeg', 0.5);
-            if(onProgress) onProgress(100);
-            resolve(result); 
-        }; 
-    }; 
-    reader.onerror = reject;
 });
 
 const generateCustomKandi = async (prompt, onProgress = () => {}) => {
@@ -541,8 +625,19 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
 };
 
 const getDisplayAchievements = (profile) => {
-    const stats = { totalItems: profile?.items?.length || 0, totalSalesValue: profile?.totalSalesValue || 0, isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, referrals: profile?.referrals||0, topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0 };
-    return ACHIEVEMENT_TIERS.filter(ach => ach.tier === 1 || stats[ach.metric] >= ach.threshold).map(ach => ({ ...ach, unlocked: stats[ach.metric] >= ach.threshold }));
+    const stats = {
+        totalItems: profile?.items?.length || profile?.itemsSold || 0,
+        totalSalesValue: profile?.totalSalesValue || 0, totalBoughtValue: profile?.totalBoughtValue || 0,
+        itemsSold: profile?.itemsSold || 0, itemsBought: profile?.itemsBought || 0,
+        totalLikes: profile?.totalLikes || 0, totalComments: profile?.totalComments || 0,
+        isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0,
+        referrals: profile?.referrals||0, completedTrades: profile?.completedTrades||0,
+        radioMinutes: profile?.radioMinutes||0, activeMinutes: profile?.activeMinutes||0,
+        topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0,
+        boostsUsed: profile?.boostsUsed||0, videosPosted: profile?.videosPosted||0,
+        achievementsUnlocked: profile?.achievementsUnlocked||0
+    };
+    return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: (stats[ach.metric]||0) >= ach.threshold }));
 };
 EOF
 
@@ -1207,6 +1302,18 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                         </button>
                                     ))}
                                 </div>
+                                <div className="mt-3">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-1 flex items-center gap-1"><Youtube size={12}/> YouTube Genre Mixes</p>
+                                    <p className="text-[8px] opacity-50 mb-2">Full DJ sets & livestreams with visuals — opens in YouTube (keeps playing in the background).</p>
+                                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
+                                        {YOUTUBE_STATIONS.map(st => (
+                                            <button key={st.id} onClick={() => { try { window.open(st.url, '_blank', 'noopener'); } catch (e) {} }} className="p-2 rounded-lg border border-white/15 bg-black/40 hover:bg-white/5 text-left transition-all">
+                                                <p className="text-xs font-black flex items-center gap-1" style={{ color: st.color }}><Youtube size={10}/> {st.name}</p>
+                                                <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <div className="flex justify-center">
                                     <button onClick={togglePlay} className="w-16 h-16 rounded-full border-2 flex items-center justify-center transition-transform active:scale-90 bg-black/50" style={{ borderColor: station.color, boxShadow: '0 0 15px ' + station.color, color: station.color }}>
                                         {playing ? <span className="font-black text-[10px] tracking-widest">PAUSE</span> : <Play size={28} fill="currentColor"/>}
@@ -1238,6 +1345,146 @@ const BadgeChip = ({ badge }) => {
         <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[8px] font-bold px-1 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
             <Icon size={8}/> {badge.name || ach.name}
         </span>
+    );
+};
+
+const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile }) => {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const META = {
+        sold:    { title: '🏷️ Items Sold', empty: "No items sold yet." },
+        bought:  { title: '🛍️ Items Bought', empty: "No purchases yet." },
+        salesVal:{ title: '💸 Total Sales Value', empty: "No sales yet." },
+        boughtVal:{ title: '💳 Total Spent', empty: "No purchases yet." },
+        likes:   { title: '❤️ Likes Received', empty: "No liked posts yet." },
+        comments:{ title: '💬 Comments Received', empty: "No commented posts yet." },
+    };
+    useEffect(() => {
+        if (!isOpen || !uid) return;
+        const needsItems = ['sold','bought','salesVal','boughtVal','likes','comments'].includes(statKey);
+        if (!needsItems) { setItems([]); return; }
+        setLoading(true);
+        (async () => {
+            try {
+                let q;
+                if (statKey === 'bought' || statKey === 'boughtVal') {
+                    q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('buyers', 'array-contains', uid));
+                } else {
+                    q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', uid));
+                }
+                const snap = await getDocs(q);
+                let rows = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+                if (statKey === 'sold' || statKey === 'salesVal') rows = rows.filter(i => (i.purchaseCount || 0) > 0);
+                if (statKey === 'likes') rows = rows.filter(i => (i.likes?.length || 0) > 0).sort((a,b)=>(b.likes?.length||0)-(a.likes?.length||0));
+                if (statKey === 'comments') rows = rows.filter(i => (i.comments?.length || 0) > 0).sort((a,b)=>(b.comments?.length||0)-(a.comments?.length||0));
+                setItems(rows);
+            } catch (e) { console.log('stat detail load', e); setItems([]); } finally { setLoading(false); }
+        })();
+    }, [isOpen, uid, statKey]);
+    if (!isOpen) return null;
+    const meta = META[statKey] || { title: 'Details', empty: 'Nothing here.' };
+    const badge = (i) => statKey === 'likes' ? `❤️ ${i.likes?.length||0}` : statKey === 'comments' ? `💬 ${i.comments?.length||0}` : `$${Number(i.price||0).toFixed(2)}`;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={meta.title}>
+            {loading ? <p className="text-center opacity-50 py-10 text-xs animate-pulse">Loading…</p> : (
+                <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
+                    {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10 text-xs">{meta.empty}</p>}
+                    {items.map(i => (
+                        <div key={i.id} className="bg-white/5 p-2 rounded-lg border border-white/10 flex flex-col">
+                            <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || 'https://placehold.co/100?text=Kandi'} className="w-full h-24 object-cover rounded mb-2"/>
+                            <p className="font-bold text-[10px] truncate">{i.name || 'Item'}</p>
+                            <div className="flex justify-between items-center mt-1 border-t border-white/10 pt-1">
+                                <span className="text-[10px] text-lime-400 font-bold">{badge(i)}</span>
+                                {(statKey === 'sold' || statKey === 'salesVal') && <span className="text-[8px] opacity-50">×{i.purchaseCount||0}</span>}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
+    const [saving, setSaving] = useState(false);
+    if (!isOpen) return null;
+    const all = getDisplayAchievements(profile);
+    const unlocked = all.filter(a => a.unlocked);
+    const top = profile?.topAchievements || [];
+    const toggleTop = async (ach) => {
+        if (!editable) return;
+        if (!ach.unlocked) return alert("Locked — complete the requirement first to feature it.");
+        let next = top.includes(ach.id) ? top.filter(x => x !== ach.id) : [...top, ach.id];
+        if (next.length > 5) return alert("You can feature up to 5 achievements. Tap one to remove it first.");
+        setSaving(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'users', userUid), { topAchievements: next }, { merge: true }); }
+        catch (e) { alert('Could not save: ' + e.message); } finally { setSaving(false); }
+    };
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`🏅 Achievements (${unlocked.length}/${all.length})`}>
+            <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {editable && <p className="text-[10px] text-cyan-300 bg-cyan-900/20 border border-cyan-500/30 rounded p-2">Tap the ⭐ on any unlocked achievement to feature it on your profile (up to 5).</p>}
+                {all.map((ach, idx) => {
+                    const isTop = top.includes(ach.id);
+                    return (
+                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
+                            <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-center gap-2">
+                                    <p className="font-bold text-sm truncate">{ach.name}</p>
+                                    <p className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p>
+                                </div>
+                                <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                            </div>
+                            {editable && ach.unlocked && (
+                                <button disabled={saving} onClick={() => toggleTop(ach)} className="ml-2 shrink-0 p-1" title="Feature on profile">
+                                    <Star size={20} className={isTop ? 'text-yellow-400' : 'text-white/30'} fill={isTop ? 'currentColor' : 'none'} />
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </Modal>
+    );
+};
+
+const AchievementsCard = ({ profile, editable = false, userUid }) => {
+    const [open, setOpen] = useState(false);
+    const all = getDisplayAchievements(profile);
+    const unlocked = all.filter(a => a.unlocked);
+    const top = profile?.topAchievements || [];
+    // chosen top-5 if set, else first 5 unlocked, else show locked teasers
+    let featured = all.filter(a => top.includes(a.id) && a.unlocked).slice(0, 5);
+    if (featured.length === 0) featured = unlocked.slice(0, 5);
+    const display = featured.length > 0 ? featured : all.slice(0, 5);
+    return (
+        <>
+            <AchievementsModal profile={profile} isOpen={open} onClose={() => setOpen(false)} editable={editable} userUid={userUid} />
+            <Card glow="goldGlow" className="cursor-pointer hover:bg-white/10 transition-colors" >
+                <div onClick={() => setOpen(true)}>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-lg underline decoration-yellow-500/50">Achievements</h3>
+                        <span className="text-[10px] text-cyan-400">{unlocked.length}/{all.length} · tap to view all</span>
+                    </div>
+                    <div className="space-y-3">
+                        {display.map((ach, idx) => (
+                            <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
+                                <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} />
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-center gap-2">
+                                        <p className="font-bold text-sm truncate">{ach.name}</p>
+                                        {(profile?.topAchievements || []).includes(ach.id) && ach.unlocked && <Star size={12} className="text-yellow-400 shrink-0" fill="currentColor"/>}
+                                    </div>
+                                    <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-center text-[10px] text-yellow-300/70 mt-3">{editable ? 'Tap to view all & choose your featured 5 ⭐' : 'Tap to view all achievements'}</p>
+                </div>
+            </Card>
+        </>
     );
 };
 
@@ -1324,7 +1571,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.04'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.19.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2600,7 +2847,11 @@ const DIYBuilder = ({ onSubmitRequest }) => {
                     <p><span className="text-pink-400 font-bold">5.</span> ⚖ Fairness window: a requested Creator gets <strong>24–72h</strong> (scaled by price & complexity) to accept before your request automatically opens to ALL Creators.</p>
                 </div>
             </Card>
+            <div className="text-center my-2"><p className="text-xs text-gray-100">Step 1: Choose an <strong className="text-cyan-400">individual Creator</strong> below…</p></div>
             <CreatorSelectCarousel onSelectCreator={(c) => { setActiveCreator(c); setOpenMode(false); }} />
+
+            <div className="flex items-center gap-3 my-3"><div className="flex-1 h-px bg-white/15"/><span className="text-sm font-black text-yellow-300 uppercase tracking-widest" style={{ filter: 'drop-shadow(0 0 6px rgba(250,204,21,0.5))' }}>— OR —</span><div className="flex-1 h-px bg-white/15"/></div>
+            <p className="text-center text-xs text-gray-100 mb-2">…<strong className="text-lime-300">open your request to ALL Creators</strong> at once:</p>
 
             <button onClick={() => { const next = !openMode; setOpenMode(next); if (next) setActiveCreator(null); }} className={`w-full p-3 rounded-xl border-2 border-dashed font-black uppercase text-xs tracking-widest transition-all ${openMode ? 'border-lime-400 bg-lime-900/30 text-lime-300 shadow-[0_0_15px_rgba(163,230,53,0.4)]' : 'border-white/20 bg-white/5 text-white/60 hover:bg-white/10'}`}>
                 📢 All Inventory / Open Request to ALL Creators {openMode && '✓ ACTIVE'}
@@ -2721,7 +2972,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     {item._boosted && <span className="text-[8px] bg-gradient-to-r from-yellow-300 to-pink-500 text-black px-1 rounded font-black uppercase">⚡ BOOSTED</span>}
                     {(item.stockQty ?? 1) <= 0 ? <span className="text-[8px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
                     {isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[8px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
-                    {item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>}
+                    {(item.bulkTiers && item.bulkTiers.length > 0) ? <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">Bulk: {item.bulkTiers.map(t => `${t.qty}+ ${t.pct}%`).join(' · ')}</span> : (item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>)}
                     <span className="text-[8px] bg-black/50 px-1 rounded border border-white/10 flex items-center gap-1"><Eye size={8}/> {item.viewCount || 0}</span>
                     {avgRating && <span className="text-[8px] bg-yellow-900/30 px-1 rounded border border-yellow-500/50 flex items-center gap-1 text-yellow-400"><StarIcon size={8} fill="currentColor"/> {avgRating}</span>}
                 </div>
@@ -2737,7 +2988,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
 
 const SellKandiForm = ({ user, profile }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [form, setForm] = useState({ name: '', price: '', description: '', type: 'Bracelet', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', isSeries: false, seriesName: '', seriesNumber: '', isPinned: false });
+    const [form, setForm] = useState({ name: '', price: '', description: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false });
     const [mediaFiles, setMediaFiles] = useState([]);
     const [loading, setLoading] = useState(false); const [uploadPercent, setUploadPercent] = useState(0);
     
@@ -2745,10 +2996,12 @@ const SellKandiForm = ({ user, profile }) => {
         const files = Array.from(e.target.files);
         if(files.length > 5) return alert("Maximum 5 files allowed.");
         const images = files.filter(f => f.type.startsWith('image/')).length;
-        const videos = files.filter(f => f.type.startsWith('video/')).length;
+        const videos = files.filter(f => f.type.startsWith('video/'));
         if(images > 3) return alert("Maximum 3 images allowed.");
-        if(videos > 2) return alert("Maximum 2 videos allowed.");
-        setMediaFiles(files);
+        if(videos.length > 0) { alert("Heads up: post images here. To feature a video, use the homepage Festival Spotlight (paste a YouTube/TikTok/Instagram link). Video files have been skipped."); }
+        const imgOnly = files.filter(f => f.type.startsWith('image/'));
+        if(imgOnly.length === 0) return alert("Please choose at least one image.");
+        setMediaFiles(imgOnly);
     };
 
     const sub = async () => { 
@@ -2766,7 +3019,9 @@ const SellKandiForm = ({ user, profile }) => {
             }
             setUploadPercent(99);
 
-            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkDiscountQty: parseInt(form.bulkDiscountQty||0), bulkDiscountPct: parseInt(form.bulkDiscountPct||0), mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
+            const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
+            const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
+            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkTiers: cleanTiers, bulkDiscountQty: firstTier.qty, bulkDiscountPct: firstTier.pct, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -2777,7 +3032,7 @@ const SellKandiForm = ({ user, profile }) => {
         } catch(e) { alert("Error: " + e.message); } finally { setLoading(false); setUploadPercent(0); setMediaFiles([]); } 
     };
 
-    if(!isOpen) return <div className="mb-6"><button onClick={() => setIsOpen(true)} className="w-full py-4 rounded-xl border-2 border-dashed border-white/20 hover:bg-white/10 flex items-center justify-center gap-2"><PlusCircle className="text-pink-500"/><span className="font-bold">Post Your Kandi</span></button></div>;
+    if(!isOpen) return <div className="mb-6"><p className="text-center text-[10px] text-yellow-300/80 mb-2">Not seeing any posts? Tap <strong>Clear Filters</strong> above to reset your search. 🔄</p><button onClick={() => setIsOpen(true)} className="w-full py-4 rounded-xl border-2 border-dashed border-white/20 hover:bg-white/10 flex items-center justify-center gap-2"><PlusCircle className="text-pink-500"/><span className="font-bold">Post Your Kandi</span></button></div>;
     return ( 
         <Card glow="primaryGlow" className="mb-6 relative">
             <button onClick={() => setIsOpen(false)} className="absolute top-2 right-2"><XCircle/></button>
@@ -2797,10 +3052,21 @@ const SellKandiForm = ({ user, profile }) => {
                 <Input label="Price ($)" type="number" value={form.price} onChange={v => setForm({...form, price: v})} />
                 <Input label="Item Type" type="select" options={KANDI_TYPES} value={form.type} onChange={v => setForm({...form, type: v})} />
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
                 <Input label="Stock Qty" type="number" value={form.stockQty} onChange={v => setForm({...form, stockQty: v})} />
-                <Input label="Bulk Qty Req." type="number" value={form.bulkDiscountQty} onChange={v => setForm({...form, bulkDiscountQty: v})} placeholder="e.g. 5" />
-                <Input label="Bulk % Off" type="number" value={form.bulkDiscountPct} onChange={v => setForm({...form, bulkDiscountPct: v})} placeholder="e.g. 10" />
+                <div className="flex items-end"><p className="text-[9px] opacity-60 pb-2">Set bulk discounts below — buyers who add that many get the % off.</p></div>
+            </div>
+            <div className="mb-4 bg-white/5 p-3 rounded border border-lime-500/20">
+                <label className="text-[10px] font-bold text-lime-400 uppercase mb-2 block">Bulk Discount Tiers (optional)</label>
+                {form.bulkTiers.map((t, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-2 items-center">
+                        <Input type="number" value={t.qty} onChange={v => { const nt=[...form.bulkTiers]; nt[i]={...nt[i],qty:v}; setForm({...form, bulkTiers: nt}); }} placeholder="Buy X+" className="mb-0"/>
+                        <Input type="number" value={t.pct} onChange={v => { const nt=[...form.bulkTiers]; nt[i]={...nt[i],pct:v}; setForm({...form, bulkTiers: nt}); }} placeholder="% off" className="mb-0"/>
+                        <button onClick={() => { const nt=form.bulkTiers.filter((_,idx)=>idx!==i); setForm({...form, bulkTiers: nt.length?nt:[{qty:'',pct:''}]}); }} className="text-red-400 p-1"><MinusCircle size={16}/></button>
+                    </div>
+                ))}
+                {form.bulkTiers.length < 3 && <button onClick={() => setForm({...form, bulkTiers: [...form.bulkTiers, {qty:'',pct:''}]})} className="text-[10px] text-cyan-400 font-bold flex items-center gap-1"><PlusCircle size={12}/> Add another tier</button>}
+                <p className="text-[8px] opacity-50 mt-1">Example: Buy 5+ → 10% off, Buy 10+ → 20% off. Discounts apply at checkout when buyers select quantity.</p>
             </div>
             
             <div className="mb-4 bg-white/5 p-3 rounded border border-white/10">
@@ -3413,6 +3679,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                 <div className="max-w-4xl mx-auto px-4 pb-20 pt-6 space-y-6">
                     <UserStatsDashboard profile={targ} isOpen={showAnalytics} onClose={() => setShowAnalytics(false)} />
                     <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} />
+                    <StatDetailModal statKey={statDetail} uid={targ.id} profile={targ} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                     <ItemDetailModal item={selectedPinned} user={{ uid: viewerUid }} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onClose}/>
 
                     <div className="flex flex-col items-center md:flex-row gap-6 relative">
@@ -3460,8 +3727,8 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                             </div>
 
                             <div className="grid grid-cols-4 gap-2 mb-2">
-                                {[{ label: "Items Sold", val: targ.itemsSold || 0 }, { label: "Bought", val: targ.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(targ.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(targ.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: targ.totalLikes || 0 }, { label: "Comments", val: targ.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(targ).filter(a=>a.unlocked).length }, { label: "Referrals", val: targ.referrals || 0 }].map((s, i) => (
-                                    <div key={i} className="bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1.5 rounded text-center"><div className="text-sm font-bold text-lime-400 break-words">{s.val}</div><div className="text-[9px] opacity-70 uppercase leading-tight text-white">{s.label}</div></div>
+                                {[{ label: "Items Sold", val: targ.itemsSold || 0, k: 'sold' }, { label: "Bought", val: targ.itemsBought || 0, k: 'bought' }, { label: "$ Sold", val: "$" + Number(targ.totalSalesValue || 0).toFixed(2), k: 'salesVal' }, { label: "$ Bought", val: "$" + Number(targ.totalBoughtValue || 0).toFixed(2), k: 'boughtVal' }, { label: "Likes", val: targ.totalLikes || 0, k: 'likes' }, { label: "Comments", val: targ.totalComments || 0, k: 'comments' }, { label: "Badges", val: getDisplayAchievements(targ).filter(a=>a.unlocked).length }, { label: "Referrals", val: targ.referrals || 0 }].map((s, i) => (
+                                    <div key={i} onClick={() => s.k && setStatDetail(s.k)} className={`bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1.5 rounded text-center ${s.k ? 'cursor-pointer hover:bg-lime-900/40' : ''}`}><div className="text-sm font-bold text-lime-400 break-words">{s.val}</div><div className="text-[9px] opacity-70 uppercase leading-tight text-white">{s.label}</div></div>
                                 ))}
                             </div>
                             <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-xs text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
@@ -3473,7 +3740,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                         </div>
                     </div>
 
-                    <Card glow="goldGlow"><h3 className="font-bold text-lg mb-4 underline decoration-yellow-500/50">Achievement Tiers</h3><div className="space-y-4">{getDisplayAchievements(targ).map((ach, idx) => (<div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}><ach.icon size={26} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} /><div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-base">{ach.name}</p><p className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p></div><p className="text-xs opacity-70 mt-1 leading-relaxed">{ach.desc}</p></div></div>))}</div></Card>
+                    <AchievementsCard profile={targ} editable={false} />
                 </div>
             )}
         </div>
@@ -3616,6 +3883,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     
     const [pinnedItems, setPinnedItems] = useState([]);
     const [showBadges, setShowBadges] = useState(false);
+    const [statDetail, setStatDetail] = useState(null);
     const [showRevShare, setShowRevShare] = useState(false);
     const [showBanner, setShowBanner] = useState(false);
     const [showBoost, setShowBoost] = useState(false);
@@ -3670,6 +3938,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
+                <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
                 <BannerModal user={user} profile={profile} isOpen={showBanner} onClose={() => setShowBanner(false)} onGoVip={() => setModals({...modals, vip: true})} />
                 <BoostModal user={user} profile={profile} isOpen={showBoost} onClose={() => setShowBoost(false)} onGoVip={() => setModals({...modals, vip: true})} onGoSell={() => onViewFeed(profile?.publicUid || user.uid)} />
@@ -3733,7 +4002,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         </div>
                         
                         <div className="grid grid-cols-4 gap-2 mb-2">
-                             {[{ label: "Items Sold", val: profile.itemsSold || 0 }, { label: "Bought", val: profile.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(profile.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(profile.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: profile.totalLikes || 0 }, { label: "Comments", val: profile.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(profile).filter(a=>a.unlocked).length, onClick: () => setShowBadges(true) }, { label: "Referrals", val: profile.referrals || 0, onClick: () => setModals({...modals, referrals:true}) }].map((s, i) => (
+                             {[{ label: "Items Sold", val: profile.itemsSold || 0, onClick: () => setStatDetail('sold') }, { label: "Bought", val: profile.itemsBought || 0, onClick: () => setStatDetail('bought') }, { label: "$ Sold", val: "$" + Number(profile.totalSalesValue || 0).toFixed(2), onClick: () => setStatDetail('salesVal') }, { label: "$ Bought", val: "$" + Number(profile.totalBoughtValue || 0).toFixed(2), onClick: () => setStatDetail('boughtVal') }, { label: "Likes", val: profile.totalLikes || 0, onClick: () => setStatDetail('likes') }, { label: "Comments", val: profile.totalComments || 0, onClick: () => setStatDetail('comments') }, { label: "Badges", val: getDisplayAchievements(profile).filter(a=>a.unlocked).length, onClick: () => setShowBadges(true) }, { label: "Referrals", val: profile.referrals || 0, onClick: () => setModals({...modals, referrals:true}) }].map((s, i) => (
                                  <div key={i} onClick={s.onClick} className={`bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1 rounded text-center ${s.onClick ? 'cursor-pointer hover:bg-lime-900/40' : ''}`}><div className="text-[10px] font-bold text-lime-400">{s.val}</div><div className="text-[7px] opacity-70 uppercase leading-none text-white">{s.label}</div></div>
                              ))}
                         </div>
@@ -3749,13 +4018,13 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                             </div>
                         ) : (
                             <div className="mt-4 p-3 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl flex items-center justify-between cursor-pointer hover:bg-cyan-500/20" onClick={() => setModals({...modals, theme: true})}>
-                                <div><span className="text-[10px] font-bold text-cyan-400 block tracking-widest uppercase">Theme Selector</span><span className="text-[8px] opacity-70">Change your app background</span></div>
+                                <div><span className="text-sm font-bold text-cyan-400 block tracking-widest uppercase">Theme Selector</span><span className="text-[11px] opacity-80">Change your app background</span></div>
                                 <ImageIcon size={18} className="text-cyan-400"/>
                             </div>
                         )}
 
                         <div className="mt-3 p-3 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/40 rounded-xl">
-                            <p className="text-[10px] font-black text-purple-300 tracking-widest uppercase mb-2 flex items-center gap-1"><Crown size={12} className="text-yellow-400"/> Subscriber Tools</p>
+                            <p className="text-sm font-black text-purple-300 tracking-widest uppercase mb-3 flex items-center gap-1"><Crown size={16} className="text-yellow-400"/> Subscriber Tools</p>
                             {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
                                 <p className="text-[8px] text-yellow-300 mb-2">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
                             )}
@@ -3766,8 +4035,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                                 <p className="text-[8px] text-lime-300 mb-2">🎉 Launch Perks active — VIP is free for every raver & seller commission is cut to 10%. <button onClick={() => setModals({...modals, vip: true})} className="underline">Details</button></p>
                             )}
                             <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => setShowBanner(true)} className="p-2 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-[10px] font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[8px] opacity-70">Post on the live marquee</span></button>
-                                <button onClick={() => setShowBoost(true)} className="p-2 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20"><span className="text-[10px] font-bold text-pink-400 block uppercase tracking-widest">⚡ Post Boosts</span><span className="text-[8px] opacity-70">Pin your item to the top</span></button>
+                                <button onClick={() => setShowBanner(true)} className="p-3 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-xs font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[10px] opacity-80">Post on the live marquee</span></button>
+                                <button onClick={() => setShowBoost(true)} className="p-3 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20"><span className="text-xs font-bold text-pink-400 block uppercase tracking-widest">⚡ Post Boosts</span><span className="text-[10px] opacity-80">Pin your item to the top</span></button>
                             </div>
                         </div>
                     </div>
@@ -3791,7 +4060,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                     </div>
                 )}
 
-                <Card glow="goldGlow"><h3 className="font-bold mb-4 underline decoration-yellow-500/50">Achievement Tiers</h3><div className="space-y-4">{getDisplayAchievements(profile).map((ach, idx) => (<div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}><ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} /><div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-sm">{ach.name}</p><p className={`text-[8px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p></div><p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p></div></div>))}</div></Card>
+                <AchievementsCard profile={profile} editable={true} userUid={user.uid} />
                 {(profile.isAdmin || profile.isKandiCreator) && <InventoryManager user={user} profile={profile}/>}
             </div>
             
@@ -3883,7 +4152,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.04</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.19.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -3934,6 +4203,9 @@ const App = () => {
     // PHASE 8: Rave Radio State
     const [isRadioPlaying, setIsRadioPlaying] = useState(false);
     const [radioOpen, setRadioOpen] = useState(false);
+    // V42.19 Phase 4: draggable floating radio button. Starts under the banner.
+    const [radioBtnPos, setRadioBtnPos] = useState(() => { try { const s = JSON.parse(localStorage.getItem('rk_radio_btn_pos')); if (s && typeof s.x === 'number') return s; } catch (e) {} return { x: 8, y: 150 }; });
+    const radioDragRef = useRef({ dragging: false, moved: false, offX: 0, offY: 0 });
     const [ticketOpen, setTicketOpen] = useState(false);
     const [viewingItem, setViewingItem] = useState(null);
     const [nowPlaying, setNowPlaying] = useState(null);
@@ -4046,22 +4318,28 @@ const App = () => {
     // V37.12: User Directory for the feed "User Profiles" mode
     const [usersDir, setUsersDir] = useState([]);
     useEffect(() => {
-        if (page !== 'feed' || filters.postType !== 'users' || !user) return;
+        // Load the directory for User Profiles mode OR whenever there's a search term
+        // (so user cards can appear under "All" search too). V42.16 Phase 2.
+        const hasSearch = (filters.searchUid || '').trim().length >= 2;
+        if (page !== 'feed' || !user || (filters.postType !== 'users' && !hasSearch)) return;
         getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
             .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
             .catch(e => console.log('User dir load failed', e));
-    }, [page, filters.postType, user]);
+    }, [page, filters.postType, filters.searchUid, user]);
     useEffect(() => {
-        const term = filters.searchUid.trim();
-        if (page !== 'feed' || filters.postType !== 'users' || term.length < 5) return;
+        // Exact UID/username lookup so a searched raver who isn't in the recent-50
+        // directory still surfaces. Runs for any post type when searching.
+        const term = (filters.searchUid || '').trim();
+        if (page !== 'feed' || term.length < 3) return;
         const t = setTimeout(async () => {
             try {
-                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', term)));
+                let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', term)));
+                if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', term)));
                 if (!snap.empty) setUsersDir(prev => { const found = { ...snap.docs[0].data(), id: snap.docs[0].id }; return prev.some(p => p.id === found.id) ? prev : [found, ...prev]; });
             } catch (e) {}
         }, 600);
         return () => clearTimeout(t);
-    }, [filters.searchUid, page, filters.postType]);
+    }, [filters.searchUid, page]);
 
     // V37.12: live marquee leaderboards (top seller / RevShare earner / referrer)
     const [topStats, setTopStats] = useState({});
@@ -4158,10 +4436,11 @@ const App = () => {
         return () => unsub();
     }, []);
 
-    // V42.12: iPhone users browsing the hosted web app get a one-time install guide
+    // V42.16: any browser-tab user (iOS or Android) who hasn't installed gets a one-time
+    // guide to add RaveKandi to their home screen as an app.
     const [iosGuide, setIosGuide] = useState(false);
     useEffect(() => {
-        if (!IS_IOS_BROWSER) return;
+        if (IS_STANDALONE) return; // already installed — never nag
         try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
     }, []);
 
@@ -4242,7 +4521,6 @@ const App = () => {
         if(i.isDIYRequest || i.isRequest) return false; 
         if(filters.searchUid && i.ownerPublicUid !== filters.searchUid && i.ownerId !== filters.searchUid) return false;
         if(filters.postType === 'official' && !i.isAppProduct) return false;
-        if(filters.postType === 'user' && i.isAppProduct) return false;
         if(filters.itemTypes.length > 0 && !filters.itemTypes.includes(i.type || 'Other')) return false;
         return true;
     }).sort((a, b) => {
@@ -4316,7 +4594,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.04</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.19.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4361,12 +4639,22 @@ cat << 'EOF' >> src/App.js
             {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
             <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Install RaveKandi">
                 <div className="space-y-3 text-sm">
-                    <p className="text-xs opacity-80">Get the full app experience on your iPhone — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
+                    <p className="text-xs opacity-80">Get the full app experience — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
+                    {IS_IOS ? (
                     <div className="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+                        <p className="font-bold text-cyan-400 uppercase text-[10px]">On iPhone (Safari):</p>
                         <p><strong className="text-cyan-400">1.</strong> Tap the <strong>Share</strong> button in Safari's toolbar (the square with an arrow pointing up).</p>
-                        <p><strong className="text-cyan-400">2.</strong> Scroll down the menu and tap <strong>"Add to Home Screen."</strong></p>
-                        <p><strong className="text-cyan-400">3.</strong> Tap <strong>Add</strong> — done! Launch RaveKandi from your Home Screen from now on. 🌈</p>
+                        <p><strong className="text-cyan-400">2.</strong> Scroll down and tap <strong>"Add to Home Screen."</strong></p>
+                        <p><strong className="text-cyan-400">3.</strong> Tap <strong>Add</strong> — done! Launch RaveKandi from your Home Screen. 🌈</p>
                     </div>
+                    ) : (
+                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
+                        <p className="font-bold text-cyan-400 uppercase text-[10px]">On Android (Chrome):</p>
+                        <p><strong className="text-cyan-400">1.</strong> Tap the <strong>⋮ menu</strong> (top-right of Chrome).</p>
+                        <p><strong className="text-cyan-400">2.</strong> Tap <strong>"Install app"</strong> or <strong>"Add to Home screen."</strong></p>
+                        <p><strong className="text-cyan-400">3.</strong> Confirm — done! Launch RaveKandi from your Home Screen. 🌈</p>
+                    </div>
+                    )}
                     <div className="flex gap-2">
                         <Button onClick={() => { try { localStorage.setItem('rk_ios_a2hs', '1'); } catch (e) {} setIosGuide(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
                         <Button onClick={() => setIosGuide(false)} color="cyan" className="flex-1 text-xs">Got It!</Button>
@@ -4378,7 +4666,7 @@ cat << 'EOF' >> src/App.js
 
             <div className="sticky top-0 z-50">
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
-                <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95 pb-1"><Zap className="text-yellow-400" size={26} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
+                <div onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
                 <div className="flex gap-3 items-end">
                     <button onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
                     <button onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
@@ -4398,7 +4686,14 @@ cat << 'EOF' >> src/App.js
             </div>
             </div>
             
-            <button onClick={() => setRadioOpen(true)} className={`fixed left-2 z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`} style={{ top: '112px' }} title="Rave Radio"><Radio size={32} className="text-white drop-shadow"/></button>
+            <button
+                onClick={() => { if (!radioDragRef.current.moved) setRadioOpen(true); }}
+                onPointerDown={(e) => { const r = radioDragRef.current; r.dragging = true; r.moved = false; r.offX = e.clientX - radioBtnPos.x; r.offY = e.clientY - radioBtnPos.y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
+                onPointerMove={(e) => { const r = radioDragRef.current; if (!r.dragging) return; const nx = e.clientX - r.offX, ny = e.clientY - r.offY; if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; const maxX = window.innerWidth - 56, maxY = window.innerHeight - 56; setRadioBtnPos({ x: Math.max(0, Math.min(nx, maxX)), y: Math.max(56, Math.min(ny, maxY)) }); }}
+                onPointerUp={(e) => { const r = radioDragRef.current; r.dragging = false; try { localStorage.setItem('rk_radio_btn_pos', JSON.stringify(radioBtnPos)); } catch (er) {} try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (er) {} }}
+                className={`fixed z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-colors touch-none cursor-grab active:cursor-grabbing ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`}
+                style={{ left: radioBtnPos.x + 'px', top: radioBtnPos.y + 'px' }}
+                title="Rave Radio — drag to move, tap to open"><Radio size={32} className="text-white drop-shadow pointer-events-none"/></button>
             {rkConfig.maintenanceMessage ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
             {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
                 <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6 text-center">
@@ -4465,7 +4760,7 @@ cat << 'EOF' >> src/App.js
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
-                            <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="user">User</option><option value="users">User Profiles</option></select></div>
+                            <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="users">User Profiles</option></select></div>
                             <div>
                                 <label className="text-[8px] font-bold opacity-50 uppercase ml-1">Sort</label>
                                 <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
@@ -4518,7 +4813,26 @@ cat << 'EOF' >> src/App.js
                             ))}
                         </div>
                     ) : (
-                    <div className="grid grid-cols-1 gap-6">{displayedFeedItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
+                    <div className="space-y-6">
+                        {(filters.searchUid || '').trim().length >= 2 && visibleUsers.length > 0 && (
+                            <div className="space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-purple-300">Ravers matching "{filters.searchUid}"</p>
+                                {visibleUsers.slice(0, 10).map(u => (
+                                    <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
+                                        <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
+                                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
+                                            <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
+                                            <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
+                                            <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
+                                        </div>
+                                        <Button onClick={() => setViewingProfileId(u.publicUid || u.id)} color="purple" className="text-[10px] py-1 px-3 shrink-0">View Profile</Button>
+                                    </Card>
+                                ))}
+                                <div className="h-px bg-white/10 my-2"/>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 gap-6">{displayedFeedItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
+                    </div>
                     )}</div>)}
                 {page === 'shop' && (
                     <div className="max-w-4xl mx-auto">
@@ -4545,7 +4859,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.15.04 Phase 17: Dynamic Video Sizing</span>
+                    <span className="flex-1 text-center">V42.19.00 Phase 21: Draggable Radio + YouTube Mixes</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4740,9 +5054,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.15.04)..."
-sed -i "s/versionCode 1/versionCode 71/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.15.04"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.19.00)..."
+sed -i "s/versionCode 1/versionCode 76/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.19.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4789,7 +5103,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_15_04_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_19_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
