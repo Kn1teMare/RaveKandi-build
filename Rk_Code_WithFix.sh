@@ -404,7 +404,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
             }
         });
         if (createdName && referrerUid) pushNotif(referrerUid, 'referral', '🎉 ' + createdName + ' just joined RaveKandi using your code! +1 referral');
-    } catch (e) { console.error("User Creation Error", e); }
+    } catch (e) { console.error("User Creation Error", e); throw e; }
 };
 
 const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
@@ -3477,8 +3477,11 @@ const AuthScreen = ({ setLoadMsg }) => {
             }
 
             if (isReg) {
-                const cred = await createUserWithEmailAndPassword(auth, email, password);
-                await ensureUserExists(cred.user.uid, djName, referrerUid);
+                let cred;
+                try { cred = await createUserWithEmailAndPassword(auth, email, password); }
+                catch (authErr) { throw new Error('[AUTH step] ' + authErr.code + ': ' + authErr.message); }
+                try { await ensureUserExists(cred.user.uid, djName, referrerUid); }
+                catch (dbErr) { throw new Error('[DATABASE step] ' + (dbErr.code || '') + ': ' + dbErr.message); }
             } else {
                 await signInWithEmailAndPassword(auth, email, password);
             }
