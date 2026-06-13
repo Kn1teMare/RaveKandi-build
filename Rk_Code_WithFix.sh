@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.19.00 Build Script Starting"
+echo " RaveKandi V42.21.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.19.00</title>
+    <title>RaveKandi V42.21.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.19.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.21.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -206,6 +206,14 @@ import {
 
 const appId = 'ravekandi-core-prod'; 
 
+// V42.21 Phase 6: real shareable links that open the app. Optionally embed a referral
+// code (?ref=) so the invitee's signup auto-fills it, and an item (?item=) for deep
+// links. APP_ORIGIN is the live host so links work even when shared from the installed PWA.
+const APP_ORIGIN = (() => { try { const o = window.location.origin; return (o && o.startsWith('http')) ? o : 'https://ravekandi.web.app'; } catch (e) { return 'https://ravekandi.web.app'; } })();
+const buildShareUrl = ({ ref, item } = {}) => { const p = new URLSearchParams(); if (ref) p.set('ref', ref); if (item) p.set('item', item); const qs = p.toString(); return APP_ORIGIN + (qs ? ('/?' + qs) : '/'); };
+// Read invite params once at load (used to auto-fill referral on signup + deep-link items).
+const RK_URL_PARAMS = (() => { try { const p = new URLSearchParams(window.location.search); return { ref: p.get('ref') || '', item: p.get('item') || '' }; } catch (e) { return { ref: '', item: '' }; } })();
+
 const firebaseConfig = {
   apiKey: "AIzaSyAg6iiyr3EUXLilmC9O4Mt5oJ4AVbihdr4",
   authDomain: "ravekandi.firebaseapp.com",
@@ -242,7 +250,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.19.00';
+const APP_VERSION = '42.21.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -682,14 +690,14 @@ const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return nu
 
 const MediaCarousel = ({ media, fallback }) => {
     const [idx, setIdx] = useState(0);
-    if (!media || media.length === 0) return <img src={fallback} className="w-full h-full object-cover" />;
+    if (!media || media.length === 0) return <img src={fallback} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="w-full h-full object-cover" />;
     const current = media[idx];
     return (
         <div className="relative group w-full h-full bg-black overflow-hidden flex items-center justify-center">
             {current.type === 'video' ? (
                 <video src={current.url} controls autoPlay muted loop className="max-w-full max-h-full object-contain" />
             ) : (
-                <img src={current.url} className="max-w-full max-h-full object-contain" />
+                <img src={current.url} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="max-w-full max-h-full object-contain" />
             )}
             {media.length > 1 && (
                 <>
@@ -1173,6 +1181,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const [station, setStation] = useState(RADIO_STATIONS[0]);
     const [playing, setPlaying] = useState(false);
     const [status, setStatus] = useState('Select a station and press play.');
+    const [radioTab, setRadioTab] = useState('inapp'); // 'inapp' | 'youtube'
     const [volume, setVolume] = useState(80);
     const [bass, setBass] = useState(0);
     const [mid, setMid] = useState(0);
@@ -1294,26 +1303,32 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 <div className="bg-black/60 border border-white/10 rounded p-2 text-center">
                                     <p className="text-[10px] font-mono truncate" style={{ color: station.color }}>{status}</p>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
-                                    {RADIO_STATIONS.map(st => (
-                                        <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
-                                            <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
-                                            <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
-                                        </button>
-                                    ))}
+                                <div className="flex gap-1 bg-black/40 rounded-lg p-1">
+                                    <button onClick={() => setRadioTab('inapp')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded ${radioTab==='inapp' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>📻 In-App Stations</button>
+                                    <button onClick={() => setRadioTab('youtube')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded flex items-center justify-center gap-1 ${radioTab==='youtube' ? 'bg-red-600 text-white' : 'text-white/50'}`}><Youtube size={11}/> YouTube</button>
                                 </div>
-                                <div className="mt-3">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-1 flex items-center gap-1"><Youtube size={12}/> YouTube Genre Mixes</p>
-                                    <p className="text-[8px] opacity-50 mb-2">Full DJ sets & livestreams with visuals — opens in YouTube (keeps playing in the background).</p>
-                                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-                                        {YOUTUBE_STATIONS.map(st => (
-                                            <button key={st.id} onClick={() => { try { window.open(st.url, '_blank', 'noopener'); } catch (e) {} }} className="p-2 rounded-lg border border-white/15 bg-black/40 hover:bg-white/5 text-left transition-all">
-                                                <p className="text-xs font-black flex items-center gap-1" style={{ color: st.color }}><Youtube size={10}/> {st.name}</p>
+                                {radioTab === 'inapp' ? (
+                                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                                        {RADIO_STATIONS.map(st => (
+                                            <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
+                                                <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
                                                 <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
                                             </button>
                                         ))}
                                     </div>
-                                </div>
+                                ) : (
+                                    <div>
+                                        <p className="text-[8px] opacity-50 mb-2">Full DJ sets & livestreams with visuals — opens in YouTube (keeps playing in the background).</p>
+                                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                                            {YOUTUBE_STATIONS.map(st => (
+                                                <button key={st.id} onClick={() => { try { window.open(st.url, '_blank', 'noopener'); } catch (e) {} }} className="p-2 rounded-lg border border-white/15 bg-black/40 hover:bg-white/5 text-left transition-all">
+                                                    <p className="text-xs font-black flex items-center gap-1" style={{ color: st.color }}><Youtube size={10}/> {st.name}</p>
+                                                    <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex justify-center">
                                     <button onClick={togglePlay} className="w-16 h-16 rounded-full border-2 flex items-center justify-center transition-transform active:scale-90 bg-black/50" style={{ borderColor: station.color, boxShadow: '0 0 15px ' + station.color, color: station.color }}>
                                         {playing ? <span className="font-black text-[10px] tracking-widest">PAUSE</span> : <Play size={28} fill="currentColor"/>}
@@ -1526,15 +1541,17 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
 const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
     if (!isOpen) return null;
     const code = profile?.publicUid || user?.uid || '';
-    const shareText = 'Join me on RaveKandi! Use my Friend UID "' + code + '" when you sign up and we both earn RevShare on the marketplace. PLUR!';
+    const shareUrl = buildShareUrl({ ref: code });
+    const shareText = 'Join me on RaveKandi! Tap my link and your referral is auto-applied — we both earn RevShare on the marketplace. PLUR! ' + shareUrl;
     const doCopy = () => { try { navigator.clipboard.writeText(code); alert("Friend UID copied!"); } catch(e) { alert(code); } };
+    const doCopyLink = () => { try { navigator.clipboard.writeText(buildShareUrl({ ref: code })); alert("Invite link copied! Anyone who opens it gets your referral auto-applied. Put it in your IG/Telegram bio to maximize RevShare."); } catch(e) { alert(buildShareUrl({ ref: code })); } };
     const doShare = async () => {
-        try { await navigator.share({ title: 'RaveKandi RevShare', text: shareText }); }
-        catch (e) { try { navigator.clipboard.writeText(shareText); alert("Share text copied! Paste it anywhere."); } catch(e2) {} }
+        try { await navigator.share({ title: 'RaveKandi RevShare', text: shareText, url: shareUrl }); }
+        catch (e) { try { navigator.clipboard.writeText(shareText); alert("Invite link copied! Paste it anywhere."); } catch(e2) {} }
     };
     const doStory = async () => {
-        try { await navigator.share({ title: 'RaveKandi', text: shareText + ' #RaveKandi #PLUR' }); }
-        catch (e) { try { navigator.clipboard.writeText(shareText + ' #RaveKandi #PLUR'); alert("Story caption copied! Open your social app and paste it into a new Story."); } catch(e2) {} }
+        try { await navigator.share({ title: 'RaveKandi', text: shareText + ' #RaveKandi #PLUR', url: shareUrl }); }
+        catch (e) { try { navigator.clipboard.writeText(shareText + ' #RaveKandi #PLUR'); alert("Story caption + link copied! Open your social app and paste it into a new Story."); } catch(e2) {} }
     };
     const pct = profile?.customRevSharePct ?? getReferralTier(profile?.referrals || 0).sharePct;
     return (
@@ -1548,10 +1565,14 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     <p className="font-mono text-lg font-black text-lime-400 break-all">{code}</p>
                     <p className="text-[9px] mt-1 text-cyan-400">Current RevShare Rate: {pct}%</p>
                 </div>
+                <Button onClick={doCopyLink} color="lime" className="w-full text-xs flex items-center justify-center gap-2 mb-1"><Link size={16}/> Copy My Invite Link</Button>
                 <div className="grid grid-cols-3 gap-2">
-                    <Button onClick={doCopy} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-3"><Copy size={16}/> Copy</Button>
+                    <Button onClick={doCopy} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-3"><Copy size={16}/> Copy UID</Button>
                     <Button onClick={doShare} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-3"><Share2 size={16}/> Share</Button>
                     <Button onClick={doStory} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
+                </div>
+                <div className="bg-lime-900/20 border border-lime-500/30 rounded p-2">
+                    <p className="text-[9px] text-lime-200 leading-relaxed">💡 <strong>Pro tip:</strong> Put your invite link in your Instagram & Telegram bio. Anyone who opens it gets your referral code <strong>auto-applied</strong> when they sign up — maximizing your RevShare with zero extra effort.</p>
                 </div>
                 <p className="text-[9px] text-center opacity-50">Share opens your phone's share sheet — send to any app, DM, or post straight to your Story.</p>
             </div>
@@ -1571,7 +1592,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.19.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.21.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2267,6 +2288,17 @@ const CryptoCheckoutForm = ({ total, onComplete, onCancel }) => {
 const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
     const [cartItems, setCartItems] = useState([]);
     const [selectedIds, setSelectedIds] = useState([]);
+    const [qtyMap, setQtyMap] = useState({}); // cart-doc id -> chosen quantity
+    // V42.20 Phase 5: effective unit price after bulk-tier discount for a given qty.
+    const bulkUnitPrice = (item, qty) => {
+        const base = item.price || 0;
+        const tiers = (item.bulkTiers && item.bulkTiers.length) ? item.bulkTiers : (item.bulkDiscountQty > 0 ? [{ qty: item.bulkDiscountQty, pct: item.bulkDiscountPct }] : []);
+        let pct = 0;
+        tiers.forEach(t => { if (qty >= t.qty && t.pct > pct) pct = t.pct; });
+        return base * (1 - pct / 100);
+    };
+    const maxStock = (item) => (item.stockQty !== undefined && item.stockQty !== null) ? Math.max(1, item.stockQty) : 99;
+    const getQty = (item) => Math.min(qtyMap[item.id] || 1, maxStock(item));
     const [checkoutMode, setCheckoutMode] = useState('cart');
     
     useEffect(() => {
@@ -2302,7 +2334,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
         if (selectedIds.includes(entry.id)) setSelectedIds(selectedIds.filter(sid => sid !== entry.id));
         else setSelectedIds([...selectedIds, entry.id]);
     };
-    const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => sum + (item.price || 0), 0);
+    const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => { const q = getQty(item); return sum + bulkUnitPrice(item, q) * q; }, 0);
     
     const startCheckout = () => {
         const blocked = enriched.filter(c => selectedIds.includes(c.id) && c.liveStatus !== 'available');
@@ -2408,9 +2440,18 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
                         <div className={`flex items-center gap-3 ${item.liveStatus !== 'available' ? 'grayscale opacity-40 pointer-events-none' : ''}`}>
                             <input type="checkbox" disabled={item.liveStatus !== 'available'} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item)} className="accent-lime-400" />
                             <img src={item.mediaUrls?.[0]?.url || item.imageUrl || 'https://placehold.co/50'} className="w-12 h-12 rounded object-cover"/>
-                            <div className="flex-1">
+                            <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold truncate">{item.name}</p>
-                                <p className="text-xs text-lime-400">${item.price?.toFixed(2)}</p>
+                                {(() => { const q = getQty(item); const unit = bulkUnitPrice(item, q); const saved = (item.price||0) - unit; return (
+                                    <p className="text-xs text-lime-400">${unit.toFixed(2)}{saved > 0.001 && <span className="text-[8px] text-yellow-300 ml-1">({Math.round((saved/(item.price||1))*100)}% bulk)</span>} {q > 1 && <span className="opacity-60">× {q} = ${(unit*q).toFixed(2)}</span>}</p>
+                                ); })()}
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[8px] opacity-50 uppercase">Qty</span>
+                                    <button onClick={() => setQtyMap({...qtyMap, [item.id]: Math.max(1, getQty(item) - 1)})} className="w-6 h-6 rounded bg-white/10 hover:bg-white/20 text-sm font-bold leading-none">−</button>
+                                    <span className="text-xs font-bold w-6 text-center">{getQty(item)}</span>
+                                    <button onClick={() => setQtyMap({...qtyMap, [item.id]: Math.min(maxStock(item), getQty(item) + 1)})} className="w-6 h-6 rounded bg-white/10 hover:bg-white/20 text-sm font-bold leading-none">+</button>
+                                    <span className="text-[8px] opacity-40">/ {maxStock(item)} in stock</span>
+                                </div>
                             </div>
                         </div>
                         {item.liveStatus !== 'available' && (
@@ -2517,7 +2558,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
         <Modal isOpen={isOpen} onClose={onClose} title={item.name || "Item Details"}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="h-72 w-full rounded-lg overflow-hidden border border-white/10 bg-black/60">
-                    <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image} />
+                    <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image || 'https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'} />
                 </div>
 
                 {item.description && (
@@ -2936,7 +2977,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     const toggleLike = async () => { if(!user?.uid) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id); if(liked) { await updateDoc(ref, { likes: arrayRemove(user.uid) }); } else { await updateDoc(ref, { likes: arrayUnion(user.uid) }); if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'like', (profile?.displayName || 'Someone') + ' liked "' + item.name + '"', item.id); } setLiked(!liked); };
     
     const handleShare = async () => {
-        try { await navigator.share({ title: 'RaveKandi', text: `Check out ${item.name}!`, url: window.location.href }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { shareCount: increment(1) }); } catch (err) { navigator.clipboard.writeText(`Check out ${item.name} on RaveKandi!`); alert("Link copied!"); }
+        const itemUrl = buildShareUrl({ item: item.id, ref: (profile?.publicUid || '') }); try { await navigator.share({ title: 'RaveKandi', text: `Check out ${item.name} on RaveKandi!`, url: itemUrl }); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { shareCount: increment(1) }).catch(()=>{}); } catch (err) { try { navigator.clipboard.writeText(`Check out ${item.name} on RaveKandi! ` + itemUrl); alert("Link copied!"); } catch(e2){} }
     };
     
     const avgRating = item.reviews?.length > 0 ? (item.reviews.reduce((a,b)=>a+b.rating,0) / item.reviews.length).toFixed(1) : null;
@@ -3169,6 +3210,10 @@ const AdminDashboard = ({ user, profile }) => {
     const [searchUid, setSearchUid] = useState('');
     const [managedUser, setManagedUser] = useState(null);
     const [revPct, setRevPct] = useState('');
+    const [forceBadgeId, setForceBadgeId] = useState('');
+    const [statEdits, setStatEdits] = useState({});
+    const [batchRate, setBatchRate] = useState('');
+    const [batchBusy, setBatchBusy] = useState(false);
 
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('status', '==', 'pending')), s => setApps(s.docs.map(d => ({...d.data(), id: d.id})))), []);
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tickets')), s => setTickets(s.docs.map(d => ({...d.data(), id: d.id})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))), []);
@@ -3199,6 +3244,48 @@ const AdminDashboard = ({ user, profile }) => {
         } catch (e) { alert(e.message); }
     };
 
+    const forceBadge = async () => {
+        if (!managedUser) return;
+        try {
+            const next = forceBadgeId ? { id: forceBadgeId, name: (ACHIEVEMENT_TIERS.find(a => a.id === forceBadgeId)?.name || forceBadgeId), forced: true } : null;
+            await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { featuredBadge: next }, { merge: true });
+            setManagedUser({ ...managedUser, featuredBadge: next });
+            alert(next ? ('Badge "' + next.name + '" forced onto @' + managedUser.displayName) : 'Badge cleared.');
+        } catch (e) { alert('Failed: ' + e.message); }
+    };
+    const STAT_FIELDS = [
+        { k: 'itemsSold', label: 'Items Sold' }, { k: 'itemsBought', label: 'Items Bought' },
+        { k: 'totalSalesValue', label: '$ Sold' }, { k: 'totalBoughtValue', label: '$ Bought' },
+        { k: 'totalLikes', label: 'Likes' }, { k: 'totalComments', label: 'Comments' },
+        { k: 'referrals', label: 'Referrals' }, { k: 'completedTrades', label: 'Completed Trades' },
+        { k: 'radioMinutes', label: 'Radio Minutes' }, { k: 'videosPosted', label: 'Videos Posted' },
+    ];
+    const saveStats = async () => {
+        if (!managedUser) return;
+        const upd = {};
+        Object.keys(statEdits).forEach(k => { if (statEdits[k] !== '' && statEdits[k] != null && !isNaN(Number(statEdits[k]))) upd[k] = Number(statEdits[k]); });
+        if (Object.keys(upd).length === 0) return alert('Enter at least one stat value to change.');
+        if (!window.confirm('Overwrite these stats for @' + managedUser.displayName + '? ' + JSON.stringify(upd))) return;
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), upd, { merge: true });
+            setManagedUser({ ...managedUser, ...upd }); setStatEdits({});
+            alert('Stats updated.');
+        } catch (e) { alert('Failed: ' + e.message); }
+    };
+    const batchCommission = async () => {
+        const rate = parseFloat(batchRate);
+        if (isNaN(rate) || rate < 0 || rate > 1) return alert('Enter a rate between 0 and 1 (e.g. 0.10 for 10%).');
+        if (!window.confirm('Set commission rate to ' + (rate*100).toFixed(0) + '% for ALL Creators? This overrides every Creator\'s customCommissionRate.')) return;
+        setBatchBusy(true);
+        try {
+            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isKandiCreator', '==', true)));
+            const batch = writeBatch(db);
+            snap.docs.forEach(d => batch.set(d.ref, { customCommissionRate: rate }, { merge: true }));
+            await batch.commit();
+            alert('Updated commission for ' + snap.size + ' Creator(s) to ' + (rate*100).toFixed(0) + '%.');
+            setBatchRate('');
+        } catch (e) { alert('Batch failed: ' + e.message); } finally { setBatchBusy(false); }
+    };
     const saveRevShare = async (val) => {
         if (!managedUser) return;
         const pct = val === null || val === '' ? null : Math.min(100, Math.max(0, parseFloat(val)));
@@ -3288,8 +3375,40 @@ const AdminDashboard = ({ user, profile }) => {
                                 <Button onClick={unban} color="lime" className="text-[8px] py-1 px-1">Unban</Button>
                             </div>
                         </div>
+                        <div>
+                            <p className="text-[9px] font-bold text-yellow-400 uppercase mb-1">Force Badge</p>
+                            <div className="flex gap-1 items-center">
+                                <select value={forceBadgeId} onChange={e=>setForceBadgeId(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1">
+                                    <option value="">— No badge / clear —</option>
+                                    {ACHIEVEMENT_TIERS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                </select>
+                                <Button onClick={forceBadge} color="gold" className="text-[10px]">Apply</Button>
+                            </div>
+                            {managedUser.featuredBadge && <p className="text-[8px] text-yellow-300 mt-1">Current: {managedUser.featuredBadge.name}{managedUser.featuredBadge.forced ? ' (forced)' : ''}</p>}
+                        </div>
+                        <div>
+                            <p className="text-[9px] font-bold text-cyan-400 uppercase mb-1">Edit Statistics</p>
+                            <div className="grid grid-cols-2 gap-1">
+                                {STAT_FIELDS.map(f => (
+                                    <div key={f.k} className="flex flex-col">
+                                        <label className="text-[7px] opacity-60 uppercase">{f.label} <span className="opacity-40">(now {managedUser[f.k] || 0})</span></label>
+                                        <input type="number" value={statEdits[f.k] ?? ''} onChange={e=>setStatEdits({...statEdits, [f.k]: e.target.value})} placeholder={String(managedUser[f.k] || 0)} className="bg-black border border-white/20 text-[10px] p-1 rounded"/>
+                                    </div>
+                                ))}
+                            </div>
+                            <Button onClick={saveStats} color="cyan" className="text-[10px] w-full mt-2">Save Stat Changes</Button>
+                            <p className="text-[7px] opacity-50 mt-1">Sets exact values (overwrites, not adds). Leave blank to keep current.</p>
+                        </div>
                     </div>
                 )}
+                <div className="mt-3 pt-3 border-t border-white/10">
+                    <p className="text-[9px] font-bold text-pink-400 uppercase mb-1">⚡ Batch: Set Commission for ALL Creators</p>
+                    <div className="flex gap-1 items-center">
+                        <input type="number" step="0.01" min="0" max="1" value={batchRate} onChange={e=>setBatchRate(e.target.value)} placeholder="e.g. 0.10" className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1"/>
+                        <Button onClick={batchCommission} disabled={batchBusy} color="pink" className="text-[10px]">{batchBusy ? 'Working…' : 'Apply to All'}</Button>
+                    </div>
+                    <p className="text-[7px] opacity-50 mt-1">0.10 = 10%. Overrides every Creator's individual rate at once.</p>
+                </div>
             </div>
 
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
@@ -4087,7 +4206,7 @@ const AuthScreen = ({ setLoadMsg }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [djName, setDjName] = useState('');
-    const [refCode, setRefCode] = useState('');
+    const [refCode, setRefCode] = useState(RK_URL_PARAMS.ref || '');
     const [loading, setLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
@@ -4152,11 +4271,14 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.19.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.21.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
-                {isReg && <Input label="Friend UID (Optional)" value={refCode} onChange={setRefCode} placeholder="Enter Referral Code..." />}
+                {isReg && <div>
+                    <Input label="Friend UID (Optional)" value={refCode} onChange={setRefCode} placeholder="Enter Referral Code..." />
+                    {RK_URL_PARAMS.ref && refCode === RK_URL_PARAMS.ref && <p className="text-[9px] text-lime-300 -mt-3 mb-3">✅ Referral auto-applied from your invite link — you and your inviter both earn RevShare!</p>}
+                </div>}
                 <Input label="Email" type="email" name="email" value={email} onChange={setEmail} placeholder="dj@rave.com" autoComplete={isReg ? "email" : "username"} />
                 <Input label="Password" type="password" name="password" value={password} onChange={setPassword} placeholder="••••••••" autoComplete={isReg ? "new-password" : "current-password"} />
                 
@@ -4368,7 +4490,7 @@ const App = () => {
         setItems(prev => prev.map(p => p.id === it.id ? { ...p, viewCount: (p.viewCount || 0) + 1, viewedBy: [...(p.viewedBy || []), user.uid] } : p));
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', it.id);
         updateDoc(ref, { viewCount: increment(1), viewedBy: arrayUnion(user.uid) })
-            .catch(() => setDoc(ref, { viewCount: increment(1), viewedBy: arrayUnion(user.uid) }, { merge: true }).catch(e => console.log('view save', e)));
+            .catch(() => { /* item isn't in public tradeItems (e.g. private AI creation) — view count not tracked there; ignore quietly */ });
     }, [viewingItem, user]);
 
     // V37.12: fairness window — auto-release pending requests whose priority window expired
@@ -4443,6 +4565,15 @@ const App = () => {
         if (IS_STANDALONE) return; // already installed — never nag
         try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
     }, []);
+
+    // V42.21 Phase 6: if opened via a shared item link (?item=ID), open that item once
+    // the feed has loaded. One-shot via a ref so it doesn't reopen on every render.
+    const itemDeepLinkRef = useRef(false);
+    useEffect(() => {
+        if (itemDeepLinkRef.current || !RK_URL_PARAMS.item || !items || items.length === 0) return;
+        const found = items.find(i => i.id === RK_URL_PARAMS.item);
+        if (found) { itemDeepLinkRef.current = true; setViewingItem(found); }
+    }, [items]);
 
     // V37.13: self-sync computed stats so the marquee leaderboards can query them,
     // and self-notify on newly unlocked achievements.
@@ -4594,7 +4725,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.19.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.21.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4859,7 +4990,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.19.00 Phase 21: Draggable Radio + YouTube Mixes</span>
+                    <span className="flex-1 text-center">V42.21.00 Phase 23: Shareable Links + Referral Auto-Attach</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -5054,9 +5185,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.19.00)..."
-sed -i "s/versionCode 1/versionCode 76/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.19.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.21.00)..."
+sed -i "s/versionCode 1/versionCode 78/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.21.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -5103,7 +5234,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_19_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_21_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
