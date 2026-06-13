@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.15.00 Build Script Starting"
+echo " RaveKandi V42.15.02 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.15.00</title>
+    <title>RaveKandi V42.15.02</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.02'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -236,7 +236,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.15.00';
+const APP_VERSION = '42.15.02';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1324,7 +1324,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.02'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3883,7 +3883,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.02</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4298,15 +4298,15 @@ const App = () => {
     const inboxBadge = unreadMsgs + unreadNotifs;
     
     const WelcomeAlphaModal = () => {
-        const facts = ["PLUR stands for Peace, Love, Unity, Respect!", "Kandi trading originated in the 90s rave scene.", "Neon colors glow under UV light because of phosphors!", "The PLUR handshake ends with a bracelet trade."];
-        const fact = useMemo(() => facts[Math.floor(Math.random() * facts.length)], []);
         if(!showAlphaModal) return null;
+        const facts = ["PLUR stands for Peace, Love, Unity, Respect!", "Kandi trading originated in the 90s rave scene.", "Neon colors glow under UV light because of phosphors!", "The PLUR handshake ends with a bracelet trade."];
+        const fact = facts[Math.floor(Math.random() * facts.length)];
         return (
             <div className="fixed inset-0 bg-black/95 z-[999] flex items-center justify-center p-4">
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.02</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4541,7 +4541,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.15.00 Phase 17: Featured Videos + Admin Rotation Timer</span>
+                    <span className="flex-1 text-center">V42.15.02 Phase 17: Staging-Gated Deploys</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4736,9 +4736,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.15.00)..."
-sed -i "s/versionCode 1/versionCode 67/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.15.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.15.02)..."
+sed -i "s/versionCode 1/versionCode 69/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.15.02"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4785,7 +4785,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_15_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_15_02_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
@@ -4824,11 +4824,14 @@ else
     echo "==========================================================="
 fi
 
-# Block 21 — Web deploy (Firebase Hosting). Opt-in so APK-only builds stay fast.
+# Block 21 — Web deploy (Firebase Hosting), STAGING-GATED.
+# Always deploys to a private staging URL first; production is a separate,
+# explicit confirmation AFTER you've tested staging (e.g. on a real iPhone via
+# BrowserStack). Users never see an untested build.
 echo ""
 echo "============================================"
 RK_WEB="n"
-read -t 45 -p "🌐 Deploy the WEB version to Firebase Hosting now? (y/N) " RK_WEB || RK_WEB="n"
+read -t 45 -p "🌐 Deploy the WEB version now? (y/N) " RK_WEB || RK_WEB="n"
 if [ "$RK_WEB" = "y" ] || [ "$RK_WEB" = "Y" ]; then
     cd ~/RaveKandi-Build
     # Block 20 already produced ./build here for the APK. If it's somehow
@@ -4859,15 +4862,51 @@ EOF
         echo "First-time Firebase login — follow the URL it prints, sign in, paste the code back here:"
         firebase login --no-localhost
     fi
-    if firebase deploy --only hosting; then
-        echo ""
-        echo "🌐 WEB VERSION LIVE AT: https://ravekandi.web.app"
-        echo "   (alias: https://ravekandi.firebaseapp.com)"
-        echo "   iPhone users: open that link in Safari → Share → Add to Home Screen."
+
+    # ---- STAGE 1: deploy to a private preview channel ----
+    echo ""
+    echo "🧪 Deploying to STAGING (private test URL)..."
+    # 'staging' channel kept alive 30 days; re-deploys reuse the same URL.
+    STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
+    echo "$STAGE_OUT"
+    STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
+    if [ -z "$STAGE_URL" ]; then
+        echo "⚠ Couldn't capture the staging URL automatically — look for the 'Channel URL' line above."
+        STAGE_URL="(see the Channel URL printed above)"
+    fi
+    echo ""
+    echo "============================================"
+    echo "🧪 STAGING IS LIVE — TEST IT FIRST:"
+    echo "   $STAGE_URL"
+    echo ""
+    echo "   Open this URL on a REAL iPhone (BrowserStack/LambdaTest free trial,"
+    echo "   or any borrowed device). Check: app loads, sign-up works, messaging,"
+    echo "   the homepage, and the Festival Spotlight. Watch for ANY crash."
+    echo "   This URL is private — your live users do NOT see it."
+    echo "============================================"
+    echo ""
+
+    # ---- STAGE 2: promote to production ONLY on explicit confirmation ----
+    RK_PROD="n"
+    read -p "✅ Did STAGING test cleanly? Push to LIVE users now? (y/N) " RK_PROD || RK_PROD="n"
+    if [ "$RK_PROD" = "y" ] || [ "$RK_PROD" = "Y" ]; then
+        if firebase deploy --only hosting; then
+            echo ""
+            echo "🌐 PRODUCTION IS LIVE AT: https://ravekandi.web.app"
+            echo "   (alias: https://ravekandi.firebaseapp.com)"
+            echo "   iPhone users: open that link in Safari → Share → Add to Home Screen."
+        else
+            echo "⚠ Production deploy failed — check the error above. Staging is unaffected."
+        fi
     else
-        echo "⚠ Web deploy failed — check the error above (usually login or project access)."
+        echo ""
+        echo "⏸  Held at staging — production NOT updated, live users untouched."
+        echo "   Re-run the build (or: cd ~/RaveKandi-Build && firebase deploy --only hosting) to go live when ready."
+        echo "   Test staging again anytime: cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
     fi
     fi
 else
-    echo "Skipped web deploy. To deploy later: cd ~/RaveKandi-Build && firebase deploy --only hosting"
+    echo "Skipped web deploy."
+    echo "  Staging:    cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
+    echo "  Production: cd ~/RaveKandi-Build && firebase deploy --only hosting"
 fi
