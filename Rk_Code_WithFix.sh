@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.13.01 Build Script Starting"
+echo " RaveKandi V42.15.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.13.01</title>
+    <title>RaveKandi V42.15.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.13.01'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.15.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -236,7 +236,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.13.01';
+const APP_VERSION = '42.15.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -326,6 +326,45 @@ export const getIdleWindowHours = (price = 0, parts = 0) => {
 // (Following redirects isn't possible client-side, hence the strict allowlist approach.)
 const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app','onlyfans.com','fansly.com'];
 const BLOCKED_SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','rb.gy','cutt.ly','is.gd','shorturl.at','ow.ly','rebrand.ly'];
+// V42.14: parse a festival-clip URL into an embeddable player.
+// Supports YouTube (incl. Shorts), TikTok, Instagram Reels/posts. No file
+// hosting — we embed the platform's own player, so nothing is stored on our end.
+const parseVideoLink = (raw) => {
+    try {
+        let s = (raw || '').trim();
+        if (!s) return { ok: false, reason: 'Paste a link to your clip first.' };
+        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+        const u = new URL(s);
+        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
+        const host = u.hostname.toLowerCase().replace(/^www\./, '');
+
+        // YouTube (watch, youtu.be, shorts, embed)
+        if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com') {
+            let id = '';
+            if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+            else if (u.pathname.startsWith('/shorts/')) id = u.pathname.split('/')[2];
+            else if (u.pathname.startsWith('/embed/')) id = u.pathname.split('/')[2];
+            else id = u.searchParams.get('v') || '';
+            if (!/^[A-Za-z0-9_-]{6,15}$/.test(id)) return { ok: false, reason: 'Could not read that YouTube video ID.' };
+            return { ok: true, platform: 'youtube', embedUrl: 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&mute=1&playsinline=1&rel=0', watchUrl: 'https://youtu.be/' + id };
+        }
+        // TikTok
+        if (host === 'tiktok.com' || host === 'vm.tiktok.com') {
+            const m = u.pathname.match(/\/video\/(\d+)/);
+            if (m) return { ok: true, platform: 'tiktok', embedUrl: 'https://www.tiktok.com/embed/v2/' + m[1], watchUrl: s };
+            // short vm.tiktok.com links can't be resolved client-side; accept as link-only
+            return { ok: true, platform: 'tiktok', embedUrl: null, watchUrl: s };
+        }
+        // Instagram reels / posts
+        if (host === 'instagram.com') {
+            const m = u.pathname.match(/\/(reel|reels|p|tv)\/([A-Za-z0-9_-]+)/);
+            if (m) return { ok: true, platform: 'instagram', embedUrl: 'https://www.instagram.com/' + (m[1] === 'reels' ? 'reel' : m[1]) + '/' + m[2] + '/embed', watchUrl: s };
+            return { ok: false, reason: 'Use a direct Instagram Reel or post link.' };
+        }
+        return { ok: false, reason: 'Only YouTube, TikTok, and Instagram clip links are supported.' };
+    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
+};
+
 const validateSocialLink = (raw) => {
     try {
         let s = (raw || '').trim();
@@ -1285,7 +1324,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.13.01'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.15.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2798,8 +2837,7 @@ const VideoTakedownPanel = () => {
     const [vids, setVids] = useState([]);
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setVids(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.start - b.start)), e => console.log(e)), []);
     const takedown = async (v) => {
-        if (!window.confirm('Take down @' + v.name + "'s featured clip? This deletes the video permanently and clears its window.")) return;
-        try { if (v.storagePath) await deleteObject(ref(storage, v.storagePath)); } catch (e) { /* already gone */ }
+        if (!window.confirm('Take down @' + v.name + "'s featured clip? This clears its window immediately.")) return;
         try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', v.id)); alert('Clip taken down.'); } catch (e) { alert('Failed: ' + e.message); }
     };
     const fmtT = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -2811,9 +2849,9 @@ const VideoTakedownPanel = () => {
                 const live = v.start <= now && now < v.end;
                 return (
                     <div key={v.id} className={`flex items-center gap-2 p-2 rounded border ${live ? 'border-lime-400/60 bg-lime-900/10' : 'border-white/10 bg-white/5'}`}>
-                        <video src={v.url} muted className="w-12 h-12 rounded object-cover bg-black shrink-0"/>
+                        <a href={v.watchUrl} target="_blank" rel="noreferrer" className="w-12 h-12 rounded bg-black shrink-0 flex items-center justify-center border border-white/10"><Play size={18} className="text-pink-400"/></a>
                         <div className="flex-1 min-w-0">
-                            <p className="text-[10px] font-bold truncate">@{v.name} {live && <span className="text-[7px] bg-lime-500 text-black px-1 rounded font-black uppercase">Live</span>}</p>
+                            <p className="text-[10px] font-bold truncate">@{v.name} <span className="text-[7px] bg-white/10 text-white/60 px-1 rounded uppercase">{v.platform}</span> {live && <span className="text-[7px] bg-lime-500 text-black px-1 rounded font-black uppercase">Live</span>}</p>
                             <p className="text-[8px] opacity-50 truncate">{v.caption || 'No caption'}</p>
                             <p className="text-[8px] opacity-40">{fmtT(v.start)} – {fmtT(v.end)}</p>
                         </div>
@@ -2841,6 +2879,13 @@ const RemoteConfigPanel = () => {
             </div>
             <Input label="Maintenance Message (blank = hidden banner)" value={cfg.maintenanceMessage || ''} onChange={v => setCfg({ ...cfg, maintenanceMessage: v })}/>
             <Input label="Minimum Version (e.g. 42.11.00 — blank = no gate)" value={cfg.minVersion || ''} onChange={v => setCfg({ ...cfg, minVersion: v })}/>
+            <div>
+                <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Video Rotation Window</label>
+                <select value={cfg.videoWindowMin || 30} onChange={e => setCfg({ ...cfg, videoWindowMin: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                    {[1,5,10,15,30,45,60].map(m => <option key={m} value={m}>{m} minute{m>1?'s':''} per clip</option>)}
+                </select>
+                <p className="text-[8px] opacity-60 mt-1">Shorter = faster rotation for busy crowds; longer = each clip stays featured longer. Applies to newly-posted clips.</p>
+            </div>
             <p className="text-[8px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
             <p className="text-[8px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
             <Button onClick={save} disabled={saving} color="purple" className="w-full text-xs">{saving ? 'Pushing…' : 'Push Config Live'}</Button>
@@ -3435,71 +3480,50 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
     );
 };
 
-const VW = 1800000; // 30-minute featured-video window
+
+// V42.15: featured-video window is admin-configurable via RK_CFG.videoWindowMin.
+// Allowed durations (minutes) — the Firestore rule accepts exactly these.
+const VIDEO_WINDOW_CHOICES = [1, 5, 10, 15, 30, 45, 60];
+const videoWindowMs = () => { const m = RK_CFG.videoWindowMin; return (VIDEO_WINDOW_CHOICES.includes(m) ? m : 30) * 60000; };
 
 const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
-    const [file, setFile] = useState(null);
+    const [link, setLink] = useState('');
+    const [parsed, setParsed] = useState(null);
     const [caption, setCaption] = useState('');
     const [busy, setBusy] = useState(false);
-    const [pct, setPct] = useState(0);
     const [confirmation, setConfirmation] = useState(null);
-    const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
-    const MAX_SECONDS = 30;
 
     if (!isOpen) return null;
 
     const todayKey = new Date().toDateString();
     const usedToday = profile?.videoDay === todayKey ? (profile?.videoCountToday || 0) : 0;
 
-    const pickFile = (e) => {
-        const f = e.target.files && e.target.files[0];
-        if (!f) return;
-        if (!f.type.startsWith('video/')) { alert('Please choose a video file.'); return; }
-        if (f.size > MAX_BYTES) { alert('That clip is ' + (f.size / 1048576).toFixed(1) + ' MB — the limit is 25 MB. Trim it or lower the quality and try again.'); return; }
-        // verify duration <= 30s before accepting
-        const v = document.createElement('video');
-        v.preload = 'metadata';
-        v.onloadedmetadata = () => {
-            window.URL.revokeObjectURL(v.src);
-            if (v.duration > MAX_SECONDS + 0.5) { alert('That clip is ' + Math.round(v.duration) + 's — festival clips must be 30 seconds or less.'); setFile(null); }
-            else setFile(f);
-        };
-        v.onerror = () => { alert("Couldn't read that video. Try a different file (MP4 works best)."); setFile(null); };
-        v.src = URL.createObjectURL(f);
+    const checkLink = () => {
+        const v = parseVideoLink(link);
+        if (!v.ok) { setParsed(null); return alert(v.reason); }
+        setParsed(v);
     };
 
     const submitVideo = async () => {
-        if (!file) return alert('Choose a festival clip first (30s max, 25 MB max).');
-        if (usedToday >= 4) return alert('Daily limit reached — 4 featured videos per day. Resets at midnight.');
-        setBusy(true); setPct(1);
+        if (!parsed) return alert('Paste your clip link and tap Check first.');
+        if (usedToday >= 4) return alert('Daily limit reached — 4 featured clips per day. Resets at midnight.');
+        setBusy(true);
         try {
-            // upload to Firebase Storage
-            const path = 'featuredVideos/' + user.uid + '/' + Date.now() + '_' + (file.name || 'clip').replace(/[^a-zA-Z0-9._-]/g, '');
-            const sref = ref(storage, path);
-            const task = uploadBytesResumable(sref, file, { contentType: file.type });
-            await new Promise((resolve, reject) => {
-                task.on('state_changed',
-                    s => setPct(Math.max(2, Math.round((s.bytesTransferred / s.totalBytes) * 100))),
-                    reject, resolve);
-            });
-            const url = await getDownloadURL(sref);
-
-            // claim a window on the same on-the-dot queue as banners
+            const W = videoWindowMs();
             const now = Date.now();
-            const curStart = Math.floor(now / VW) * VW;
+            const curStart = Math.floor(now / W) * W;
             const taken = new Set(slots.map(s => s.start));
             let assigned;
-            if (!taken.has(curStart)) { assigned = [curStart, curStart + VW]; } // missed/empty current window: remainder + next block
-            else { let s = curStart + VW; while (taken.has(s)) s += VW; assigned = [s]; }
-            const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, url, storagePath: path, caption: (caption || '').slice(0, 100), postedAt: now };
-            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + VW }); }
+            if (!taken.has(curStart)) { assigned = [curStart, curStart + W]; } // empty current window: remainder + next block
+            else { let s = curStart + W; while (taken.has(s)) s += W; assigned = [s]; }
+            const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, platform: parsed.platform, embedUrl: parsed.embedUrl || null, watchUrl: parsed.watchUrl, caption: (caption || '').slice(0, 100), postedAt: now };
+            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W }); }
             await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { videoDay: todayKey, videoCountToday: usedToday + 1, videosPosted: increment(1) }, { merge: true });
-
-            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + VW;
+            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
             const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
             setConfirmation({ startsAt, endsAt, queueAhead, live: startsAt <= Date.now() });
-            setFile(null); setCaption('');
-        } catch (e) { alert('Video upload failed: ' + e.message); } finally { setBusy(false); setPct(0); }
+            setLink(''); setParsed(null); setCaption('');
+        } catch (e) { alert('Submit failed: ' + e.message); } finally { setBusy(false); }
     };
 
     const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -3508,7 +3532,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Festival Clip">
             <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                    <strong className="text-pink-400">How it works:</strong> Share your festival shenanigans — stage moments, pyro, kandi handshakes, the vibe. Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Featured</strong> spotlight for a <strong>30-minute window</strong>; windows run one at a time on the dot (:00, :30) and queue automatically. Limits: <strong>30 seconds, 25 MB, 4 clips/day</strong>. Resets at midnight. Keep it your own footage and PLUR-friendly. <span className="text-yellow-300">Clips auto-delete from our servers once their window ends, so your content isn't stored long-term.</span>
+                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, or Instagram</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
                 </div>
                 {confirmation && (
                     <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -3517,15 +3541,22 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
                         {!confirmation.live && <p className="text-[9px] opacity-70">Queue position: #{confirmation.queueAhead + 1}</p>}
                     </div>
                 )}
-                <label className="block">
-                    <span className="text-[10px] font-bold text-cyan-400 uppercase">Choose clip (30s · 25MB max)</span>
-                    <input type="file" accept="video/*" onChange={pickFile} className="mt-1 w-full text-[10px] text-gray-300 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-pink-600 file:text-white file:text-[10px] file:font-bold"/>
-                </label>
-                {file && <p className="text-[9px] text-lime-300">✅ {file.name} ({(file.size / 1048576).toFixed(1)} MB) — duration OK</p>}
+                <div>
+                    <span className="text-[10px] font-bold text-cyan-400 uppercase">Clip link (YouTube · TikTok · Instagram)</span>
+                    <div className="flex gap-1 mt-1">
+                        <input value={link} onChange={e => { setLink(e.target.value); setParsed(null); }} placeholder="https://youtube.com/shorts/…" className="flex-1 p-2 rounded bg-white/10 border-2 border-white/30 text-[11px]"/>
+                        <Button onClick={checkLink} color="cyan" className="px-3 text-[10px]">Check</Button>
+                    </div>
+                </div>
+                {parsed && (
+                    <div className="space-y-1">
+                        <p className="text-[9px] text-lime-300 bg-lime-900/20 border border-lime-500/40 rounded p-1.5">✅ {parsed.platform.charAt(0).toUpperCase() + parsed.platform.slice(1)} clip verified{parsed.embedUrl ? '' : ' (will show as a tap-to-watch link)'}</p>
+                        {parsed.embedUrl && <div className="aspect-video w-full bg-black rounded overflow-hidden"><iframe src={parsed.embedUrl} className="w-full h-full" frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen title="preview"/></div>}
+                    </div>
+                )}
                 <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={100} placeholder="Caption (optional, 100 chars)" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs"/>
-                {busy && <div className="space-y-1"><LoadingBar progress={pct} className="h-2"/><p className="text-center text-[10px] text-cyan-400 font-mono">{pct}% uploading…</p></div>}
                 <p className="text-[8px] opacity-50 text-right">{4 - usedToday} clips left today</p>
-                <Button onClick={submitVideo} disabled={busy || !file || usedToday >= 4} color="primary" className="w-full">{busy ? 'Uploading…' : 'Feature My Clip 🎬'}</Button>
+                <Button onClick={submitVideo} disabled={busy || !parsed || usedToday >= 4} color="primary" className="w-full">{busy ? 'Submitting…' : 'Feature My Clip 🎬'}</Button>
             </div>
         </Modal>
     );
@@ -3541,23 +3572,22 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
     const active = slots.find(s => s.start <= nowTick && nowTick < s.end) || null;
     const upcoming = slots.filter(s => s.start > nowTick).sort((a, b) => a.start - b.start);
 
-    // V42.13.01: auto-purge clips whose window has ended — deletes the Storage
-    // file AND the slot doc, freeing space and not retaining user content.
-    // Any signed-in viewer whose clock passes the window triggers cleanup; the
-    // delete is idempotent so concurrent attempts harmlessly no-op.
+    // V42.14: window-expiry just clears the slot doc (no files are stored, so
+    // nothing to delete from storage). Any viewer past the window cleans it up.
     useEffect(() => {
         const expired = slots.filter(s => s.end <= Date.now());
-        expired.forEach(async (s) => {
-            try { if (s.storagePath) await deleteObject(ref(storage, s.storagePath)); } catch (e) { /* already gone */ }
-            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', s.id)); } catch (e) {}
-        });
+        expired.forEach(async (s) => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', s.id)); } catch (e) {} });
     }, [nowTick, slots]);
 
     return (
         <div className="w-full">
             {active ? (
                 <div className="w-full bg-black rounded-xl overflow-hidden border-2 border-pink-500/50 shadow-[0_0_18px_rgba(236,72,153,0.35)]">
-                    <video key={active.id} src={active.url} controls autoPlay muted loop playsInline className="w-full max-h-72 object-contain bg-black"/>
+                    {active.embedUrl ? (
+                        <div className="aspect-video w-full bg-black"><iframe key={active.id} src={active.embedUrl} className="w-full h-full" frameBorder="0" allow="autoplay; encrypted-media; fullscreen" allowFullScreen title={'Clip by ' + active.name}/></div>
+                    ) : (
+                        <a href={active.watchUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-2 h-48 bg-gradient-to-br from-purple-900/40 to-pink-900/40 hover:from-purple-900/60 hover:to-pink-900/60 transition-colors"><Play size={44} className="text-pink-400"/><span className="text-xs font-bold text-white uppercase tracking-wide">Tap to watch on {active.platform}</span></a>
+                    )}
                     <div className="p-3 bg-gradient-to-r from-purple-900/40 to-pink-900/40">
                         {active.caption && <p className="text-xs text-gray-100 italic mb-2 break-words">"{active.caption}"</p>}
                         <button onClick={() => onViewProfile(active.ownerPublicUid || active.uid)} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-lg py-2 text-sm font-black uppercase tracking-wide transition-colors">
@@ -3853,7 +3883,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.13.01</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.15.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4276,7 +4306,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.13.01</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.15.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4511,7 +4541,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.13.01 Phase 17: Featured Festival Videos</span>
+                    <span className="flex-1 text-center">V42.15.00 Phase 17: Featured Videos + Admin Rotation Timer</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4706,9 +4736,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.13.01)..."
-sed -i "s/versionCode 1/versionCode 65/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.13.01"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.15.00)..."
+sed -i "s/versionCode 1/versionCode 67/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.15.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4755,7 +4785,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_13_01_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_15_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
