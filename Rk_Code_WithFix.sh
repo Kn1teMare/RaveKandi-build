@@ -3516,7 +3516,8 @@ const AuthScreen = ({ setLoadMsg }) => {
         <div className="min-h-screen bg-[#0a0014] flex flex-col items-center justify-center p-4 text-white">
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
-                <h2 className="text-3xl font-black mb-6 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
+                <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.12.00-d2</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4451,8 +4452,18 @@ echo "============================================"
 RK_WEB="n"
 read -t 45 -p "🌐 Deploy the WEB version to Firebase Hosting now? (y/N) " RK_WEB || RK_WEB="n"
 if [ "$RK_WEB" = "y" ] || [ "$RK_WEB" = "Y" ]; then
-    cd ~/ravekandi-app
-    [ -d build ] || npm run build
+    cd ~/RaveKandi-Build
+    # Block 20 already produced ./build here for the APK. If it's somehow
+    # missing (e.g. web-only run), build it now.
+    if [ ! -f "build/index.html" ]; then
+        echo "Production build not found — compiling it now..."
+        export GENERATE_SOURCEMAP=false
+        export NODE_OPTIONS="--max-old-space-size=2048"
+        node node_modules/react-scripts/bin/react-scripts.js build
+    fi
+    if [ ! -f "build/index.html" ]; then
+        echo "⚠ Could not produce build/index.html — web deploy aborted."
+    else
     cat << 'EOF' > firebase.json
 {
   "hosting": {
@@ -4478,6 +4489,7 @@ EOF
     else
         echo "⚠ Web deploy failed — check the error above (usually login or project access)."
     fi
+    fi
 else
-    echo "Skipped web deploy. To deploy later: cd ~/ravekandi-app && firebase deploy --only hosting"
+    echo "Skipped web deploy. To deploy later: cd ~/RaveKandi-Build && firebase deploy --only hosting"
 fi
