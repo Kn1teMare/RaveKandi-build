@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.12.00 Build Script Starting"
+echo " RaveKandi V42.12.02 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.12.00</title>
+    <title>RaveKandi V42.12.02</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -116,7 +116,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.12.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.12.02'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -234,7 +234,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.12.00';
+const APP_VERSION = '42.12.02';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -370,37 +370,40 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
     const globalStatsRef = doc(db, 'artifacts', appId, 'global', 'stats');
     let createdName = null;
     try {
+        const refUserRef = referrerUid ? doc(db, 'artifacts', appId, 'users', referrerUid) : null;
         await runTransaction(db, async (transaction) => {
+            // V42.12 FIX: Firestore requires ALL reads BEFORE any writes in a
+            // transaction. Reading the referrer doc AFTER writing the new user
+            // threw and broke referral signups. All reads are now hoisted here.
             const userDoc = await transaction.get(userRef);
-            if (!userDoc.exists()) {
-                let globalStats = await transaction.get(globalStatsRef);
-                let currentCount = 0;
-                if (globalStats.exists()) { currentCount = globalStats.data().userCount || 0; } 
-                else { transaction.set(globalStatsRef, { userCount: 0 }); }
+            if (userDoc.exists()) return;
+            const globalStats = await transaction.get(globalStatsRef);
+            const refUserDoc = refUserRef ? await transaction.get(refUserRef) : null;
 
-                const newCount = currentCount + 1;
-                const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
-                createdName = newUsername;
+            let currentCount = 0;
+            if (globalStats.exists()) { currentCount = globalStats.data().userCount || 0; }
 
-                transaction.set(userRef, { 
-                    displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
-                    usernameChangesLeft: 3, pastUsernames: [], joined: Date.now(), items: [], totalSalesValue: 0, totalBoughtValue: 0,
-                    itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
-                    referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
-                    referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-                    isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null
-                });
-                transaction.update(globalStatsRef, { userCount: newCount });
-                
-                if (referrerUid) {
-                    const refUserRef = doc(db, 'artifacts', appId, 'users', referrerUid);
-                    const refUserDoc = await transaction.get(refUserRef);
-                    if (refUserDoc.exists()) {
-                        transaction.update(refUserRef, { referrals: (refUserDoc.data().referrals || 0) + 1 });
-                        const refListRef = doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid);
-                        transaction.set(refListRef, { uid: uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() });
-                    }
-                }
+            const newCount = currentCount + 1;
+            const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
+            createdName = newUsername;
+
+            // writes start here (after all reads)
+            if (!globalStats.exists()) { transaction.set(globalStatsRef, { userCount: newCount }); }
+            else { transaction.update(globalStatsRef, { userCount: newCount }); }
+
+            transaction.set(userRef, { 
+                displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
+                usernameChangesLeft: 3, pastUsernames: [], joined: Date.now(), items: [], totalSalesValue: 0, totalBoughtValue: 0,
+                itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
+                referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
+                referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
+                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null
+            });
+
+            if (refUserRef && refUserDoc && refUserDoc.exists()) {
+                transaction.update(refUserRef, { referrals: (refUserDoc.data().referrals || 0) + 1 });
+                const refListRef = doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid);
+                transaction.set(refListRef, { uid: uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() });
             }
         });
         if (createdName && referrerUid) pushNotif(referrerUid, 'referral', '🎉 ' + createdName + ' just joined RaveKandi using your code! +1 referral');
@@ -673,24 +676,38 @@ const UsernameModal = ({ user, profile, isOpen, onClose }) => {
 
 const PublicProfileModal = ({ uid, onClose }) => {
     const [targ, setTarg] = useState(null);
+    const [errMsg, setErrMsg] = useState('');
     useEffect(() => {
-        setTarg(null); // V37.13.01: clear stale profile between opens
+        setTarg(null); setErrMsg('');
         if(!uid) return;
-        const q = query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', uid));
-        getDocs(q).then(snap => {
-            if(!snap.empty) { setTarg({ ...snap.docs[0].data(), id: snap.docs[0].id }); }
-            else {
-                getDoc(doc(db, 'artifacts', appId, 'users', uid))
-                    .then(s => { if(s.exists()) setTarg({ ...s.data(), id: s.id }); else setTarg('not_found'); })
-                    .catch(e => { console.log('Profile load (direct) failed', e); setTarg('error'); });
+        let cancelled = false;
+        (async () => {
+            // V42.12: direct doc-id lookup first (publicUid usually IS the doc id),
+            // then fall back to a publicUid query for users who changed their UID.
+            try {
+                const direct = await getDoc(doc(db, 'artifacts', appId, 'users', uid));
+                if (cancelled) return;
+                if (direct.exists()) { setTarg({ ...direct.data(), id: direct.id }); return; }
+            } catch (e) { console.log('profile direct load failed', e); }
+            try {
+                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', uid)));
+                if (cancelled) return;
+                if (!snap.empty) { setTarg({ ...snap.docs[0].data(), id: snap.docs[0].id }); return; }
+                setTarg('not_found');
+            } catch (e) {
+                if (cancelled) return;
+                console.log('profile query load failed', e);
+                setErrMsg((e && e.message) || 'Unknown error');
+                setTarg('error');
             }
-        }).catch(e => { console.log('Profile load failed', e); setTarg('error'); });
+        })();
+        return () => { cancelled = true; };
     }, [uid]);
     if(!uid) return null;
     return (
         <Modal isOpen={!!uid} onClose={onClose} title={targ === 'not_found' ? "Not Found" : targ === 'error' ? "Connection Issue" : (targ?.displayName ? '@' + targ.displayName : 'Loading...')}>
             {targ === 'not_found' ? <p className="opacity-50 text-center">User no longer exists.</p>
-            : targ === 'error' ? <p className="text-red-300 text-xs text-center py-4">Couldn't load this profile. Check your connection and try again.</p>
+            : targ === 'error' ? <p className="text-red-300 text-xs text-center py-4">Couldn't load this profile.{errMsg ? ' (' + errMsg + ')' : ''} Check your connection and try again.</p>
             : !targ ? <div className="py-6"><LoadingBar className="w-full"/><p className="text-center text-[10px] opacity-50 mt-2">Loading profile...</p></div> : (
                 <div className="text-center space-y-4">
                     <img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
@@ -1264,7 +1281,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.12.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.12.02'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2310,7 +2327,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
     );
 };
 
-const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed }) => {
+const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false }) => {
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
 
@@ -3238,6 +3255,135 @@ const PinSelectModal = ({ user, isOpen, onClose }) => {
     );
 };
 
+const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
+    const [targ, setTarg] = useState(null);
+    const [errMsg, setErrMsg] = useState('');
+    const [pinnedItems, setPinnedItems] = useState([]);
+    const [showAnalytics, setShowAnalytics] = useState(false);
+    const [showCollection, setShowCollection] = useState(false);
+    const [selectedPinned, setSelectedPinned] = useState(null);
+
+    useEffect(() => {
+        setTarg(null); setErrMsg('');
+        if (!uid) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const direct = await getDoc(doc(db, 'artifacts', appId, 'users', uid));
+                if (cancelled) return;
+                if (direct.exists()) { setTarg({ ...direct.data(), id: direct.id }); return; }
+            } catch (e) { console.log('public profile direct load failed', e); }
+            try {
+                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', uid)));
+                if (cancelled) return;
+                if (!snap.empty) { setTarg({ ...snap.docs[0].data(), id: snap.docs[0].id }); return; }
+                setTarg('not_found');
+            } catch (e) {
+                if (cancelled) return;
+                console.log('public profile query failed', e);
+                setErrMsg((e && e.message) || 'Unknown error'); setTarg('error');
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [uid]);
+
+    // featured pins of the target (creators only)
+    useEffect(() => {
+        const tid = (targ && targ !== 'not_found' && targ !== 'error') ? targ.id : null;
+        if (!tid || !targ.isKandiCreator) { setPinnedItems([]); return; }
+        const q = query(collection(db, 'artifacts', appId, 'users', tid, 'inventory'), where('isPinned', '==', true));
+        const unsub = onSnapshot(q, s => setPinnedItems(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log(e));
+        return () => unsub();
+    }, [targ]);
+
+    if (!uid) return null;
+
+    const isSelf = targ && targ !== 'not_found' && targ !== 'error' && (targ.id === viewerUid);
+    const refStats = (targ && targ.referrals) ? getReferralTier(targ.referrals || 0) : null;
+
+    return (
+        <div className="fixed inset-0 bg-[#0a0014] z-[90] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
+                <h2 className="text-lg font-black italic uppercase tracking-widest" style={getTextGlowStyle('primaryGlow')}>
+                    {targ === 'not_found' ? 'Not Found' : targ === 'error' ? 'Connection Issue' : (targ?.displayName ? '@' + targ.displayName : 'Loading…')}
+                </h2>
+                <button onClick={onClose} className="text-white hover:text-pink-400"><XCircle size={30}/></button>
+            </div>
+
+            {targ === 'not_found' ? <p className="opacity-50 text-center py-20">This raver no longer exists.</p>
+            : targ === 'error' ? <p className="text-red-300 text-sm text-center py-20">Couldn't load this profile.{errMsg ? ' (' + errMsg + ')' : ''} Check your connection and try again.</p>
+            : !targ ? <div className="py-20 px-10"><LoadingBar progress={50} className="w-full"/><p className="text-center text-[10px] opacity-50 mt-3 animate-pulse uppercase tracking-widest">Loading profile…</p></div>
+            : (
+                <div className="max-w-4xl mx-auto px-4 pb-20 pt-6 space-y-6">
+                    <UserStatsDashboard profile={targ} isOpen={showAnalytics} onClose={() => setShowAnalytics(false)} />
+                    <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} />
+                    <ItemDetailModal item={selectedPinned} user={{ uid: viewerUid }} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onClose}/>
+
+                    <div className="flex flex-col items-center md:flex-row gap-6 relative">
+                        <div className="relative shrink-0">
+                            <div className="w-32 h-32 rounded-full border-4 border-pink-500 overflow-hidden bg-gray-800"><img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-full h-full object-cover"/></div>
+                            {(targ.referrals > 0) && refStats && (
+                                <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
+                                    <span>{refStats.badge}</span>
+                                    <span className="text-[8px] opacity-80">{targ.customRevSharePct ?? refStats.sharePct}% RevShare</span>
+                                </div>
+                            )}
+                            {isEffVIP(targ) && (
+                                <div className="absolute -top-2 -left-2 bg-yellow-500/20 text-yellow-400 p-1.5 rounded-full border border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]"><Crown size={14}/></div>
+                            )}
+                        </div>
+                        <div className="text-center md:text-left flex-1 w-full">
+                            <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
+                                <h2 className="text-3xl font-black flex items-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}<BadgeChip badge={targ.featuredBadge} /></h2>
+                                {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[8px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
+                            </div>
+
+                            {targ.isKandiCreator && pinnedItems.length > 0 && (
+                                <div className="mb-4 bg-black/50 border border-pink-500/30 p-2 rounded-lg">
+                                    <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins</h4>
+                                    <div className="flex gap-2 overflow-x-auto pb-1">
+                                        {pinnedItems.slice(0, 2).map(item => (
+                                            <div key={item.id} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-white/10 rounded p-1 w-24 shrink-0 cursor-pointer hover:bg-white/10 transition-colors">
+                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image} className="w-full h-16 object-cover rounded mb-1 border-2 border-pink-500/30" />
+                                                <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full"><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate">Friend UID: <span className="text-lime-400 font-bold">{targ.publicUid || targ.id}</span></div></div>
+
+                            <div className="bg-white/5 p-3 rounded text-sm relative border border-white/10 flex items-start min-h-[60px]">
+                                {!targ.bio && <span className="text-[10px] uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
+                                <p className="opacity-80 italic flex-1">{targ.bio || "No vibe check yet."}</p>
+                            </div>
+
+                            <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
+                                {SOCIAL_PLATFORMS.map(p => { if (targ.socialLinks && targ.socialLinks[p.id]) return (<a key={p.id} href={`https://${p.baseUrl}${targ.socialLinks[p.id]}`} target="_blank" rel="noreferrer" className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition hover:scale-110"><p.icon size={20} color={p.color}/></a>); return null; })}
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-2 mb-2">
+                                {[{ label: "Items Sold", val: targ.itemsSold || 0 }, { label: "Bought", val: targ.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(targ.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(targ.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: targ.totalLikes || 0 }, { label: "Comments", val: targ.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(targ).filter(a=>a.unlocked).length }, { label: "Referrals", val: targ.referrals || 0 }].map((s, i) => (
+                                    <div key={i} className="bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1 rounded text-center"><div className="text-[10px] font-bold text-lime-400">{s.val}</div><div className="text-[7px] opacity-70 uppercase leading-none text-white">{s.label}</div></div>
+                                ))}
+                            </div>
+                            <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-[10px] text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
+
+                            <div className="flex gap-2 mt-4 justify-center md:justify-start">
+                                <Button onClick={() => setShowCollection(true)} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Package size={14}/> Collection</Button>
+                                {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
+                            </div>
+                        </div>
+                    </div>
+
+                    <Card glow="goldGlow"><h3 className="font-bold mb-4 underline decoration-yellow-500/50">Achievement Tiers</h3><div className="space-y-4">{getDisplayAchievements(targ).map((ach, idx) => (<div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}><ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} /><div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-sm">{ach.name}</p><p className={`text-[8px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p></div><p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p></div></div>))}</div></Card>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false });
@@ -3477,11 +3623,8 @@ const AuthScreen = ({ setLoadMsg }) => {
             }
 
             if (isReg) {
-                let cred;
-                try { cred = await createUserWithEmailAndPassword(auth, email, password); }
-                catch (authErr) { throw new Error('[AUTH step] ' + authErr.code + ': ' + authErr.message); }
-                try { await ensureUserExists(cred.user.uid, djName, referrerUid); }
-                catch (dbErr) { throw new Error('[DATABASE step] ' + (dbErr.code || '') + ': ' + dbErr.message); }
+                const cred = await createUserWithEmailAndPassword(auth, email, password);
+                await ensureUserExists(cred.user.uid, djName, referrerUid);
             } else {
                 await signInWithEmailAndPassword(auth, email, password);
             }
@@ -3517,7 +3660,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.12.00-d2</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.12.02</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -3933,7 +4076,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.12.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.12.02</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -3956,7 +4099,7 @@ cat << 'EOF' >> src/App.js
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
             <WelcomeAlphaModal />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
-            {user && <PublicProfileModal uid={viewingProfileId} onClose={() => setViewingProfileId(null)} />}
+            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
@@ -4163,7 +4306,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.12.00 Phase 16: Web Launch, iOS Guide & Launch Perks</span>
+                    <span className="flex-1 text-center">V42.12.02 Phase 16: Web Launch, iOS Guide & Launch Perks</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4358,9 +4501,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.12.00)..."
-sed -i "s/versionCode 1/versionCode 60/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.12.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.12.02)..."
+sed -i "s/versionCode 1/versionCode 62/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.12.02"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4407,7 +4550,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_12_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_12_02_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
