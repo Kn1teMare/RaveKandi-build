@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.12.02 Build Script Starting"
+echo " RaveKandi V42.13.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.12.02</title>
+    <title>RaveKandi V42.13.01</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,6 +38,8 @@ cat << 'EOF' > public/index.html
       .rk-radio-on { background: linear-gradient(60deg, #16ff8e, #00c853, #7CFC00, #16ff8e); background-size: 300% 300%; animation: rkCascade 2.2s linear infinite; box-shadow: 0 0 18px rgba(0,255,140,0.8); }
       .rk-radio-off { background: linear-gradient(45deg, #ff1744, #b71c1c); box-shadow: 0 0 16px rgba(255,23,68,0.75); }
       .rk-pastel-shift { background-size: 300% 300%; -webkit-background-clip: text; background-clip: text; animation: rkCascade 5s ease infinite; }
+      .rk-msg-icon { background: linear-gradient(60deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7); background-size: 300% 300%; animation: rkCascade 4s ease infinite; box-shadow: 0 0 12px rgba(216,180,254,0.6); }
+      .rk-msg-icon svg { color: #6b2d8c; }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
   </head>
@@ -116,7 +118,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.12.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.13.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -187,7 +189,7 @@ import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInAnonymously } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -234,7 +236,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.12.02';
+const APP_VERSION = '42.13.01';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -298,7 +300,9 @@ export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => coun
 
 const Volume = ({size, color}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
 const SOCIAL_PLATFORMS = [
-    { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E1306C', baseUrl: 'instagram.com/' }, { id: 'twitter', name: 'X / Twitter', icon: Twitter, color: '#1DA1F2', baseUrl: 'twitter.com/' }, { id: 'tiktok', name: 'TikTok', icon: MusicIcon, color: '#00F2EA', baseUrl: 'tiktok.com/@' }, { id: 'snapchat', name: 'Snapchat', icon: Ghost, color: '#FFFC00', baseUrl: 'snapchat.com/add/' }, { id: 'soundcloud', name: 'SoundCloud', icon: Volume, color: '#FF5500', baseUrl: 'soundcloud.com/' }, { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000', baseUrl: 'youtube.com/@' }, { id: 'twitch', name: 'Twitch', icon: Twitch, color: '#9146FF', baseUrl: 'twitch.tv/' }, { id: 'telegram', name: 'Telegram', icon: MessageSquare, color: '#0088cc', baseUrl: 't.me/' }, { id: 'whatsapp', name: 'WhatsApp', icon: Phone, color: '#25D366', baseUrl: 'wa.me/' }, { id: 'radiate', name: 'Radiate', icon: Activity, color: '#ff00ff', baseUrl: 'radiate.app/' }
+    { id: 'instagram', name: 'Instagram', icon: Instagram, color: '#E1306C', baseUrl: 'instagram.com/' }, { id: 'twitter', name: 'X / Twitter', icon: Twitter, color: '#1DA1F2', baseUrl: 'twitter.com/' }, { id: 'tiktok', name: 'TikTok', icon: MusicIcon, color: '#00F2EA', baseUrl: 'tiktok.com/@' }, { id: 'snapchat', name: 'Snapchat', icon: Ghost, color: '#FFFC00', baseUrl: 'snapchat.com/add/' }, { id: 'soundcloud', name: 'SoundCloud', icon: Volume, color: '#FF5500', baseUrl: 'soundcloud.com/' }, { id: 'youtube', name: 'YouTube', icon: Youtube, color: '#FF0000', baseUrl: 'youtube.com/@' }, { id: 'twitch', name: 'Twitch', icon: Twitch, color: '#9146FF', baseUrl: 'twitch.tv/' }, { id: 'telegram', name: 'Telegram', icon: MessageSquare, color: '#0088cc', baseUrl: 't.me/' }, { id: 'whatsapp', name: 'WhatsApp', icon: Phone, color: '#25D366', baseUrl: 'wa.me/' }, { id: 'radiate', name: 'Radiate', icon: Activity, color: '#ff00ff', baseUrl: 'radiate.app/' },
+    { id: 'onlyfans', name: 'OnlyFans', icon: Heart, color: '#00AFF0', baseUrl: 'onlyfans.com/' },
+    { id: 'fansly', name: 'Fansly', icon: Heart, color: '#1DA1F2', baseUrl: 'fansly.com/' }
 ];
 const ITEM_CATEGORIES = { 'Bead': ['Pony', 'Perler', 'Glass', 'Letter', 'Neon', 'Glow', 'Metallic'], 'String': ['Elastic', 'Nylon', 'Fabric'], 'Charm': ['Plastic', 'Metal', 'Enamel'], 'Trinket': ['Alien head', 'Mushroom', 'Doll'], 'Other': ['Custom'] };
 const ITEM_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'Huge'];
@@ -320,7 +324,7 @@ export const getIdleWindowHours = (price = 0, parts = 0) => {
 // V42.09: banner link safety — banners may only link to verified social platforms.
 // Structural checks block shorteners, redirect chains, IP hosts and embedded credentials.
 // (Following redirects isn't possible client-side, hence the strict allowlist approach.)
-const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app'];
+const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app','onlyfans.com','fansly.com'];
 const BLOCKED_SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','rb.gy','cutt.ly','is.gd','shorturl.at','ow.ly','rebrand.ly'];
 const validateSocialLink = (raw) => {
     try {
@@ -1281,7 +1285,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.12.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.13.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1340,6 +1344,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
     const [activeName, setActiveName] = useState('');
+    const [activeOtherUid, setActiveOtherUid] = useState(null); // V42.12: real other-UID (UIDs contain underscores — never split the thread id)
     const [msgs, setMsgs] = useState([]);
     const [input, setInput] = useState('');
     const [term, setTerm] = useState('');
@@ -1375,7 +1380,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     useEffect(() => {
         if (isOpen && initialTarget?.uid && myUid) {
             const tid = [myUid, initialTarget.uid].sort().join('_');
-            setActiveThread(tid); setActiveName(initialTarget.name || 'Raver'); setTab('msgs');
+            setActiveThread(tid); setActiveName(initialTarget.name || 'Raver'); setActiveOtherUid(initialTarget.uid); setTab('msgs');
             if (onConsumeTarget) onConsumeTarget();
         }
     }, [isOpen, initialTarget]);
@@ -1402,15 +1407,15 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     const openThreadWith = (otherUid, otherName) => {
         const tid = [myUid, otherUid].sort().join('_');
-        setActiveThread(tid); setActiveName(otherName || 'Raver'); setTerm(''); setSearchHit(null);
+        setActiveThread(tid); setActiveName(otherName || 'Raver'); setActiveOtherUid(otherUid); setTerm(''); setSearchHit(null);
     };
 
     const send = async () => {
         if (!input.trim() || !activeThread || sending) return;
         setSending(true);
         try {
-            const otherUid = activeThread.split('_').find(p => p !== myUid) || myUid;
-            await sendDirectMessage(myUid, profile?.displayName || 'Raver', otherUid, activeName, input.trim());
+            if (!activeOtherUid) { alert('Could not resolve the recipient — reopen the conversation and try again.'); setSending(false); return; }
+            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim());
             setInput('');
         } catch (e) { alert('Send failed: ' + e.message); } finally { setSending(false); }
     };
@@ -1428,7 +1433,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
             snap.docs.slice(0, 450).forEach(d => batch.delete(d.ref));
             batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread));
             await batch.commit();
-            setActiveThread(null);
+            setActiveThread(null); setActiveOtherUid(null);
         } catch (e) { alert(e.message); }
     };
 
@@ -1446,7 +1451,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     const visNotifs = notifs.filter(n => (profile?.inAppNotifs?.[n.type] !== false) && (notifFilter === 'all' || n.type === notifFilter));
     const unreadAlertCount = notifs.filter(n => !n.read).length;
-    const threadKey = activeThread ? rkKey(...activeThread.split('_')) : null;
+    const threadKey = activeOtherUid ? rkKey(myUid, activeOtherUid) : null;
 
     return createPortal(
         <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -1454,7 +1459,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                 <Card className="max-w-md w-full my-2 flex flex-col" glow="purpleGlow">
                     <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-2">
                         <h3 className="text-lg font-black uppercase italic tracking-widest" style={getTextGlowStyle('purpleGlow')}>Messenger</h3>
-                        <button onClick={() => { setActiveThread(null); onClose(); }}><XCircle/></button>
+                        <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); onClose(); }}><XCircle/></button>
                     </div>
 
                     {!activeThread && (
@@ -1501,7 +1506,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
                     {tab === 'msgs' && activeThread && (<>
                         <div className="flex items-center justify-between mb-2 bg-white/5 rounded p-2">
-                            <button onClick={() => setActiveThread(null)} className="flex items-center gap-1 text-[10px] text-cyan-400 font-bold"><ChevronLeft size={14}/> Back</button>
+                            <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-[10px] text-cyan-400 font-bold"><ChevronLeft size={14}/> Back</button>
                             <span className="text-xs font-black">@{activeName}</span>
                             <button onClick={delThread} className="text-red-400" title="Delete chat log"><Trash2 size={14}/></button>
                         </div>
@@ -1806,7 +1811,9 @@ EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
-const MainSettingsModal = ({ user, profile, isOpen, onClose }) => { 
+const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
+    const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
+    const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
     const [showTicket, setShowTicket] = useState(false);
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState(''); 
@@ -1877,6 +1884,13 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
         <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-3 text-cyan-400">Notifications</h4><div className="grid grid-cols-3 gap-2 text-[10px] mb-2 font-bold opacity-70"><span>Type</span><span className="text-center">Phone</span><span className="text-center">Email</span></div>{NOTIFICATION_TYPES.map(type => (<div key={type.id} className="grid grid-cols-3 gap-2 items-center mb-2 text-[10px]"><span className="truncate">{type.label}</span><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'phone')} className={`${prefs.phone?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.phone?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'email')} className={`${prefs.email?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.email?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div></div>))}</div>
         <div className="border-b border-white/10 pb-4">
             <h4 className="font-bold text-xs mb-2 text-lime-400">Display</h4>
+            <div className="bg-white/5 p-3 rounded border border-white/10 mb-3">
+                <div className="flex justify-between items-center mb-2"><span className="text-[11px] font-bold">Text Size</span><span className="text-[11px] font-mono text-lime-400">{Math.round(txtScale * 100)}%</span></div>
+                <input type="range" min="0.85" max="1.5" step="0.05" value={txtScale} onChange={e => applyScale(parseFloat(e.target.value))} className="w-full accent-pink-500"/>
+                <div className="flex justify-between text-[8px] opacity-50 mt-1"><span>A</span><span className="text-base">A</span></div>
+                <p style={{ fontSize: txtScale + 'em' }} className="mt-2 text-center text-gray-200 bg-black/40 rounded p-2 leading-snug">Preview: the quick brown fox 🦊</p>
+                {txtScale !== 1 && <button onClick={() => applyScale(1)} className="w-full mt-2 text-[9px] text-cyan-400 underline">Reset to default (100%)</button>}
+            </div>
             <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { showPing: profile?.showPing === false ? true : false }, { merge: true }); }} className="w-full flex justify-between items-center bg-white/5 p-2 rounded border border-white/10">
                 <span className="text-[10px] font-bold">Show Ping (connection meter)</span>
                 {profile?.showPing !== false ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
@@ -2780,6 +2794,37 @@ EOF
 
 # Block 15
 cat << 'EOF' >> src/App.js
+const VideoTakedownPanel = () => {
+    const [vids, setVids] = useState([]);
+    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setVids(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.start - b.start)), e => console.log(e)), []);
+    const takedown = async (v) => {
+        if (!window.confirm('Take down @' + v.name + "'s featured clip? This deletes the video permanently and clears its window.")) return;
+        try { if (v.storagePath) await deleteObject(ref(storage, v.storagePath)); } catch (e) { /* already gone */ }
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', v.id)); alert('Clip taken down.'); } catch (e) { alert('Failed: ' + e.message); }
+    };
+    const fmtT = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const now = Date.now();
+    return (
+        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {vids.length === 0 && <p className="text-[10px] opacity-50 text-center py-3">No featured clips currently posted or queued.</p>}
+            {vids.map(v => {
+                const live = v.start <= now && now < v.end;
+                return (
+                    <div key={v.id} className={`flex items-center gap-2 p-2 rounded border ${live ? 'border-lime-400/60 bg-lime-900/10' : 'border-white/10 bg-white/5'}`}>
+                        <video src={v.url} muted className="w-12 h-12 rounded object-cover bg-black shrink-0"/>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[10px] font-bold truncate">@{v.name} {live && <span className="text-[7px] bg-lime-500 text-black px-1 rounded font-black uppercase">Live</span>}</p>
+                            <p className="text-[8px] opacity-50 truncate">{v.caption || 'No caption'}</p>
+                            <p className="text-[8px] opacity-40">{fmtT(v.start)} – {fmtT(v.end)}</p>
+                        </div>
+                        <button onClick={() => takedown(v)} className="bg-red-500/20 text-red-400 p-2 rounded hover:bg-red-500/40 shrink-0" title="Take down"><Trash2 size={14}/></button>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
@@ -2885,6 +2930,12 @@ const AdminDashboard = ({ user, profile }) => {
             <div className="bg-white/5 p-3 rounded mb-4 border border-purple-500/40">
                 <h4 className="text-[10px] uppercase font-bold text-purple-300 mb-2">🛰 Remote Config — live for all users</h4>
                 <RemoteConfigPanel />
+            </div>
+
+            <div className="bg-white/5 p-3 rounded mb-4 border border-red-500/40">
+                <h4 className="text-[10px] uppercase font-bold text-red-300 mb-2">🎬 Featured Videos — Moderation</h4>
+                <p className="text-[8px] opacity-60 mb-2">Take down any user clip instantly — deletes the video from storage and clears its window.</p>
+                <VideoTakedownPanel />
             </div>
 
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
@@ -3352,11 +3403,11 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                                 </div>
                             )}
 
-                            <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full"><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate">Friend UID: <span className="text-lime-400 font-bold">{targ.publicUid || targ.id}</span></div></div>
+                            <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full"><div onClick={() => { try { navigator.clipboard.writeText(targ.publicUid || targ.id); alert('Friend UID copied!'); } catch (e) {} }} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-sm w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{targ.publicUid || targ.id}</span> <Copy size={11} className="inline ml-1 text-cyan-400"/></div></div>
 
-                            <div className="bg-white/5 p-3 rounded text-sm relative border border-white/10 flex items-start min-h-[60px]">
-                                {!targ.bio && <span className="text-[10px] uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
-                                <p className="opacity-80 italic flex-1">{targ.bio || "No vibe check yet."}</p>
+                            <div className="bg-white/5 p-3 rounded text-base relative border border-white/10 flex items-start min-h-[64px]">
+                                {!targ.bio && <span className="text-xs uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
+                                <p className="opacity-80 italic flex-1 break-words">{targ.bio || "No vibe check yet."}</p>
                             </div>
 
                             <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
@@ -3365,10 +3416,10 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
 
                             <div className="grid grid-cols-4 gap-2 mb-2">
                                 {[{ label: "Items Sold", val: targ.itemsSold || 0 }, { label: "Bought", val: targ.itemsBought || 0 }, { label: "$ Sold", val: "$" + Number(targ.totalSalesValue || 0).toFixed(2) }, { label: "$ Bought", val: "$" + Number(targ.totalBoughtValue || 0).toFixed(2) }, { label: "Likes", val: targ.totalLikes || 0 }, { label: "Comments", val: targ.totalComments || 0 }, { label: "Badges", val: getDisplayAchievements(targ).filter(a=>a.unlocked).length }, { label: "Referrals", val: targ.referrals || 0 }].map((s, i) => (
-                                    <div key={i} className="bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1 rounded text-center"><div className="text-[10px] font-bold text-lime-400">{s.val}</div><div className="text-[7px] opacity-70 uppercase leading-none text-white">{s.label}</div></div>
+                                    <div key={i} className="bg-black/80 border border-lime-400/50 shadow-[0_0_5px_rgba(163,230,53,0.4)] p-1.5 rounded text-center"><div className="text-sm font-bold text-lime-400 break-words">{s.val}</div><div className="text-[9px] opacity-70 uppercase leading-tight text-white">{s.label}</div></div>
                                 ))}
                             </div>
-                            <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-[10px] text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
+                            <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-xs text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
                             <div className="flex gap-2 mt-4 justify-center md:justify-start">
                                 <Button onClick={() => setShowCollection(true)} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Package size={14}/> Collection</Button>
@@ -3377,9 +3428,151 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                         </div>
                     </div>
 
-                    <Card glow="goldGlow"><h3 className="font-bold mb-4 underline decoration-yellow-500/50">Achievement Tiers</h3><div className="space-y-4">{getDisplayAchievements(targ).map((ach, idx) => (<div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}><ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} /><div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-sm">{ach.name}</p><p className={`text-[8px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p></div><p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p></div></div>))}</div></Card>
+                    <Card glow="goldGlow"><h3 className="font-bold text-lg mb-4 underline decoration-yellow-500/50">Achievement Tiers</h3><div className="space-y-4">{getDisplayAchievements(targ).map((ach, idx) => (<div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}><ach.icon size={26} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} /><div className="flex-1"><div className="flex justify-between items-center"><p className="font-bold text-base">{ach.name}</p><p className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p></div><p className="text-xs opacity-70 mt-1 leading-relaxed">{ach.desc}</p></div></div>))}</div></Card>
                 </div>
             )}
+        </div>
+    );
+};
+
+const VW = 1800000; // 30-minute featured-video window
+
+const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
+    const [file, setFile] = useState(null);
+    const [caption, setCaption] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [pct, setPct] = useState(0);
+    const [confirmation, setConfirmation] = useState(null);
+    const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+    const MAX_SECONDS = 30;
+
+    if (!isOpen) return null;
+
+    const todayKey = new Date().toDateString();
+    const usedToday = profile?.videoDay === todayKey ? (profile?.videoCountToday || 0) : 0;
+
+    const pickFile = (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        if (!f.type.startsWith('video/')) { alert('Please choose a video file.'); return; }
+        if (f.size > MAX_BYTES) { alert('That clip is ' + (f.size / 1048576).toFixed(1) + ' MB — the limit is 25 MB. Trim it or lower the quality and try again.'); return; }
+        // verify duration <= 30s before accepting
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.onloadedmetadata = () => {
+            window.URL.revokeObjectURL(v.src);
+            if (v.duration > MAX_SECONDS + 0.5) { alert('That clip is ' + Math.round(v.duration) + 's — festival clips must be 30 seconds or less.'); setFile(null); }
+            else setFile(f);
+        };
+        v.onerror = () => { alert("Couldn't read that video. Try a different file (MP4 works best)."); setFile(null); };
+        v.src = URL.createObjectURL(f);
+    };
+
+    const submitVideo = async () => {
+        if (!file) return alert('Choose a festival clip first (30s max, 25 MB max).');
+        if (usedToday >= 4) return alert('Daily limit reached — 4 featured videos per day. Resets at midnight.');
+        setBusy(true); setPct(1);
+        try {
+            // upload to Firebase Storage
+            const path = 'featuredVideos/' + user.uid + '/' + Date.now() + '_' + (file.name || 'clip').replace(/[^a-zA-Z0-9._-]/g, '');
+            const sref = ref(storage, path);
+            const task = uploadBytesResumable(sref, file, { contentType: file.type });
+            await new Promise((resolve, reject) => {
+                task.on('state_changed',
+                    s => setPct(Math.max(2, Math.round((s.bytesTransferred / s.totalBytes) * 100))),
+                    reject, resolve);
+            });
+            const url = await getDownloadURL(sref);
+
+            // claim a window on the same on-the-dot queue as banners
+            const now = Date.now();
+            const curStart = Math.floor(now / VW) * VW;
+            const taken = new Set(slots.map(s => s.start));
+            let assigned;
+            if (!taken.has(curStart)) { assigned = [curStart, curStart + VW]; } // missed/empty current window: remainder + next block
+            else { let s = curStart + VW; while (taken.has(s)) s += VW; assigned = [s]; }
+            const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, url, storagePath: path, caption: (caption || '').slice(0, 100), postedAt: now };
+            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + VW }); }
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { videoDay: todayKey, videoCountToday: usedToday + 1, videosPosted: increment(1) }, { merge: true });
+
+            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + VW;
+            const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
+            setConfirmation({ startsAt, endsAt, queueAhead, live: startsAt <= Date.now() });
+            setFile(null); setCaption('');
+        } catch (e) { alert('Video upload failed: ' + e.message); } finally { setBusy(false); setPct(0); }
+    };
+
+    const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Festival Clip">
+            <div className="space-y-3">
+                <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
+                    <strong className="text-pink-400">How it works:</strong> Share your festival shenanigans — stage moments, pyro, kandi handshakes, the vibe. Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Featured</strong> spotlight for a <strong>30-minute window</strong>; windows run one at a time on the dot (:00, :30) and queue automatically. Limits: <strong>30 seconds, 25 MB, 4 clips/day</strong>. Resets at midnight. Keep it your own footage and PLUR-friendly. <span className="text-yellow-300">Clips auto-delete from our servers once their window ends, so your content isn't stored long-term.</span>
+                </div>
+                {confirmation && (
+                    <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
+                        <p className="text-xs font-bold text-lime-300">{confirmation.live ? '🟢 Your clip is featured NOW!' : '✅ Clip queued!'}</p>
+                        <p className="text-[10px] mt-1">Window: <strong>{fmtT(confirmation.startsAt)} – {fmtT(confirmation.endsAt)}</strong></p>
+                        {!confirmation.live && <p className="text-[9px] opacity-70">Queue position: #{confirmation.queueAhead + 1}</p>}
+                    </div>
+                )}
+                <label className="block">
+                    <span className="text-[10px] font-bold text-cyan-400 uppercase">Choose clip (30s · 25MB max)</span>
+                    <input type="file" accept="video/*" onChange={pickFile} className="mt-1 w-full text-[10px] text-gray-300 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-pink-600 file:text-white file:text-[10px] file:font-bold"/>
+                </label>
+                {file && <p className="text-[9px] text-lime-300">✅ {file.name} ({(file.size / 1048576).toFixed(1)} MB) — duration OK</p>}
+                <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={100} placeholder="Caption (optional, 100 chars)" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs"/>
+                {busy && <div className="space-y-1"><LoadingBar progress={pct} className="h-2"/><p className="text-center text-[10px] text-cyan-400 font-mono">{pct}% uploading…</p></div>}
+                <p className="text-[8px] opacity-50 text-right">{4 - usedToday} clips left today</p>
+                <Button onClick={submitVideo} disabled={busy || !file || usedToday >= 4} color="primary" className="w-full">{busy ? 'Uploading…' : 'Feature My Clip 🎬'}</Button>
+            </div>
+        </Modal>
+    );
+};
+
+const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmit }) => {
+    const [slots, setSlots] = useState([]);
+    useEffect(() => {
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('videoSlots', e));
+        return () => unsub();
+    }, []);
+
+    const active = slots.find(s => s.start <= nowTick && nowTick < s.end) || null;
+    const upcoming = slots.filter(s => s.start > nowTick).sort((a, b) => a.start - b.start);
+
+    // V42.13.01: auto-purge clips whose window has ended — deletes the Storage
+    // file AND the slot doc, freeing space and not retaining user content.
+    // Any signed-in viewer whose clock passes the window triggers cleanup; the
+    // delete is idempotent so concurrent attempts harmlessly no-op.
+    useEffect(() => {
+        const expired = slots.filter(s => s.end <= Date.now());
+        expired.forEach(async (s) => {
+            try { if (s.storagePath) await deleteObject(ref(storage, s.storagePath)); } catch (e) { /* already gone */ }
+            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', s.id)); } catch (e) {}
+        });
+    }, [nowTick, slots]);
+
+    return (
+        <div className="w-full">
+            {active ? (
+                <div className="w-full bg-black rounded-xl overflow-hidden border-2 border-pink-500/50 shadow-[0_0_18px_rgba(236,72,153,0.35)]">
+                    <video key={active.id} src={active.url} controls autoPlay muted loop playsInline className="w-full max-h-72 object-contain bg-black"/>
+                    <div className="p-3 bg-gradient-to-r from-purple-900/40 to-pink-900/40">
+                        {active.caption && <p className="text-xs text-gray-100 italic mb-2 break-words">"{active.caption}"</p>}
+                        <button onClick={() => onViewProfile(active.ownerPublicUid || active.uid)} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-lg py-2 text-sm font-black uppercase tracking-wide transition-colors">
+                            <User size={16}/> Featured: @{active.name} — View Profile
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div className="w-full h-48 bg-black/50 border-2 border-dashed border-white/20 rounded-xl flex flex-col items-center justify-center gap-2">
+                    <Play size={40} className="text-white/20"/>
+                    <p className="text-xs text-white/40 text-center px-4">No clip featured right now — be the first to share your festival vibe!</p>
+                </div>
+            )}
+            <Button onClick={onOpenSubmit} color="primary" className="w-full mt-2 text-xs flex items-center justify-center gap-2"><Video size={14}/> Feature Your Festival Clip</Button>
+            {upcoming.length > 0 && <p className="text-[8px] text-center opacity-50 mt-1">⏳ {upcoming.length} clip(s) queued — yours rotates in automatically</p>}
         </div>
     );
 };
@@ -3660,7 +3853,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.12.02</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.13.01</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -3896,6 +4089,13 @@ const App = () => {
     const [boostSlots, setBoostSlots] = useState([]);
     const [nowTick, setNowTick] = useState(Date.now());
     const [merchPopup, setMerchPopup] = useState(false);
+    const [videoSubmitOpen, setVideoSubmitOpen] = useState(false);
+    const [videoSlotsForSubmit, setVideoSlotsForSubmit] = useState([]);
+    useEffect(() => {
+        if (!videoSubmitOpen) return;
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setVideoSlotsForSubmit(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log(e));
+        return () => unsub();
+    }, [videoSubmitOpen]);
     useEffect(() => {
         if (!user) return;
         const u3 = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'bannerSlots')), s => setBannerSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('banners', e));
@@ -4076,7 +4276,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.12.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.13.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4093,7 +4293,13 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
-    const appBackgroundStyle = isEffVIP(profile) && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' } : { backgroundColor: '#0f001e' };
+    const [textScale, setTextScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
+    useEffect(() => {
+        const handler = (e) => { if (e.detail) { setTextScale(e.detail); try { localStorage.setItem('rk_text_scale', String(e.detail)); } catch (er) {} } };
+        window.addEventListener('rk-text-scale', handler);
+        return () => window.removeEventListener('rk-text-scale', handler);
+    }, []);
+    const appBackgroundStyle = isEffVIP(profile) && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
 
     return (
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
@@ -4118,6 +4324,7 @@ cat << 'EOF' >> src/App.js
                     </div>
                 </div>
             </Modal>
+            {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
             <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Install RaveKandi">
                 <div className="space-y-3 text-sm">
                     <p className="text-xs opacity-80">Get the full app experience on your iPhone — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
@@ -4136,16 +4343,14 @@ cat << 'EOF' >> src/App.js
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
 
             <div className="sticky top-0 z-50">
-            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
-                <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95"><Zap className="text-yellow-400" size={24} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
-                <div className="flex gap-5 items-center">
-                    <button onClick={() => setMsgOpen(true)} className="relative text-white/50 hover:text-white"><Mail size={18}/>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-2 bg-pink-600 text-white text-[8px] font-black rounded-full px-1 min-w-[14px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
-                    <div className="h-4 w-px bg-white/20 mx-0"></div>
-                    <button onClick={() => setPage('feed')}><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white'} size={20}/></button>
-                    <button onClick={() => setPage('shop')}><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white'} size={20}/></button>
-                    <button onClick={() => setPage('profile')}><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white'} size={20}/></button>
-                    <div className="h-6 w-px bg-white/20 mx-1"></div>
-                    <button onClick={() => setCartOpen(true)}><ShoppingCart className="text-lime-400 shadow-neon-green" size={20}/></button>
+            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
+                <div onClick={() => setPage('home')} className="flex items-center gap-2 cursor-pointer transition-transform active:scale-95 pb-1"><Zap className="text-yellow-400" size={26} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div>
+                <div className="flex gap-3 items-end">
+                    <button onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
+                    <button onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
+                    <button onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
+                    <button onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
+                    <button onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
                 </div>
             </header>
             <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
@@ -4191,8 +4396,8 @@ cat << 'EOF' >> src/App.js
                         </div>
 
                         <div className="py-6 w-full max-w-md mx-auto">
-                            <h2 className="text-2xl font-black mb-4 italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff', backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>What is Rave Kandi...?</h2>
-                            <div className="w-full h-48 bg-black/50 border-2 border-dashed border-white/20 rounded-xl flex items-center justify-center"><Play size={48} className="text-white/20"/></div>
+                            <h2 className="text-2xl font-black mb-4 italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff', backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>Festival Spotlight 🎬</h2>
+                            <FeaturedVideoBlock user={user} profile={profile} nowTick={nowTick} onViewProfile={setViewingProfileId} onOpenSubmit={() => setVideoSubmitOpen(true)} />
                         </div>
                         
                         <div className="w-full border-t border-white/10 pt-8 mt-2 px-1 text-left">
@@ -4202,9 +4407,9 @@ cat << 'EOF' >> src/App.js
                         </div>
 
                         <div className="max-w-md mx-auto w-full bg-black/60 border-2 border-dashed border-purple-400/50 rounded-xl p-4 text-center" style={{ boxShadow: '0 0 18px rgba(216,180,254,0.35)' }}>
-                            <p className="text-lg font-black uppercase tracking-wide rk-pastel-shift bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7)' }}>🎬 Calling all video creators!</p>
-                            <p className="text-xs text-gray-100 mt-1 mb-3">We're looking for a video creator to make the official RaveKandi promo — this spot is reserved for the finished video. Think you've got the vibe?</p>
-                            <Button onClick={contactAdmin} color="purple" className="w-full text-xs">📩 Message the Admin Team</Button>
+                            <p className="text-lg font-black uppercase tracking-wide rk-pastel-shift bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7)' }}>🎬 Share your festival vibe!</p>
+                            <p className="text-xs text-gray-100 mt-1 mb-3">Got a clip from a show — pyro, a stage moment, a kandi trade? Feature it in the Festival Spotlight above and put your profile in front of every raver.</p>
+                            <Button onClick={() => setVideoSubmitOpen(true)} color="purple" className="w-full text-xs">🎬 Feature Your Clip</Button>
                         </div>
 
                         <div className="max-w-md mx-auto w-full">
@@ -4306,7 +4511,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.12.02 Phase 16: Web Launch, iOS Guide & Launch Perks</span>
+                    <span className="flex-1 text-center">V42.13.01 Phase 17: Featured Festival Videos</span>
                     <span className="w-14"></span>
                 </div>
             </div>
@@ -4501,9 +4706,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.12.02)..."
-sed -i "s/versionCode 1/versionCode 62/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.12.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.13.01)..."
+sed -i "s/versionCode 1/versionCode 65/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.13.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -4550,7 +4755,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_12_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_13_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
