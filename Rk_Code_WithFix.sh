@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.21.00 Build Script Starting"
+echo " RaveKandi V42.23.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.21.00</title>
+    <title>RaveKandi V42.23.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -40,6 +40,13 @@ cat << 'EOF' > public/index.html
       .rk-pastel-shift { background-size: 300% 300%; -webkit-background-clip: text; background-clip: text; animation: rkCascade 5s ease infinite; }
       .rk-msg-icon { background: linear-gradient(60deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7); background-size: 300% 300%; animation: rkCascade 4s ease infinite; box-shadow: 0 0 12px rgba(216,180,254,0.6); }
       .rk-msg-icon svg { color: #6b2d8c; }
+      /* V42.22 Phase 7: VIP text effects (font selector) */
+      .rkfx-pastel { background-image: linear-gradient(90deg,#ffd1f7,#c4f0ff,#d8ffd1,#fff3c4,#ffd1f7); background-size:300% 300%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkCascade 6s ease infinite; }
+      .rkfx-metallic { background-image: linear-gradient(180deg,#fafafa 0%,#b0b0b0 45%,#6e6e6e 55%,#dcdcdc 100%); -webkit-background-clip:text; background-clip:text; color:transparent; text-shadow:0 1px 1px rgba(255,255,255,0.25); }
+      .rkfx-shimmer { background-image: linear-gradient(90deg,#ff80bf,#ffffff,#80ffff,#ffffff,#ff80bf); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3s linear infinite; }
+      @keyframes rkShimmerMove { 0%{background-position:0% 0;} 100%{background-position:200% 0;} }
+      .rkfx-neon { color:#fff; text-shadow:0 0 4px #fff,0 0 8px var(--rkfx-c,#ff2db3),0 0 16px var(--rkfx-c,#ff2db3),0 0 28px var(--rkfx-c,#ff2db3); }
+      .rkfx-gradient { background-image: linear-gradient(90deg,var(--rkfx-c,#ff2db3),var(--rkfx-c2,#2db3ff)); -webkit-background-clip:text; background-clip:text; color:transparent; }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
   </head>
@@ -118,7 +125,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.21.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.23.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -250,7 +257,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.21.00';
+const APP_VERSION = '42.23.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -387,6 +394,40 @@ EOF
 # Block 5
 cat << 'EOF' >> src/App.js
 const getTextGlowStyle = (color = 'primaryGlow') => ({ textShadow: `0 0 10px ${NEON_COLORS[color]}, 0 0 20px ${NEON_COLORS[color]}`, fontFamily: '"Inter", sans-serif' });
+
+// V42.22 Phase 7: VIP Font Selector — fonts (system + safe web stacks) and text effects.
+const RK_FONTS = [
+    { id: 'default', name: 'Default', stack: '"Inter", sans-serif' },
+    { id: 'mono', name: 'Mono', stack: '"Courier New", monospace' },
+    { id: 'serif', name: 'Elegant Serif', stack: 'Georgia, "Times New Roman", serif' },
+    { id: 'round', name: 'Rounded', stack: '"Trebuchet MS", "Segoe UI", sans-serif' },
+    { id: 'wide', name: 'Wide Impact', stack: '"Arial Black", Impact, sans-serif' },
+    { id: 'hand', name: 'Handwritten', stack: '"Comic Sans MS", "Bradley Hand", cursive' },
+];
+const RK_FX = [
+    { id: 'none', name: 'None' },
+    { id: 'pastel', name: 'Pastel Gradient' },
+    { id: 'metallic', name: 'Metallic' },
+    { id: 'shimmer', name: 'Shimmering' },
+    { id: 'neon', name: 'Neon Glow' },
+    { id: 'gradient', name: 'Custom Gradient' },
+    { id: 'solid', name: 'Solid Color' },
+];
+// Build inline style + className from a saved textStyle object {font, fx, c, c2, bright}.
+// Brightness is capped 60–100% to prevent unreadable over-bright text.
+const getUserTextStyle = (ts) => {
+    if (!ts || typeof ts !== 'object') return { style: {}, className: '' };
+    const font = RK_FONTS.find(f => f.id === ts.font);
+    const bright = Math.max(60, Math.min(100, ts.bright || 100));
+    const style = {};
+    if (font && font.id !== 'default') style.fontFamily = font.stack;
+    if (bright !== 100) style.filter = 'brightness(' + (bright / 100) + ')';
+    if (ts.c) { style['--rkfx-c'] = ts.c; }
+    if (ts.c2) { style['--rkfx-c2'] = ts.c2; }
+    if (ts.fx === 'solid' && ts.c) style.color = ts.c;
+    const className = (ts.fx && ts.fx !== 'none' && ts.fx !== 'solid') ? ('rkfx-' + ts.fx) : '';
+    return { style, className };
+};
 const getBoxGlowStyle = (color = 'accentGlow') => ({ boxShadow: `0 0 8px ${NEON_COLORS[color]}, 0 0 15px ${NEON_COLORS[color]} inset`, borderColor: NEON_COLORS[color] });
 const getBulkDiscount = (qty) => { if (qty >= 100) return 0.20; if (qty >= 50) return 0.15; if (qty >= 25) return 0.10; if (qty >= 10) return 0.05; return 0; };
 // V37.12: fairness window — higher price/complexity gives the requested Creator more time
@@ -516,7 +557,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                 itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
                 referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
                 referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null
+                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null
             });
 
             if (refUserRef && refUserDoc && refUserDoc.exists()) {
@@ -1068,7 +1109,8 @@ const VIPCheckoutForm = ({ user, onClose }) => {
                 <p className="text-sm font-black text-lime-300 uppercase tracking-wide">🎉 Launch Special — VIP is FREE!</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — Global Radio, Custom Themes, Banner Messages and Post Boosts are unlocked for you right now.</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">🪙 Launch perk #2: <strong>seller commission is automatically cut from 20% to just 10%</strong> on every sale for as long as the launch period lasts.</p>
-                <p className="text-[9px] opacity-60">These launch perks will be retired at full release, when the paid plans below return. Enjoy the festival! 💖</p>
+                <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep Radio, Themes, Banners, Boosts & the Font Selector forever, even after paid plans return. The commission cut applies while launch perks are active.</p>
+                <p className="text-[9px] opacity-60">Enjoy the festival! 💖</p>
             </div>
             <Button type="button" onClick={onClose} color="gold" className="w-full">Awesome — Let's Rave!</Button>
         </div>
@@ -1112,6 +1154,70 @@ const VIPCheckoutModal = ({ user, isOpen, onClose }) => {
             <Elements stripe={stripePromise}>
                 <VIPCheckoutForm user={user} onClose={onClose} />
             </Elements>
+        </Modal>
+    );
+};
+
+const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle', titleLabel = 'Font & Text Style' }) => {
+    const saved = (profile && profile[field]) || {};
+    const [font, setFont] = useState(saved.font || 'default');
+    const [fx, setFx] = useState(saved.fx || 'none');
+    const [c, setC] = useState(saved.c || '#ff2db3');
+    const [c2, setC2] = useState(saved.c2 || '#2db3ff');
+    const [bright, setBright] = useState(saved.bright || 100);
+    const [saving, setSaving] = useState(false);
+    if (!isOpen) return null;
+    const ts = { font, fx, c, c2, bright };
+    const prev = getUserTextStyle(ts);
+    const save = async () => {
+        setSaving(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { [field]: ts }, { merge: true }); onClose(); }
+        catch (e) { alert('Could not save: ' + e.message); } finally { setSaving(false); }
+    };
+    const reset = async () => {
+        setSaving(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { [field]: null }, { merge: true }); setFont('default'); setFx('none'); setBright(100); onClose(); }
+        catch (e) {} finally { setSaving(false); }
+    };
+    const needsC = (fx === 'neon' || fx === 'gradient' || fx === 'solid');
+    const needsC2 = (fx === 'gradient');
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={'🔤 ' + titleLabel}>
+            <div className="space-y-3">
+                <div className="bg-black/60 border-2 border-pink-500/40 rounded-xl p-4 text-center">
+                    <p className="text-[9px] uppercase opacity-50 mb-2">Live Preview</p>
+                    <p className={'text-2xl font-black ' + prev.className} style={prev.style}>RaveKandi PLUR 🌈</p>
+                    <p className={'text-sm mt-1 ' + prev.className} style={prev.style}>The quick brown fox vibes all night</p>
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Font</label>
+                    <div className="grid grid-cols-3 gap-1">
+                        {RK_FONTS.map(f => <button key={f.id} onClick={() => setFont(f.id)} style={{ fontFamily: f.stack }} className={'p-2 rounded text-[10px] border ' + (font === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}>{f.name}</button>)}
+                    </div>
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Effect</label>
+                    <div className="grid grid-cols-3 gap-1">
+                        {RK_FX.map(f => <button key={f.id} onClick={() => setFx(f.id)} className={'p-2 rounded text-[10px] border ' + (fx === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}>{f.name}</button>)}
+                    </div>
+                </div>
+                {needsC && (
+                    <div className="flex items-center gap-3">
+                        <label className="text-[10px] font-bold text-cyan-400 uppercase">{needsC2 ? 'Color 1' : 'Color'}</label>
+                        <input type="color" value={c} onChange={e => setC(e.target.value)} className="w-10 h-8 rounded bg-transparent border border-white/20"/>
+                        {needsC2 && <><label className="text-[10px] font-bold text-cyan-400 uppercase">Color 2</label><input type="color" value={c2} onChange={e => setC2(e.target.value)} className="w-10 h-8 rounded bg-transparent border border-white/20"/></>}
+                    </div>
+                )}
+                <div>
+                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Brightness ({bright}%)</label>
+                    <input type="range" min="60" max="100" value={bright} onChange={e => setBright(parseInt(e.target.value))} className="w-full accent-pink-500"/>
+                    <p className="text-[8px] opacity-50">Capped at 60–100% to keep text readable.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <Button onClick={save} disabled={saving} color="lime" className="text-xs">{saving ? 'Saving…' : 'Save Style'}</Button>
+                    <Button onClick={reset} disabled={saving} color="accent" className="text-xs">Reset to Default</Button>
+                </div>
+            </div>
         </Modal>
     );
 };
@@ -1592,7 +1698,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.21.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.23.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3632,14 +3738,67 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     );
 };
 
+const HELP_TOPICS = [
+    { cat: 'Getting Started', title: '🌈 What is RaveKandi?', content: "RaveKandi is a marketplace and community for ravers to buy, sell, and trade kandi (beaded bracelets, cuffs, perler art), festival fashion, and handmade gear. Create a profile, list items, follow creators, chat, listen to rave radio, and earn rewards for spreading the PLUR." },
+    { cat: 'Getting Started', title: '📲 Installing the App', content: "RaveKandi runs in your browser at ravekandi.web.app. For an app-like experience, tap the install prompt (or your browser menu → Add to Home Screen). Installed, it launches fullscreen with its own icon. Updates are automatic — just reopen it." },
+    { cat: 'Getting Started', title: '🆔 Your Friend UID', content: "Every account gets a unique Friend UID. Others use it to find your profile, and it's your referral code. Tap your UID anywhere to copy it. Share it (or your invite link) so friends can find you and you both earn RevShare." },
+    { cat: 'Buying', title: '🛒 How to Buy', content: "Tap any item to view details, then Add to Cart. In your cart, choose a quantity (up to the seller's stock) — bulk discounts apply automatically if the seller set them. Check out with card (Stripe) or crypto (Solana). After buying, you can leave a review on the item." },
+    { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item." },
+    { cat: 'Buying', title: '📦 Tracking & Delivery', content: "For physical items, sellers must add a tracking number, which is permanently locked once entered and visible only to you and the seller. Check your Collection to follow an order: Pending → Active → Completed." },
+    { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight." },
+    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Sellers manage payouts through their secure Stripe Connect portal." },
+    { cat: 'Selling', title: '👑 Becoming a Creator', content: "Apply to become a verified Creator from your profile. Creators get an Official badge, can take DIY commission requests, post official drops, and pin featured items to their profile. Top creators climb the leaderboard." },
+    { cat: 'Creating (DIY)', title: '🎨 DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone." },
+    { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
+    { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
+    { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all." },
+    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
+    { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
+    { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
+    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks Rave Radio with a full EQ, custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
+    { cat: 'VIP', title: '📻 Rave Radio', content: "VIP members stream live electronic stations across every genre — house, techno, trance, dnb, dubstep, hardstyle, psytrance and more — with a built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
+    { cat: 'Payments', title: '🛡️ Checkout Options', content: "Pay by card through Stripe's encrypted portal, or with Solana crypto (Phantom, Coinbase, MetaMask) for near-zero fees. Your payment details are never stored by RaveKandi." },
+    { cat: 'Safety', title: '🚩 Reporting & Support', content: "Use the Bugs/Feedback button to report issues. Admins can take down inappropriate content and moderate the community. For account help, submit a support ticket — replies arrive in your notifications." },
+];
+
+const HelpModal = ({ isOpen, onClose }) => {
+    const [q, setQ] = useState('');
+    const [openIdx, setOpenIdx] = useState(null);
+    if (!isOpen) return null;
+    const term = q.trim().toLowerCase();
+    const filtered = HELP_TOPICS.map((t, i) => ({ ...t, i })).filter(t => !term || t.title.toLowerCase().includes(term) || t.content.toLowerCase().includes(term) || t.cat.toLowerCase().includes(term));
+    const cats = [...new Set(filtered.map(t => t.cat))];
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="❓ Help & How It Works">
+            <div className="space-y-3">
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search help (e.g. 'bulk', 'refer', 'tracking')…" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-sm"/>
+                <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
+                    {cats.length === 0 && <p className="text-center opacity-50 text-xs py-6">No help topics match "{q}".</p>}
+                    {cats.map(cat => (
+                        <div key={cat}>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-cyan-400 mb-1">{cat}</p>
+                            <div className="space-y-1.5">
+                                {filtered.filter(t => t.cat === cat).map(t => (
+                                    <div key={t.i} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                                        <button onClick={() => setOpenIdx(openIdx === t.i ? null : t.i)} className="w-full p-3 text-left font-bold text-xs text-white flex justify-between items-center gap-2 hover:bg-white/10">
+                                            <span>{t.title}</span>
+                                            {openIdx === t.i ? <ChevronUp size={14} className="shrink-0"/> : <ChevronDown size={14} className="shrink-0"/>}
+                                        </button>
+                                        {openIdx === t.i && <div className="p-3 pt-2 text-[11px] text-gray-100 leading-relaxed bg-black/40 border-t border-white/10">{t.content}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 const InfoSection = () => {
     const [openIdx, setOpenIdx] = useState(null);
-    const infos = [
-        { title: "💸 Payouts & Commission", content: "Sellers keep the majority of every sale. We can take up to 20% commission, typically starting at 20% and going as low as zero, on the back-end to cover Stripe transaction fees, servers, and RevShare payouts. Sellers can customize their payout schedule directly through their secure Stripe Connect portal." },
-        { title: "🤝 The PLUR Reward System (RevShare)", content: "We share our profits with you. When you refer a friend using your UID, you unlock RevShare. You earn 2% to 25% of our app's commission every time your referral makes a purchase—forever. Tier 1 starts at 1 referral. The ladder tops out at Tier 11 — Eternal Rave (5,000+ referrals) at a full 25% of the commission." },
-        { title: "📦 Mandatory Tracking Numbers", content: "To protect both buyers and sellers, tracking numbers are mandatory for all physical goods. Once a tracking number is uploaded by the seller, it is permanently locked and only viewable by the direct Buyer and the Seller in their private collection dashboard. No funds are fully cleared until tracking is active." },
-        { title: "🛡️ Safe Checkout (Stripe & Solana)", content: "We offer dual checkout. Pay instantly with practically zero fees and full anonymity using Solana/USDC crypto wallets (Phantom, Coinbase, MetaMask). Or, pay traditionally with standard credit/debit cards via Stripe's encrypted portal." }
-    ];
+    const infos = HELP_TOPICS.slice(0, 6);
     return (
         <div className="mt-8 text-left max-w-md mx-auto">
             <h3 className="text-xl font-black italic text-pink-400 mb-4 tracking-wider">How RaveKandi Works</h3>
@@ -3838,7 +3997,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
 
                             <div className="bg-white/5 p-3 rounded text-base relative border border-white/10 flex items-start min-h-[64px]">
                                 {!targ.bio && <span className="text-xs uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
-                                <p className="opacity-80 italic flex-1 break-words">{targ.bio || "No vibe check yet."}</p>
+<p className={"opacity-80 italic flex-1 break-words " + getUserTextStyle(targ.textStyle).className} style={getUserTextStyle(targ.textStyle).style}>{targ.bio || "No vibe check yet."}</p>
                             </div>
 
                             <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
@@ -3995,7 +4154,7 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
 
 const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
     const [profile, setProfile] = useState({});
-    const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false });
+    const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
     const [showAdminPortal, setShowAdminPortal] = useState(false);
     const [hideGuestPrompt, setHideGuestPrompt] = useState(false);
@@ -4056,6 +4215,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
+                <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
@@ -4113,7 +4273,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         
                         <div className="bg-white/5 p-3 rounded text-sm relative border border-white/10 flex items-start min-h-[60px]" onClick={()=>setModals({...modals, bio:true})}>
                             {!profile.bio && <span className="text-[10px] uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
-                            <p className="opacity-80 italic flex-1">{profile.bio || "No vibe check yet."}</p>
+<p className={"opacity-80 italic flex-1 " + getUserTextStyle(profile.textStyle).className} style={getUserTextStyle(profile.textStyle).style}>{profile.bio || "No vibe check yet."}</p>
                         </div>
 
                         <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
@@ -4156,6 +4316,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                             <div className="grid grid-cols-2 gap-2">
                                 <button onClick={() => setShowBanner(true)} className="p-3 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-xs font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[10px] opacity-80">Post on the live marquee</span></button>
                                 <button onClick={() => setShowBoost(true)} className="p-3 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20"><span className="text-xs font-bold text-pink-400 block uppercase tracking-widest">⚡ Post Boosts</span><span className="text-[10px] opacity-80">Pin your item to the top</span></button>
+                                <button onClick={() => setModals({...modals, font: true})} className="p-3 bg-gradient-to-r from-fuchsia-500/10 to-transparent border border-fuchsia-500/30 rounded-xl text-left hover:bg-fuchsia-500/20 col-span-2"><span className="text-xs font-bold text-fuchsia-300 block uppercase tracking-widest">🔤 Font Selector</span><span className="text-[10px] opacity-80">Stylize your bio, posts, comments & messages</span></button>
                             </div>
                         </div>
                     </div>
@@ -4271,7 +4432,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.21.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.23.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4561,6 +4722,7 @@ const App = () => {
     // V42.16: any browser-tab user (iOS or Android) who hasn't installed gets a one-time
     // guide to add RaveKandi to their home screen as an app.
     const [iosGuide, setIosGuide] = useState(false);
+    const [helpOpen, setHelpOpen] = useState(false);
     useEffect(() => {
         if (IS_STANDALONE) return; // already installed — never nag
         try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
@@ -4588,6 +4750,18 @@ const App = () => {
         if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) pushNotif(user.uid, 'achievement', '🏅 You unlocked a new achievement! (' + unlocked + ' total)');
         setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(() => {});
     }, [user, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined]);
+
+    // V42.23 Phase 7: PERMANENT early-adopter VIP. While Launch Perks are ON, grant every
+    // active raver real lifetime VIP exactly once. Because this writes isVIP:true (not just
+    // relying on the launchPerks flag), turning perks OFF later keeps these users VIP forever.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        if (!RK_CFG.launchPerks) return;           // only grant during the free period
+        if (profile.isVIP && profile.lifetimeVipGranted) return; // already locked in
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipSince: profile.vipSince || Date.now(), vipExpires: null }, { merge: true })
+            .then(() => { if (!profile.lifetimeVipGranted) pushNotif(user.uid, 'admin', '🎉 Early Adopter perk: your VIP is now PERMANENT — Radio, Themes, Banners, Boosts & Font Selector are yours forever, even after launch pricing returns. PLUR! 💖'); })
+            .catch(() => {});
+    }, [user, profile?.joined, profile?.isVIP, profile?.lifetimeVipGranted]);
 
     // V37.13: Crowned Creator — permanent unlock when you hit #1 on Creator Points
     useEffect(() => {
@@ -4725,7 +4899,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.21.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.23.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -4768,6 +4942,7 @@ cat << 'EOF' >> src/App.js
                 </div>
             </Modal>
             {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
+            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
             <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Install RaveKandi">
                 <div className="space-y-3 text-sm">
                     <p className="text-xs opacity-80">Get the full app experience — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
@@ -4990,8 +5165,8 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.21.00 Phase 23: Shareable Links + Referral Auto-Attach</span>
-                    <span className="w-14"></span>
+                    <span className="flex-1 text-center">V42.23.00 Phase 25: Permanent Early-Adopter VIP</span>
+                    <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
         </div>
@@ -5185,9 +5360,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.21.00)..."
-sed -i "s/versionCode 1/versionCode 78/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.21.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.23.00)..."
+sed -i "s/versionCode 1/versionCode 80/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.23.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -5234,7 +5409,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_21_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_23_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
