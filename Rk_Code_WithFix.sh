@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V52.00.00 Build Script Starting"
+echo " RaveKandi V52.00.02 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V52.00.00</title>
+    <title>RaveKandi V52.00.02</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.02'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -196,7 +196,7 @@ cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
@@ -264,6 +264,21 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+// V52.1: In-app browsers (Instagram, Messenger, TikTok webviews) frequently BLOCK or
+// throw on IndexedDB/localStorage. setPersistence(indexedDB...) then throws BEFORE we even
+// attempt the login, which broke account creation & password login inside those browsers
+// (while Google redirect still worked). This helper tries the best available storage and
+// gracefully falls back — preferred → localStorage → in-memory — so auth ALWAYS proceeds.
+const safeSetPersistence = async (preferLocal) => {
+    const chain = preferLocal
+        ? [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]
+        : [browserSessionPersistence, inMemoryPersistence];
+    for (const p of chain) {
+        try { await setPersistence(auth, p); return; }
+        catch (e) { /* this storage is blocked in this browser — try the next */ }
+    }
+    // If every option failed, auth still works for this session (default in-memory).
+};
 const db = initializeFirestore(app, { experimentalForceLongPolling: true });
 const storage = getStorage(app);
 
@@ -290,7 +305,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '52.00.00';
+const APP_VERSION = '52.00.02';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1907,7 +1922,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.02'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -4964,20 +4979,27 @@ const AuthScreen = ({ setLoadMsg }) => {
     const [rememberMe, setRememberMe] = useState(true);
 
     useEffect(() => {
-        const savedEmail = localStorage.getItem('rk_auth_email');
-        if(savedEmail) setEmail(savedEmail);
-        // V37.10: plaintext password storage removed — credential saving is now handled
-        // by the device password manager (Google Password Manager / iCloud Keychain).
-        localStorage.removeItem('rk_auth_pass');
+        try {
+            const savedEmail = localStorage.getItem('rk_auth_email');
+            if(savedEmail) setEmail(savedEmail);
+            localStorage.removeItem('rk_auth_pass');
+        } catch (e) { /* in-app browsers may block storage — harmless */ }
+        // Complete any social sign-in that used the redirect flow (in-app browsers).
+        getRedirectResult(auth).catch((e) => { if (e && e.code && e.code !== 'auth/no-auth-event') console.log('redirect result:', e.code); });
     }, []);
+    const isInAppBrowser = (() => { try { return /Instagram|FBAN|FBAV|Messenger|TikTok|Line|Snapchat|Pinterest/i.test(navigator.userAgent || ''); } catch (e) { return false; } })();
 
     const handleAuth = async () => {
-        if(!email || !password) return alert("Email and Password required");
+        // V52.1: trim whitespace — saved-password autofill often appends a stray space to
+        // the email or password, which makes Firebase reject a perfectly correct login
+        // with "invalid-login-credentials". Trimming fixes that class of failure.
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanPass = (password || '').trim();
+        if(!cleanEmail || !cleanPass) return alert("Email and Password required");
         if(isReg && !djName) return alert("DJ Name required for registration");
         setLoading(true); setLoadMsg("Authenticating...");
         try {
-            const persistenceType = rememberMe ? indexedDBLocalPersistence : browserSessionPersistence;
-            await setPersistence(auth, persistenceType);
+            await safeSetPersistence(rememberMe);
 
             let referrerUid = null;
             if (isReg && refCode) {
@@ -4987,19 +5009,49 @@ const AuthScreen = ({ setLoadMsg }) => {
             }
 
             if (isReg) {
-                const cred = await createUserWithEmailAndPassword(auth, email, password);
+                const cred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
                 await ensureUserExists(cred.user.uid, djName, referrerUid);
             } else {
-                await signInWithEmailAndPassword(auth, email, password);
+                await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
             }
-            
-            if (rememberMe) {
-                localStorage.setItem('rk_auth_email', email);
-            } else {
-                localStorage.removeItem('rk_auth_email');
+            try { if (rememberMe) { localStorage.setItem('rk_auth_email', cleanEmail); } else { localStorage.removeItem('rk_auth_email'); } } catch (e) {}
+        } catch(e) {
+            const code = e?.code || '';
+            if (code === 'auth/invalid-login-credentials' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                // Figure out whether the email even has an account, to give the right advice.
+                let methods = [];
+                try { methods = await fetchSignInMethodsForEmail(auth, cleanEmail); } catch (fe) {}
+                if (methods.length === 0) {
+                    if (window.confirm("We couldn't find an account with that email & password.\n\nThis email isn't registered yet — would you like to create an account now?")) { setIsReg(true); }
+                } else if (methods.includes('google.com') || methods.includes('apple.com') || methods.includes('twitter.com')) {
+                    alert("This email is registered through a social login (Google/Apple/X). Tap one of the 'Continue with…' buttons below instead of using a password.");
+                } else {
+                    if (window.confirm("That password doesn't match this account.\n\nIf you forgot it (or your saved password is wrong), would you like a reset link emailed to you?")) { doPasswordReset(cleanEmail); }
+                }
             }
+            else if (code === 'auth/email-already-in-use') { if (window.confirm("That email is already registered. Would you like to log in instead?")) { setIsReg(false); } }
+            else if (code === 'auth/invalid-email') { alert("That doesn't look like a valid email address. Please check it and try again."); }
+            else if (code === 'auth/weak-password') { alert("Please choose a password with at least 6 characters."); }
+            else if (code === 'auth/too-many-requests') { alert("Too many attempts. Please wait a minute and try again, or reset your password."); }
+            else if (code === 'auth/network-request-failed') { alert("Network issue — check your connection and try again."); }
+            else { alert(e.message || "Sign-in failed. Please try again."); }
+        } finally { setLoading(false); }
+    };
 
-        } catch(e) { alert(e.message); } finally { setLoading(false); }
+    // V52.1: email a password-reset link. Used by the Forgot-Password link and the
+    // wrong-password recovery prompt.
+    const doPasswordReset = async (presetEmail) => {
+        const target = (presetEmail || email || '').trim().toLowerCase();
+        if (!target) { alert("Enter your email above first, then tap 'Forgot password?'"); return; }
+        try {
+            await sendPasswordResetEmail(auth, target);
+            alert("📧 A password-reset link has been sent to " + target + " (check spam too). Open it to set a new password, then come back and log in.");
+        } catch (e) {
+            const c = e?.code || '';
+            if (c === 'auth/user-not-found') { if (window.confirm("No account uses that email yet. Would you like to create one?")) setIsReg(true); }
+            else if (c === 'auth/invalid-email') alert("That doesn't look like a valid email address.");
+            else alert("Couldn't send reset email: " + (e.message || c));
+        }
     };
 
     const guestAuth = async () => {
@@ -5017,9 +5069,8 @@ const AuthScreen = ({ setLoadMsg }) => {
         else if (providerName === 'twitter') { provider = new TwitterAuthProvider(); }
         else { setLoading(false); return; }
         try {
-            const persistenceType = rememberMe ? indexedDBLocalPersistence : browserSessionPersistence;
-            await setPersistence(auth, persistenceType);
-            if (refCode) localStorage.setItem('pending_ref_code', refCode);
+            await safeSetPersistence(rememberMe);
+            try { if (refCode) localStorage.setItem('pending_ref_code', refCode); } catch (e) {}
             // Detect in-app browsers (Instagram, Messenger, TikTok, etc.) where popups are
             // blocked — go straight to redirect there, which is reliable on iOS & Android.
             const ua = navigator.userAgent || '';
@@ -5045,7 +5096,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.02</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5061,11 +5112,13 @@ const AuthScreen = ({ setLoadMsg }) => {
                     <label htmlFor="rememberMe" className="text-xs text-white/70 cursor-pointer">Save my info for faster login</label>
                 </div>
 
-                <Button type="submit" disabled={loading} color="lime" className="w-full mb-4 py-3">{loading ? "Processing..." : (isReg ? "Sign Up" : "Log In")}</Button>
+                <Button type="submit" disabled={loading} color="lime" className="w-full mb-3 py-3">{loading ? "Processing..." : (isReg ? "Sign Up" : "Log In")}</Button>
                 </form>
+                {!isReg && <button onClick={() => doPasswordReset()} className="text-[11px] text-pink-300 w-full text-center hover:underline mb-3">Forgot password? Email me a reset link</button>}
                 <button onClick={() => setIsReg(!isReg)} className="text-xs text-cyan-400 w-full text-center hover:underline mb-6">{isReg ? "Already have an account? Log In" : "Need an account? Sign Up"}</button>
                 
                 <div className="border-t border-white/20 pt-4 mb-4">
+                    {isInAppBrowser && <div className="bg-amber-900/30 border border-amber-500/40 rounded-lg p-2 mb-3"><p className="text-[9px] text-amber-200 leading-relaxed">📱 You're in Instagram's in-app browser. If email/password gives you trouble here, use <strong>"Continue with Google"</strong> below, or tap the <strong>⋯ menu → "Open in Chrome/Safari"</strong> for the smoothest experience.</p></div>}
                     <p className="text-[10px] text-center opacity-50 mb-3 uppercase tracking-widest">Or {isReg ? 'sign up' : 'log in'} instantly with</p>
                     <div className="space-y-2">
                         <button onClick={() => socialAuth('google')} disabled={loading} className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 rounded-lg flex items-center justify-center gap-3 transition active:scale-[0.98] disabled:opacity-50">
@@ -5182,12 +5235,15 @@ const App = () => {
             setUser(u); 
             if(u && !u.isAnonymous) { 
                 let rUid = null;
-                const savedRef = localStorage.getItem('pending_ref_code');
+                let savedRef = null;
+                try { savedRef = localStorage.getItem('pending_ref_code'); } catch (e) {}
                 if (savedRef) {
-                    const q = query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', savedRef));
-                    const snap = await getDocs(q);
-                    if (!snap.empty) { rUid = snap.docs[0].id; }
-                    localStorage.removeItem('pending_ref_code');
+                    try {
+                        const q = query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', savedRef));
+                        const snap = await getDocs(q);
+                        if (!snap.empty) { rUid = snap.docs[0].id; }
+                    } catch (e) {}
+                    try { localStorage.removeItem('pending_ref_code'); } catch (e) {}
                 }
                 ensureUserExists(u.uid, null, rUid); 
             } 
@@ -5542,7 +5598,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.02</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5808,7 +5864,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V52.00.00 Phase 40: EMERGENCY Signup Fix + Social Login Rebuild</span>
+                    <span className="flex-1 text-center">V52.00.02 Phase 40: In-App Browser Auth Fix + Recovery</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6003,9 +6059,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V52.00.00)..."
-sed -i "s/versionCode 1/versionCode 98/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "52.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V52.00.02)..."
+sed -i "s/versionCode 1/versionCode 100/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "52.00.02"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6052,7 +6108,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V52_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V52_00_02_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
