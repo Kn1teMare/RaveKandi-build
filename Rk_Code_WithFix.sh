@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.25.00 Build Script Starting"
+echo " RaveKandi V42.31.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.25.00</title>
+    <title>RaveKandi V42.31.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -44,6 +44,8 @@ cat << 'EOF' > public/index.html
       .rkfx-pastel { background-image: linear-gradient(90deg,#ffd1f7,#c4f0ff,#d8ffd1,#fff3c4,#ffd1f7); background-size:300% 300%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkCascade 6s ease infinite; }
       .rkfx-metallic { background-image: linear-gradient(180deg,#fafafa 0%,#b0b0b0 45%,#6e6e6e 55%,#dcdcdc 100%); -webkit-background-clip:text; background-clip:text; color:transparent; text-shadow:0 1px 1px rgba(255,255,255,0.25); }
       .rkfx-shimmer { background-image: linear-gradient(90deg,#ff80bf,#ffffff,#80ffff,#ffffff,#ff80bf); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3s linear infinite; }
+      .rk-shimmer-border { position:relative; border:2px solid transparent; background:linear-gradient(#120024,#120024) padding-box, linear-gradient(90deg,#ff50b4,#a855f7,#22d3ee,#a855f7,#ff50b4) border-box; background-size:300% 100%; animation: rkBorderShimmer 3s linear infinite; }
+      @keyframes rkBorderShimmer { 0%{background-position:0 0, 0% 0;} 100%{background-position:0 0, 300% 0;} }
       @keyframes rkShimmerMove { 0%{background-position:0% 0;} 100%{background-position:200% 0;} }
       .rkfx-neon { color:#fff; text-shadow:0 0 4px #fff,0 0 8px var(--rkfx-c,#ff2db3),0 0 16px var(--rkfx-c,#ff2db3),0 0 28px var(--rkfx-c,#ff2db3); }
       .rkfx-gradient { background-image: linear-gradient(90deg,var(--rkfx-c,#ff2db3),var(--rkfx-c2,#2db3ff)); -webkit-background-clip:text; background-clip:text; color:transparent; }
@@ -125,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.25.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.31.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -203,7 +205,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Clock, Code, Copy, CreditCard, DollarSign, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
+  Ban, ShieldOff, Clock, Code, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -220,6 +222,37 @@ const APP_ORIGIN = (() => { try { const o = window.location.origin; return (o &&
 const buildShareUrl = ({ ref, item } = {}) => { const p = new URLSearchParams(); if (ref) p.set('ref', ref); if (item) p.set('item', item); const qs = p.toString(); return APP_ORIGIN + (qs ? ('/?' + qs) : '/'); };
 // Read invite params once at load (used to auto-fill referral on signup + deep-link items).
 const RK_URL_PARAMS = (() => { try { const p = new URLSearchParams(window.location.search); return { ref: p.get('ref') || '', item: p.get('item') || '' }; } catch (e) { return { ref: '', item: '' }; } })();
+
+// V42.31 Stage C: admin moderation helpers usable directly from content cards.
+const adminDeleteItem = async (item) => {
+    if (!window.confirm('ADMIN: permanently delete this item post?\n"' + (item.name || '') + '"')) return;
+    try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id));
+        if (item.ownerId) { try { await deleteDoc(doc(db, 'artifacts', appId, 'users', item.ownerId, 'inventory', item.refId || item.id)); } catch (e) {} }
+        alert('Item deleted.');
+    } catch (e) { alert('Delete failed: ' + e.message); }
+};
+const adminBanUser = async (uid, name, durationMs, label) => {
+    if (!uid) return;
+    if (!window.confirm('ADMIN: ban ' + (name || 'this user') + ' ' + label + '?')) return;
+    try {
+        const until = durationMs === 'permanent' ? 'permanent' : Date.now() + durationMs;
+        await setDoc(doc(db, 'artifacts', appId, 'users', uid), { bannedUntil: until }, { merge: true });
+        pushNotif(uid, 'admin', '⛔ Your account has been restricted by the RaveKandi team (' + label + ').');
+        alert((name || 'User') + ' banned ' + label + '.');
+    } catch (e) { alert('Ban failed: ' + e.message); }
+};
+const adminDeleteComment = async (item, c) => {
+    if (!window.confirm('ADMIN: delete this comment by ' + (c.user || 'user') + '?')) return;
+    try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayRemove(c) }); }
+    catch (e) { alert('Failed: ' + e.message); }
+};
+const adminDeleteBanner = async (slotId) => {
+    if (!slotId) return;
+    if (!window.confirm('ADMIN: remove this banner advertisement?')) return;
+    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', String(slotId))); alert('Banner removed.'); }
+    catch (e) { alert('Failed: ' + e.message); }
+};
 
 const firebaseConfig = {
   apiKey: "AIzaSyAg6iiyr3EUXLilmC9O4Mt5oJ4AVbihdr4",
@@ -257,7 +290,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.25.00';
+const APP_VERSION = '42.31.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -343,6 +376,7 @@ const ACHIEVEMENT_TIERS = [
     { id: 'comments_1', name: 'Conversation Starter', tier: 1, metric: 'totalComments', threshold: 25, icon: MessageSquare, desc: "Receive 25 comments across your posts." },
     // Referrals
     { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi." },
+    { id: 'biolink', name: 'Link in Bio Hero', tier: 1, metric: 'bioLinkAdded', threshold: 1, icon: Link, desc: "Add your RaveKandi invite link to your social bio." },
     { id: 'ref_2', name: 'Recruiter', tier: 1, metric: 'referrals', threshold: 10, icon: Users, desc: "Refer 10 ravers." },
     { id: 'ref_3', name: 'Rave Evangelist', tier: 1, metric: 'referrals', threshold: 50, icon: Users, desc: "Refer 50 ravers." },
     // Trades
@@ -513,13 +547,13 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
     try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); } catch (e) {}
 };
 
-export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text) => {
+export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null) => {
     const tid = [fromUid, toUid].sort().join('_');
     const key = rkKey(fromUid, toUid);
     const enc = rkEnc(text, key);
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid, unread: { [toUid]: increment(1) } }, { merge: true });
-    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now() });
+    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null });
     pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid);
     return tid;
 };
@@ -651,13 +685,20 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         // Pollinations generates on first request and can take a full minute while queued.
         onProgress(32);
         let displayUrl = imageUrl;
+        let permanentData = '';
         for (let attempt = 0; attempt < 6; attempt++) {
             onProgress(Math.min(90, 36 + attempt * 9));
             try {
                 const imgResp = await fetch(imageUrl, { cache: 'no-store' });
                 if (imgResp.ok) {
                     const blob = await imgResp.blob();
-                    if (blob && blob.size > 2000) { displayUrl = URL.createObjectURL(blob); break; }
+                    if (blob && blob.size > 2000) {
+                        // V42.28: read to a PERMANENT base64 data URL — stored in our DB so the
+                        // image loads forever and never re-hits flaky/expiring Pollinations URLs.
+                        try { permanentData = await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onloadend = () => resolve(fr.result); fr.onerror = reject; fr.readAsDataURL(blob); }); } catch (e) { permanentData = ''; }
+                        displayUrl = permanentData || URL.createObjectURL(blob);
+                        break;
+                    }
                 }
             } catch (imgErr) { console.log('AI image attempt ' + (attempt + 1) + ' failed, retrying...'); }
             await new Promise(r => setTimeout(r, 8000));
@@ -669,7 +710,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         let estCost = ((beads * 0.05) + (diff * 2.00)) * PROFIT_MARGIN;
         if(estCost < 4.00) estCost = 4.00;
         
-        return { ...analysis, imageUrl, displayUrl, estimated_cost: estCost.toFixed(2), difficulty: diff };
+        return { ...analysis, imageUrl: permanentData || imageUrl, permanentImage: permanentData, displayUrl: permanentData || displayUrl, estimated_cost: estCost.toFixed(2), difficulty: diff };
     } catch (e) { throw new Error("AI Assembly Failed: " + e.message); }
 };
 
@@ -679,7 +720,7 @@ const getDisplayAchievements = (profile) => {
         totalSalesValue: profile?.totalSalesValue || 0, totalBoughtValue: profile?.totalBoughtValue || 0,
         itemsSold: profile?.itemsSold || 0, itemsBought: profile?.itemsBought || 0,
         totalLikes: profile?.totalLikes || 0, totalComments: profile?.totalComments || 0,
-        isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0,
+        isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, bioLinkAdded: profile?.bioLinkAdded?1:0,
         referrals: profile?.referrals||0, completedTrades: profile?.completedTrades||0,
         radioMinutes: profile?.radioMinutes||0, activeMinutes: profile?.activeMinutes||0,
         topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0,
@@ -729,8 +770,25 @@ const Input = ({ label, value, onChange, type = 'text', options, className, plac
 
 const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto" onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
 
+// V42.29 Stage A: compact star rating shown above usernames. Reads ratingSum/ratingCount
+// off a user/profile object. Renders nothing if the user has no ratings yet.
+const UserRating = ({ sum, count, size = 'sm', center = false }) => {
+    const c = count || 0;
+    if (c <= 0) return null;
+    const avg = (sum || 0) / c;
+    const full = Math.round(avg);
+    const txt = size === 'lg' ? 'text-sm' : 'text-[10px]';
+    return (
+        <div className={`flex items-center gap-1 ${center ? 'justify-center' : ''}`}>
+            <span className={`${txt} tracking-tight`} style={{ color: '#ffd24a' }}>{'★'.repeat(full)}{'☆'.repeat(Math.max(0,5-full))}</span>
+            <span className={`${txt} opacity-60`}>{avg.toFixed(1)} ({c})</span>
+        </div>
+    );
+};
+
 const MediaCarousel = ({ media, fallback }) => {
     const [idx, setIdx] = useState(0);
+    const [zoom, setZoom] = useState(false);
     if (!media || media.length === 0) return <img src={fallback} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="w-full h-full object-cover" />;
     const current = media[idx];
     return (
@@ -738,7 +796,21 @@ const MediaCarousel = ({ media, fallback }) => {
             {current.type === 'video' ? (
                 <video src={current.url} controls autoPlay muted loop className="max-w-full max-h-full object-contain" />
             ) : (
-                <img src={current.url} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="max-w-full max-h-full object-contain" />
+                <img src={current.url} onClick={() => setZoom(true)} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="max-w-full max-h-full object-contain cursor-zoom-in" />
+            )}
+            {current.type !== 'video' && <div className="absolute top-1.5 right-1.5 z-20 bg-black/60 rounded-full px-2 py-0.5 flex items-center gap-1 pointer-events-none opacity-80"><Maximize2 size={9} className="text-white"/><span className="text-[8px] text-white font-bold">tap to expand</span></div>}
+            {zoom && current.type !== 'video' && (
+                <div onClick={(e) => { e.stopPropagation(); setZoom(false); }} className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" style={{ touchAction: 'none' }}>
+                    <button onClick={(e) => { e.stopPropagation(); setZoom(false); }} className="absolute top-4 right-4 z-[101] bg-white/10 rounded-full p-2 text-white hover:bg-white/20"><X size={24}/></button>
+                    <img src={current.url} className="max-w-full max-h-full object-contain" onClick={(e) => e.stopPropagation()} />
+                    {media.length > 1 && (
+                        <>
+                            <button onClick={(e)=>{e.stopPropagation(); setIdx((idx - 1 + media.length) % media.length);}} className="absolute left-3 top-1/2 -translate-y-1/2 z-[101] bg-white/10 rounded-full p-2 text-white hover:bg-white/20"><ChevronLeft size={28}/></button>
+                            <button onClick={(e)=>{e.stopPropagation(); setIdx((idx + 1) % media.length);}} className="absolute right-3 top-1/2 -translate-y-1/2 z-[101] bg-white/10 rounded-full p-2 text-white hover:bg-white/20"><ChevronRight size={28}/></button>
+                        </>
+                    )}
+                    <p className="absolute bottom-4 left-0 w-full text-center text-white/50 text-[10px]">Tap anywhere to close</p>
+                </div>
             )}
             {media.length > 1 && (
                 <>
@@ -763,7 +835,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
     
     const postComment = async () => { 
         if (!comment.trim() || !user?.uid) return; 
-        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now() }; 
+        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now(), ts: profile?.textStyle || null }; 
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayUnion(newComment) }); 
         if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
         setComments([...comments, newComment]); 
@@ -775,8 +847,14 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
         <Modal isOpen={isOpen} onClose={onClose} title="Comments">
             <div className="max-h-60 overflow-y-auto mb-4 space-y-2">
                 {comments.map((c, i) => (
-                    <div key={i} className="bg-white/5 p-2 rounded text-sm">
-                        <span className="font-bold text-pink-400 cursor-pointer hover:underline" onClick={() => { onClose(); onViewProfile(c.uid); }}>{c.user}</span><BadgeChip badge={c.badge} />: {c.text}
+                    <div key={i} className="bg-white/5 p-2 rounded text-sm flex items-start justify-between gap-2">
+                        <div className="flex-1"><span className="font-bold text-pink-400 cursor-pointer hover:underline" onClick={() => { onClose(); onViewProfile(c.uid); }}>{c.user}</span><BadgeChip badge={c.badge} />: <span className={getUserTextStyle(c.ts).className} style={getUserTextStyle(c.ts).style}>{c.text}</span></div>
+                        {profile?.isAdmin && (
+                            <div className="flex gap-1 shrink-0">
+                                <button onClick={() => adminDeleteComment(item, c)} className="text-red-400 hover:text-red-300 p-0.5" title="Admin: delete comment"><Trash size={12}/></button>
+                                <button onClick={() => adminBanUser(c.uid, c.user, 604800000, '7 days')} className="text-orange-400 hover:text-orange-300 p-0.5" title="Admin: ban commenter 7d"><Ban size={12}/></button>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
@@ -899,7 +977,9 @@ const PublicProfileModal = ({ uid, onClose }) => {
                 <div className="text-center space-y-4">
                     <img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
                     <div>
-                        <p className="font-black text-lg flex items-center justify-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}<BadgeChip badge={targ.featuredBadge} /></p>
+                        <UserRating sum={targ.ratingSum} count={targ.ratingCount} center />
+                        <p className="font-black text-lg flex items-center justify-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}</p>
+                        {targ.featuredBadge && <div className="flex justify-center mt-0.5"><BadgeChip badge={targ.featuredBadge} /></div>}
                         <p className="text-[9px] font-mono opacity-50">Friend UID: {targ.publicUid || targ.id}</p>
                     </div>
                     <p className="italic opacity-80 bg-white/5 p-2 rounded text-xs">{targ.bio || "No vibe check yet."}</p>
@@ -1651,6 +1731,20 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
     const shareText = 'Join me on RaveKandi! Tap my link and your referral is auto-applied — we both earn RevShare on the marketplace. PLUR! ' + shareUrl;
     const doCopy = () => { try { navigator.clipboard.writeText(code); alert("Friend UID copied!"); } catch(e) { alert(code); } };
     const doCopyLink = () => { try { navigator.clipboard.writeText(buildShareUrl({ ref: code })); alert("Invite link copied! Anyone who opens it gets your referral auto-applied. Put it in your IG/Telegram bio to maximize RevShare."); } catch(e) { alert(buildShareUrl({ ref: code })); } };
+    const addToInstagramBio = () => {
+        const link = buildShareUrl({ ref: code });
+        try { navigator.clipboard.writeText(link); } catch (e) {}
+        alert("✅ Your invite link is COPIED!\n\nInstagram will open next — go to Edit Profile → Links (or paste it into your Bio) → paste & save.\n\nThen tap \"I added it!\" back here to claim your Link in Bio Hero badge. 🏅");
+        // Best effort: open Instagram's profile-edit. Mobile deep link first, then web.
+        setTimeout(() => { try { window.open('instagram://user?username=', '_blank'); } catch (e) {} try { window.open('https://www.instagram.com/accounts/edit/', '_blank', 'noopener'); } catch (e) {} }, 400);
+    };
+    const attestBioLink = async () => {
+        if (profile?.bioLinkAdded) { alert("You've already claimed this badge — thanks for repping RaveKandi! 💖"); return; }
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { bioLinkAdded: true, bioLinkAt: Date.now() }, { merge: true });
+            alert("🏅 'Link in Bio Hero' badge unlocked — thank you for spreading the PLUR! Keep that link up to keep earning RevShare from everyone who joins through it.");
+        } catch (e) { alert("Couldn't save: " + e.message); }
+    };
     const doShare = async () => {
         try { await navigator.share({ title: 'RaveKandi RevShare', text: shareText, url: shareUrl }); }
         catch (e) { try { navigator.clipboard.writeText(shareText); alert("Invite link copied! Paste it anywhere."); } catch(e2) {} }
@@ -1677,8 +1771,12 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     <Button onClick={doShare} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-3"><Share2 size={16}/> Share</Button>
                     <Button onClick={doStory} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
                 </div>
-                <div className="bg-lime-900/20 border border-lime-500/30 rounded p-2">
-                    <p className="text-[9px] text-lime-200 leading-relaxed">💡 <strong>Pro tip:</strong> Put your invite link in your Instagram & Telegram bio. Anyone who opens it gets your referral code <strong>auto-applied</strong> when they sign up — maximizing your RevShare with zero extra effort.</p>
+                <div className="bg-gradient-to-r from-pink-900/30 to-purple-900/30 border border-pink-500/40 rounded-lg p-3 space-y-2">
+                    <p className="text-[11px] font-black text-pink-300 uppercase tracking-wide flex items-center gap-1"><Link size={13}/> Earn the "Link in Bio Hero" badge 🏅</p>
+                    <p className="text-[10px] text-gray-100 leading-relaxed">Add your invite link to your Instagram bio. Everyone who taps it gets your referral <strong>auto-applied</strong> on signup — passive RevShare forever. Two taps:</p>
+                    <Button onClick={addToInstagramBio} color="primary" className="w-full text-xs flex items-center justify-center gap-2"><Instagram size={15}/> Copy Link & Open Instagram</Button>
+                    <Button onClick={attestBioLink} color={profile?.bioLinkAdded ? 'cyan' : 'lime'} className="w-full text-xs flex items-center justify-center gap-2">{profile?.bioLinkAdded ? '✅ Badge Claimed' : "I added it! — Claim my badge 🏅"}</Button>
+                    <p className="text-[8px] opacity-50 leading-relaxed">Telegram works too — paste the link into your Telegram bio. Keep the link up to keep earning.</p>
                 </div>
                 <p className="text-[9px] text-center opacity-50">Share opens your phone's share sheet — send to any app, DM, or post straight to your Story.</p>
             </div>
@@ -1698,7 +1796,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.25.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.31.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1754,6 +1852,7 @@ const PingBar = ({ show }) => {
 const NOTIF_ICONS = { message: Mail, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget }) => {
+    const [msgFontOpen, setMsgFontOpen] = useState(false);
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
     const [activeName, setActiveName] = useState('');
@@ -1835,7 +1934,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         setSending(true);
         try {
             if (!activeOtherUid) { alert('Could not resolve the recipient — reopen the conversation and try again.'); setSending(false); return; }
-            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim());
+            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim(), profile?.msgTextStyle || profile?.textStyle || null);
             setInput('');
         } catch (e) { alert('Send failed: ' + e.message); } finally { setSending(false); }
     };
@@ -1936,31 +2035,33 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                     </>)}
 
                     {tab === 'msgs' && activeThread && (<>
-                        <div className="flex items-center justify-between mb-2 bg-white/5 rounded p-2">
-                            <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-[10px] text-cyan-400 font-bold"><ChevronLeft size={14}/> Back</button>
-                            <span className="text-xs font-black">@{activeName}</span>
-                            <button onClick={delThread} className="text-red-400" title="Delete chat log"><Trash2 size={14}/></button>
+                        <div className="flex items-center justify-between mb-2 bg-white/10 rounded-lg p-3 border border-purple-500/30">
+                            <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-sm text-cyan-400 font-bold"><ChevronLeft size={20}/> Back</button>
+                            <span className="text-base font-black truncate px-2">@{activeName}</span>
+                            <button onClick={delThread} className="text-red-400" title="Delete chat log"><Trash2 size={18}/></button>
                         </div>
-                        <div className="h-[40vh] overflow-y-auto bg-black/40 rounded p-2 space-y-2 flex flex-col">
-                            {msgs.length === 0 && <p className="text-center opacity-40 text-[10px] py-8">No messages yet. Say hi! 👋</p>}
+                        <div className="h-[55vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col">
+                            {msgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi! 👋</p>}
                             {msgs.map(m => {
                                 const mine = m.sender === myUid;
                                 return (
-                                    <div key={m.id} className={`max-w-[80%] ${mine ? 'self-end' : 'self-start'}`}>
-                                        <div className={`p-2 rounded-lg text-xs relative group ${mine ? 'bg-purple-600/60 rounded-br-none' : 'bg-white/10 rounded-bl-none'}`}>
-                                            <p className="whitespace-pre-wrap break-words">{rkDec(m.text, threadKey)}</p>
-                                            {mine && <button onClick={() => delMsg(m)} className="absolute -left-5 top-1 text-red-400 opacity-40 hover:opacity-100"><Trash size={11}/></button>}
+                                    <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
+                                        <div className={`px-4 py-2.5 rounded-2xl text-sm relative group leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}>
+                                            <p className={"whitespace-pre-wrap break-words " + getUserTextStyle(m.ts).className} style={getUserTextStyle(m.ts).style}>{rkDec(m.text, threadKey)}</p>
+                                            {mine && <button onClick={() => delMsg(m)} className="absolute -left-6 top-2 text-red-400 opacity-40 hover:opacity-100"><Trash size={14}/></button>}
                                         </div>
-                                        <p className={`text-[7px] opacity-40 mt-0.5 ${mine ? 'text-right' : ''}`}>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                        <p className={`text-[9px] opacity-40 mt-1 ${mine ? 'text-right' : ''}`}>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
                                 );
                             })}
                         </div>
-                        <div className="flex gap-2 mt-2">
+                        <div className="flex gap-2 mt-3">
+                            <button onClick={() => setMsgFontOpen(true)} className="shrink-0 w-10 rounded bg-fuchsia-600/30 border border-fuchsia-500/40 text-fuchsia-200 flex items-center justify-center hover:bg-fuchsia-600/50" title="Message font style"><span className="text-sm font-black">A</span></button>
                             <Input value={input} onChange={setInput} placeholder="Spread PLUR..." className="mb-0 flex-1"/>
-                            <Button onClick={send} disabled={sending || !input.trim()} color="purple" className="text-[10px] px-3"><Send size={14}/></Button>
+                            <Button onClick={send} disabled={sending || !input.trim()} color="purple" className="px-4"><Send size={18}/></Button>
                         </div>
                         <p className="text-[8px] text-center text-lime-400/70 mt-2">🔒 Encrypted · Deleted messages are gone forever for both users.</p>
+                        <FontSelectorModal user={user} profile={profile} isOpen={msgFontOpen} onClose={() => setMsgFontOpen(false)} field="msgTextStyle" titleLabel="Message Font & Style" />
                     </>)}
 
                     {tab === 'alerts' && (<>
@@ -2661,6 +2762,16 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
         if(!reviewText.trim()) return;
         const newReview = { uid: user.uid, user: user.displayName || 'Buyer', rating: reviewRating, text: reviewText, timestamp: Date.now() };
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { reviews: arrayUnion(newReview) });
+        // V42.29 Stage A: roll this rating into the SELLER's running average so it can be
+        // shown on their cards/posts/profile. ratingSum/ratingCount -> avg = sum/count.
+        try {
+            const sellerId = item.ownerId;
+            if (sellerId) {
+                await setDoc(doc(db, 'artifacts', appId, 'users', sellerId), {
+                    ratingSum: increment(reviewRating), ratingCount: increment(1)
+                }, { merge: true });
+            }
+        } catch (e) { console.log('seller rating update', e); }
         setReviews([newReview, ...reviews]);
     };
 
@@ -2803,7 +2914,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             const allItems = s.docs.map(d => ({...d.data(), id: d.id}));
             if (type === 'posts') setItems(allItems.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(allItems.filter(i => i.isCraftingStock));
-        });
+        }, e => { console.log('collection load:', e); setItems([]); }); // V42.27: handle errors so viewing another raver's collection never crashes
     }, [isOpen, user, type]);
     
     if(!isOpen) return null;
@@ -2883,12 +2994,37 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         if (allowBuy && !itemName) return alert("You must name your item to allow others to buy it.");
         setLoading(true);
         try {
-            const inventoryData = { status: 'completed', imageUrl: res.imageUrl, visual_description: res.visual_description, estimated_materials: res.estimated_materials, estimated_cost: res.estimated_cost, difficulty: res.difficulty, name: itemName || "AI Custom Kandi", timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: "Other", viewCount: 0 };
+            const inventoryData = { status: 'completed', imageUrl: res.permanentImage || res.imageUrl, visual_description: res.visual_description, estimated_materials: res.estimated_materials, estimated_cost: res.estimated_cost, difficulty: res.difficulty, name: itemName || "AI Custom Kandi", timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: "Other", viewCount: 0 };
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
             if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
             setPrompt(''); setRes(null); setAllowBuy(false); setItemName('');
         } catch (e) { alert("Error saving: " + e.message); } finally { setLoading(false); }
+    };
+
+    // V42.28: download the generated image straight to the user's device.
+    const downloadImage = () => {
+        const src = res?.permanentImage || res?.displayUrl || res?.imageUrl;
+        if (!src) return;
+        try {
+            const a = document.createElement('a');
+            a.href = src;
+            a.download = 'RaveKandi_' + (itemName || 'AI_Design').replace(/[^a-zA-Z0-9]/g, '_') + '.jpg';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        } catch (e) { try { window.open(src, '_blank'); } catch (e2) {} }
+    };
+    const shareImage = async () => {
+        const src = res?.permanentImage || res?.displayUrl || res?.imageUrl;
+        const shareUrl = (typeof buildShareUrl === 'function') ? buildShareUrl({ ref: profile?.publicUid || '' }) : 'https://ravekandi.web.app';
+        const text = 'Check out the custom kandi I designed on RaveKandi! 🌈 Make your own:';
+        try {
+            if (src && src.startsWith('data:') && navigator.canShare) {
+                const blob = await (await fetch(src)).blob();
+                const file = new File([blob], 'ravekandi-design.jpg', { type: 'image/jpeg' });
+                if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: text + ' ' + shareUrl }); return; }
+            }
+            await navigator.share({ title: 'RaveKandi', text: text, url: shareUrl });
+        } catch (e) { try { navigator.clipboard.writeText(text + ' ' + shareUrl); alert('Share link copied! Paste it anywhere to show off your design. 🌈'); } catch (e2) {} }
     };
 
     return ( 
@@ -2903,11 +3039,16 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             {res && (
                 <div className={`mt-6 border-2 border-dashed border-white/20 rounded-lg p-2 min-h-[200px] flex items-center justify-center bg-black/40 ${res ? 'shadow-[0_0_20px_rgba(255,100,200,0.6)] border-pink-400' : ''}`}>
                     <div className="w-full">
-                        <img src={res.displayUrl || res.imageUrl} className={`rounded mb-2 w-full shadow-2xl transition-opacity duration-500 ${imageReady ? 'opacity-100' : 'opacity-0 h-0'}`} onLoad={() => setImageReady(true)} onError={(e) => { const tries = parseInt(e.target.dataset.tries || '0'); if (tries < 4) { e.target.dataset.tries = tries + 1; setTimeout(() => { e.target.src = res.imageUrl + '&retry=' + Date.now(); }, 5000); } else { e.target.src = 'https://placehold.co/512x512/1a0033/ff00ff?text=AI+Image+Failed'; setImageReady(true); } }} />
+                        <img src={res.permanentImage || res.displayUrl || res.imageUrl} onClick={() => { if (imageReady) downloadImage(); }} title="Tap to download" className={`rounded mb-2 w-full shadow-2xl transition-opacity duration-500 cursor-pointer ${imageReady ? 'opacity-100' : 'opacity-0 h-0'}`} onLoad={() => setImageReady(true)} onError={(e) => { const tries = parseInt(e.target.dataset.tries || '0'); if (tries < 4) { e.target.dataset.tries = tries + 1; setTimeout(() => { e.target.src = res.imageUrl + '&retry=' + Date.now(); }, 5000); } else { e.target.src = 'https://placehold.co/512x512/1a0033/ff00ff?text=AI+Image+Failed'; setImageReady(true); } }} />
                         {!imageReady && <div className="py-10"><LoadingBar progress={50} className="w-1/2 mx-auto"/> <p className="text-xs mt-2 opacity-50">Rendering Visuals...</p></div>}
                         {imageReady && (
                             <div className="animate-fade-in-pulse">
                                 <p className="text-xs opacity-70 mb-4">{res.visual_description}</p>
+                                <div className="grid grid-cols-3 gap-2 mb-4">
+                                    <Button onClick={downloadImage} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-2"><Download size={15}/> Save</Button>
+                                    <Button onClick={downloadImage} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-2"><Download size={15}/> Download</Button>
+                                    <Button onClick={shareImage} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-2"><Share2 size={15}/> Share</Button>
+                                </div>
                                 {allowBuy && ( <div className="mb-4"><label className="block text-left text-[10px] font-bold text-pink-400 mb-1">Item Name (Required to Sell)</label><Input value={itemName} onChange={setItemName} placeholder="Name your creation..."/></div> )}
                                 <div className="bg-white/5 p-3 rounded mb-4 text-left">
                                     <h4 className="font-bold text-xs text-lime-400 border-b border-white/10 pb-1 mb-2">Estimated Materials</h4>
@@ -3109,6 +3250,15 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     return ( 
         <Card className="flex flex-col h-full relative">
             <CommentModal item={item} user={user} profile={profile} isOpen={showComments} onClose={() => setShowComments(false)} onViewProfile={onViewProfile}/>
+            {profile?.isAdmin && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex gap-1 bg-red-950/90 border border-red-500/50 rounded-lg px-1.5 py-1 shadow-lg">
+                    <span className="text-[7px] font-black text-red-300 uppercase self-center px-1">Admin</span>
+                    <button onClick={(e) => { e.stopPropagation(); onViewItem(item); }} className="text-cyan-300 p-1 hover:bg-white/10 rounded" title="Open / edit"><Edit size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); adminDeleteItem(item); }} className="text-red-300 p-1 hover:bg-white/10 rounded" title="Delete item"><Trash2 size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); adminBanUser(item.ownerId, item.ownerName, 604800000, '7 days'); }} className="text-orange-300 p-1 hover:bg-white/10 rounded" title="Ban seller 7d"><Ban size={12}/></button>
+                    <button onClick={(e) => { e.stopPropagation(); adminBanUser(item.ownerId, item.ownerName, 'permanent', 'permanently'); }} className="text-red-400 p-1 hover:bg-white/10 rounded" title="Ban seller permanently"><ShieldOff size={12}/></button>
+                </div>
+            )}
             {item.purchaseCount > 0 && ( <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-[8px] flex items-center gap-1 z-10 border border-lime-400/30"><ShoppingBag size={10} className="text-lime-400"/> {item.purchaseCount} Sold</div> )}
             {item.isSeries && ( <div className="absolute top-2 left-2 bg-purple-900/80 backdrop-blur px-2 py-1 rounded text-[8px] flex items-center gap-1 z-10 border border-purple-400/50 uppercase font-bold text-white shadow-neon-purple"><Award size={10}/> {item.seriesName} #{item.seriesNumber}</div> )}
             
@@ -3120,7 +3270,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             <div className="mb-2">
                 <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
                 <div className="flex justify-between items-center">
-                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex items-center gap-0.5"><User size={10}/>@{item.ownerName}<BadgeChip badge={item.ownerBadge} /></button>
+                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex flex-col items-start gap-0.5"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-0.5"><User size={10}/>@{item.ownerName}</span>{item.ownerBadge && <span className="flex"><BadgeChip badge={item.ownerBadge} /></span>}</button>
                     <span className="text-lime-400 font-bold">
                         {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
@@ -3186,7 +3336,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkTiers: cleanTiers, bulkDiscountQty: firstTier.qty, bulkDiscountPct: firstTier.pct, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
+            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkTiers: cleanTiers, bulkDiscountQty: firstTier.qty, bulkDiscountPct: firstTier.pct, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -3264,6 +3414,75 @@ EOF
 
 # Block 15
 cat << 'EOF' >> src/App.js
+const FindUsersPanel = ({ onPick }) => {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [q, setQ] = useState('');
+    const [sortBy, setSortBy] = useState('joined');
+    const [dir, setDir] = useState('desc');
+    const [creatorsOnly, setCreatorsOnly] = useState(false);
+    useEffect(() => {
+        getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(500)))
+            .then(s => { setUsers(s.docs.map(d => ({ ...d.data(), id: d.id }))); setLoading(false); })
+            .catch(e => { console.log('find users', e); setLoading(false); });
+    }, []);
+    const norm = (s) => (s || '').toString().toLowerCase();
+    const SORTS = [
+        { k: 'joined', label: 'Joined' }, { k: 'lastActive', label: 'Last Active' },
+        { k: 'displayName', label: 'Name' }, { k: 'totalSalesValue', label: '$ Sold' },
+        { k: 'itemsSold', label: 'Sold' }, { k: 'itemsBought', label: 'Bought' },
+        { k: 'referrals', label: 'Referrals' }, { k: 'ratingCount', label: '# Ratings' },
+        { k: 'radioMinutes', label: 'Radio Min' }, { k: 'creatorPoints', label: 'Creator Pts' },
+    ];
+    const filtered = users.filter(u => {
+        if (creatorsOnly && !u.isKandiCreator) return false;
+        const t = norm(q);
+        if (!t) return true;
+        return norm(u.displayName).includes(t) || norm(u.publicUid).includes(t) || norm(u.id).includes(t) || norm(u.nickname).includes(t);
+    }).sort((a, b) => {
+        let va = a[sortBy], vb = b[sortBy];
+        if (sortBy === 'displayName') { va = norm(va); vb = norm(vb); return dir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0); }
+        va = Number(va || 0); vb = Number(vb || 0);
+        return dir === 'asc' ? va - vb : vb - va;
+    });
+    const fmtDate = (t) => t ? new Date(t).toLocaleDateString() : '—';
+    const ago = (t) => { if (!t) return 'never'; const m = Math.floor((Date.now() - t) / 60000); if (m < 60) return m + 'm ago'; const h = Math.floor(m / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
+    return (
+        <div className="bg-white/5 p-3 rounded mb-4 border border-cyan-500/20">
+            <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2 flex items-center gap-1"><Users size={12}/> Find Users — Directory ({filtered.length})</h4>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Filter by name, UID, nickname…" className="w-full bg-black border border-white/20 text-xs p-2 rounded mb-2"/>
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-black border border-white/20 text-[10px] p-1.5 rounded flex-1 min-w-[100px]">
+                    {SORTS.map(s => <option key={s.k} value={s.k}>Sort: {s.label}</option>)}
+                </select>
+                <button onClick={() => setDir(dir === 'asc' ? 'desc' : 'asc')} className="bg-black border border-white/20 text-[10px] p-1.5 rounded px-2">{dir === 'asc' ? '↑ Asc' : '↓ Desc'}</button>
+                <label className="text-[9px] flex items-center gap-1"><input type="checkbox" checked={creatorsOnly} onChange={e => setCreatorsOnly(e.target.checked)} className="accent-pink-500"/> Creators</label>
+            </div>
+            {loading ? <p className="text-center opacity-50 text-xs py-6">Loading directory…</p> : (
+                <div className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
+                    {filtered.length === 0 && <p className="text-center opacity-50 text-xs py-6">No users match.</p>}
+                    {filtered.map(u => (
+                        <button key={u.id} onClick={() => onPick && onPick(u)} className="w-full flex items-center gap-2 p-2 rounded bg-black/40 hover:bg-white/10 text-left border border-white/5">
+                            <img src={u.photoURL || 'https://placehold.co/40?text=U'} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[11px] font-bold truncate flex items-center gap-1">@{u.displayName || 'Raver'}{u.isKandiCreator && <Hammer size={9} className="text-yellow-400"/>}{u.isAdmin && <span className="text-[7px] text-red-400">TEAM</span>}{u.bannedUntil && <Ban size={9} className="text-red-500"/>}</p>
+                                <p className="text-[8px] font-mono opacity-50 truncate">{u.publicUid || u.id}</p>
+                                <p className="text-[8px] opacity-60">Joined {fmtDate(u.joined)} · active {ago(u.lastActive)}</p>
+                            </div>
+                            <div className="text-right shrink-0 text-[8px] opacity-70">
+                                <p>${Number(u.totalSalesValue || 0).toFixed(0)} sold</p>
+                                <p>{u.itemsSold || 0} items · {u.referrals || 0} refs</p>
+                                {u.ratingCount > 0 && <p className="text-yellow-400">★ {((u.ratingSum||0)/u.ratingCount).toFixed(1)}</p>}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+            <p className="text-[7px] opacity-40 mt-2">Tap a user to load them into the User Manager below for actions.</p>
+        </div>
+    );
+};
+
 const VideoTakedownPanel = () => {
     const [vids, setVids] = useState([]);
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setVids(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.start - b.start)), e => console.log(e)), []);
@@ -3478,6 +3697,8 @@ const AdminDashboard = ({ user, profile }) => {
                 <p className="text-[8px] opacity-60 mb-2">Take down any user clip instantly — deletes the video from storage and clears its window.</p>
                 <VideoTakedownPanel />
             </div>
+
+            <FindUsersPanel onPick={(u) => { pickUser(u); setSearchUid(u.publicUid || u.id); try { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); } catch (e) {} }} />
 
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
                 <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2">User Manager — RevShare & Bans</h4>
@@ -4034,7 +4255,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                         </div>
                         <div className="text-center md:text-left flex-1 w-full">
                             <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                                <h2 className="text-3xl font-black flex items-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}<BadgeChip badge={targ.featuredBadge} /></h2>
+                                <UserRating sum={targ.ratingSum} count={targ.ratingCount} size="lg" /><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}</h2>{targ.featuredBadge && <div className="flex mt-1"><BadgeChip badge={targ.featuredBadge} /></div>}
                                 {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[8px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
                             </div>
 
@@ -4071,7 +4292,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                             <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-xs text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
                             <div className="flex gap-2 mt-4 justify-center md:justify-start">
-                                <Button onClick={() => setShowCollection(true)} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Package size={14}/> Collection</Button>
+                                <button onClick={() => setShowCollection(true)} className="rk-shimmer-border flex-1 text-xs flex justify-center items-center gap-2 py-2 rounded-lg font-bold active:scale-95"><Package size={14}/> Collection</button>
                                 {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
                             </div>
                         </div>
@@ -4297,7 +4518,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         )}
                     </div>
                     <div className="text-center md:text-left flex-1 w-full">
-                        <div className="flex items-center justify-center md:justify-start gap-2 mb-1"><h2 className="text-3xl font-black flex items-center" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}<BadgeChip badge={profile.featuredBadge} /></h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>
+                        <div className="mb-1"><UserRating sum={profile.ratingSum} count={profile.ratingCount} size="lg" /><div className="flex items-center justify-center md:justify-start gap-2"><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}</h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>{profile.featuredBadge && <div className="flex justify-center md:justify-start mt-1"><BadgeChip badge={profile.featuredBadge} /></div>}</div>
                         
                         {(profile.isKandiCreator || profile.isAdmin) && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-lime-400 rounded-r flex items-center justify-between">
@@ -4346,7 +4567,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         </div>
                         <button onClick={() => setModals({...modals, analytics: true})} className="w-full text-center text-[10px] text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
-                        <div className="flex gap-2 mt-4 justify-center md:justify-start"><Button onClick={()=>setModals({...modals, settings:true})} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Settings size={14}/> Settings</Button><Button onClick={()=>setModals({...modals, socials:true})} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2">Socials</Button></div>
+                        <div className="flex gap-2 mt-4 justify-center md:justify-start"><Button onClick={()=>setModals({...modals, settings:true})} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Settings size={14}/> Settings</Button><Button onClick={()=>setModals({...modals, socials:true})} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2">My Socials</Button></div>
                         
                         {/* PHASE 7: VIP Ecosystem Access */}
                         {!isEffVIP(profile) ? (
@@ -4354,34 +4575,30 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                                 <div><span className="text-[10px] font-bold text-yellow-400 block tracking-widest uppercase">Go VIP</span><span className="text-[8px] opacity-70">Radio · Themes · Banner Msgs · Post Boosts</span></div>
                                 <Crown size={18} className="text-yellow-400"/>
                             </div>
-                        ) : (
-                            <div className="mt-4 p-3 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl flex items-center justify-between cursor-pointer hover:bg-cyan-500/20" onClick={() => setModals({...modals, theme: true})}>
-                                <div><span className="text-sm font-bold text-cyan-400 block tracking-widest uppercase">Theme Selector</span><span className="text-[11px] opacity-80">Change your app background</span></div>
-                                <ImageIcon size={18} className="text-cyan-400"/>
-                            </div>
-                        )}
+                        ) : null}
 
-                        <div className="mt-3 p-3 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/40 rounded-xl">
-                            <p className="text-sm font-black text-purple-300 tracking-widest uppercase mb-3 flex items-center gap-1"><Crown size={16} className="text-yellow-400"/> Subscriber Tools</p>
+                        <div className="mt-3 p-5 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/40 rounded-2xl">
+                            <p className="text-lg font-black text-purple-300 tracking-widest uppercase mb-4 flex items-center gap-2"><Crown size={20} className="text-yellow-400"/> Subscriber Tools</p>
                             {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
-                                <p className="text-[8px] text-yellow-300 mb-2">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
+                                <p className="text-[10px] text-yellow-300 mb-3">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
                             )}
                             {profile?.vipPlan === 'expired' && !profile?.isVIP && !RK_CFG.launchPerks && (
-                                <p className="text-[8px] text-red-300 mb-2">Your monthly VIP has expired. <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew now</button></p>
+                                <p className="text-[10px] text-red-300 mb-3">Your monthly VIP has expired. <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew now</button></p>
                             )}
                             {RK_CFG.launchPerks && (
-                                <p className="text-[8px] text-lime-300 mb-2">🎉 Launch Perks active — VIP is free for every raver & seller commission is cut to 10%. <button onClick={() => setModals({...modals, vip: true})} className="underline">Details</button></p>
+                                <p className="text-[10px] text-lime-300 mb-3">🎉 Launch Perks active — VIP is free for every raver & seller commission is cut to 10%. <button onClick={() => setModals({...modals, vip: true})} className="underline">Details</button></p>
                             )}
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => setShowBanner(true)} className="p-3 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20"><span className="text-xs font-bold text-cyan-400 block uppercase tracking-widest">📢 Banner Msgs</span><span className="text-[10px] opacity-80">Post on the live marquee</span></button>
-                                <button onClick={() => setShowBoost(true)} className="p-3 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20"><span className="text-xs font-bold text-pink-400 block uppercase tracking-widest">⚡ Post Boosts</span><span className="text-[10px] opacity-80">Pin your item to the top</span></button>
-                                <button onClick={() => setModals({...modals, font: true})} className="p-3 bg-gradient-to-r from-fuchsia-500/10 to-transparent border border-fuchsia-500/30 rounded-xl text-left hover:bg-fuchsia-500/20 col-span-2"><span className="text-xs font-bold text-fuchsia-300 block uppercase tracking-widest">🔤 Font Selector</span><span className="text-[10px] opacity-80">Stylize your bio, posts, comments & messages</span></button>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={() => setShowBanner(true)} className="p-4 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20 active:scale-95 transition"><span className="text-sm font-bold text-cyan-400 block uppercase tracking-widest mb-0.5">📢 Banner Msgs</span><span className="text-[11px] opacity-80">Post on the live marquee</span></button>
+                                <button onClick={() => setShowBoost(true)} className="p-4 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20 active:scale-95 transition"><span className="text-sm font-bold text-pink-400 block uppercase tracking-widest mb-0.5">⚡ Post Boosts</span><span className="text-[11px] opacity-80">Pin your item to the top</span></button>
+                                <button onClick={() => setModals({...modals, font: true})} className="p-4 bg-gradient-to-r from-fuchsia-500/10 to-transparent border border-fuchsia-500/30 rounded-xl text-left hover:bg-fuchsia-500/20 active:scale-95 transition col-span-2"><span className="text-sm font-bold text-fuchsia-300 block uppercase tracking-widest mb-0.5">🔤 Font Selector</span><span className="text-[11px] opacity-80">Stylize your bio, posts, comments & messages</span></button>
+                                <button onClick={() => setModals({...modals, theme: true})} className="p-4 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20 active:scale-95 transition col-span-2"><span className="text-sm font-bold text-cyan-300 block uppercase tracking-widest mb-0.5">🎨 Theme Selector</span><span className="text-[11px] opacity-80">Change your app background</span></button>
                             </div>
                         </div>
                     </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4"><button onClick={() => setModals({...modals, collection:true})} className="bg-white/5 border border-white/10 p-4 rounded-xl font-bold flex flex-col items-center hover:bg-white/10 transition"><Package className="text-pink-500 mb-1"/> Collection</button> <button onClick={() => setModals({...modals, inventory:true})} className="bg-white/5 border border-white/10 p-4 rounded-xl font-bold flex flex-col items-center hover:bg-white/10 transition"><Box className="text-lime-400 mb-1"/> My Inventory</button> </div>
+                <div className="grid grid-cols-2 gap-4"><button onClick={() => setModals({...modals, collection:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Package className="text-pink-500 mb-1"/> Collection</button> <button onClick={() => setModals({...modals, inventory:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Box className="text-lime-400 mb-1"/> My Inventory</button> </div>
                 
                 {profile.isKandiCreator && (
                     <div className="grid grid-cols-2 gap-4 mt-2">
@@ -4491,7 +4708,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.25.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.31.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4919,7 +5136,7 @@ const App = () => {
     const uref = (x) => x ? (x.publicUid || x.id) : null;
     const activeBanner = bannerSlots.find(s => s.start <= nowTick && nowTick < s.end) || null;
     const mq = [
-        activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null } : null,
+        activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null, slotId: activeBanner.id } : null,
         { t: '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡' },
         { t: '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀' },
         { t: '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2) },
@@ -4958,7 +5175,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.25.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V42.31.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5044,7 +5261,7 @@ cat << 'EOF' >> src/App.js
                 <div className="rk-marquee-track items-center whitespace-nowrap">
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            {mq.map((m, i) => <span key={i} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href) ? 'underline decoration-dotted underline-offset-2 cursor-pointer' : '')}>{m.t}</span>)}
+                            {mq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href) ? 'underline decoration-dotted underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
                         </div>
                     ))}
                 </div>
@@ -5162,7 +5379,7 @@ cat << 'EOF' >> src/App.js
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                     <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                        <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
+                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}</div>
                                         <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                         <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
@@ -5186,7 +5403,7 @@ cat << 'EOF' >> src/App.js
                                     <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                         <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                            <p className="font-bold text-sm flex items-center truncate">@{u.displayName || 'Raver'}<BadgeChip badge={u.featuredBadge} /></p>
+                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}</div>
                                             <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                             <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         </div>
@@ -5224,7 +5441,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.25.00 Phase 27: Admin Creator Toggle</span>
+                    <span className="flex-1 text-center">V42.31.00 Phase 33: Admin Moderation at Source + Find Users (Stage C)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -5419,9 +5636,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.25.00)..."
-sed -i "s/versionCode 1/versionCode 84/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.25.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V42.31.00)..."
+sed -i "s/versionCode 1/versionCode 90/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "42.31.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -5468,7 +5685,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_25_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V42_31_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
