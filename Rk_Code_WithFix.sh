@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V49.00.00 Build Script Starting"
+echo " RaveKandi V52.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V49.00.00</title>
+    <title>RaveKandi V52.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V49.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -196,7 +196,7 @@ cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInAnonymously } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
@@ -290,7 +290,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '49.00.00';
+const APP_VERSION = '52.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -626,46 +626,41 @@ export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, 
 export const ensureUserExists = async (uid, customName = null, referrerUid = null) => {
     if (!uid) return;
     const userRef = doc(db, 'artifacts', appId, 'users', uid);
-    const globalStatsRef = doc(db, 'artifacts', appId, 'global', 'stats');
-    let createdName = null;
     try {
-        const refUserRef = referrerUid ? doc(db, 'artifacts', appId, 'users', referrerUid) : null;
-        await runTransaction(db, async (transaction) => {
-            // V42.12 FIX: Firestore requires ALL reads BEFORE any writes in a
-            // transaction. Reading the referrer doc AFTER writing the new user
-            // threw and broke referral signups. All reads are now hoisted here.
-            const userDoc = await transaction.get(userRef);
-            if (userDoc.exists()) return;
-            const globalStats = await transaction.get(globalStatsRef);
-            const refUserDoc = refUserRef ? await transaction.get(refUserRef) : null;
-
-            let currentCount = 0;
-            if (globalStats.exists()) { currentCount = globalStats.data().userCount || 0; }
-
-            const newCount = currentCount + 1;
-            const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
-            createdName = newUsername;
-
-            // writes start here (after all reads)
-            if (!globalStats.exists()) { transaction.set(globalStatsRef, { userCount: newCount }); }
-            else { transaction.update(globalStatsRef, { userCount: newCount }); }
-
-            transaction.set(userRef, { 
-                displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
-                usernameChangesLeft: 3, pastUsernames: [], joined: Date.now(), items: [], totalSalesValue: 0, totalBoughtValue: 0,
-                itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
-                referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
-                referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
-            });
-
-            if (refUserRef && refUserDoc && refUserDoc.exists()) {
-                transaction.update(refUserRef, { referrals: (refUserDoc.data().referrals || 0) + 1 });
-                const refListRef = doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid);
-                transaction.set(refListRef, { uid: uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() });
-            }
+        // STEP 1 — create the user's OWN document. This is the only write that must
+        // succeed for an account to exist, and it only touches the user's own doc
+        // (which the rules always allow them to create). Nothing else can block it.
+        const existing = await getDoc(userRef);
+        if (existing.exists()) return; // already set up
+        // Best-effort: read the global counter for a nice sequential default name.
+        // If we can't read it, fall back to a timestamp-based name — never block.
+        let currentCount = 0;
+        try { const gs = await getDoc(doc(db, 'artifacts', appId, 'global', 'stats')); if (gs.exists()) currentCount = gs.data().userCount || 0; } catch (e) {}
+        const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
+        await setDoc(userRef, {
+            displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
+            usernameChangesLeft: 3, pastUsernames: [], joined: Date.now(), items: [], totalSalesValue: 0, totalBoughtValue: 0,
+            itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
+            referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
+            referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
+            isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
         });
-        if (createdName && referrerUid) pushNotif(referrerUid, 'referral', '🎉 ' + createdName + ' just joined RaveKandi using your code! +1 referral');
+
+        // STEP 2 — best-effort side writes. Each is isolated so a permissions error on
+        // ANY of them can never undo the account that was just created above.
+        try { const gsRef = doc(db, 'artifacts', appId, 'global', 'stats'); const gs = await getDoc(gsRef); if (gs.exists()) await updateDoc(gsRef, { userCount: increment(1) }); else await setDoc(gsRef, { userCount: currentCount + 1 }); } catch (e) { console.log('stats bump skipped', e); }
+
+        if (referrerUid) {
+            try {
+                const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
+                const refDoc = await getDoc(refRef);
+                if (refDoc.exists()) {
+                    await updateDoc(refRef, { referrals: (refDoc.data().referrals || 0) + 1 });
+                    try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
+                    pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral');
+                }
+            } catch (e) { console.log('referral credit skipped', e); }
+        }
     } catch (e) { console.error("User Creation Error", e); throw e; }
 };
 
@@ -707,44 +702,54 @@ const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
+// V50: universal rave-creation analyzer. Handles ANY rave-scene item (kandi, clothing,
+// jewelry, accessories, equipment, stickers, etc.). Returns a full cost/time/difficulty
+// breakdown including materials with fabric detection, a creation fee scaled by difficulty,
+// and a suggested sale price with a healthy profit margin. Text-only (image generation is
+// disabled for now — see UI note).
 const generateCustomKandi = async (prompt, onProgress = () => {}) => {
     try {
-        const seed = Math.floor(Math.random() * 9999999);
-        const safePrompt = encodeURIComponent(`Rave kandi beads, festival apparel: ${prompt}`);
-        const textUrl = `https://text.pollinations.ai/prompt/You%20are%20a%20master%20Rave%20Kandi%20builder.%20The%20user%20wants:%20${safePrompt}.%20Return%20ONLY%20a%20JSON%20object%20with%20NO%20MARKDOWN.%20Format:%20{%22visual_description%22:%22detailed%20description%22,%22total_bead_count%22:150,%22difficulty_1_to_10%22:6,%22estimated_materials%22:[{%22name%22:%22string%22,%22qty%22:%22string%22}]}`;
-        
-        // V37.11: the text endpoint intermittently returns 5xx / rate-limits — retry with
-        // backoff, then fall back to a structural template instead of crashing the Lab
-        // (was: "AI Assembly Failed: AI Text endpoint failed").
-        onProgress(8);
+        const safePrompt = encodeURIComponent(prompt.substring(0, 300));
+        // A detailed instruction so the model classifies the item and returns rich structured data.
+        const instruction = encodeURIComponent(
+            "You are a master maker for the rave and festival scene — you make kandi, clothing, jewelry, accessories, equipment, stickers and more. " +
+            "Analyze the user's requested creation and return ONLY a JSON object with NO MARKDOWN. " +
+            "Determine the item category, the materials and fabrics needed (with realistic quantities and a rough per-unit material cost in USD), " +
+            "the difficulty (1-10), the estimated hands-on creation time, and a fair total material cost. " +
+            'Format exactly: {"item_category":"e.g. Clothing/Kandi/Jewelry/Accessory/Equipment/Sticker","visual_description":"vivid 1-2 sentence description","materials":[{"name":"material or fabric","qty":"amount","unit_cost_usd":2.5}],"primary_fabric":"main fabric if applicable or N/A","difficulty_1_to_10":6,"estimated_time_hours":2.5,"total_material_cost_usd":18.0,"skill_notes":"short note on what makes it easy/hard"}'
+        );
+        const textUrl = `https://text.pollinations.ai/prompt/${instruction}.%20The%20user%20wants:%20${safePrompt}`;
+
+        onProgress(15);
         let rawText = '';
-        for (let tAttempt = 0; tAttempt < 3; tAttempt++) {
+        for (let tAttempt = 0; tAttempt < 4; tAttempt++) {
+            onProgress(15 + tAttempt * 18);
             try {
                 const response = await fetch(textUrl, { cache: 'no-store' });
                 if (response.ok) { rawText = await response.text(); if (rawText && rawText.length > 5) break; }
-            } catch (tErr) { console.log('AI text attempt ' + (tAttempt + 1) + ' failed.'); }
-            await new Promise(r => setTimeout(r, 4000));
+            } catch (tErr) { console.log('AI analysis attempt ' + (tAttempt + 1) + ' failed.'); }
+            await new Promise(r => setTimeout(r, 3500));
         }
-        
+        if (!rawText) throw new Error("ANALYSIS_FAILED");
+
         let analysis;
         try {
             const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
             const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) { analysis = JSON.parse(jsonMatch[0]); } 
-            else { analysis = JSON.parse(cleanText); }
+            analysis = JSON.parse(jsonMatch ? jsonMatch[0] : cleanText);
         } catch (parseError) {
             console.warn("AI returned malformed JSON. Using structural fallback.", rawText);
             analysis = {
+                item_category: "Custom",
                 visual_description: prompt.substring(0, 150),
-                total_bead_count: 150,
+                materials: [{ name: "Assorted materials", qty: "as needed", unit_cost_usd: 1.5 }],
+                primary_fabric: "N/A",
                 difficulty_1_to_10: 5,
-                estimated_materials: [{ name: "Assorted Kandi Beads", qty: "150" }, { name: "Elastic String", qty: "12 inches" }]
+                estimated_time_hours: 2,
+                total_material_cost_usd: 12,
+                skill_notes: "Estimate based on a moderate build."
             };
         }
-
-        const cleanVisual = (analysis.visual_description || prompt).replace(/[^a-zA-Z0-9 ]/g, '').substring(0, 100);
-        const visualStr = encodeURIComponent(`Macro photography rave kandi ${cleanVisual}`);
-        const imageUrl = `https://image.pollinations.ai/prompt/${visualStr}?width=512&height=512&seed=${seed}&nologo=true`;
 
         // V37.14: pre-fetch with 6 retries (~60s budget) and progress reporting.
         // Pollinations generates on first request and can take a full minute while queued.
@@ -769,14 +774,39 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             await new Promise(r => setTimeout(r, 8000));
         }
         onProgress(95);
-        
-        const beads = analysis.total_bead_count || 100;
-        const diff = analysis.difficulty_1_to_10 || 5;
-        let estCost = ((beads * 0.05) + (diff * 2.00)) * PROFIT_MARGIN;
-        if(estCost < 4.00) estCost = 4.00;
-        
-        return { ...analysis, imageUrl: permanentData || imageUrl, permanentImage: permanentData, displayUrl: permanentData || displayUrl, estimated_cost: estCost.toFixed(2), difficulty: diff };
-    } catch (e) { throw new Error("AI Assembly Failed: " + e.message); }
+
+        // ---- Cost model ----
+        const diff = Math.max(1, Math.min(10, parseInt(analysis.difficulty_1_to_10) || 5));
+        const timeHrs = Math.max(0.25, parseFloat(analysis.estimated_time_hours) || 1.5);
+        // Material cost: prefer the model's total; otherwise sum the per-material unit costs.
+        let materialCost = parseFloat(analysis.total_material_cost_usd) || 0;
+        if (!materialCost && Array.isArray(analysis.materials)) {
+            materialCost = analysis.materials.reduce((sum, m) => sum + (parseFloat(m.unit_cost_usd) || 0), 0);
+        }
+        if (!materialCost) materialCost = 8;
+        // Creation/labor fee: a base hourly that scales UP with difficulty (harder = more per hour),
+        // so complex builds earn heavy margins. ~$12/hr at diff 1 up to ~$30/hr at diff 10.
+        const hourlyRate = 12 + (diff - 1) * 2;
+        const creationFee = timeHrs * hourlyRate;
+        // Difficulty surcharge for very complex pieces (extra profit room).
+        const complexitySurcharge = diff >= 7 ? materialCost * (diff - 6) * 0.15 : 0;
+        const subtotal = materialCost + creationFee + complexitySurcharge;
+        // Healthy profit margin on top.
+        let suggestedPrice = subtotal * PROFIT_MARGIN;
+        if (suggestedPrice < 5) suggestedPrice = 5;
+
+        return {
+            ...analysis,
+            difficulty: diff,
+            estimated_time_hours: timeHrs,
+            material_cost: materialCost.toFixed(2),
+            creation_fee: creationFee.toFixed(2),
+            complexity_surcharge: complexitySurcharge.toFixed(2),
+            estimated_cost: suggestedPrice.toFixed(2), // suggested SALE price
+            // no image in this version
+            permanentImage: '', imageUrl: '', displayUrl: ''
+        };
+    } catch (e) { if (e.message === 'ANALYSIS_FAILED') throw e; throw new Error("AI Analysis Failed: " + e.message); }
 };
 
 const getDisplayAchievements = (profile) => {
@@ -1877,7 +1907,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V49.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3078,8 +3108,16 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
         let q = type === 'posts' ? query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), orderBy('timestamp', 'desc')) : query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
         return onSnapshot(q, s => {
             const allItems = s.docs.map(d => ({...d.data(), id: d.id}));
-            if (type === 'posts') setItems(allItems.filter(i => !i.isCraftingStock));
-            if (type === 'stock') setItems(allItems.filter(i => i.isCraftingStock));
+            // V49: hide broken AI items — failed status, or an AI creation whose image never
+            // generated (no base64 data URL and no media). Prevents broken entries from
+            // crashing or cluttering the collection (including ones saved before this fix).
+            const usable = allItems.filter(i => {
+                if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating'; // keep in-progress, drop failed
+                if (i.isAICreation) { const img = i.imageUrl || i.mediaUrls?.[0]?.url || ''; return typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http')); }
+                return true;
+            });
+            if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
+            if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
         }, e => { console.log('collection load:', e); setItems([]); }); // V42.27: handle errors so viewing another raver's collection never crashes
     }, [isOpen, user, type]);
     
@@ -3093,7 +3131,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                         <div key={item.id} onClick={() => setSelectedItem(item)} className={`bg-white/5 p-2 rounded-lg border flex flex-col relative group cursor-pointer hover:bg-white/10 ${item.status === 'generating' ? 'border-yellow-500/50' : 'border-white/10'}`}>
                             {item.status === 'generating' ? (
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[8px] text-yellow-400">Processing...</span></div>
-                            ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} className="w-full h-24 object-cover rounded mb-2"/> )}
+                            ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
                             <div className="flex justify-between items-center mt-2 border-t border-white/10 pt-2"><span className="text-[10px] text-lime-400 font-bold">${item.sell || item.price || '0.00'}</span><span className="text-[8px] opacity-50">{item.status || 'Ready'}</span></div>
                         </div>
@@ -3135,14 +3173,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const gen = async () => { 
         if(!prompt || !user?.uid) return;
         if(remaining <= 0) return alert("Daily limit reached. Resets at 12PM CST.");
-        if (!RK_CFG.aiLabEnabled) return alert("The AI Kandi Lab is temporarily disabled by the admin team — check back soon!");
+        if (!RK_CFG.aiLabEnabled) return alert("The AI Design Lab is temporarily disabled by the admin team — check back soon!");
         setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
-        const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), { 
-            status: 'generating', prompt: prompt, timestamp: Date.now(), name: "AI Design (Pending)",
-            ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver' 
-        });
-        
+        // V49: generate FIRST, and only write a collection doc once we have a real image.
+        // This guarantees a failed generation never leaves a broken/placeholder item behind.
         try { 
             const r = await generateCustomKandi(prompt, setGenPct); setGenPct(98); setRes(r);
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
@@ -3150,17 +3185,23 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             if (snap.exists()) { await updateDoc(userRef, { aiUsageCount: increment(1) }); } 
             else { await setDoc(userRef, { aiUsageCount: 1 }, { merge: true }); }
             setRemaining(prev => prev - 1);
-            await updateDoc(docRef, { status: 'completed', imageUrl: r.imageUrl, visual_description: r.visual_description, estimated_materials: r.estimated_materials, estimated_cost: r.estimated_cost, difficulty: r.difficulty, name: "AI Custom Kandi", type: "Other" });
-        } catch(e){ alert(e.message); await updateDoc(docRef, { status: 'failed', error: e.message }); } finally { setLoading(false); } 
+            // V50: text-only analysis — the result is shown for the user to review and
+            // optionally submit; we don't auto-write an image-less item to the collection.
+        } catch(e){ 
+            if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
+            else alert(e.message); 
+        } finally { setLoading(false); } 
     };
 
     const submit = async () => {
         if(!user?.uid) return;
         if(user.isAnonymous && allowBuy) return alert("Please create an account to sell items.");
         if (allowBuy && !itemName) return alert("You must name your item to allow others to buy it.");
+        // V50: text-only design analysis (no image this version). Save the full breakdown.
+        if (!res) { alert("Generate a design analysis first."); return; }
         setLoading(true);
         try {
-            const inventoryData = { status: 'completed', imageUrl: res.permanentImage || res.imageUrl, visual_description: res.visual_description, estimated_materials: res.estimated_materials, estimated_cost: res.estimated_cost, difficulty: res.difficulty, name: itemName || "AI Custom Kandi", timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: "Other", viewCount: 0 };
+            const inventoryData = { status: 'completed', imageUrl: '', visual_description: res.visual_description, item_category: res.item_category || 'Custom', primary_fabric: res.primary_fabric || 'N/A', estimated_materials: res.materials || [], material_cost: res.material_cost, creation_fee: res.creation_fee, estimated_time_hours: res.estimated_time_hours, estimated_cost: res.estimated_cost, difficulty: res.difficulty, skill_notes: res.skill_notes || '', name: itemName || ("AI " + (res.item_category || 'Design')), timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, isDesignConcept: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: res.item_category || "Other", viewCount: 0 };
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
             if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
@@ -3196,35 +3237,46 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     return ( 
         <Card className="p-6 text-center">
             <Bot size={48} className="mx-auto mb-4 text-pink-500"/>
-            <h2 className="text-2xl font-bold mb-2 uppercase">AI KANDI LAB</h2>
+            <h2 className="text-2xl font-bold mb-1 uppercase">AI Design Lab</h2>
+            <p className="text-[10px] opacity-60 mb-3">Kandi · Clothing · Jewelry · Accessories · Equipment · Stickers & more</p>
             <div className="flex justify-center gap-2 mb-4"><span className={`text-[10px] font-bold px-2 py-1 rounded ${remaining > 0 ? 'bg-lime-500/20 text-lime-400' : 'bg-red-500/20 text-red-400'}`}>Daily Limit: {remaining}/{DAILY_AI_LIMIT}</span></div>
-            <div className="bg-yellow-900/20 border border-yellow-500/40 rounded p-2 mb-4 text-left"><p className="text-[9px] text-yellow-300 leading-relaxed"><strong>⚠ Heads up:</strong> the AI image renderer is unstable right now and may not produce a picture every time. Descriptions, materials & pricing still work — keep using the Lab and submit builds as normal.</p></div>
-            {!res && ( <div className="mb-4 flex items-center justify-center gap-2 bg-white/5 p-2 rounded"><input type="checkbox" checked={allowBuy} onChange={e => setAllowBuy(e.target.checked)} className="accent-pink-500"/><label className="text-xs">Allow others to buy this design?</label></div> )}
-            <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="E.g. Neon green cuff with alien charms..." disabled={!!res}/>
-            {!res && ( loading ? ( <div className="mt-4 space-y-2 text-center"><LoadingBar progress={genPct} className="h-2"/><p className="text-lime-400 font-mono text-lg font-bold">{genPct}%</p><p className="text-[10px] text-pink-300 animate-pulse">{genPct < 30 ? 'Consulting the Kandi Oracle...' : genPct < 92 ? 'Rendering visuals — image generation can take up to a minute. Hang tight! 🎨' : 'Polishing beads...'}</p></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Generate Design" : "Limit Reached"}</Button> ) )}
+            <div className="bg-cyan-900/20 border border-cyan-500/40 rounded p-2 mb-4 text-left"><p className="text-[9px] text-cyan-200 leading-relaxed"><strong>🎨 Note:</strong> the Design Lab currently generates a full <strong>cost, material & time breakdown</strong> for any rave creation — it does <strong>not generate images yet</strong> (that's coming in a later version!). Describe anything you want to make and get an instant build plan with pricing.</p></div>
+            {!res && ( <div className="mb-4 flex items-center justify-center gap-2 bg-white/5 p-2 rounded"><input type="checkbox" checked={allowBuy} onChange={e => setAllowBuy(e.target.checked)} className="accent-pink-500"/><label className="text-xs">Allow others to buy / request this design?</label></div> )}
+            <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="Describe ANY rave creation — e.g. 'holographic pleated festival skirt with LED trim' or 'neon cuff with alien charms'..." disabled={!!res}/>
+            {!res && ( loading ? ( <div className="mt-4 space-y-2 text-center"><LoadingBar progress={genPct} className="h-2"/><p className="text-lime-400 font-mono text-lg font-bold">{genPct}%</p><p className="text-[10px] text-pink-300 animate-pulse">{genPct < 40 ? 'Analyzing your design...' : genPct < 92 ? 'Calculating materials, fabrics & costs...' : 'Finalizing your build plan...'}</p></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Analyze Design" : "Limit Reached"}</Button> ) )}
             {res && (
-                <div className={`mt-6 border-2 border-dashed border-white/20 rounded-lg p-2 min-h-[200px] flex items-center justify-center bg-black/40 ${res ? 'shadow-[0_0_20px_rgba(255,100,200,0.6)] border-pink-400' : ''}`}>
-                    <div className="w-full">
-                        <img src={res.permanentImage || res.displayUrl || res.imageUrl} onClick={() => { if (imageReady) downloadImage(); }} title="Tap to download" className={`rounded mb-2 w-full shadow-2xl transition-opacity duration-500 cursor-pointer ${imageReady ? 'opacity-100' : 'opacity-0 h-0'}`} onLoad={() => setImageReady(true)} onError={(e) => { const tries = parseInt(e.target.dataset.tries || '0'); if (tries < 4) { e.target.dataset.tries = tries + 1; setTimeout(() => { e.target.src = res.imageUrl + '&retry=' + Date.now(); }, 5000); } else { e.target.src = 'https://placehold.co/512x512/1a0033/ff00ff?text=AI+Image+Failed'; setImageReady(true); } }} />
-                        {!imageReady && <div className="py-10"><LoadingBar progress={50} className="w-1/2 mx-auto"/> <p className="text-xs mt-2 opacity-50">Rendering Visuals...</p></div>}
-                        {imageReady && (
-                            <div className="animate-fade-in-pulse">
-                                <p className="text-xs opacity-70 mb-4">{res.visual_description}</p>
-                                <div className="grid grid-cols-3 gap-2 mb-4">
-                                    <Button onClick={downloadImage} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-2"><Download size={15}/> Save</Button>
-                                    <Button onClick={downloadImage} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-2"><Download size={15}/> Download</Button>
-                                    <Button onClick={shareImage} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-2"><Share2 size={15}/> Share</Button>
-                                </div>
-                                {allowBuy && ( <div className="mb-4"><label className="block text-left text-[10px] font-bold text-pink-400 mb-1">Item Name (Required to Sell)</label><Input value={itemName} onChange={setItemName} placeholder="Name your creation..."/></div> )}
-                                <div className="bg-white/5 p-3 rounded mb-4 text-left">
-                                    <h4 className="font-bold text-xs text-lime-400 border-b border-white/10 pb-1 mb-2">Estimated Materials</h4>
-                                    <div className="space-y-1">{res.estimated_materials && res.estimated_materials.map((m, i) => ( <div key={i} className="flex justify-between text-[10px]"><span>{m.name}</span><span className="opacity-70">{m.qty}</span></div> ))}</div>
-                                    <div className="mt-3 pt-2 border-t border-white/10 flex justify-between font-bold text-xs"><span>Est. Cost:</span><span className="text-cyan-400">${res.estimated_cost}</span></div>
-                                </div>
-                                <div className="flex gap-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Cancel</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Submit"}</Button></div>
-                            </div>
-                        )}
-                    </div> 
+                <div className="mt-6 border-2 border-pink-400 rounded-lg p-4 bg-black/40 text-left shadow-[0_0_20px_rgba(255,100,200,0.5)] animate-fade-in-pulse">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[9px] font-black uppercase bg-pink-500/30 text-pink-200 px-2 py-1 rounded">{res.item_category || 'Custom'}</span>
+                        <span className="text-[9px] opacity-60">Difficulty {res.difficulty}/10 · ~{res.estimated_time_hours}h</span>
+                    </div>
+                    <p className="text-sm mb-4 leading-relaxed">{res.visual_description}</p>
+
+                    {allowBuy && ( <div className="mb-4"><label className="block text-[10px] font-bold text-pink-400 mb-1">Item Name (Required to Sell)</label><Input value={itemName} onChange={setItemName} placeholder="Name your creation..."/></div> )}
+
+                    {res.primary_fabric && res.primary_fabric !== 'N/A' && (
+                        <div className="bg-white/5 p-2 rounded mb-3 flex justify-between text-[11px]"><span className="opacity-60">Primary Fabric</span><span className="font-bold text-cyan-300">{res.primary_fabric}</span></div>
+                    )}
+
+                    <div className="bg-white/5 p-3 rounded mb-3">
+                        <h4 className="font-bold text-xs text-lime-400 border-b border-white/10 pb-1 mb-2">Materials & Fabrics</h4>
+                        <div className="space-y-1">{(res.materials || []).map((m, i) => ( <div key={i} className="flex justify-between text-[10px] gap-2"><span className="flex-1">{m.name} <span className="opacity-50">({m.qty})</span></span>{m.unit_cost_usd ? <span className="opacity-70 text-cyan-300">~${parseFloat(m.unit_cost_usd).toFixed(2)}</span> : null}</div> ))}</div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-lime-900/20 to-cyan-900/20 border border-lime-500/30 p-3 rounded mb-3">
+                        <h4 className="font-bold text-xs text-lime-400 mb-2">💰 Cost & Pricing Breakdown</h4>
+                        <div className="space-y-1 text-[11px]">
+                            <div className="flex justify-between"><span className="opacity-70">Material Cost</span><span>${res.material_cost}</span></div>
+                            <div className="flex justify-between"><span className="opacity-70">Creation Fee (~{res.estimated_time_hours}h × skill)</span><span>${res.creation_fee}</span></div>
+                            {parseFloat(res.complexity_surcharge) > 0 && <div className="flex justify-between"><span className="opacity-70">Complexity Surcharge</span><span>${res.complexity_surcharge}</span></div>}
+                            <div className="flex justify-between font-black text-sm pt-2 mt-1 border-t border-white/15"><span className="text-lime-300">Suggested Sale Price</span><span className="text-lime-300">${res.estimated_cost}</span></div>
+                        </div>
+                        <p className="text-[8px] opacity-50 mt-2">Includes materials, a creation fee scaled by difficulty & time, and a healthy profit margin. Adjust to your market.</p>
+                    </div>
+
+                    {res.skill_notes && <p className="text-[10px] italic opacity-70 mb-3">🛠️ {res.skill_notes}</p>}
+
+                    <div className="flex gap-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Save Design Plan"}</Button></div>
                 </div>
             )}
         </Card> 
@@ -4956,15 +5008,36 @@ const AuthScreen = ({ setLoadMsg }) => {
         catch (e) { alert(e.message); } finally { setLoading(false); }
     };
 
-    const socialAuth = async (provider) => {
-        setLoading(true); setLoadMsg("Routing to provider...");
-        try { 
+    const socialAuth = async (providerName) => {
+        setLoading(true); setLoadMsg("Connecting...");
+        // Build the provider fresh each time.
+        let provider;
+        if (providerName === 'google') { provider = new GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' }); }
+        else if (providerName === 'apple') { provider = new OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name'); }
+        else if (providerName === 'twitter') { provider = new TwitterAuthProvider(); }
+        else { setLoading(false); return; }
+        try {
             const persistenceType = rememberMe ? indexedDBLocalPersistence : browserSessionPersistence;
             await setPersistence(auth, persistenceType);
-            if(refCode) localStorage.setItem('pending_ref_code', refCode);
-            await signInWithPopup(auth, provider); 
-        } 
-        catch (e) { alert(e.message); } finally { setLoading(false); }
+            if (refCode) localStorage.setItem('pending_ref_code', refCode);
+            // Detect in-app browsers (Instagram, Messenger, TikTok, etc.) where popups are
+            // blocked — go straight to redirect there, which is reliable on iOS & Android.
+            const ua = navigator.userAgent || '';
+            const inApp = /Instagram|FBAN|FBAV|Messenger|TikTok|Line|Twitter|Snapchat|Pinterest/i.test(ua);
+            if (inApp) { await signInWithRedirect(auth, provider); return; }
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (popupErr) {
+                // Popup blocked/closed → fall back to full-page redirect.
+                if (popupErr && (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || popupErr.code === 'auth/cancelled-popup-request' || popupErr.code === 'auth/operation-not-supported-in-this-environment')) {
+                    await signInWithRedirect(auth, provider); return;
+                }
+                throw popupErr;
+            }
+        } catch (e) {
+            if (e && e.code === 'auth/account-exists-with-different-credential') alert("You've already signed up using a different method for this email. Try logging in with that one.");
+            else if (e && e.code !== 'auth/popup-closed-by-user') alert("Sign-in couldn't complete: " + (e.message || e.code || 'unknown error'));
+        } finally { setLoading(false); }
     };
 
     return (
@@ -4972,7 +5045,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V49.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -4993,12 +5066,22 @@ const AuthScreen = ({ setLoadMsg }) => {
                 <button onClick={() => setIsReg(!isReg)} className="text-xs text-cyan-400 w-full text-center hover:underline mb-6">{isReg ? "Already have an account? Log In" : "Need an account? Sign Up"}</button>
                 
                 <div className="border-t border-white/20 pt-4 mb-4">
-                    <p className="text-[10px] text-center opacity-50 mb-4 uppercase tracking-widest">Or connect with</p>
-                    <div className="grid grid-cols-3 gap-2">
-                        <button onClick={() => socialAuth(new GoogleAuthProvider())} className="bg-white/10 hover:bg-white/20 p-2 rounded flex justify-center"><Globe size={18}/></button>
-                        <button onClick={() => socialAuth(new OAuthProvider('apple.com'))} className="bg-white/10 hover:bg-white/20 p-2 rounded flex justify-center"><Smartphone size={18}/></button>
-                        <button onClick={() => socialAuth(new TwitterAuthProvider())} className="bg-white/10 hover:bg-white/20 p-2 rounded flex justify-center"><Twitter size={18}/></button>
+                    <p className="text-[10px] text-center opacity-50 mb-3 uppercase tracking-widest">Or {isReg ? 'sign up' : 'log in'} instantly with</p>
+                    <div className="space-y-2">
+                        <button onClick={() => socialAuth('google')} disabled={loading} className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 rounded-lg flex items-center justify-center gap-3 transition active:scale-[0.98] disabled:opacity-50">
+                            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5h-1.9V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.3-5.6l-6.6-5.6C29.7 34.5 27 35.5 24 35.5c-5.2 0-9.6-3.3-11.3-7.9l-6.6 5.1C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.6 5.6C41.4 36.8 44 31 44 24c0-1.3-.1-2.3-.4-3.5z"/></svg>
+                            Continue with Google
+                        </button>
+                        <button onClick={() => socialAuth('apple')} disabled={loading} className="w-full bg-black hover:bg-gray-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-3 border border-white/20 transition active:scale-[0.98] disabled:opacity-50">
+                            <svg width="16" height="18" viewBox="0 0 384 512" fill="currentColor"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+                            Continue with Apple
+                        </button>
+                        <button onClick={() => socialAuth('twitter')} disabled={loading} className="w-full bg-black hover:bg-gray-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-3 border border-white/20 transition active:scale-[0.98] disabled:opacity-50">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                            Continue with X
+                        </button>
                     </div>
+                    <p className="text-[8px] text-center opacity-40 mt-3">Secure sign-in powered by Google, Apple & X. We never see your password.</p>
                 </div>
                 
                 <Button onClick={guestAuth} disabled={loading} color="accent" className="w-full mt-4 py-2 border-dashed">Continue as Guest</Button>
@@ -5459,7 +5542,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V49.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5725,7 +5808,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V49.00.00 Phase 37: Creator Application Review Pop-In</span>
+                    <span className="flex-1 text-center">V52.00.00 Phase 40: EMERGENCY Signup Fix + Social Login Rebuild</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -5920,9 +6003,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V49.00.00)..."
-sed -i "s/versionCode 1/versionCode 95/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "49.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V52.00.00)..."
+sed -i "s/versionCode 1/versionCode 98/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "52.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -5969,7 +6052,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V49_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V52_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
