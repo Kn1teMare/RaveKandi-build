@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V42.31.00 Build Script Starting"
+echo " RaveKandi V48.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V42.31.00</title>
+    <title>RaveKandi V48.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V42.31.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V48.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -205,7 +205,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Ban, ShieldOff, Clock, Code, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
+  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -290,13 +290,19 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '42.31.00';
+const APP_VERSION = '48.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
 // off in Remote Config at full release; paid plans then resume.
 const isEffVIP = (profile) => !!(profile?.isVIP || RK_CFG.launchPerks);
-const effCommissionRate = (base) => { const b = (base === null || base === undefined) ? COMMISSION_RATE : base; return RK_CFG.launchPerks ? Math.max(0, b - 0.10) : b; };
+const effCommissionRate = (base, lockedRate) => {
+    const b = (base === null || base === undefined) ? COMMISSION_RATE : base;
+    const live = RK_CFG.launchPerks ? Math.max(0, b - 0.10) : b; // current period rate
+    // Permanent launch lock-in: a user granted lockedCommissionRate never pays more than it.
+    if (lockedRate !== null && lockedRate !== undefined && !isNaN(lockedRate)) return Math.min(live, lockedRate);
+    return live;
+};
 // V42.12: iOS-in-browser detection for the Add-to-Home-Screen guide
 const IS_IOS_BROWSER = (() => { try { const ua = navigator.userAgent || ''; const ios = /iphone|ipad|ipod/i.test(ua); const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; return ios && !standalone; } catch (e) { return false; } })();
 // V42.16: true when running in a normal browser tab (NOT the installed home-screen app).
@@ -397,7 +403,7 @@ const ACHIEVEMENT_TIERS = [
     { id: 'ach_5', name: 'Achiever', tier: 1, metric: 'achievementsUnlocked', threshold: 5, icon: Award, desc: "Unlock 5 achievements." },
     { id: 'ach_15', name: 'Completionist', tier: 1, metric: 'achievementsUnlocked', threshold: 15, icon: Award, desc: "Unlock 15 achievements." },
 ];
-const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
 // V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
 const REFERRAL_TIERS = [
@@ -421,7 +427,19 @@ const SOCIAL_PLATFORMS = [
     { id: 'onlyfans', name: 'OnlyFans', icon: Heart, color: '#00AFF0', baseUrl: 'onlyfans.com/' },
     { id: 'fansly', name: 'Fansly', icon: Heart, color: '#1DA1F2', baseUrl: 'fansly.com/' }
 ];
-const ITEM_CATEGORIES = { 'Bead': ['Pony', 'Perler', 'Glass', 'Letter', 'Neon', 'Glow', 'Metallic'], 'String': ['Elastic', 'Nylon', 'Fabric'], 'Charm': ['Plastic', 'Metal', 'Enamel'], 'Trinket': ['Alien head', 'Mushroom', 'Doll'], 'Other': ['Custom'] };
+const ITEM_CATEGORIES = {
+    'Bead': ['Pony', 'Perler/Fuse', 'Glass', 'Letter/Alphabet', 'Seed', 'Neon', 'Glow-in-Dark', 'Metallic', 'Wood', 'Acrylic', 'Rhinestone', 'Pearl'],
+    'String/Cord': ['Elastic', 'Stretch Magic', 'Nylon', 'Hemp', 'Fabric', 'Tiger Tail Wire', 'Memory Wire', 'Leather Cord'],
+    'Charm': ['Plastic', 'Metal', 'Enamel', 'Resin', 'Glow', 'Letter Charm', 'Bell'],
+    'Fabric': ['Cotton', 'Polyester', 'Spandex/Lycra', 'Nylon', 'Mesh/Fishnet', 'Velvet', 'Sequin', 'Holographic', 'Faux Fur', 'Fleece', 'Satin', 'Lace', 'Denim', 'Leather/Faux', 'Chiffon', 'Organza'],
+    'Clothing': ['Top', 'Bra/Bralette', 'Bodysuit', 'Crop Top', 'Shorts', 'Skirt', 'Tutu', 'Leggings', 'Bottoms', 'Hoodie', 'Jacket', 'Dress', 'Romper', 'Set/Outfit'],
+    'Hat/Headwear': ['Bucket Hat', 'Cap', 'Beanie', 'Cowboy Hat', 'Visor', 'Headband', 'Hair Clip', 'Flower Crown', 'Bandana'],
+    'Accessory': ['Sunglasses', 'Goggles', 'Gloves/Fluffies', 'Leg Warmers', 'Arm Sleeves', 'Boot Covers', 'Belt', 'Harness', 'Bag/Purse', 'Pasties', 'Wings', 'Pin/Button', 'Patch', 'Keychain'],
+    'Plushie/Toy': ['Mini Plush', 'Backpack Plush', 'Keychain Plush', 'Clip-On', 'Blacklight Plush'],
+    'Trinket': ['Alien Head', 'Mushroom', 'Doll', 'Star', 'Heart', 'Smiley', 'Dice', 'Skull', 'Bear', 'Lightning Bolt'],
+    'Supplies': ['Needle', 'Scissors', 'Glue/Adhesive', 'Clasp', 'Jump Ring', 'Storage', 'Tool Kit'],
+    'Other': ['Custom']
+};
 const ITEM_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'Huge'];
 EOF
 
@@ -542,19 +560,66 @@ const rkKey = (a, b) => { const s = [a, b].sort().join('|') + '|rkV1'; let h = 0
 const rkEnc = (text, key) => { try { let out = ''; for (let i = 0; i < text.length; i++) { out += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length)); } return btoa(unescape(encodeURIComponent(out))); } catch (e) { try { return btoa(text); } catch (e2) { return text; } } };
 const rkDec = (b64, key) => { try { const raw = decodeURIComponent(escape(atob(b64))); let out = ''; for (let i = 0; i < raw.length; i++) { out += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length)); } return out; } catch (e) { return '[unreadable]'; } };
 
+// V47 Vibe Tribe: friend system. Friends are mutual uid arrays on each user doc.
+export const sendFriendRequest = async (fromUid, fromName, fromPublicUid, toUid) => {
+    if (!fromUid || !toUid || fromUid === toUid) return;
+    await pushNotif(toUid, 'friendreq', '🤝 @' + (fromName || 'A raver') + ' wants to join your Vibe Tribe! Tap to accept.', fromUid);
+};
+export const acceptFriend = async (myUid, otherUid) => {
+    if (!myUid || !otherUid) return;
+    const a = doc(db, 'artifacts', appId, 'users', myUid);
+    const b = doc(db, 'artifacts', appId, 'users', otherUid);
+    await setDoc(a, { friends: arrayUnion(otherUid) }, { merge: true });
+    await setDoc(b, { friends: arrayUnion(myUid) }, { merge: true });
+};
+// V47: Obliterate — mutual chat deletion. Either user can request; a 24h countdown starts.
+// If BOTH accept, the whole thread + messages are wiped. If the timer ends with only one
+// acceptance, it auto-deletes anyway (the requester's intent stands).
+export const requestObliterate = async (tid, byUid, otherUid, byName) => {
+    const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
+    const deadline = Date.now() + 86400000;
+    await setDoc(tRef, { obliterate: { requestedBy: byUid, deadline, accepted: { [byUid]: true } } }, { merge: true });
+    await pushNotif(otherUid, 'message', '💥 @' + (byName || 'A raver') + ' started OBLITERATE — this chat self-destructs in 24h. Open the chat to agree, or it deletes when the timer ends.', null);
+};
+export const acceptObliterate = async (tid, myUid) => {
+    const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
+    await setDoc(tRef, { obliterate: { accepted: { [myUid]: true } } }, { merge: true });
+};
+export const cancelObliterate = async (tid) => {
+    const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
+    await updateDoc(tRef, { obliterate: deleteField() }).catch(()=>{});
+};
+export const performObliterate = async (tid) => {
+    try {
+        const msgsSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'threads', tid, 'messages'));
+        const batch = writeBatch(db);
+        msgsSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid));
+    } catch (e) { console.log('obliterate', e); }
+};
+
+export const removeFriend = async (myUid, otherUid) => {
+    if (!myUid || !otherUid) return;
+    await setDoc(doc(db, 'artifacts', appId, 'users', myUid), { friends: arrayRemove(otherUid) }, { merge: true });
+    await setDoc(doc(db, 'artifacts', appId, 'users', otherUid), { friends: arrayRemove(myUid) }, { merge: true });
+};
+
 export const pushNotif = async (toUid, type, text, refId = null) => {
     if (!toUid || toUid === 'guest') return;
     try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); } catch (e) {}
 };
 
-export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null) => {
+export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null) => {
     const tid = [fromUid, toUid].sort().join('_');
     const key = rkKey(fromUid, toUid);
     const enc = rkEnc(text, key);
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid, unread: { [toUid]: increment(1) } }, { merge: true });
-    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null });
-    pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid);
+    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null, badge: badgeObj || null });
+    // V47: respect recipient's message-notification preference
+    try { const rSnap = await getDoc(doc(db, 'artifacts', appId, 'users', toUid)); if (!rSnap.exists() || rSnap.data().msgNotifs !== false) pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid); }
+    catch (e) { pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid); }
     return tid;
 };
 
@@ -591,7 +656,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                 itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
                 referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
                 referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null
+                isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
             });
 
             if (refUserRef && refUserDoc && refUserDoc.exists()) {
@@ -769,6 +834,22 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
 const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name }) => { const ac = autoComplete || 'off'; const noFill = ac === 'off' ? { autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-form-type': 'other' } : {}; return ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} autoComplete={ac} {...noFill} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input name={name} autoComplete={ac} {...noFill} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> ); };
 
 const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto" onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
+
+// V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
+// and the messenger. Resolves the target's real uid (cards sometimes only have publicUid).
+const AddFriendButton = ({ myProfile, myUid, targetUid, targetName, size = 'sm', className = '' }) => {
+    const [sent, setSent] = useState(false);
+    if (!myUid || !targetUid || targetUid === myUid || (myProfile?.publicUid && targetUid === myProfile.publicUid)) return null;
+    const isFriend = (myProfile?.friends || []).includes(targetUid);
+    const pad = size === 'lg' ? 'text-xs py-1.5 px-3' : 'text-[9px] py-1 px-2';
+    if (isFriend) return <span className={`inline-flex items-center gap-1 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold ${pad} ${className}`}><Users size={size==='lg'?13:10}/> In Tribe</span>;
+    return (
+        <button onClick={async (e) => { e.stopPropagation(); if (sent) return; try { await sendFriendRequest(myUid, myProfile?.displayName || 'Raver', myProfile?.publicUid, targetUid); setSent(true); } catch (err) {} }}
+            className={`inline-flex items-center gap-1 rounded-full font-bold transition active:scale-95 ${sent ? 'bg-white/10 text-white/50' : 'bg-pink-600/30 text-pink-200 border border-pink-400/40 hover:bg-pink-600/50'} ${pad} ${className}`}>
+            <UserPlus size={size==='lg'?13:10}/> {sent ? 'Request Sent' : 'Add to Tribe'}
+        </button>
+    );
+};
 
 // V42.29 Stage A: compact star rating shown above usernames. Reads ratingSum/ratingCount
 // off a user/profile object. Renders nothing if the user has no ratings yet.
@@ -1189,7 +1270,7 @@ const VIPCheckoutForm = ({ user, onClose }) => {
                 <p className="text-sm font-black text-lime-300 uppercase tracking-wide">🎉 Launch Special — VIP is FREE!</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — Global Radio, Custom Themes, Banner Messages and Post Boosts are unlocked for you right now.</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">🪙 Launch perk #2: <strong>seller commission is automatically cut from 20% to just 10%</strong> on every sale for as long as the launch period lasts.</p>
-                <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep Radio, Themes, Banners, Boosts & the Font Selector forever, even after paid plans return. The commission cut applies while launch perks are active.</p>
+                <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep Radio, Themes, Banners, Boosts & the Font Selector forever. Your seller commission is also <strong>locked at 10% for life</strong>, even after launch ends and new sellers move to 20%.</p>
                 <p className="text-[9px] opacity-60">Enjoy the festival! 💖</p>
             </div>
             <Button type="button" onClick={onClose} color="gold" className="w-full">Awesome — Let's Rave!</Button>
@@ -1796,7 +1877,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V42.31.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V48.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -1849,7 +1930,7 @@ const PingBar = ({ show }) => {
     );
 };
 
-const NOTIF_ICONS = { message: Mail, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
+const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
@@ -1864,6 +1945,9 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     const [notifFilter, setNotifFilter] = useState('all');
     const [searchHit, setSearchHit] = useState(null);
     const [sending, setSending] = useState(false);
+    const [threadDoc, setThreadDoc] = useState(null);
+    const [obTick, setObTick] = useState(Date.now());
+    const [showMsgSettings, setShowMsgSettings] = useState(false);
 
     const myUid = user?.uid;
     const otherOf = (t) => (t.participants || []).find(p => p !== myUid) || myUid;
@@ -1875,8 +1959,28 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         const unsub = onSnapshot(q, s => setMsgs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('msgs', e));
         // mark thread read
         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread), { unread: { [myUid]: 0 } }, { merge: true }).catch(()=>{});
-        return () => unsub();
+        // subscribe to the thread doc for obliterate state
+        const unsubDoc = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread), d => setThreadDoc(d.exists() ? { ...d.data(), id: d.id } : null), e => {});
+        return () => { unsub(); unsubDoc(); };
     }, [isOpen, activeThread]);
+
+    // Obliterate countdown ticker + auto-fire when the deadline passes.
+    useEffect(() => {
+        if (!threadDoc?.obliterate?.deadline) return;
+        const iv = setInterval(() => {
+            setObTick(Date.now());
+            if (Date.now() >= threadDoc.obliterate.deadline) { clearInterval(iv); performObliterate(activeThread).then(() => { setActiveThread(null); setActiveOtherUid(null); setThreadDoc(null); }); }
+        }, 1000);
+        return () => clearInterval(iv);
+    }, [threadDoc, activeThread]);
+
+    // If BOTH users have accepted obliterate, fire immediately (don't wait for the timer).
+    useEffect(() => {
+        const ob = threadDoc?.obliterate;
+        if (ob && ob.accepted && activeOtherUid && ob.accepted[myUid] && ob.accepted[activeOtherUid]) {
+            performObliterate(activeThread).then(() => { setActiveThread(null); setActiveOtherUid(null); setThreadDoc(null); });
+        }
+    }, [threadDoc, activeOtherUid]);
 
     // mark notifications read when viewing the alerts tab
     useEffect(() => {
@@ -1924,7 +2028,21 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     if (!isOpen) return null;
 
-    const openThreadWith = (otherUid, otherName) => {
+    const openThreadWith = async (otherUid, otherName) => {
+        // V47: respect the recipient's privacy setting before starting a chat.
+        try {
+            const tSnap = await getDoc(doc(db, 'artifacts', appId, 'users', otherUid));
+            if (tSnap.exists()) {
+                const tp = tSnap.data();
+                const priv = tp.msgPrivacy || 'all';
+                const theyHaveMe = (tp.friends || []).includes(myUid);
+                if (priv === 'none' && !theyHaveMe) { alert('@' + (otherName || 'This raver') + ' isn\'t accepting messages right now.'); return; }
+                if (priv === 'friends' && !theyHaveMe) { alert('@' + (otherName || 'This raver') + ' only accepts messages from their Vibe Tribe. Send a friend request first!'); return; }
+            }
+        } catch (e) {}
+        openThreadResolved(otherUid, otherName);
+    };
+    const openThreadResolved = (otherUid, otherName) => {
         const tid = [myUid, otherUid].sort().join('_');
         setActiveThread(tid); setActiveName(otherName || 'Raver'); setActiveOtherUid(otherUid); setTerm(''); setSearchHit(null);
     };
@@ -1934,7 +2052,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         setSending(true);
         try {
             if (!activeOtherUid) { alert('Could not resolve the recipient — reopen the conversation and try again.'); setSending(false); return; }
-            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim(), profile?.msgTextStyle || profile?.textStyle || null);
+            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim(), profile?.msgTextStyle || profile?.textStyle || null, profile?.featuredBadge || null);
             setInput('');
         } catch (e) { alert('Send failed: ' + e.message); } finally { setSending(false); }
     };
@@ -1966,6 +2084,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     if (sortMode === 'favorites') list = list.filter(t => t.favorites?.[myUid]);
     if (sortMode === 'unread') list = list.filter(t => (t.unread?.[myUid] || 0) > 0);
     if (sortMode === 'read') list = list.filter(t => (t.unread?.[myUid] || 0) === 0);
+    if (sortMode === 'friends') list = list.filter(t => (profile?.friends || []).includes(otherOf(t)));
     list = list.sort((a, b) => ((b.favorites?.[myUid] ? 1 : 0) - (a.favorites?.[myUid] ? 1 : 0)) || ((b.lastAt || 0) - (a.lastAt || 0)));
 
     const visNotifs = notifs.filter(n => (profile?.inAppNotifs?.[n.type] !== false) && (notifFilter === 'all' || n.type === notifFilter));
@@ -1992,18 +2111,41 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                         <div className="flex gap-2 mb-2">
                             <Input value={term} onChange={setTerm} placeholder="Search Friend UID or Username..." className="mb-0 flex-1"/>
                             <Button onClick={() => runSearch(term, true)} color="cyan" className="px-3"><Search size={14}/></Button>
-                            <select value={sortMode} onChange={e => setSortMode(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded">
-                                <option value="recent">Recent</option><option value="favorites">Favorites</option><option value="unread">Unread</option><option value="read">Read</option>
-                            </select>
+                            <button onClick={() => setShowMsgSettings(!showMsgSettings)} className="bg-black border border-white/20 rounded px-2 text-cyan-400" title="Message privacy"><Settings size={14}/></button>
                         </div>
+                        <div className="flex gap-1 mb-2 flex-wrap">
+                            {[{k:'recent',l:'Recent'},{k:'favorites',l:'⭐ Favorites'},{k:'unread',l:'Unread'},{k:'read',l:'Read'},{k:'friends',l:'🤝 Tribe'}].map(f => (
+                                <button key={f.k} onClick={() => setSortMode(f.k)} className={`text-[9px] font-bold px-2 py-1 rounded-full border ${sortMode===f.k ? 'bg-cyan-600 text-black border-cyan-400' : 'bg-white/5 text-white/60 border-white/15'}`}>{f.l}</button>
+                            ))}
+                        </div>
+                        {showMsgSettings && (
+                            <div className="bg-black/60 border border-cyan-500/30 rounded-lg p-3 mb-3 space-y-3">
+                                <p className="text-[10px] font-black uppercase text-cyan-400">Message Privacy</p>
+                                <div>
+                                    <label className="text-[9px] opacity-70 block mb-1">Who can message you?</label>
+                                    <div className="flex gap-1">
+                                        {[{k:'all',l:'Everyone'},{k:'friends',l:'Tribe Only'},{k:'none',l:'No One'}].map(o => (
+                                            <button key={o.k} onClick={() => setDoc(doc(db, 'artifacts', appId, 'users', myUid), { msgPrivacy: o.k }, { merge: true })} className={`flex-1 text-[9px] font-bold py-1.5 rounded border ${(profile?.msgPrivacy||'all')===o.k ? 'bg-pink-600 text-white border-pink-400' : 'bg-white/5 text-white/60 border-white/15'}`}>{o.l}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <label className="flex items-center justify-between text-[10px]"><span>Message notifications</span>
+                                    <button onClick={() => setDoc(doc(db, 'artifacts', appId, 'users', myUid), { msgNotifs: !(profile?.msgNotifs !== false) }, { merge: true })} className={`px-3 py-1 rounded-full text-[9px] font-bold ${profile?.msgNotifs !== false ? 'bg-lime-600 text-black' : 'bg-white/10 text-white/50'}`}>{profile?.msgNotifs !== false ? 'ON' : 'OFF'}</button>
+                                </label>
+                                <p className="text-[8px] opacity-40">Tribe = your Vibe Tribe friends. Blocked senders simply can't open a chat with you.</p>
+                            </div>
+                        )}
                         {searchHit && Array.isArray(searchHit) && (
                             <div className="space-y-1 mb-2">
                                 <p className="text-[8px] uppercase opacity-50">{searchHit.length} matches — tap to message:</p>
                                 {searchHit.map(h => (
-                                    <button key={h.id} onClick={() => openThreadWith(h.id, h.displayName)} className="w-full flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded p-2 text-left">
-                                        <img src={h.photoURL || 'https://placehold.co/40?text=U'} className="w-7 h-7 rounded-full object-cover"/>
-                                        <div className="flex-1 min-w-0"><span className="text-[11px] font-bold block truncate">@{h.displayName}</span><span className="text-[8px] font-mono opacity-50 truncate">{h.publicUid || h.id}</span></div>
-                                    </button>
+                                    <div key={h.id} className="w-full flex items-center gap-2 bg-white/5 border border-white/10 rounded p-2">
+                                        <button onClick={() => openThreadWith(h.id, h.displayName)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                                            <img src={h.photoURL || 'https://placehold.co/40?text=U'} className="w-7 h-7 rounded-full object-cover"/>
+                                            <div className="flex-1 min-w-0"><span className="text-[11px] font-bold block truncate">@{h.displayName}</span><span className="text-[8px] font-mono opacity-50 truncate">{h.publicUid || h.id}</span></div>
+                                        </button>
+                                        <AddFriendButton myProfile={profile} myUid={myUid} targetUid={h.id} targetName={h.displayName} />
+                                    </div>
                                 ))}
                             </div>
                         )}
@@ -2038,14 +2180,32 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                         <div className="flex items-center justify-between mb-2 bg-white/10 rounded-lg p-3 border border-purple-500/30">
                             <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-sm text-cyan-400 font-bold"><ChevronLeft size={20}/> Back</button>
                             <span className="text-base font-black truncate px-2">@{activeName}</span>
-                            <button onClick={delThread} className="text-red-400" title="Delete chat log"><Trash2 size={18}/></button>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button onClick={async () => { if (!threadDoc?.obliterate) { if (window.confirm('💥 OBLITERATE this chat?\n\nA 24-hour countdown starts. If BOTH of you agree, it deletes immediately. If the timer runs out, it deletes anyway — gone forever for both.')) { try { await requestObliterate(activeThread, myUid, activeOtherUid, profile?.displayName); } catch (e) {} } } }} className="text-orange-400 hover:text-orange-300" title="Obliterate chat"><Bomb size={16}/></button>
+                                <button onClick={delThread} className="text-red-400" title="Delete chat log (your side)"><Trash2 size={18}/></button>
+                            </div>
                         </div>
+                        {threadDoc?.obliterate?.deadline && (
+                            <div className="mb-2 bg-orange-950/60 border border-orange-500/50 rounded-lg p-3">
+                                {(() => { const ob = threadDoc.obliterate; const left = Math.max(0, ob.deadline - obTick); const h = Math.floor(left/3600000), m = Math.floor((left%3600000)/60000), s = Math.floor((left%60000)/1000); const iAccepted = ob.accepted?.[myUid]; const theyAccepted = ob.accepted?.[activeOtherUid]; return (
+                                    <div>
+                                        <p className="text-[11px] font-black text-orange-300 flex items-center gap-1"><Bomb size={12}/> OBLITERATE PENDING — self-destruct in {h}h {m}m {s}s</p>
+                                        <p className="text-[9px] text-orange-100 mt-1">{iAccepted ? '✅ You agreed.' : '⏳ You haven\'t agreed yet.'} {theyAccepted ? '✅ They agreed.' : '⏳ Waiting on them.'} If the timer ends, this chat deletes regardless.</p>
+                                        <div className="flex gap-2 mt-2">
+                                            {!iAccepted && <button onClick={() => acceptObliterate(activeThread, myUid)} className="text-[10px] font-bold bg-orange-600/50 text-orange-100 border border-orange-400/50 rounded px-3 py-1">Agree to Obliterate</button>}
+                                            <button onClick={() => cancelObliterate(activeThread)} className="text-[10px] font-bold bg-white/10 text-white/70 rounded px-3 py-1">Cancel</button>
+                                        </div>
+                                    </div>
+                                ); })()}
+                            </div>
+                        )}
                         <div className="h-[55vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col">
                             {msgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi! 👋</p>}
                             {msgs.map(m => {
                                 const mine = m.sender === myUid;
                                 return (
                                     <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
+                                        {!mine && m.badge && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className="text-[10px] font-bold text-pink-300">@{activeName}</span><BadgeChip badge={m.badge} /></div>}
                                         <div className={`px-4 py-2.5 rounded-2xl text-sm relative group leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}>
                                             <p className={"whitespace-pre-wrap break-words " + getUserTextStyle(m.ts).className} style={getUserTextStyle(m.ts).style}>{rkDec(m.text, threadKey)}</p>
                                             {mine && <button onClick={() => delMsg(m)} className="absolute -left-6 top-2 text-red-400 opacity-40 hover:opacity-100"><Trash size={14}/></button>}
@@ -2079,6 +2239,12 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                         <div className="flex-1 min-w-0">
                                             <p className="text-[11px] text-gray-100 break-words">{n.text}</p>
                                             <p className="text-[8px] opacity-40">{new Date(n.at).toLocaleString()}</p>
+                                            {n.type === 'friendreq' && n.refId && !(profile?.friends || []).includes(n.refId) && (
+                                                <div className="flex gap-2 mt-1">
+                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); await sendFriendRequest(myUid, profile?.displayName || 'Raver', profile?.publicUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your Vibe Tribe request!', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
+                                                </div>
+                                            )}
+                                            {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[8px] text-lime-400 mt-0.5">✅ In your Vibe Tribe</p>}
                                         </div>
                                     </div>
                                 );
@@ -2591,7 +2757,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose }) => {
                 
                 if (referrerUid) {
                     const sellerSnap = await getDoc(sellerRef);
-                    const sellerRate = effCommissionRate(sellerSnap.data()?.customCommissionRate);
+                    const sellerRate = effCommissionRate(sellerSnap.data()?.customCommissionRate, sellerSnap.data()?.lockedCommissionRate);
                     const appCommission = item.price * sellerRate;
                     
                     const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
@@ -3841,9 +4007,35 @@ const AdminDashboard = ({ user, profile }) => {
     );
 };
 
+const HubHelpModal = ({ isOpen, onClose }) => {
+    if (!isOpen) return null;
+    const sections = [
+        { t: '📦 What is the Inventory Hub?', d: "It's your private stock manager as a Creator. Log every material and finished item you have on hand — beads, fabrics, charms, clothing, plushies, trinkets, and more. Nothing here is auto-listed for sale; it's your behind-the-scenes catalog." },
+        { t: '🎨 Powers the DIY Builder', d: "Items you stock here become selectable parts in the DIY builder, so when a customer designs a custom piece they can pick from what you actually have. Keeping your hub current means more accurate custom requests and fewer 'out of stock' surprises." },
+        { t: '🏷️ Adding an item', d: "Pick a Type (e.g. Fabric, Bead, Clothing), then a Sub-Type (e.g. Spandex, Pony, Bucket Hat), a Size, and enter Quantity, your Cost (what you paid), and Sell price. Add a photo or link and a description. Tap 'Add to Stock'." },
+        { t: '💰 Cost vs. profit assessment', d: "As you type Cost and Sell, the hub shows your Estimated Unit Profit — that's your sell price minus your cost minus the platform commission. Use it to price items so you actually make money and stay ahead of your expenses." },
+        { t: '📐 Types & sub-types', d: "Types include Beads, String/Cord, Charms, Fabric (with breakdowns like cotton, spandex, mesh, velvet, sequin, holographic, faux fur…), Clothing, Hats/Headwear, Accessories, Plushies/Toys, Trinkets, and Supplies. Pick the closest match, or use Other → Custom." },
+        { t: '🔢 Managing quantity', d: "Set the quantity you have. As you build pieces and use materials, update the hub so your stock and DIY availability stay accurate." },
+        { t: '🧮 Why track cost?', d: "Logging what you paid per item lets the hub compute real margins. Over time this helps you see which items are profitable, which to reorder, and how to price custom work fairly." },
+    ];
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="📦 Inventory Hub — Help">
+            <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+                {sections.map((s, i) => (
+                    <div key={i} className="bg-white/5 border border-white/10 rounded-lg p-3">
+                        <p className="font-bold text-sm text-cyan-300 mb-1">{s.t}</p>
+                        <p className="text-[11px] text-gray-100 leading-relaxed">{s.d}</p>
+                    </div>
+                ))}
+            </div>
+        </Modal>
+    );
+};
+
 const InventoryManager = ({ user, profile }) => {
     const [target, setTarget] = useState('user');
     const [targetUid, setTargetUid] = useState(user?.uid || '');
+    const [hubHelp, setHubHelp] = useState(false);
     const [newItem, setNewItem] = useState({ type: 'Bead', subType: 'Pony', size: 'M', cost: '', sell: '', quantity: '', description: '', image: null, imageUrl: '' });
     
     const handleAdd = async () => {
@@ -3861,7 +4053,11 @@ const InventoryManager = ({ user, profile }) => {
     
     return ( 
         <Card className="mt-8 border-cyan-500/40">
-            <h3 className="font-bold text-cyan-400 mb-4 flex justify-between items-center">Inventory Hub <HelpCircle size={16}/></h3>
+            <h3 className="font-bold text-cyan-400 mb-2 flex justify-between items-center">Inventory Hub <button onClick={() => setHubHelp(true)} className="text-cyan-400 hover:text-cyan-200 flex items-center gap-1" title="How the Inventory Hub works"><HelpCircle size={18}/><span className="text-[10px] font-bold">HELP</span></button></h3>
+            <div className="bg-cyan-900/20 border border-cyan-500/30 rounded-lg p-3 mb-4">
+                <p className="text-[11px] text-cyan-100 leading-relaxed">📦 <strong>The Inventory Hub is for Creators.</strong> Add the materials & items you stock here so they appear in the <strong>DIY builder</strong> for customers to choose from, to <strong>manage your stock</strong>, and to <strong>assess cost vs. profit</strong> — the hub calculates your margin per item (after commission) so you can price smart and stay ahead.</p>
+            </div>
+            <HubHelpModal isOpen={hubHelp} onClose={() => setHubHelp(false)} />
             {profile.isAdmin && <div className="grid grid-cols-2 gap-2 mb-4"><select value={target} onChange={e=>setTarget(e.target.value)} className="bg-black border border-white/20 text-xs p-2 rounded"><option value="diy">DIY Stock</option><option value="user">User Stock</option></select><input value={targetUid} onChange={e=>setTargetUid(e.target.value)} placeholder="Target UID" className="bg-black border border-white/20 text-xs p-2 rounded"/></div>}
             <div className="grid grid-cols-3 gap-2"><Input label="Type" type="select" options={Object.keys(ITEM_CATEGORIES)} value={newItem.type} onChange={v => setNewItem({...newItem, type: v, subType: ITEM_CATEGORIES[v][0]})}/><Input label="Sub-Type" type="select" options={ITEM_CATEGORIES[newItem.type]||['Custom']} value={newItem.subType} onChange={v => setNewItem({...newItem, subType: v})}/><Input label="Size" type="select" options={ITEM_SIZES} value={newItem.size} onChange={v => setNewItem({...newItem, size: v})}/></div>
             <div className="grid grid-cols-3 gap-2"><Input label="Qty" type="number" value={newItem.quantity} onChange={v => setNewItem({...newItem, quantity: v})}/><Input label="Cost" type="number" value={newItem.cost} onChange={v => setNewItem({...newItem, cost: v})}/><Input label="Sell" type="number" value={newItem.sell} onChange={v => setNewItem({...newItem, sell: v})}/></div>
@@ -3965,7 +4161,7 @@ const CreatorProjectHub = ({ user, onClose }) => {
 const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     if (!isOpen) return null;
     const refStats = getReferralTier(profile.referrals || 0);
-    const activeCommRate = effCommissionRate(profile.customCommissionRate);
+    const activeCommRate = effCommissionRate(profile.customCommissionRate, profile.lockedCommissionRate);
     
     const totalRevenue = profile.totalSalesValue || 0;
     const totalFees = totalRevenue * activeCommRate;
@@ -4174,7 +4370,7 @@ const PinSelectModal = ({ user, isOpen, onClose }) => {
     );
 };
 
-const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
+const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }) => {
     const [targ, setTarg] = useState(null);
     const [errMsg, setErrMsg] = useState('');
     const [pinnedItems, setPinnedItems] = useState([]);
@@ -4294,6 +4490,7 @@ const PublicProfilePage = ({ uid, viewerUid, onClose, onMessage }) => {
                             <div className="flex gap-2 mt-4 justify-center md:justify-start">
                                 <button onClick={() => setShowCollection(true)} className="rk-shimmer-border flex-1 text-xs flex justify-center items-center gap-2 py-2 rounded-lg font-bold active:scale-95"><Package size={14}/> Collection</button>
                                 {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
+                                {!isSelf && <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="flex-1 justify-center" />}
                             </div>
                         </div>
                     </div>
@@ -4708,7 +4905,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V42.31.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V48.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5039,6 +5236,20 @@ const App = () => {
             .catch(() => {});
     }, [user, profile?.joined, profile?.isVIP, profile?.lifetimeVipGranted]);
 
+    // V47 Stage E: PERMANENT launch commission lock-in. While Launch Perks are ON, lock every
+    // active user to a 10% (or lower, if they have a better custom rate) commission FOREVER.
+    // Writing lockedCommissionRate means turning perks OFF later keeps launch users at 10%,
+    // while users who join AFTER perks are off get no lock and pay the standard 20%.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        if (!RK_CFG.launchPerks) return;                 // only lock in during the launch period
+        if (profile.commissionLockedIn) return;          // already locked
+        const lockRate = Math.min(0.10, (profile.customCommissionRate !== null && profile.customCommissionRate !== undefined) ? profile.customCommissionRate : 0.10);
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { lockedCommissionRate: lockRate, commissionLockedIn: true, commissionLockedAt: Date.now() }, { merge: true })
+            .then(() => pushNotif(user.uid, 'admin', '🔒 Early Adopter perk: your seller commission is now LOCKED at ' + (lockRate * 100).toFixed(0) + '% forever — even after launch ends and new sellers move to 20%. PLUR! 💖'))
+            .catch(() => {});
+    }, [user, profile?.joined, profile?.commissionLockedIn]);
+
     // V37.13: Crowned Creator — permanent unlock when you hit #1 on Creator Points
     useEffect(() => {
         if (!user?.uid || !topStats.creator) return;
@@ -5124,11 +5335,11 @@ const App = () => {
     const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
     const mqCommission = mqTotalSales * effCommissionRate(null);
     const topPoster = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) { c[i.ownerName] = c[i.ownerName] || { n: 0, uid: i.ownerPublicUid || i.ownerId }; c[i.ownerName].n++; } }); const e = Object.entries(c).sort((a, b) => b[1].n - a[1].n)[0]; return e ? { name: e[0], n: e[1].n, uid: e[1].uid } : null; })();
-    const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY'];
+    const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY', '💞🔆 SPREAD THE PLUR', '🎶🌟 LOST IN THE MUSIC', '🤝✨ HANDSHAKE = NEW FAMILY', '🌈🦋 STAY KANDi, STAY KIND', '🔥💃 MELT INTO THE BEAT', '🫂💖 HUG A RAVER TODAY', '⚡🧡 ENERGY NEVER DIES', '🪩💫 ONE LOVE, ONE DANCEFLOOR', '🌸🎀 KANDI KID FOREVER', '🛸💚 VIBE TRIBE ASSEMBLE', '🎆🌀 FEEL THE FREQUENCY', '💜🔊 BASS IN YOUR HEART'];
     const plurLine = (() => {
-        const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam'];
-        const B = ['recharges', 'heals', 'uplifts', 'connects', 'electrifies', 'glows through', 'amplifies', 'protects', 'inspires', 'unites'];
-        const C = ['the dancefloor', 'every raver', 'your crew', 'the night', 'the universe', 'all of us', 'strangers into family', 'the main stage', 'your spirit', 'the kandi kids'];
+        const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam', 'Kindness', 'The melody', 'Pure joy', 'The drop', 'Your energy', 'The afterglow', 'Festival magic', 'The rhythm', 'Every heartbeat', 'The light show'];
+        const B = ['recharges', 'heals', 'uplifts', 'connects', 'electrifies', 'glows through', 'amplifies', 'protects', 'inspires', 'unites', 'lifts up', 'carries', 'celebrates', 'embraces', 'awakens', 'ignites', 'soothes', 'empowers', 'flows through', 'illuminates'];
+        const C = ['the dancefloor', 'every raver', 'your crew', 'the night', 'the universe', 'all of us', 'strangers into family', 'the main stage', 'your spirit', 'the kandi kids', 'the whole crowd', 'this moment', 'the sunrise set', 'your festival fam', 'the bass heads', 'the glow sticks', 'the trade circle', 'the wandering souls', 'the front row', 'the silent disco'];
         const E = ['💖', '🌈', '✨', '⚡', '🪩', '🫶', '🔮', '🌀'];
         const s = Math.floor(Date.now() / 600000);
         return E[s % E.length] + ' ' + A[s % A.length].toUpperCase() + ' ' + B[(s * 7 + 3) % B.length].toUpperCase() + ' ' + C[(s * 13 + 5) % C.length].toUpperCase() + ' ' + E[(s * 3 + 1) % E.length];
@@ -5155,6 +5366,12 @@ const App = () => {
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
         { t: '💖 PLUR FACT: Handshakes end with a trade! 💖' },
+        { t: '🤝 PLUR FACT: Peace, Love, Unity & Respect — the rave code 🤝' },
+        { t: '🌈 PLUR TIP: Check on the raver sitting alone — make a friend 🌈' },
+        { t: '💧 STAY HYDRATED & LOOK OUT FOR YOUR CREW 💧' },
+        { t: '🫶 KINDNESS IS THE BEST ACCESSORY 🫶' },
+        { t: '✨ TRADE KANDI, TRADE LOVE, NEVER TRADE YOUR SAFETY ✨' },
+        { t: '🦋 BE SOMEONE\'S REASON TO SMILE TONIGHT 🦋' },
     ].filter(Boolean);
 
     // V37.14: boosted posts — pinned to the top 5 feed slots during their hour window
@@ -5175,7 +5392,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V42.31.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V48.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5198,7 +5415,7 @@ cat << 'EOF' >> src/App.js
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
             <WelcomeAlphaModal />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
-            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
+            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
@@ -5379,7 +5596,7 @@ cat << 'EOF' >> src/App.js
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                     <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}</div>
+                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                         <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                         <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
@@ -5403,7 +5620,7 @@ cat << 'EOF' >> src/App.js
                                     <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                         <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}</div>
+                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                             <p className="text-[9px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                             <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         </div>
@@ -5441,7 +5658,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V42.31.00 Phase 33: Admin Moderation at Source + Find Users (Stage C)</span>
+                    <span className="flex-1 text-center">V48.00.00 Phase 36: Vibe Tribe + Messenger Privacy/Obliterate</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -5636,9 +5853,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V42.31.00)..."
-sed -i "s/versionCode 1/versionCode 90/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "42.31.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V48.00.00)..."
+sed -i "s/versionCode 1/versionCode 93/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "48.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -5685,7 +5902,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V42_31_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V48_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
