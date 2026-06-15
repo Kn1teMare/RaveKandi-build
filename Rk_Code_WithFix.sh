@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V52.00.04 Build Script Starting"
+echo " RaveKandi V52.01.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V52.00.04</title>
+    <title>RaveKandi V52.01.01</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.04'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.01.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -305,7 +305,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '52.00.04';
+const APP_VERSION = '52.01.01';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1003,7 +1003,8 @@ const UsernameModal = ({ user, profile, isOpen, onClose }) => {
     const daysLeft = Math.ceil((lastChange + (30 * 24 * 60 * 60 * 1000) - Date.now()) / (1000 * 60 * 60 * 24));
     
     const sub = async () => { 
-        if(!u || u.length < 3) return alert("Min 3 characters");
+        const nu = (u || '').trim();
+        if(!nu || nu.length < 3) return alert("Min 3 characters");
         setLoading(true);
         try {
             let newChangesLeft = changesLeft;
@@ -1011,33 +1012,61 @@ const UsernameModal = ({ user, profile, isOpen, onClose }) => {
             if(changesLeft > 0) { newChangesLeft -= 1; if(newChangesLeft === 0) newLastChange = Date.now(); } 
             else if (cooldownOver) { newLastChange = Date.now(); }
 
-            const newPastNames = [...pastNames, profile.displayName];
-            const batch = writeBatch(db);
+            // V52.0.6: STEP 1 — save the user's OWN name first, on its own, with zero chance
+            // of an undefined value. If the account never had a displayName (a broken-signup
+            // account), the submitted name simply BECOMES the original — nothing is pushed to
+            // history. Every field is coerced to a safe value.
+            const hadName = profile && profile.displayName != null && profile.displayName !== '';
+            const safePast = (pastNames || []).filter(n => n != null && n !== '');
+            const newPastNames = hadName ? [...safePast, profile.displayName] : safePast; // no undefined ever
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
-            batch.update(userRef, { displayName: u, usernameChangesLeft: newChangesLeft, lastUsernameChange: newLastChange, pastUsernames: newPastNames });
-            
-            const qTradeAll = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
-            const allPosts = await getDocs(qTradeAll);
-            allPosts.forEach(docSnap => {
-                const data = docSnap.data();
-                let changed = false;
-                let updatedComments = data.comments || [];
-                if (updatedComments.some(c => c.uid === user.uid || c.uid === profile?.publicUid)) {
-                    updatedComments = updatedComments.map(c => (c.uid === user.uid || c.uid === profile?.publicUid) ? { ...c, user: u } : c);
-                    changed = true;
-                }
-                if (data.ownerId === user.uid) changed = true;
-                if (changed) {
-                    batch.update(docSnap.ref, { ...(data.ownerId === user.uid ? { ownerName: u } : {}), comments: updatedComments });
-                }
-            });
+            await setDoc(userRef, {
+                displayName: nu,
+                usernameChangesLeft: (newChangesLeft == null ? 3 : newChangesLeft),
+                lastUsernameChange: (newLastChange == null ? 0 : newLastChange),
+                pastUsernames: newPastNames,
+                publicUid: profile?.publicUid || user.uid
+            }, { merge: true });
 
-            const qInv = query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
-            const invs = await getDocs(qInv);
-            invs.forEach(doc => { batch.update(doc.ref, { ownerName: u }); });
+            // STEP 2 — best-effort cross-app sync (posts, comments, inventory). Sanitized so
+            // no undefined can reach Firestore; wrapped so a failure here can NEVER undo the
+            // name change that already succeeded above.
+            try {
+                const batch = writeBatch(db);
+                let writes = 0;
+                const allPosts = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems')));
+                allPosts.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const isOwner = data.ownerId === user.uid;
+                    const rawComments = Array.isArray(data.comments) ? data.comments : [];
+                    const hasMyComment = rawComments.some(c => c && (c.uid === user.uid || c.uid === profile?.publicUid));
+                    if (!isOwner && !hasMyComment) return;
+                    const upd = {};
+                    if (isOwner) upd.ownerName = nu;
+                    if (hasMyComment) {
+                        // rebuild comments with sanitized objects (no undefined keys)
+                        upd.comments = rawComments.map(c => {
+                            if (!c) return c;
+                            const isMine = c.uid === user.uid || c.uid === profile?.publicUid;
+                            const safe = {
+                                uid: c.uid ?? null,
+                                user: isMine ? nu : (c.user ?? 'Raver'),
+                                text: c.text ?? '',
+                                time: c.time ?? Date.now()
+                            };
+                            if (c.badge != null) safe.badge = c.badge;
+                            if (c.ts != null) safe.ts = c.ts;
+                            return safe;
+                        });
+                    }
+                    batch.update(docSnap.ref, upd); writes++;
+                });
+                const invs = await getDocs(query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory')));
+                invs.forEach(d => { batch.update(d.ref, { ownerName: nu }); writes++; });
+                if (writes > 0) await batch.commit();
+            } catch (syncErr) { console.log('username cross-sync skipped:', syncErr); }
 
-            await batch.commit();
-            alert("Username synced across the app!"); 
+            alert("Username updated" + (hadName ? " and synced across the app!" : "! Welcome to RaveKandi 🌈")); 
             onClose();
         } catch(e) { alert("Error updating username: " + e.message); } finally { setLoading(false); }
     };
@@ -1922,7 +1951,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.04'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.01.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3786,6 +3815,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
     const [searchUid, setSearchUid] = useState('');
     const [managedUser, setManagedUser] = useState(null);
     const [revPct, setRevPct] = useState('');
+    const [commInput, setCommInput] = useState('');
     const [forceBadgeId, setForceBadgeId] = useState('');
     const [statEdits, setStatEdits] = useState({});
     const [batchRate, setBatchRate] = useState('');
@@ -3903,6 +3933,25 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             setBatchRate('');
         } catch (e) { alert('Batch failed: ' + e.message); } finally { setBatchBusy(false); }
     };
+    const saveCommission = async (val) => {
+        if (!managedUser) { alert("Find & select a user first (search above or use the directory)."); return; }
+        try {
+            if (val === null || val === '' || val === undefined) {
+                await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { customCommissionRate: null }, { merge: true });
+                alert('Commission override removed for @' + (managedUser.displayName || 'user') + ' — they now use the standard rate.');
+            } else {
+                let rate = parseFloat(val);
+                if (isNaN(rate)) { alert("Enter a number, e.g. 0.10 for 10%."); return; }
+                if (rate > 1) rate = rate / 100; // allow "10" to mean 10%
+                rate = Math.max(0, Math.min(1, rate));
+                await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { customCommissionRate: rate }, { merge: true });
+                alert('Commission for @' + (managedUser.displayName || 'user') + ' set to ' + (rate * 100).toFixed(0) + '%.');
+            }
+            setManagedUser({ ...managedUser, customCommissionRate: (val === null || val === '') ? null : (parseFloat(val) > 1 ? parseFloat(val)/100 : parseFloat(val)) });
+            setCommInput('');
+        } catch (e) { alert("Couldn't set commission: " + e.message); }
+    };
+
     const saveRevShare = async (val) => {
         if (!managedUser) return;
         const pct = val === null || val === '' ? null : Math.min(100, Math.max(0, parseFloat(val)));
@@ -3995,6 +4044,24 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                 <Button onClick={() => saveRevShare(null)} color="accent" className="text-[10px]">Reset</Button>
                             </div>
                             {managedUser.customRevSharePct != null && <p className="text-[8px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces tier rate on all future RevShare payouts.</p>}
+
+                            <div className="mt-3 pt-3 border-t border-white/10">
+                                <p className="text-[9px] font-black uppercase text-pink-300 mb-1">Seller Commission Rate</p>
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    <select value={commInput} onChange={e => setCommInput(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1 min-w-[90px]">
+                                        <option value="">— Quick set —</option>
+                                        <option value="0">0% (free)</option>
+                                        <option value="0.05">5%</option>
+                                        <option value="0.10">10%</option>
+                                        <option value="0.15">15%</option>
+                                        <option value="0.20">20% (standard)</option>
+                                    </select>
+                                    <input value={commInput} onChange={e => setCommInput(e.target.value)} type="number" step="0.01" min="0" max="1" placeholder="0.10" className="bg-black border border-white/20 text-[10px] p-2 rounded w-20"/>
+                                    <Button onClick={() => saveCommission(commInput)} color="lime" className="text-[10px]">Set</Button>
+                                    <Button onClick={() => saveCommission(null)} color="accent" className="text-[10px]">Reset</Button>
+                                </div>
+                                <p className="text-[8px] opacity-50 mt-1">Current: {managedUser.customCommissionRate != null ? (managedUser.customCommissionRate * 100).toFixed(0) + '% (override)' : 'standard 20%'}{managedUser.lockedCommissionRate != null ? ' · 🔒 launch-locked at ' + (managedUser.lockedCommissionRate * 100).toFixed(0) + '%' : ''}. Enter 0.10 for 10% (or just 10).</p>
+                            </div>
                         </div>
                         <div>
                             <p className="text-[9px] font-bold text-red-400 uppercase mb-1">Account Bans</p>
@@ -4054,8 +4121,8 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             <div className="bg-white/5 p-3 rounded mb-4 border border-white/10">
                 <h4 className="text-[10px] uppercase font-bold text-red-400 mb-2">Custom Fee Overrides</h4>
                 <div className="flex gap-2">
-                    <Input value={targetUid} onChange={setTargetUid} placeholder="Target UID" className="mb-0 flex-1" />
-                    <Input value={customRate} onChange={setCustomRate} type="number" placeholder="Rate (e.g. 0.10)" className="mb-0 w-24" />
+                    <Input value={targetUid} onChange={setTargetUid} placeholder="Legacy: exact doc-ID only" className="mb-0 flex-1" />
+                    <Input value={customRate} onChange={setCustomRate} type="number" placeholder="0.10" className="mb-0 w-24" />
                     <Button onClick={setCommRate} color="red" className="text-[10px]">Set</Button>
                 </div>
                 <p className="text-[8px] opacity-50 mt-1">Default rate is 0.20. Lowering this overrides the app's cut for specific promoters.</p>
@@ -4605,9 +4672,9 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
 
                             <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full"><div onClick={() => { try { navigator.clipboard.writeText(targ.publicUid || targ.id); alert('Friend UID copied!'); } catch (e) {} }} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-sm w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{targ.publicUid || targ.id}</span> <Copy size={11} className="inline ml-1 text-cyan-400"/></div></div>
 
-                            <div className="bg-white/5 p-3 rounded text-base relative border border-white/10 flex items-start min-h-[64px]">
-                                {!targ.bio && <span className="text-xs uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
-<p className={"opacity-80 italic flex-1 break-words " + getUserTextStyle(targ.textStyle).className} style={getUserTextStyle(targ.textStyle).style}>{targ.bio || "No vibe check yet."}</p>
+                            <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-cyan-500/10 p-4 rounded-xl text-lg relative border-2 border-pink-500/40 flex items-start min-h-[72px] shadow-[0_0_15px_rgba(255,80,180,0.15)]">
+                                {!targ.bio && <span className="text-xs uppercase font-bold opacity-40 mr-2 select-none self-center">BIO</span>}
+<p className={"opacity-90 italic flex-1 break-words leading-relaxed " + getUserTextStyle(targ.textStyle).className} style={getUserTextStyle(targ.textStyle).style}>{targ.bio || "No vibe check yet."}</p>
                             </div>
 
                             <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
@@ -4882,9 +4949,9 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
 
                         <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={() => setShowRevShare(true)}><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{profile.publicUid || user.uid}</span> <Share2 size={10} className="inline ml-2 text-cyan-400"/> <span className="text-[8px] text-cyan-400 uppercase font-bold ml-1">RevShare</span></div></div>
                         
-                        <div className="bg-white/5 p-3 rounded text-sm relative border border-white/10 flex items-start min-h-[60px]" onClick={()=>setModals({...modals, bio:true})}>
-                            {!profile.bio && <span className="text-[10px] uppercase font-bold opacity-30 mr-2 select-none">BIO</span>}
-<p className={"opacity-80 italic flex-1 " + getUserTextStyle(profile.textStyle).className} style={getUserTextStyle(profile.textStyle).style}>{profile.bio || "No vibe check yet."}</p>
+                        <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-cyan-500/10 p-4 rounded-xl text-lg relative border-2 border-pink-500/40 flex items-start min-h-[72px] cursor-pointer hover:border-pink-400/70 transition-colors shadow-[0_0_15px_rgba(255,80,180,0.15)]" onClick={()=>setModals({...modals, bio:true})}>
+                            {!profile.bio && <span className="text-xs uppercase font-bold opacity-40 mr-2 select-none self-center">✎ BIO</span>}
+<p className={"opacity-90 italic flex-1 leading-relaxed " + getUserTextStyle(profile.textStyle).className} style={getUserTextStyle(profile.textStyle).style}>{profile.bio || "Tap to add your vibe check..."}</p>
                         </div>
 
                         <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
@@ -5025,16 +5092,16 @@ const AuthScreen = ({ setLoadMsg }) => {
         } catch(e) {
             const code = e?.code || '';
             if (code === 'auth/invalid-login-credentials' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-                // Figure out whether the email even has an account, to give the right advice.
-                let methods = [];
-                try { methods = await fetchSignInMethodsForEmail(auth, cleanEmail); } catch (fe) {}
-                if (methods.length === 0) {
-                    if (window.confirm("We couldn't find an account with that email & password.\n\nThis email isn't registered yet — would you like to create an account now?")) { setIsReg(true); }
-                } else if (methods.includes('google.com') || methods.includes('apple.com') || methods.includes('twitter.com')) {
-                    alert("This email is registered through a social login (Google/Apple/X). Tap one of the 'Continue with…' buttons below instead of using a password.");
-                } else {
-                    if (window.confirm("That password doesn't match this account.\n\nIf you forgot it (or your saved password is wrong), would you like a reset link emailed to you?")) { doPasswordReset(cleanEmail); }
-                }
+                // Firebase's Email-Enumeration Protection makes fetchSignInMethodsForEmail
+                // unreliable, so we DON'T guess registration from it. Most "wrong password
+                // but I know it's right" cases are accounts created via Google (no password
+                // exists). Offer the two real fixes: try Google, or reset the password.
+                const choice = window.prompt(
+                    "Login failed for " + cleanEmail + ".\n\nMost often this means:\n• Your account was created with GOOGLE (so it has no password) — close this and tap \"Continue with Google\".\n• Or the password is wrong / autofilled incorrectly.\n\nType:\n  R  → email me a password-reset link\n  G  → I'll use Google instead\n  (or Cancel)",
+                    ""
+                );
+                if (choice && choice.trim().toUpperCase() === 'R') { doPasswordReset(cleanEmail); }
+                else if (choice && choice.trim().toUpperCase() === 'G') { socialAuth('google'); }
             }
             else if (code === 'auth/email-already-in-use') { if (window.confirm("That email is already registered. Would you like to log in instead?")) { setIsReg(false); } }
             else if (code === 'auth/invalid-email') { alert("That doesn't look like a valid email address. Please check it and try again."); }
@@ -5104,7 +5171,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.04</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.01.01</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5606,7 +5673,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.04</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V52.01.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5872,7 +5939,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V52.00.04 Phase 40: Google Login Popup Fix (no redirect crash)</span>
+                    <span className="flex-1 text-center">V52.01.01 Phase 41: Username Bulletproof + Bigger Bio</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6067,9 +6134,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V52.00.04)..."
-sed -i "s/versionCode 1/versionCode 102/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "52.00.04"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V52.01.01)..."
+sed -i "s/versionCode 1/versionCode 104/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "52.01.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6116,7 +6183,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V52_00_04_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V52_01_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
