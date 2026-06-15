@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V52.00.03 Build Script Starting"
+echo " RaveKandi V52.00.04 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V52.00.03</title>
+    <title>RaveKandi V52.00.04</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.03'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.00.04'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -305,7 +305,7 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '52.00.03';
+const APP_VERSION = '52.00.04';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1922,7 +1922,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.03'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.00.04'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -4985,7 +4985,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             localStorage.removeItem('rk_auth_pass');
         } catch (e) { /* in-app browsers may block storage — harmless */ }
         // Complete any social sign-in that used the redirect flow (in-app browsers).
-        getRedirectResult(auth).catch((e) => { if (e && e.code && e.code !== 'auth/no-auth-event') console.log('redirect result:', e.code); });
+        getRedirectResult(auth).catch(() => { /* redirect no longer used; swallow any stale pending-redirect error silently */ });
     }, []);
     const isInAppBrowser = (() => { try { return /Instagram|FBAN|FBAV|Messenger|TikTok|Line|Snapchat|Pinterest/i.test(navigator.userAgent || ''); } catch (e) { return false; } })();
 
@@ -5069,7 +5069,6 @@ const AuthScreen = ({ setLoadMsg }) => {
 
     const socialAuth = async (providerName) => {
         setLoading(true); setLoadMsg("Connecting...");
-        // Build the provider fresh each time.
         let provider;
         if (providerName === 'google') { provider = new GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' }); }
         else if (providerName === 'apple') { provider = new OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name'); }
@@ -5078,23 +5077,25 @@ const AuthScreen = ({ setLoadMsg }) => {
         try {
             await safeSetPersistence(rememberMe);
             try { if (refCode) localStorage.setItem('pending_ref_code', refCode); } catch (e) {}
-            // Detect in-app browsers (Instagram, Messenger, TikTok, etc.) where popups are
-            // blocked — go straight to redirect there, which is reliable on iOS & Android.
-            const ua = navigator.userAgent || '';
-            const inApp = /Instagram|FBAN|FBAV|Messenger|TikTok|Line|Twitter|Snapchat|Pinterest/i.test(ua);
-            if (inApp) { await signInWithRedirect(auth, provider); return; }
-            try {
-                await signInWithPopup(auth, provider);
-            } catch (popupErr) {
-                // Popup blocked/closed → fall back to full-page redirect.
-                if (popupErr && (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user' || popupErr.code === 'auth/cancelled-popup-request' || popupErr.code === 'auth/operation-not-supported-in-this-environment')) {
-                    await signInWithRedirect(auth, provider); return;
-                }
-                throw popupErr;
-            }
+            // V52.0.4: ALWAYS use a popup. signInWithRedirect routes through
+            // ravekandi.firebaseapp.com and fails in storage-partitioned browsers (Chrome,
+            // Android webviews, in-app browsers) with a blank "missing initial state" page.
+            // Popups complete on this same origin and avoid that entirely.
+            await signInWithPopup(auth, provider);
+            // (Success is also picked up by onAuthStateChanged, which creates the profile.)
         } catch (e) {
-            if (e && e.code === 'auth/account-exists-with-different-credential') alert("You've already signed up using a different method for this email. Try logging in with that one.");
-            else if (e && e.code !== 'auth/popup-closed-by-user') alert("Sign-in couldn't complete: " + (e.message || e.code || 'unknown error'));
+            const code = e?.code || '';
+            if (code === 'auth/account-exists-with-different-credential') {
+                alert("This email is already registered with a different sign-in method. Try that one (or email/password).");
+            } else if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
+                alert("Your browser blocked the sign-in popup. Please allow popups for this site and try again — or use email & password above.");
+            } else if (code === 'auth/cancelled-popup-request' || code === 'auth/popup-closed-by-user') {
+                // user closed it — no message needed
+            } else if (code === 'auth/unauthorized-domain') {
+                alert("This site isn't yet authorized for Google sign-in. (Admin: add the domain in Firebase Auth settings.) Please use email & password for now.");
+            } else {
+                alert("Sign-in couldn't complete: " + (e.message || code || 'unknown error'));
+            }
         } finally { setLoading(false); }
     };
 
@@ -5103,7 +5104,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.03</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.00.04</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5125,7 +5126,7 @@ const AuthScreen = ({ setLoadMsg }) => {
                 <button onClick={() => setIsReg(!isReg)} className="text-xs text-cyan-400 w-full text-center hover:underline mb-6">{isReg ? "Already have an account? Log In" : "Need an account? Sign Up"}</button>
                 
                 <div className="border-t border-white/20 pt-4 mb-4">
-                    {isInAppBrowser && <div className="bg-amber-900/30 border border-amber-500/40 rounded-lg p-2 mb-3"><p className="text-[9px] text-amber-200 leading-relaxed">📱 You're in Instagram's in-app browser. If email/password gives you trouble here, use <strong>"Continue with Google"</strong> below, or tap the <strong>⋯ menu → "Open in Chrome/Safari"</strong> for the smoothest experience.</p></div>}
+                    {isInAppBrowser && <div className="bg-amber-900/30 border border-amber-500/40 rounded-lg p-2 mb-3"><p className="text-[9px] text-amber-200 leading-relaxed">📱 You're in an in-app browser (e.g. Instagram). For the smoothest sign-in, tap the <strong>⋯ menu → "Open in Chrome/Safari"</strong> and sign in there. Email &amp; password and Google sign-in both work best in a full browser.</p></div>}
                     <p className="text-[10px] text-center opacity-50 mb-3 uppercase tracking-widest">Or {isReg ? 'sign up' : 'log in'} instantly with</p>
                     <div className="space-y-2">
                         <button onClick={() => socialAuth('google')} disabled={loading} className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 rounded-lg flex items-center justify-center gap-3 transition active:scale-[0.98] disabled:opacity-50">
@@ -5605,7 +5606,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.03</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V52.00.04</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5871,7 +5872,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V52.00.03 Phase 40: Signup Referral-Lookup Permissions Fix</span>
+                    <span className="flex-1 text-center">V52.00.04 Phase 40: Google Login Popup Fix (no redirect crash)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6066,9 +6067,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V52.00.03)..."
-sed -i "s/versionCode 1/versionCode 101/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "52.00.03"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V52.00.04)..."
+sed -i "s/versionCode 1/versionCode 102/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "52.00.04"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6115,7 +6116,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V52_00_03_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V52_00_04_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
