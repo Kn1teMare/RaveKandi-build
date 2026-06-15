@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V52.01.02 Build Script Starting"
+echo " RaveKandi V54.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V52.01.02</title>
+    <title>RaveKandi V54.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V52.01.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V54.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -196,7 +196,7 @@ cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
@@ -306,9 +306,29 @@ const NAME_CHANGE_LIMIT_DAYS = 30;
 const BIO_CHAR_LIMIT = 200;
 // V42.11: DEV_PIN backdoor removed for launch (Firestore rules deny the write anyway).
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
+// V52.2: unique-visitor analytics. Counts each device once (ever) on first app open, plus
+// daily-active pings — so the admin can gauge traffic vs. signups. Stored on global/stats.
+const trackUniqueVisit = async () => {
+    try {
+        const VKEY = 'rk_visitor_id';
+        let isNew = false;
+        let vid = localStorage.getItem(VKEY);
+        if (!vid) { vid = 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); localStorage.setItem(VKEY, vid); isNew = true; }
+        const statsRef = doc(db, 'artifacts', appId, 'global', 'stats');
+        // daily-active stamp (one per device per day)
+        const today = new Date().toISOString().slice(0, 10);
+        const dKey = 'rk_da_' + today;
+        const countedToday = localStorage.getItem(dKey);
+        const upd = {};
+        if (isNew) upd.uniqueVisitors = increment(1);
+        if (!countedToday) { upd['dau_' + today] = increment(1); localStorage.setItem(dKey, '1'); }
+        if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) {} }
+    } catch (e) { /* storage blocked — skip */ }
+};
+
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
-let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '' };
-const APP_VERSION = '52.01.02';
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30 };
+const APP_VERSION = '54.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -615,6 +635,79 @@ export const performObliterate = async (tid) => {
         await batch.commit();
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid));
     } catch (e) { console.log('obliterate', e); }
+};
+
+// V53.2 Vibe Tribe groups: friends form a named group with a shared chat. New members need
+// a 2/3 vote of existing members to join. Tribes live at public/data/tribes/{tribeId}.
+export const createTribe = async (creatorUid, creatorName, tribeName) => {
+    if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
+    const ref = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), {
+        name: tribeName.trim().slice(0, 40),
+        creatorUid,
+        members: [creatorUid],
+        memberNames: { [creatorUid]: creatorName || 'Raver' },
+        createdAt: Date.now(),
+        memberCount: 1,
+        pendingVotes: {} // { candidateUid: { name, votes: [uid,...], needed: N } }
+    });
+    return ref.id;
+};
+// Propose a friend to join. Records the proposer's vote immediately.
+export const proposeToTribe = async (tribeId, candidateUid, candidateName, proposerUid) => {
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Tribe not found');
+    const t = snap.data();
+    if ((t.members || []).includes(candidateUid)) throw new Error('Already a member');
+    const memberCount = (t.members || []).length;
+    const needed = Math.ceil((memberCount * 2) / 3); // 2/3 of existing members
+    const pending = { ...(t.pendingVotes || {}) };
+    pending[candidateUid] = { name: candidateName || 'Raver', votes: [proposerUid], needed };
+    await updateDoc(ref, { pendingVotes: pending });
+    // notify other members to vote
+    (t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'friendreq', '🗳️ Vote: should @' + (candidateName || 'a raver') + ' join your "' + t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
+    return needed;
+};
+// Cast a vote; if the threshold is met, the candidate is added + joins the group chat.
+export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Tribe not found');
+    const t = snap.data();
+    const pending = { ...(t.pendingVotes || {}) };
+    const entry = pending[candidateUid];
+    if (!entry) throw new Error('No pending vote for this raver');
+    if (!entry.votes.includes(voterUid)) entry.votes.push(voterUid);
+    if (entry.votes.length >= entry.needed) {
+        // approved — add member
+        const newMembers = [...(t.members || []), candidateUid];
+        const newNames = { ...(t.memberNames || {}), [candidateUid]: entry.name };
+        delete pending[candidateUid];
+        await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length, pendingVotes: pending });
+        pushNotif(candidateUid, 'friendreq', '🎉 You were voted into the "' + t.name + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
+        return 'approved';
+    } else {
+        pending[candidateUid] = entry;
+        await updateDoc(ref, { pendingVotes: pending });
+        return 'voted';
+    }
+};
+export const leaveTribe = async (tribeId, myUid) => {
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const t = snap.data();
+    const newMembers = (t.members || []).filter(m => m !== myUid);
+    const newNames = { ...(t.memberNames || {}) }; delete newNames[myUid];
+    if (newMembers.length === 0) { await deleteDoc(ref); return; }
+    await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length });
+};
+// Send a message to the tribe group chat (stored as a subcollection).
+export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj) => {
+    if (!text || !text.trim()) return;
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), {
+        sender: fromUid, senderName: fromName || 'Raver', text: text.trim().slice(0, 1000), at: Date.now(), badge: badgeObj || null
+    });
 };
 
 export const removeFriend = async (myUid, otherUid) => {
@@ -1954,7 +2047,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V52.01.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V54.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2595,12 +2688,53 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
     const [prefs, setPrefs] = useState({ phone: {}, email: {} });
     const [newUid, setNewUid] = useState('');
     const [loading, setLoading] = useState(false);
+    // V53.1: password management
+    const [curPass, setCurPass] = useState('');
+    const [newPass, setNewPass] = useState('');
+    const [newPass2, setNewPass2] = useState('');
+    const [pwBusy, setPwBusy] = useState(false);
+
+    // Does this account have a password (email/password provider) yet?
+    const hasPassword = !!(user?.providerData || []).find(p => p.providerId === 'password');
+    const hasGoogle = !!(user?.providerData || []).find(p => p.providerId === 'google.com');
 
     useEffect(() => { 
         if(profile?.notificationPreferences) setPrefs(profile.notificationPreferences); 
         if(profile?.phoneNumber) setPhone(profile.phoneNumber); 
         if(user?.email) setEmail(user.email); 
     }, [profile, user]);
+
+    const changePassword = async () => {
+        if (user?.isAnonymous) { alert("Guest accounts can't set a password. Create a full account first."); return; }
+        if (!newPass || newPass.length < 6) { alert("New password must be at least 6 characters."); return; }
+        if (newPass !== newPass2) { alert("The two new-password fields don't match."); return; }
+        setPwBusy(true);
+        try {
+            if (hasPassword) {
+                // Existing password → require the current one to re-authenticate, then update.
+                if (!curPass) { alert("Enter your current password first."); setPwBusy(false); return; }
+                const cred = EmailAuthProvider.credential(user.email, curPass);
+                await reauthenticateWithCredential(user, cred);
+                await updatePassword(user, newPass);
+                alert("✅ Password updated! Use your new password next time you log in.");
+            } else {
+                // No password yet (e.g. Google account) → LINK an email/password credential so
+                // they can ALSO log in with email + password going forward.
+                if (!user.email) { alert("Your account has no email on file, so a password can't be added."); setPwBusy(false); return; }
+                const cred = EmailAuthProvider.credential(user.email, newPass);
+                await linkWithCredential(user, cred);
+                alert("✅ Password added! You can now log in with your email (" + user.email + ") and this password, in addition to Google.");
+            }
+            setCurPass(''); setNewPass(''); setNewPass2('');
+        } catch (e) {
+            const c = e?.code || '';
+            if (c === 'auth/wrong-password' || c === 'auth/invalid-credential') alert("Your current password is incorrect. If you forgot it, log out and use 'Forgot password?'.");
+            else if (c === 'auth/requires-recent-login') alert("For security, please log out and back in, then change your password.");
+            else if (c === 'auth/email-already-in-use' || c === 'auth/provider-already-linked') alert("This account already has a password set.");
+            else if (c === 'auth/weak-password') alert("Please choose a stronger password (at least 6 characters).");
+            else alert("Couldn't update password: " + (e.message || c));
+        } finally { setPwBusy(false); }
+    };
     
     const togglePref = (type, channel) => { setPrefs(prev => ({ ...prev, [channel]: { ...prev[channel], [type]: !prev[channel]?.[type] } })); };
     const handleLogout = async () => { await signOut(auth); onClose(); };
@@ -2656,6 +2790,17 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
         </div>
 
         <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-2 text-pink-400">Contact Info</h4><Input value={phone} onChange={setPhone} placeholder="Phone Number" className="mb-2"/><Input value={email} onChange={setEmail} placeholder="Email Address"/></div>
+
+        {!user?.isAnonymous && (
+            <div className="border-b border-white/10 pb-4">
+                <h4 className="font-bold text-xs mb-2 text-pink-400">🔐 {hasPassword ? 'Change Password' : 'Add a Password'}</h4>
+                {!hasPassword && <p className="text-[9px] text-cyan-300 bg-cyan-900/20 border border-cyan-500/30 rounded p-2 mb-2">Your account uses {hasGoogle ? 'Google' : 'social'} sign-in and has no password yet. Add one to also log in with your email{user?.email ? ' (' + user.email + ')' : ''} and a password.</p>}
+                {hasPassword && <Input type="password" value={curPass} onChange={setCurPass} placeholder="Current password" className="mb-2"/>}
+                <Input type="password" value={newPass} onChange={setNewPass} placeholder={hasPassword ? "New password" : "Choose a password"} className="mb-2"/>
+                <Input type="password" value={newPass2} onChange={setNewPass2} placeholder="Confirm new password" className="mb-2"/>
+                <Button onClick={changePassword} disabled={pwBusy} color="lime" className="text-[10px] w-full">{pwBusy ? 'Saving…' : (hasPassword ? 'Update Password' : 'Add Password')}</Button>
+            </div>
+        )}
         <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-3 text-cyan-400">Notifications</h4><div className="grid grid-cols-3 gap-2 text-[10px] mb-2 font-bold opacity-70"><span>Type</span><span className="text-center">Phone</span><span className="text-center">Email</span></div>{NOTIFICATION_TYPES.map(type => (<div key={type.id} className="grid grid-cols-3 gap-2 items-center mb-2 text-[10px]"><span className="truncate">{type.label}</span><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'phone')} className={`${prefs.phone?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.phone?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'email')} className={`${prefs.email?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.email?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div></div>))}</div>
         <div className="border-b border-white/10 pb-4">
             <h4 className="font-bold text-xs mb-2 text-lime-400">Display</h4>
@@ -3711,7 +3856,7 @@ const FindUsersPanel = ({ onPick }) => {
         return dir === 'asc' ? va - vb : vb - va;
     });
     const fmtDate = (t) => t ? new Date(t).toLocaleDateString() : '—';
-    const ago = (t) => { if (!t) return 'never'; const m = Math.floor((Date.now() - t) / 60000); if (m < 60) return m + 'm ago'; const h = Math.floor(m / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
+    const ago = (t) => { if (!t) return 'never'; const m = Math.floor((Date.now() - t) / 60000); if (m < 5) return '🟢 online'; if (m < 60) return m + 'm ago'; const h = Math.floor(m / 60); if (h < 24) return h + 'h ago'; return Math.floor(h / 24) + 'd ago'; };
     return (
         <div className="bg-white/5 p-3 rounded mb-4 border border-cyan-500/20">
             <h4 className="text-[10px] uppercase font-bold text-cyan-400 mb-2 flex items-center gap-1"><Users size={12}/> Find Users — Directory ({filtered.length})</h4>
@@ -3778,10 +3923,44 @@ const VideoTakedownPanel = () => {
     );
 };
 
+const AdminAnalyticsBlock = () => {
+    const [stats, setStats] = useState(null);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => setStats(s.exists() ? s.data() : {}), e => {}), []);
+    if (!stats) return null;
+    const visitors = stats.uniqueVisitors || 0;
+    const accounts = stats.userCount || 0;
+    const conv = visitors > 0 ? ((accounts / visitors) * 100).toFixed(1) : '0';
+    // last 7 days of DAU keys
+    const days = [];
+    for (let i = 6; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); days.push({ d, n: stats['dau_' + d] || 0 }); }
+    const todayKey = new Date().toISOString().slice(0, 10);
+    return (
+        <div className="bg-gradient-to-br from-purple-900/30 to-cyan-900/20 border border-purple-500/40 rounded-lg p-3 my-2">
+            <h4 className="text-[11px] font-black uppercase text-purple-300 mb-2 flex items-center gap-1">📊 Traffic & Growth</h4>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="bg-black/40 rounded p-2 text-center"><p className="text-lg font-black text-cyan-300">{visitors.toLocaleString()}</p><p className="text-[8px] opacity-70 uppercase">Unique Visitors</p></div>
+                <div className="bg-black/40 rounded p-2 text-center"><p className="text-lg font-black text-lime-300">{accounts.toLocaleString()}</p><p className="text-[8px] opacity-70 uppercase">Accounts</p></div>
+                <div className="bg-black/40 rounded p-2 text-center"><p className="text-lg font-black text-pink-300">{conv}%</p><p className="text-[8px] opacity-70 uppercase">Signup Rate</p></div>
+            </div>
+            <p className="text-[9px] font-bold opacity-70 mb-1">Daily Active (last 7 days)</p>
+            <div className="flex items-end gap-1 h-16">
+                {days.map((day, i) => { const max = Math.max(1, ...days.map(x => x.n)); const h = Math.max(4, (day.n / max) * 100); return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                        <div className={`w-full rounded-t ${day.d === todayKey ? 'bg-lime-400' : 'bg-purple-500/60'}`} style={{ height: h + '%' }} title={day.d + ': ' + day.n}></div>
+                        <span className="text-[7px] opacity-50">{day.d.slice(5)}</span>
+                        <span className="text-[7px] font-bold">{day.n}</span>
+                    </div>
+                ); })}
+            </div>
+            <p className="text-[7px] opacity-40 mt-2">Unique visitors = distinct devices that opened the app (incl. guests). Signup rate = accounts ÷ visitors. Counts started when this feature shipped.</p>
+        </div>
+    );
+};
+
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
     const T = ({ k, label }) => (
         <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
@@ -3795,12 +3974,28 @@ const RemoteConfigPanel = () => {
             <Input label="Maintenance Message (blank = hidden banner)" value={cfg.maintenanceMessage || ''} onChange={v => setCfg({ ...cfg, maintenanceMessage: v })}/>
             <Input label="Minimum Version (e.g. 42.11.00 — blank = no gate)" value={cfg.minVersion || ''} onChange={v => setCfg({ ...cfg, minVersion: v })}/>
             <div>
-                <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Video Rotation Window</label>
+                <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Festival Clip Window (slot length)</label>
                 <select value={cfg.videoWindowMin || 30} onChange={e => setCfg({ ...cfg, videoWindowMin: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
-                    {[1,5,10,15,30,45,60].map(m => <option key={m} value={m}>{m} minute{m>1?'s':''} per clip</option>)}
+                    {[1,5,10,15,30,45,60,90,120].map(m => <option key={m} value={m}>{m} minute{m>1?'s':''} per clip</option>)}
                 </select>
-                <p className="text-[8px] opacity-60 mt-1">Shorter = faster rotation for busy crowds; longer = each clip stays featured longer. Applies to newly-posted clips.</p>
+                <p className="text-[8px] opacity-60 mt-1">How long each clip stays featured. Applies to newly-posted clips. Users who post mid-window now get the NEXT full slot (+10% bonus time).</p>
             </div>
+            <div>
+                <label className="text-[10px] font-bold text-cyan-300 uppercase block mb-1">📺 Time Between Clip Rotations</label>
+                <select value={cfg.videoRotateSec || 8} onChange={e => setCfg({ ...cfg, videoRotateSec: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                    {[3,5,8,10,15,20,30].map(s => <option key={s} value={s}>{s} seconds</option>)}
+                </select>
+                <p className="text-[8px] opacity-60 mt-1">When multiple clips are queued in the same window, how fast the panel cycles between them in preview.</p>
+            </div>
+            <div>
+                <label className="text-[10px] font-bold text-lime-300 uppercase block mb-1">🏃 Marquee Scroll Speed</label>
+                <select value={cfg.marqueeSpeed || 60} onChange={e => setCfg({ ...cfg, marqueeSpeed: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                    <option value={30}>Fast (30s)</option><option value={45}>Brisk (45s)</option><option value={60}>Normal (60s)</option><option value={90}>Relaxed (90s)</option><option value={120}>Slow (120s)</option><option value={180}>Very Slow (180s)</option>
+                </select>
+                <p className="text-[8px] opacity-60 mt-1">Lower = the top banner scrolls faster. Takes effect immediately for all users.</p>
+            </div>
+
+            <AdminAnalyticsBlock />
             <p className="text-[8px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
             <p className="text-[8px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
             <Button onClick={save} disabled={saving} color="purple" className="w-full text-xs">{saving ? 'Pushing…' : 'Push Config Live'}</Button>
@@ -3819,6 +4014,8 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
     const [managedUser, setManagedUser] = useState(null);
     const [revPct, setRevPct] = useState('');
     const [commInput, setCommInput] = useState('');
+    const [vipQty, setVipQty] = useState(1);
+    const [vipUnit, setVipUnit] = useState('months');
     const [forceBadgeId, setForceBadgeId] = useState('');
     const [statEdits, setStatEdits] = useState({});
     const [batchRate, setBatchRate] = useState('');
@@ -3842,6 +4039,27 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         } catch (e) { alert('Failed: ' + e.message); }
     };
     // V48: grant/revoke VIP straight from the review pop-in (or user manager).
+    const forceVipDuration = async () => {
+        if (!managedUser) { alert("Find & select a user first."); return; }
+        const units = { days: 86400000, weeks: 604800000, months: 2592000000, years: 31536000000 };
+        const ms = (parseInt(vipQty) || 1) * (units[vipUnit] || units.months);
+        const expires = Date.now() + ms;
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { isVIP: true, vipPlan: 'admin_granted', vipSince: Date.now(), vipExpires: expires }, { merge: true });
+            pushNotif(managedUser.id, 'admin', '⭐ You\'ve been granted VIP for ' + vipQty + ' ' + vipUnit + '! Enjoy Radio, Themes, Banners, Boosts & the Font Selector. PLUR!');
+            alert('@' + (managedUser.displayName || 'user') + ' is now VIP until ' + new Date(expires).toLocaleDateString() + '.');
+            setManagedUser({ ...managedUser, isVIP: true, vipExpires: expires });
+        } catch (e) { alert('Failed: ' + e.message); }
+    };
+    const forceVipPermanent = async () => {
+        if (!managedUser) { alert("Find & select a user first."); return; }
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipSince: Date.now(), vipExpires: null }, { merge: true });
+            pushNotif(managedUser.id, 'admin', '👑 You\'ve been granted PERMANENT VIP! All premium perks are yours forever. PLUR!');
+            alert('@' + (managedUser.displayName || 'user') + ' now has PERMANENT VIP.');
+            setManagedUser({ ...managedUser, isVIP: true, vipPlan: 'lifetime', vipExpires: null });
+        } catch (e) { alert('Failed: ' + e.message); }
+    };
     const setVipFor = async (uid, name, grant) => {
         if (!uid) return;
         try {
@@ -4064,6 +4282,22 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                     <Button onClick={() => saveCommission(null)} color="accent" className="text-[10px]">Reset</Button>
                                 </div>
                                 <p className="text-[8px] opacity-50 mt-1">Current: {managedUser.customCommissionRate != null ? (managedUser.customCommissionRate * 100).toFixed(0) + '% (override)' : 'standard 20%'}{managedUser.lockedCommissionRate != null ? ' · 🔒 launch-locked at ' + (managedUser.lockedCommissionRate * 100).toFixed(0) + '%' : ''}. Enter 0.10 for 10% (or just 10).</p>
+                            </div>
+
+                            <div className="mt-3 pt-3 border-t border-white/10">
+                                <p className="text-[9px] font-black uppercase text-yellow-300 mb-1">⭐ VIP Status</p>
+                                <p className="text-[8px] opacity-60 mb-2">Current: {managedUser.isVIP ? (managedUser.vipPlan === 'lifetime' ? '👑 Permanent VIP' : (managedUser.vipExpires ? 'VIP until ' + new Date(managedUser.vipExpires).toLocaleDateString() : 'VIP active')) : 'Not VIP'}</p>
+                                <div className="flex gap-2 items-center mb-2">
+                                    <input value={vipQty} onChange={e => setVipQty(e.target.value)} type="number" min="1" className="bg-black border border-white/20 text-[10px] p-2 rounded w-16"/>
+                                    <select value={vipUnit} onChange={e => setVipUnit(e.target.value)} className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1">
+                                        <option value="days">Days</option><option value="weeks">Weeks</option><option value="months">Months</option><option value="years">Years</option>
+                                    </select>
+                                    <Button onClick={forceVipDuration} color="gold" className="text-[10px]">Grant</Button>
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button onClick={forceVipPermanent} color="gold" className="flex-1 text-[10px]">👑 Permanent VIP</Button>
+                                    <Button onClick={() => setVipFor(managedUser.id, managedUser.displayName, false)} color="accent" className="flex-1 text-[10px]">Remove VIP</Button>
+                                </div>
                             </div>
                         </div>
                         <div>
@@ -4739,11 +4973,15 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
             const now = Date.now();
             const curStart = Math.floor(now / W) * W;
             const taken = new Set(slots.map(s => s.start));
-            let assigned;
-            if (!taken.has(curStart)) { assigned = [curStart, curStart + W]; } // empty current window: remainder + next block
-            else { let s = curStart + W; while (taken.has(s)) s += W; assigned = [s]; }
+            // V52.2: a user must get a FULL window. The current window has almost always
+            // already started, so giving it to them = a partial slot. Instead, always start
+            // at the NEXT clean window boundary (the first free one from there).
+            let s = curStart + W;
+            while (taken.has(s)) s += W;
+            const assigned = [s];
+            const GRACE = Math.floor(W * 0.1); // ~10% extra time as a little bonus
             const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, platform: parsed.platform, embedUrl: parsed.embedUrl || null, watchUrl: parsed.watchUrl, caption: (caption || '').slice(0, 100), postedAt: now };
-            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W }); }
+            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W + GRACE }); }
             await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { videoDay: todayKey, videoCountToday: usedToday + 1, videosPosted: increment(1) }, { merge: true });
             const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
             const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
@@ -4833,9 +5071,168 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
     );
 };
 
-const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
+const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessageUser }) => {
+    const [tab, setTab] = useState('friends');
+    const [friends, setFriends] = useState([]);
+    const [tribes, setTribes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newTribeName, setNewTribeName] = useState('');
+    const [activeTribe, setActiveTribe] = useState(null);
+    const [tribeMsgs, setTribeMsgs] = useState([]);
+    const [tribeInput, setTribeInput] = useState('');
+    const myUid = user?.uid;
+
+    // Load friends' profiles
+    useEffect(() => {
+        if (!isOpen || !profile) return;
+        const ids = profile.friends || [];
+        if (ids.length === 0) { setFriends([]); setLoading(false); return; }
+        Promise.all(ids.slice(0, 100).map(id => getDoc(doc(db, 'artifacts', appId, 'users', id)).then(s => s.exists() ? { ...s.data(), id: s.id } : null).catch(() => null)))
+            .then(list => { setFriends(list.filter(Boolean)); setLoading(false); });
+    }, [isOpen, profile?.friends]);
+
+    // Load tribes I'm in
+    useEffect(() => {
+        if (!isOpen || !myUid) return;
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('members', 'array-contains', myUid)), s => {
+            setTribes(s.docs.map(d => ({ ...d.data(), id: d.id })));
+        }, e => console.log('tribes', e));
+        return () => unsub();
+    }, [isOpen, myUid]);
+
+    // Load active tribe's messages
+    useEffect(() => {
+        if (!activeTribe) { setTribeMsgs([]); return; }
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', activeTribe.id, 'messages'), orderBy('at', 'asc')), s => {
+            setTribeMsgs(s.docs.map(d => ({ ...d.data(), id: d.id })));
+        }, e => console.log('tribe msgs', e));
+        return () => unsub();
+    }, [activeTribe]);
+
+    if (!isOpen) return null;
+
+    const doCreateTribe = async () => {
+        if (!newTribeName.trim()) { alert("Name your tribe first!"); return; }
+        try { await createTribe(myUid, profile?.displayName || 'Raver', newTribeName); setNewTribeName(''); alert('🎉 Vibe Tribe "' + newTribeName.trim() + '" created! Add friends from the Friends tab.'); }
+        catch (e) { alert("Couldn't create tribe: " + e.message); }
+    };
+    const proposeFriend = async (tribe, friendId, friendName) => {
+        try { const needed = await proposeToTribe(tribe.id, friendId, friendName, myUid); alert('Proposed @' + friendName + ' to "' + tribe.name + '". Needs ' + needed + ' member vote(s) to join.'); }
+        catch (e) { alert(e.message); }
+    };
+    const sendTMsg = async () => {
+        if (!tribeInput.trim() || !activeTribe) return;
+        const txt = tribeInput; setTribeInput('');
+        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null); } catch (e) {}
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={() => { setActiveTribe(null); onClose(); }} title="🌈 Vibe Tribe">
+            {!activeTribe ? (
+                <div>
+                    <div className="flex gap-2 mb-3">
+                        <button onClick={() => setTab('friends')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='friends' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white/60'}`}>👥 Friends ({(profile?.friends||[]).length})</button>
+                        <button onClick={() => setTab('tribes')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='tribes' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/60'}`}>🌈 Tribes ({tribes.length})</button>
+                    </div>
+
+                    {tab === 'friends' && (
+                        <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                            {loading ? <p className="text-center opacity-50 text-xs py-6">Loading your tribe…</p> : friends.length === 0 ? (
+                                <div className="text-center py-8"><Users size={32} className="mx-auto text-white/20 mb-2"/><p className="text-xs opacity-60">No friends yet! Tap "Add to Tribe" on any raver's profile or in search to build your Vibe Tribe.</p></div>
+                            ) : friends.map(f => (
+                                <div key={f.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
+                                    <img src={f.photoURL || 'https://placehold.co/40?text=U'} className="w-10 h-10 rounded-full object-cover border border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
+                                    <div className="flex-1 min-w-0"><p className="text-xs font-bold truncate">@{f.displayName || 'Raver'}</p><p className="text-[8px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p></div>
+                                    <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-1.5 hover:bg-white/10 rounded" title="Message"><Mail size={15}/></button>
+                                    <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your tribe?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-1.5 hover:bg-white/10 rounded" title="Remove friend"><X size={15}/></button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {tab === 'tribes' && (
+                        <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+                            <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
+                                <p className="text-[10px] font-bold text-purple-300 mb-1">Start a new Vibe Tribe</p>
+                                <p className="text-[8px] opacity-60 mb-2">A tribe is a named group of friends with a shared group chat. New members need a 2/3 vote of current members to join.</p>
+                                <div className="flex gap-2">
+                                    <Input value={newTribeName} onChange={setNewTribeName} placeholder="Tribe name (e.g. Bass Heads)" className="mb-0 flex-1"/>
+                                    <Button onClick={doCreateTribe} color="lime" className="text-[10px]">Create</Button>
+                                </div>
+                            </div>
+                            {tribes.length === 0 ? <p className="text-center opacity-50 text-xs py-4">You're not in any tribes yet. Create one above!</p> : tribes.map(t => {
+                                const myFriendsNotIn = (friends || []).filter(f => !(t.members||[]).includes(f.id));
+                                const pendingList = Object.entries(t.pendingVotes || {});
+                                return (
+                                    <div key={t.id} className="bg-white/5 border border-purple-500/30 rounded-lg p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div><p className="text-sm font-black text-purple-200">🌈 {t.name}</p><p className="text-[8px] opacity-50">{t.memberCount || (t.members||[]).length} members</p></div>
+                                            <button onClick={() => setActiveTribe(t)} className="text-[10px] font-bold bg-purple-600 text-white rounded-full px-3 py-1 flex items-center gap-1"><MessageSquare size={11}/> Group Chat</button>
+                                        </div>
+                                        {pendingList.length > 0 && (
+                                            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded p-2 mb-2">
+                                                <p className="text-[9px] font-bold text-yellow-300 mb-1">🗳️ Pending votes:</p>
+                                                {pendingList.map(([cid, info]) => {
+                                                    const iVoted = (info.votes||[]).includes(myUid);
+                                                    return (
+                                                        <div key={cid} className="flex items-center justify-between text-[9px] mb-1">
+                                                            <span>@{info.name} — {info.votes.length}/{info.needed} votes</span>
+                                                            {!iVoted ? <button onClick={async () => { try { const r = await voteForTribeMember(t.id, cid, myUid); alert(r === 'approved' ? '✅ Approved — they joined!' : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5 font-bold">Vote Yes</button> : <span className="text-lime-400">✓ voted</span>}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {myFriendsNotIn.length > 0 && (
+                                            <div>
+                                                <p className="text-[8px] opacity-60 mb-1">Invite a friend (starts a vote):</p>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {myFriendsNotIn.slice(0, 8).map(f => (
+                                                        <button key={f.id} onClick={() => proposeFriend(t, f.id, f.displayName)} className="text-[9px] bg-pink-600/30 text-pink-200 border border-pink-400/40 rounded-full px-2 py-0.5">+ @{f.displayName}</button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        <button onClick={async () => { if (window.confirm('Leave "' + t.name + '"?')) { try { await leaveTribe(t.id, myUid); } catch (e) {} } }} className="text-[8px] text-red-400 mt-2 underline">Leave tribe</button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div>
+                    <div className="flex items-center justify-between mb-2 bg-purple-900/30 border border-purple-500/40 rounded-lg p-2">
+                        <button onClick={() => setActiveTribe(null)} className="text-cyan-400 text-xs font-bold flex items-center gap-1"><ChevronLeft size={16}/> Back</button>
+                        <span className="text-sm font-black truncate px-2">🌈 {activeTribe.name}</span>
+                        <span className="text-[8px] opacity-50">{activeTribe.memberCount} 👥</span>
+                    </div>
+                    <div className="h-[50vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-2 flex flex-col mb-2">
+                        {tribeMsgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi to your tribe! 🌈</p>}
+                        {tribeMsgs.map(m => {
+                            const mine = m.sender === myUid;
+                            return (
+                                <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
+                                    {!mine && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className="text-[9px] font-bold text-pink-300">@{m.senderName}</span>{m.badge && <BadgeChip badge={m.badge} />}</div>}
+                                    <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}><p className="whitespace-pre-wrap break-words">{m.text}</p></div>
+                                    <p className={`text-[8px] opacity-40 mt-0.5 ${mine ? 'text-right' : ''}`}>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex gap-2">
+                        <Input value={tribeInput} onChange={setTribeInput} placeholder="Message your tribe..." className="mb-0 flex-1"/>
+                        <Button onClick={sendTMsg} disabled={!tribeInput.trim()} color="purple" className="px-4"><Send size={18}/></Button>
+                    </div>
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser }) => {
     const [profile, setProfile] = useState({});
-    const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false });
+    const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
     const [showAdminPortal, setShowAdminPortal] = useState(false);
     const [hideGuestPrompt, setHideGuestPrompt] = useState(false);
@@ -4896,6 +5293,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
+                <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} onClose={() => setModals({...modals, vibeTribe: false})} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
                 <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
@@ -4969,6 +5367,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed }) => {
                         <button onClick={() => setModals({...modals, analytics: true})} className="w-full text-center text-[10px] text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
                         <div className="flex gap-2 mt-4 justify-center md:justify-start"><Button onClick={()=>setModals({...modals, settings:true})} color="cyan" className="flex-1 text-xs flex justify-center items-center gap-2"><Settings size={14}/> Settings</Button><Button onClick={()=>setModals({...modals, socials:true})} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2">My Socials</Button></div>
+                        <button onClick={()=>setModals({...modals, vibeTribe:true})} className="w-full mt-2 rk-shimmer-border py-2.5 rounded-lg font-black text-sm flex justify-center items-center gap-2 active:scale-95 transition"><Users size={16} className="text-pink-400"/> 🌈 VIBE TRIBE <span className="text-[9px] bg-pink-600/40 rounded-full px-2 py-0.5">{(profile.friends||[]).length} friends</span></button>
                         
                         {/* PHASE 7: VIP Ecosystem Access */}
                         {!isEffVIP(profile) ? (
@@ -5122,7 +5521,7 @@ const AuthScreen = ({ setLoadMsg }) => {
         if (!target) { alert("Enter your email above first, then tap 'Forgot password?'"); return; }
         try {
             await sendPasswordResetEmail(auth, target);
-            alert("📧 A password-reset link has been sent to " + target + " (check spam too). Open it to set a new password, then come back and log in.");
+            alert("📧 A password-reset link was sent to " + target + ".\n\n⚠️ IMPORTANT: it will most likely land in your SPAM / Junk folder (it comes from a Firebase/Google address) — check there if you don't see it in your inbox within a minute. Open the link to set a new password, then come back and log in.");
         } catch (e) {
             const c = e?.code || '';
             if (c === 'auth/user-not-found') { if (window.confirm("No account uses that email yet. Would you like to create one?")) setIsReg(true); }
@@ -5174,7 +5573,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V52.01.02</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V54.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5253,6 +5652,16 @@ const App = () => {
         const unsub = onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => { if(s.exists()) setGlobalStats(s.data()); });
         return () => unsub();
     }, []);
+    // V53.2: biggest Vibe Tribe gets a banner shout-out.
+    const [topTribe, setTopTribe] = useState(null);
+    useEffect(() => {
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes')), s => {
+            let best = null;
+            s.docs.forEach(d => { const t = d.data(); const c = t.memberCount || (t.members || []).length; if (!best || c > best.count) best = { name: t.name, count: c }; });
+            setTopTribe(best && best.count >= 2 ? best : null);
+        }, e => {});
+        return () => unsub();
+    }, []);
     
     // V37.12: full active-time logging. Every minute the app is open is counted into a
     // local buffer, then synced to the database in ONE write per 6-hour window — all
@@ -5263,19 +5672,24 @@ const App = () => {
         const bufKey = 'rk_act_buf_' + uid, openKey = 'rk_act_opens_' + uid, flushKey = 'rk_act_flush_' + uid;
         const num = (k) => parseInt(localStorage.getItem(k) || '0') || 0;
         localStorage.setItem(openKey, String(num(openKey) + 1));
+        // V52.2: lightweight heartbeat — stamp lastActive every few minutes so the admin
+        // directory can tell who's online now. (Separate from the 6h stats roll-up below.)
+        const beat = () => { try { setDoc(doc(db, 'artifacts', appId, 'users', uid), { lastActive: Date.now() }, { merge: true }).catch(()=>{}); } catch(e){} };
+        beat();
+        const heartbeat = setInterval(beat, 180000); // every 3 min while app is open
         const flush = () => {
             const last = num(flushKey);
-            if (last && (Date.now() - last) < 21600000) return; // sync window: 6h
+            if (last && (Date.now() - last) < 21600000) return; // stats roll-up window: 6h
             const radioKey = 'rk_radio_buf_' + uid;
             const mins = num(bufKey), opens = num(openKey), rmins = num(radioKey);
             const ref = doc(db, 'artifacts', appId, 'users', uid);
-            setDoc(ref, { lastActiveAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
+            setDoc(ref, { lastActive: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
                 .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(radioKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
                 .catch(() => {});
         };
         flush();
         const tick = setInterval(() => { localStorage.setItem(bufKey, String(num(bufKey) + 1)); flush(); }, 60000);
-        return () => clearInterval(tick);
+        return () => { clearInterval(tick); clearInterval(heartbeat); };
     }, [user]);
 
     const syncMsgs = ["Synching Posts...", "Loading Creations...", "PLUR'ing the Posts", "💕 Catching a Vibe 🌈", "Finding the Gear 👕", "Locating Art 🎨"];
@@ -5475,6 +5889,8 @@ const App = () => {
         }, e => console.log('config', e));
         return () => unsub();
     }, []);
+    // V52.2: count this device as a unique visitor (once ever) + daily-active ping.
+    useEffect(() => { trackUniqueVisit(); }, []);
 
     // V42.16: any browser-tab user (iOS or Android) who hasn't installed gets a one-time
     // guide to add RaveKandi to their home screen as an app.
@@ -5634,6 +6050,7 @@ const App = () => {
         activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null, slotId: activeBanner.id } : null,
         { t: '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡' },
         { t: '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀' },
+        topTribe ? { t: '🌈 BIGGEST VIBE TRIBE: "' + topTribe.name + '" with ' + topTribe.count + ' members! 🌈' } : null,
         { t: '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2) },
         { t: '🧾 COMMISSION POOL: $' + mqCommission.toFixed(2) },
         { t: '📦 ITEMS LISTED: ' + mqItemsListed },
@@ -5676,7 +6093,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V52.01.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V54.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -5759,7 +6176,7 @@ cat << 'EOF' >> src/App.js
                 </div>
             </header>
             <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
-                <div className="rk-marquee-track items-center whitespace-nowrap">
+                <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: (RK_CFG.marqueeSpeed || 60) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
                             {mq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href) ? 'underline decoration-dotted underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
@@ -5931,7 +6348,7 @@ cat << 'EOF' >> src/App.js
                         )}
                    </div>
                 )}
-                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed}/>}
+                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }}/>}
             </main>
             <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 font-mono uppercase z-50 px-3 py-1.5">
                 {nowPlaying && (
@@ -5942,7 +6359,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V52.01.02 Phase 41: Google Login authDomain Fix (white screen)</span>
+                    <span className="flex-1 text-center">V54.00.00 Phase 44: Vibe Tribe System (friends + group tribes)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6137,9 +6554,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V52.01.02)..."
-sed -i "s/versionCode 1/versionCode 105/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "52.01.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V54.00.00)..."
+sed -i "s/versionCode 1/versionCode 108/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "54.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6186,7 +6603,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V52_01_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V54_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
