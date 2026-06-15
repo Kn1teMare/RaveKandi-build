@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V54.00.00 Build Script Starting"
+echo " RaveKandi V56.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V54.00.00</title>
+    <title>RaveKandi V56.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V54.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V56.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30 };
-const APP_VERSION = '54.00.00';
+const APP_VERSION = '56.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1426,7 +1426,7 @@ const VIPCheckoutForm = ({ user, onClose }) => {
                     vipExpires = base + 2592000000; // renewals stack +30 days on remaining time
                 }
                 await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: plan, vipSince: Date.now(), vipExpires });
-                alert(plan === 'monthly' ? "VIP Monthly active until " + new Date(vipExpires).toLocaleDateString() + "! Renewing later stacks +30 days." : "VIP Lifetime unlocked! Enjoy Radio, Themes, Banner Messages & Post Boosts forever.");
+                alert(plan === 'monthly' ? "VIP Monthly active until " + new Date(vipExpires).toLocaleDateString() + "! Renewing later stacks +30 days." : "VIP Lifetime unlocked! Enjoy 6 Profile Pins, Themes, Banner Messages, Post Boosts & the Font Selector forever.");
             } catch(err) { console.error(err); }
             setLoading(false);
             onClose();
@@ -1438,9 +1438,9 @@ const VIPCheckoutForm = ({ user, onClose }) => {
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
             <div className="bg-lime-900/25 border-2 border-lime-400/70 rounded-xl p-4 text-left space-y-2">
                 <p className="text-sm font-black text-lime-300 uppercase tracking-wide">🎉 Launch Special — VIP is FREE!</p>
-                <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — Global Radio, Custom Themes, Banner Messages and Post Boosts are unlocked for you right now.</p>
+                <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — 6 Profile Pins, Custom Themes, Banner Messages, Post Boosts and the Font Selector are unlocked for you right now. (Rave Radio is free for everyone, always!)</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">🪙 Launch perk #2: <strong>seller commission is automatically cut from 20% to just 10%</strong> on every sale for as long as the launch period lasts.</p>
-                <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep Radio, Themes, Banners, Boosts & the Font Selector forever. Your seller commission is also <strong>locked at 10% for life</strong>, even after launch ends and new sellers move to 20%.</p>
+                <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep 6 Profile Pins, Themes, Banners, Boosts & the Font Selector forever. Your seller commission is also <strong>locked at 10% for life</strong>, even after launch ends and new sellers move to 20%.</p>
                 <p className="text-[9px] opacity-60">Enjoy the festival! 💖</p>
             </div>
             <Button type="button" onClick={onClose} color="gold" className="w-full">Awesome — Let's Rave!</Button>
@@ -1451,10 +1451,11 @@ const VIPCheckoutForm = ({ user, onClose }) => {
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
             <div className="text-left bg-white/5 p-3 rounded border border-white/10 text-[11px] space-y-1">
                 <p className="font-bold text-yellow-400 uppercase text-[10px] tracking-widest mb-1">VIP unlocks:</p>
-                <p>🎧 Global EDM Radio Player</p>
+                <p>📌 6 Profile Pins (free tier gets 3)</p>
                 <p>🖼️ Custom App Backgrounds & Themes</p>
                 <p>📢 Banner Messages on the live marquee</p>
                 <p>⚡ Post Boosts — pin your items to the top of the feed</p>
+                <p>🔤 Font Selector for bio, posts & messages</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setPlan('monthly')} className={`p-3 rounded-xl border-2 text-left ${plan === 'monthly' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
@@ -1722,13 +1723,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                             <h3 className="text-xl font-black italic flex items-center gap-2" style={getTextGlowStyle('purpleGlow')}><Radio size={20}/> RAVE RADIO</h3>
                             <button onClick={onClose}><XCircle/></button>
                         </div>
-                        {!isEffVIP(profile) ? (
-                            <div className="text-center py-6 space-y-4">
-                                <Crown size={48} className="mx-auto text-yellow-400"/>
-                                <p className="text-sm text-white">Rave Radio is a <strong>VIP</strong> feature. Unlock live electronic stations, a full EQ, and custom backgrounds — $4.99/month or $20 lifetime.</p>
-                                <Button onClick={onGoVip} color="gold" className="w-full">Unlock VIP</Button>
-                            </div>
-                        ) : !consent ? (
+                        {!consent ? (
                             <div className="text-center py-6 space-y-4">
                                 <div className="flex justify-center"><Volume size={48} color="#64ffff"/></div>
                                 <p className="text-sm text-white font-bold">RaveKandi needs permission to play audio on this device.</p>
@@ -2047,7 +2042,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V54.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V56.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2263,11 +2258,11 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     return createPortal(
         <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex min-h-full items-center justify-center p-3">
-                <Card className="max-w-md w-full my-2 flex flex-col" glow="purpleGlow">
-                    <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-2">
-                        <h3 className="text-lg font-black uppercase italic tracking-widest" style={getTextGlowStyle('purpleGlow')}>Messenger</h3>
-                        <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); onClose(); }}><XCircle/></button>
+            <div className="flex min-h-full items-center justify-center p-2 sm:p-4">
+                <Card className="max-w-2xl w-full my-2 flex flex-col min-h-[85vh]" glow="purpleGlow">
+                    <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-3">
+                        <h3 className="text-2xl font-black uppercase italic tracking-widest" style={getTextGlowStyle('purpleGlow')}>Messenger</h3>
+                        <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); onClose(); }}><XCircle size={28}/></button>
                     </div>
 
                     {!activeThread && (
@@ -2332,13 +2327,13 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                 const other = otherOf(t); const un = t.unread?.[myUid] || 0;
                                 const preview = t.lastMessage ? rkDec(t.lastMessage, rkKey(myUid, other)) : '';
                                 return (
-                                    <div key={t.id} className={`flex items-center gap-2 p-2 rounded border ${un > 0 ? 'bg-purple-900/30 border-purple-400/50' : 'bg-white/5 border-white/10'}`}>
-                                        <button onClick={() => toggleFav(t)} className={t.favorites?.[myUid] ? 'text-yellow-400' : 'text-white/20'}><Star size={14} fill={t.favorites?.[myUid] ? 'currentColor' : 'none'}/></button>
+                                    <div key={t.id} className={`flex items-center gap-3 p-3 rounded-lg border ${un > 0 ? 'bg-purple-900/30 border-purple-400/50' : 'bg-white/5 border-white/10'}`}>
+                                        <button onClick={() => toggleFav(t)} className={t.favorites?.[myUid] ? 'text-yellow-400' : 'text-white/20'}><Star size={20} fill={t.favorites?.[myUid] ? 'currentColor' : 'none'}/></button>
                                         <button onClick={() => openThreadWith(other, t.names?.[other])} className="flex-1 min-w-0 text-left">
-                                            <p className="text-xs font-bold truncate flex items-center gap-1">@{t.names?.[other] || 'Raver'} {un > 0 && <span className="bg-pink-600 text-white text-[8px] font-black rounded-full px-1.5">{un}</span>}</p>
-                                            <p className="text-[10px] opacity-50 truncate">{t.lastSender === myUid ? 'You: ' : ''}{preview}</p>
+                                            <p className="text-sm font-bold truncate flex items-center gap-1">@{t.names?.[other] || 'Raver'} {un > 0 && <span className="bg-pink-600 text-white text-[10px] font-black rounded-full px-2 py-0.5">{un}</span>}</p>
+                                            <p className="text-xs opacity-50 truncate">{t.lastSender === myUid ? 'You: ' : ''}{preview}</p>
                                         </button>
-                                        <span className="text-[8px] opacity-40 shrink-0">{t.lastAt ? new Date(t.lastAt).toLocaleDateString() : ''}</span>
+                                        <span className="text-[9px] opacity-40 shrink-0">{t.lastAt ? new Date(t.lastAt).toLocaleDateString() : ''}</span>
                                     </div>
                                 );
                             })}
@@ -3297,28 +3292,30 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
 
     useEffect(() => {
         if(!isOpen || !user?.uid) return;
-        let q = type === 'posts' ? query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), orderBy('timestamp', 'desc')) : query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
+        // V54.1: NO orderBy in the query — ordering another user's subcollection server-side
+        // was silently erroring (missing index / rule interaction), which left collections
+        // showing "Empty here." We fetch unordered and sort by timestamp on the client.
+        const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
         return onSnapshot(q, s => {
-            const allItems = s.docs.map(d => ({...d.data(), id: d.id}));
-            // V49: hide broken AI items — failed status, or an AI creation whose image never
-            // generated (no base64 data URL and no media). Prevents broken entries from
-            // crashing or cluttering the collection (including ones saved before this fix).
+            let allItems = s.docs.map(d => ({...d.data(), id: d.id}));
+            allItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            // hide broken AI items (failed, or an AI creation whose image never generated)
             const usable = allItems.filter(i => {
-                if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating'; // keep in-progress, drop failed
+                if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating';
                 if (i.isAICreation) { const img = i.imageUrl || i.mediaUrls?.[0]?.url || ''; return typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http')); }
                 return true;
             });
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
-        }, e => { console.log('collection load:', e); setItems([]); }); // V42.27: handle errors so viewing another raver's collection never crashes
+        }, e => { console.log('collection load:', e); setItems([]); });
     }, [isOpen, user, type]);
     
     if(!isOpen) return null;
     return (
         <>
-            <Modal isOpen={isOpen} onClose={onClose} title={type === 'posts' ? "My Collection" : "My Stock"}>
+            <Modal isOpen={isOpen} onClose={onClose} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
-                    {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">Empty here.</p>}
+                    {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
                     {items.map(item => (
                         <div key={item.id} onClick={() => setSelectedItem(item)} className={`bg-white/5 p-2 rounded-lg border flex flex-col relative group cursor-pointer hover:bg-white/10 ${item.status === 'generating' ? 'border-yellow-500/50' : 'border-white/10'}`}>
                             {item.status === 'generating' ? (
@@ -3680,7 +3677,10 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             <div className="mb-2">
                 <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
                 <div className="flex justify-between items-center">
-                    <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex flex-col items-start gap-0.5"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-0.5"><User size={10}/>@{item.ownerName}</span>{item.ownerBadge && <span className="flex"><BadgeChip badge={item.ownerBadge} /></span>}</button>
+                    <div className="flex flex-col items-start gap-1">
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex flex-col items-start gap-0.5"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-0.5"><User size={10}/>@{item.ownerName}</span>{item.ownerBadge && <span className="flex"><BadgeChip badge={item.ownerBadge} /></span>}</button>
+                        {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
+                    </div>
                     <span className="text-lime-400 font-bold">
                         {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
@@ -4046,7 +4046,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         const expires = Date.now() + ms;
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { isVIP: true, vipPlan: 'admin_granted', vipSince: Date.now(), vipExpires: expires }, { merge: true });
-            pushNotif(managedUser.id, 'admin', '⭐ You\'ve been granted VIP for ' + vipQty + ' ' + vipUnit + '! Enjoy Radio, Themes, Banners, Boosts & the Font Selector. PLUR!');
+            pushNotif(managedUser.id, 'admin', '⭐ You\'ve been granted VIP for ' + vipQty + ' ' + vipUnit + '! Enjoy 6 Profile Pins, Themes, Banners, Boosts & the Font Selector. PLUR!');
             alert('@' + (managedUser.displayName || 'user') + ' is now VIP until ' + new Date(expires).toLocaleDateString() + '.');
             setManagedUser({ ...managedUser, isVIP: true, vipExpires: expires });
         } catch (e) { alert('Failed: ' + e.message); }
@@ -4668,8 +4668,8 @@ const HELP_TOPICS = [
     { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
     { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
-    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks Rave Radio with a full EQ, custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
-    { cat: 'VIP', title: '📻 Rave Radio', content: "VIP members stream live electronic stations across every genre — house, techno, trance, dnb, dubstep, hardstyle, psytrance and more — with a built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
+    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
+    { cat: 'Radio', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone — stream live electronic stations across every genre — house, techno, trance, dnb, dubstep, hardstyle, psytrance and more — with a built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
     { cat: 'Payments', title: '🛡️ Checkout Options', content: "Pay by card through Stripe's encrypted portal, or with Solana crypto (Phantom, Coinbase, MetaMask) for near-zero fees. Your payment details are never stored by RaveKandi." },
     { cat: 'Safety', title: '🚩 Reporting & Support', content: "Use the Bugs/Feedback button to report issues. Admins can take down inappropriate content and moderate the community. For account help, submit a support ticket — replies arrive in your notifications." },
 ];
@@ -4783,22 +4783,33 @@ EOF
 
 # Block 16
 cat << 'EOF' >> src/App.js
-const PinSelectModal = ({ user, isOpen, onClose }) => {
+const PinSelectModal = ({ user, profile, isOpen, onClose }) => {
     const [inv, setInv] = useState([]);
     useEffect(() => {
         if(!isOpen || !user?.uid) return;
         getDocs(query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'))).then(s => setInv(s.docs.map(d=>({...d.data(), id: d.id}))));
     }, [isOpen, user]);
+    const pinnedCount = inv.filter(i => i.isPinned).length;
+    const vip = isEffVIP(profile);
+    const maxPins = vip ? 6 : 3;
     const togglePin = async (item) => {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.id), { isPinned: true });
+        if (!item.isPinned && pinnedCount >= maxPins) {
+            if (!vip) { alert("Free tier lets you pin 3 items. Upgrade to VIP to pin up to 6!"); }
+            else { alert("You can pin up to 6 items. Unpin one first."); }
+            return;
+        }
+        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.id), { isPinned: !item.isPinned });
         onClose();
     };
     if(!isOpen) return null;
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Select Item to Pin">
+        <Modal isOpen={isOpen} onClose={onClose} title="Select Items to Pin">
+            <p className="text-[10px] opacity-60 mb-2 text-center">{pinnedCount}/{maxPins} pinned{!vip ? ' (free tier — VIP unlocks 6)' : ''}. Tap an item to pin or unpin it.</p>
             <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                {inv.length === 0 && <p className="col-span-2 text-center opacity-50 py-6 text-xs">No items yet — post or stock an item first, then pin it here.</p>}
                 {inv.map(i => (
-                    <div key={i.id} onClick={() => togglePin(i)} className={`border p-2 rounded cursor-pointer ${i.isPinned ? 'border-pink-500 bg-pink-500/20' : 'border-white/20 hover:bg-white/10'}`}>
+                    <div key={i.id} onClick={() => togglePin(i)} className={`border p-2 rounded cursor-pointer relative ${i.isPinned ? 'border-pink-500 bg-pink-500/20' : 'border-white/20 hover:bg-white/10'}`}>
+                        {i.isPinned && <span className="absolute top-1 right-1 bg-pink-600 text-white text-[7px] font-black rounded-full px-1.5 py-0.5">★ PINNED</span>}
                         <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || 'https://placehold.co/100'} className="w-full h-16 object-cover rounded mb-1"/>
                         <p className="text-[8px] truncate">{i.name}</p>
                     </div>
@@ -4844,7 +4855,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
     // featured pins of the target (creators only)
     useEffect(() => {
         const tid = (targ && targ !== 'not_found' && targ !== 'error') ? targ.id : null;
-        if (!tid || !targ.isKandiCreator) { setPinnedItems([]); return; }
+        if (!tid) { setPinnedItems([]); return; }
         const q = query(collection(db, 'artifacts', appId, 'users', tid, 'inventory'), where('isPinned', '==', true));
         const unsub = onSnapshot(q, s => setPinnedItems(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log(e));
         return () => unsub();
@@ -4893,11 +4904,11 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
                                 {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[8px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
                             </div>
 
-                            {targ.isKandiCreator && pinnedItems.length > 0 && (
+                            {pinnedItems.length > 0 && (
                                 <div className="mb-4 bg-black/50 border border-pink-500/30 p-2 rounded-lg">
                                     <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins</h4>
                                     <div className="flex gap-2 overflow-x-auto pb-1">
-                                        {pinnedItems.slice(0, 2).map(item => (
+                                        {pinnedItems.slice(0, 6).map(item => (
                                             <div key={item.id} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-white/10 rounded p-1 w-24 shrink-0 cursor-pointer hover:bg-white/10 transition-colors">
                                                 <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image} className="w-full h-16 object-cover rounded mb-1 border-2 border-pink-500/30" />
                                                 <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
@@ -5254,7 +5265,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     }, [user]);
 
     useEffect(() => {
-        if(!user?.uid || !profile?.isKandiCreator) return;
+        if(!user?.uid) return;
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), where('isPinned', '==', true));
         return onSnapshot(q, s => setPinnedItems(s.docs.map(d => ({...d.data(), id: d.id}))));
     }, [user, profile]);
@@ -5289,7 +5300,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <EditSocialsModal user={user} profile={profile} isOpen={modals.socials} onClose={()=>setModals({...modals, socials:false})}/>
                 <ReferralModal user={user} profile={profile} isOpen={modals.referrals} onClose={()=>setModals({...modals, referrals:false})}/>
                 <ItemDetailModal item={selectedPinned} user={user} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onViewFeed}/>
-                <PinSelectModal user={user} isOpen={pinModalOpen} onClose={() => setPinModalOpen(false)} />
+                <PinSelectModal user={user} profile={profile} isOpen={pinModalOpen} onClose={() => setPinModalOpen(false)} />
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
@@ -5333,20 +5344,6 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                             </div>
                         )}
 
-                        {profile.isKandiCreator && pinnedItems.length > 0 && (
-                            <div className="mb-4 bg-black/50 border border-pink-500/30 p-2 rounded-lg">
-                                <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins</h4>
-                                <div className="flex gap-2 overflow-x-auto pb-1">
-                                    {pinnedItems.slice(0, 2).map(item => (
-                                        <div key={item.id} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-white/10 rounded p-1 w-24 shrink-0 cursor-pointer hover:bg-white/10 transition-colors relative group">
-                                            <button onClick={(e) => { e.stopPropagation(); unpinItem(item.id); }} className="absolute top-1 right-1 bg-black/80 text-red-500 p-1 rounded-full opacity-0 group-hover:opacity-100"><XCircle size={14}/></button>
-                                            <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image} className="w-full h-16 object-cover rounded mb-1 border-2 border-pink-500/30" />
-                                            <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
 
                         <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={() => setShowRevShare(true)}><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{profile.publicUid || user.uid}</span> <Share2 size={10} className="inline ml-2 text-cyan-400"/> <span className="text-[8px] text-cyan-400 uppercase font-bold ml-1">RevShare</span></div></div>
                         
@@ -5400,21 +5397,53 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 
                 <div className="grid grid-cols-2 gap-4"><button onClick={() => setModals({...modals, collection:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Package className="text-pink-500 mb-1"/> Collection</button> <button onClick={() => setModals({...modals, inventory:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Box className="text-lime-400 mb-1"/> My Inventory</button> </div>
                 
-                {profile.isKandiCreator && (
-                    <div className="grid grid-cols-2 gap-4 mt-2">
-                        {[0, 1].map(index => {
-                            const pinnedItem = pinnedItems[index];
-                            if (!pinnedItem) {
-                                return (
-                                    <button key={`pin-empty-${index}`} onClick={() => setPinModalOpen(true)} className="bg-white/5 border border-dashed border-white/20 p-4 rounded-xl font-bold flex flex-col items-center justify-center hover:bg-white/10 transition opacity-50 h-24">
-                                        <PlusCircle className="text-white mb-1" size={16}/>
-                                        <span className="text-[8px] text-center font-bold">Pin Top Item</span>
-                                    </button>
-                                );
-                            } else return <div key={`pin-empty-${index}`} className="hidden"></div>;
-                        })}
-                    </div>
-                )}
+{!user?.isAnonymous && (() => {
+                    // V55.1: unified pin box, available to ALL users. FREE tier = up to 3 pins.
+                    // VIP tier = up to 6 pins (the 2nd row of 3). Non-VIP users see a VIP upsell
+                    // where the 4th slot would be. The pin chooser is INSIDE the box.
+                    const vip = isEffVIP(profile);
+                    const maxPins = vip ? 6 : 3;
+                    const pins = pinnedItems.slice(0, maxPins);
+                    let slots = pins.length + 1; // trailing click-box
+                    if (slots > maxPins) slots = maxPins;
+                    slots = Math.ceil(slots / 3) * 3; // round up to full row
+                    if (slots > maxPins) slots = maxPins;
+                    if (slots < 3) slots = 3;
+                    const showVipUpsell = !vip && pins.length >= 3; // free tier full -> tease row 2
+                    return (
+                        <div className="mt-2 bg-black/50 border border-pink-500/30 rounded-xl p-3">
+                            <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins <span className="opacity-50 normal-case font-normal">({pins.length}/{maxPins}){!vip ? ' · Free tier' : ''}</span></h4>
+                            <div className="grid grid-cols-3 gap-2">
+                                {Array.from({ length: slots }).map((_, index) => {
+                                    const item = pins[index];
+                                    if (item) {
+                                        return (
+                                            <div key={`pin-${item.id}`} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-pink-500/30 rounded-lg p-1 cursor-pointer hover:bg-white/10 transition-colors relative group aspect-square flex flex-col">
+                                                <button onClick={(e) => { e.stopPropagation(); unpinItem(item.id); }} className="absolute top-1 right-1 bg-black/80 text-red-400 p-0.5 rounded-full opacity-80 hover:opacity-100 z-10"><XCircle size={14}/></button>
+                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Pin'} className="w-full flex-1 object-cover rounded mb-1 border border-pink-500/20" />
+                                                <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
+                                            </div>
+                                        );
+                                    }
+                                    const isChooser = index === pins.length;
+                                    return (
+                                        <button key={`pin-empty-${index}`} onClick={() => isChooser && setPinModalOpen(true)} disabled={!isChooser} className={`border border-dashed rounded-lg flex flex-col items-center justify-center aspect-square transition ${isChooser ? 'border-pink-400/60 bg-pink-500/5 hover:bg-pink-500/15 cursor-pointer' : 'border-white/10 opacity-30 cursor-default'}`}>
+                                            <PlusCircle className={isChooser ? 'text-pink-400 mb-1' : 'text-white/40 mb-1'} size={18}/>
+                                            <span className="text-[8px] text-center font-bold px-1">{isChooser ? 'Pin an item' : ''}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {showVipUpsell ? (
+                                <button onClick={() => setModals({...modals, vip: true})} className="w-full mt-2 bg-gradient-to-r from-yellow-500/20 to-amber-500/10 border border-yellow-400/40 rounded-lg p-2 flex items-center justify-center gap-2 hover:from-yellow-500/30 transition">
+                                    <Crown size={14} className="text-yellow-400"/><span className="text-[9px] font-black text-yellow-300 uppercase">Unlock 3 more pins with VIP</span>
+                                </button>
+                            ) : (
+                                <p className="text-[8px] opacity-40 mt-2">Tap a + box to pin one of your items. {vip ? 'Pin up to 6 — a new row opens as you fill the current one.' : 'Free tier: up to 3 pins. VIP unlocks 6.'}</p>
+                            )}
+                        </div>
+                    );
+                })()}
 
                 <AchievementsCard profile={profile} editable={true} userUid={user.uid} />
                 {(profile.isAdmin || profile.isKandiCreator) && <InventoryManager user={user} profile={profile}/>}
@@ -5540,7 +5569,7 @@ const AuthScreen = ({ setLoadMsg }) => {
         setLoading(true); setLoadMsg("Connecting...");
         let provider;
         if (providerName === 'google') { provider = new GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' }); }
-        else if (providerName === 'apple') { provider = new OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name'); }
+        else if (providerName === 'apple') { setLoading(false); alert('Apple sign-in is coming soon! For now, please use Google or email & password.'); return; } // inert until Apple Sign-In is configured in Firebase
         else if (providerName === 'twitter') { provider = new TwitterAuthProvider(); }
         else { setLoading(false); return; }
         try {
@@ -5573,7 +5602,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V54.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V56.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5601,10 +5630,6 @@ const AuthScreen = ({ setLoadMsg }) => {
                         <button onClick={() => socialAuth('google')} disabled={loading} className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3 rounded-lg flex items-center justify-center gap-3 transition active:scale-[0.98] disabled:opacity-50">
                             <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5h-1.9V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.3-5.6l-6.6-5.6C29.7 34.5 27 35.5 24 35.5c-5.2 0-9.6-3.3-11.3-7.9l-6.6 5.1C9.6 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.6 5.6C41.4 36.8 44 31 44 24c0-1.3-.1-2.3-.4-3.5z"/></svg>
                             Continue with Google
-                        </button>
-                        <button onClick={() => socialAuth('apple')} disabled={loading} className="w-full bg-black hover:bg-gray-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-3 border border-white/20 transition active:scale-[0.98] disabled:opacity-50">
-                            <svg width="16" height="18" viewBox="0 0 384 512" fill="currentColor"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
-                            Continue with Apple
                         </button>
                         <button onClick={() => socialAuth('twitter')} disabled={loading} className="w-full bg-black hover:bg-gray-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-3 border border-white/20 transition active:scale-[0.98] disabled:opacity-50">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
@@ -5877,7 +5902,7 @@ const App = () => {
         if (!user?.uid || !profile?.isVIP) return;
         if (profile.vipPlan === 'monthly' && profile.vipExpires && Date.now() > profile.vipExpires) {
             setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: false, vipPlan: 'expired' }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore Radio, Themes, Banner Messages & Post Boosts.');
+            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore 6 Profile Pins, Themes, Banner Messages & Post Boosts. (Your first 3 pins stay free!)');
         }
     }, [user, profile?.isVIP, profile?.vipPlan, profile?.vipExpires, nowTick]);
 
@@ -6093,7 +6118,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V54.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V56.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6246,6 +6271,7 @@ cat << 'EOF' >> src/App.js
                             <div className="w-full bg-yellow-900/15 border-2 border-yellow-400/70 rounded-xl p-4 text-left shadow-[0_0_14px_rgba(250,204,21,0.25)]">
                                 <p className="text-sm text-yellow-300 font-bold uppercase mb-2">⚖ Creator Fairness Window</p>
                                 <p className="text-xs text-gray-100 leading-relaxed">Custom & DIY requests sent to a specific Creator stay exclusive to them for <strong>24–72 hours</strong> (scaled by price and complexity). If unaccepted in that window, the request automatically opens to ALL Creators — keeping commissions fair for users and Creators alike.</p>
+                                <Button onClick={() => { setPage('shop'); setTab('diy'); }} color="gold" className="w-full mt-3 text-sm font-black uppercase tracking-wide flex items-center justify-center gap-2"><Hammer size={16}/> Start a DIY Request</Button>
                             </div>
                         </div>
 
@@ -6359,7 +6385,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V54.00.00 Phase 44: Vibe Tribe System (friends + group tribes)</span>
+                    <span className="flex-1 text-center">V56.00.00 Phase 46: Apple Removed + Pin Tiers (3 free/6 VIP) + Free Radio</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6554,9 +6580,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V54.00.00)..."
-sed -i "s/versionCode 1/versionCode 108/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "54.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V56.00.00)..."
+sed -i "s/versionCode 1/versionCode 110/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "56.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6603,7 +6629,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V54_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V56_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
