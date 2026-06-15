@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V56.00.00 Build Script Starting"
+echo " RaveKandi V58.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V56.00.00</title>
+    <title>RaveKandi V58.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V56.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V58.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30 };
-const APP_VERSION = '56.00.00';
+const APP_VERSION = '58.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -429,6 +429,18 @@ const ACHIEVEMENT_TIERS = [
     // Radio listening
     { id: 'radio_1', name: 'Tuned In', tier: 1, metric: 'radioMinutes', threshold: 60, icon: Radio, desc: "Listen to Rave Radio for 1 hour." },
     { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, icon: Radio, desc: "Listen to Rave Radio for 10 hours." },
+    // Vibe Tribe — friends
+    { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, icon: UserPlus, desc: "Add your first friend." },
+    { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, icon: Users, desc: "Reach 5 friends." },
+    { id: 'friend_3', name: 'Social Butterfly', tier: 2, metric: 'friendsCount', threshold: 25, icon: Users, desc: "Reach 25 friends." },
+    { id: 'friend_4', name: 'PLUR Network', tier: 3, metric: 'friendsCount', threshold: 100, icon: Users, desc: "Reach 100 friends." },
+    // Vibe Tribe — tribes & chat
+    { id: 'tribe_1', name: 'Tribe Founder', tier: 1, metric: 'tribesJoined', threshold: 1, icon: Star, desc: "Create or join your first Vibe Tribe." },
+    { id: 'tribe_3', name: 'Multi-Tribe', tier: 2, metric: 'tribesJoined', threshold: 3, icon: Star, desc: "Be part of 3 Vibe Tribes at once." },
+    { id: 'tribe_big_5', name: 'Growing Tribe', tier: 2, metric: 'biggestTribe', threshold: 5, icon: Users, desc: "Be in a tribe with 5+ members." },
+    { id: 'tribe_big_10', name: 'Massive Movement', tier: 3, metric: 'biggestTribe', threshold: 10, icon: Users, desc: "Be in a tribe with 10+ members." },
+    { id: 'tribe_msg_50', name: 'Tribe Chatter', tier: 1, metric: 'tribeMessages', threshold: 50, icon: MessageSquare, desc: "Send 50 messages in tribe group chats." },
+    { id: 'tribe_msg_500', name: 'Tribe Voice', tier: 2, metric: 'tribeMessages', threshold: 500, icon: MessageSquare, desc: "Send 500 messages in tribe group chats." },
     // Activity / loyalty
     { id: 'active_1', name: 'Regular', tier: 1, metric: 'activeMinutes', threshold: 300, icon: Activity, desc: "Spend 5 active hours in the app." },
     { id: 'active_2', name: 'Always Raving', tier: 1, metric: 'activeMinutes', threshold: 3000, icon: Activity, desc: "Spend 50 active hours in the app." },
@@ -708,6 +720,8 @@ export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeOb
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), {
         sender: fromUid, senderName: fromName || 'Raver', text: text.trim().slice(0, 1000), at: Date.now(), badge: badgeObj || null
     });
+    // track for achievements (best-effort)
+    try { await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { tribeMessages: increment(1) }, { merge: true }); } catch (e) {}
 };
 
 export const removeFriend = async (myUid, otherUid) => {
@@ -931,7 +945,9 @@ const getDisplayAchievements = (profile) => {
         radioMinutes: profile?.radioMinutes||0, activeMinutes: profile?.activeMinutes||0,
         topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0,
         boostsUsed: profile?.boostsUsed||0, videosPosted: profile?.videosPosted||0,
-        achievementsUnlocked: profile?.achievementsUnlocked||0
+        achievementsUnlocked: profile?.achievementsUnlocked||0,
+        friendsCount: (profile?.friends || []).length,
+        tribesJoined: profile?.tribesJoined||0, tribeMessages: profile?.tribeMessages||0, biggestTribe: profile?.biggestTribe||0
     };
     return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: (stats[ach.metric]||0) >= ach.threshold }));
 };
@@ -974,7 +990,7 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
 
 const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name }) => { const ac = autoComplete || 'off'; const noFill = ac === 'off' ? { autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-form-type': 'other' } : {}; return ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} autoComplete={ac} {...noFill} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input name={name} autoComplete={ac} {...noFill} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> ); };
 
-const Modal = ({ isOpen, onClose, title, children }) => { if (!isOpen) return null; return createPortal( <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto" onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className="max-w-md w-full my-4" glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
+const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false }) => { if (!isOpen) return null; return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
 // and the messenger. Resolves the target's real uid (cards sometimes only have publicUid).
@@ -1490,7 +1506,7 @@ const VIPCheckoutModal = ({ user, isOpen, onClose }) => {
     );
 };
 
-const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle', titleLabel = 'Font & Text Style' }) => {
+const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle', titleLabel = 'Font & Text Style', zClass = '' }) => {
     const saved = (profile && profile[field]) || {};
     const [font, setFont] = useState(saved.font || 'default');
     const [fx, setFx] = useState(saved.fx || 'none');
@@ -1514,7 +1530,7 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
     const needsC = (fx === 'neon' || fx === 'gradient' || fx === 'solid');
     const needsC2 = (fx === 'gradient');
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={'🔤 ' + titleLabel}>
+        <Modal isOpen={isOpen} onClose={onClose} title={'🔤 ' + titleLabel} zClass={zClass}>
             <div className="space-y-3">
                 <div className="bg-black/60 border-2 border-pink-500/40 rounded-xl p-4 text-center">
                     <p className="text-[9px] uppercase opacity-50 mb-2">Live Preview</p>
@@ -2042,7 +2058,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V56.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V58.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2097,7 +2113,7 @@ const PingBar = ({ show }) => {
 
 const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
-const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget }) => {
+const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
@@ -2381,12 +2397,12 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             })}
                         </div>
                         <div className="flex gap-2 mt-3">
-                            <button onClick={() => setMsgFontOpen(true)} className="shrink-0 w-10 rounded bg-fuchsia-600/30 border border-fuchsia-500/40 text-fuchsia-200 flex items-center justify-center hover:bg-fuchsia-600/50" title="Message font style"><span className="text-sm font-black">A</span></button>
+                            <button onClick={() => { if (!isEffVIP(profile)) { alert('🔤 The Font & Style selector is a VIP perk. Unlock it (plus Themes, Banners & Boosts) — or enjoy it free during launch!'); return; } setMsgFontOpen(true); }} className={"shrink-0 w-10 rounded border flex items-center justify-center " + (isEffVIP(profile) ? "bg-fuchsia-600/30 border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-600/50" : "bg-white/5 border-white/15 text-white/40")} title={isEffVIP(profile) ? "Message font style (VIP)" : "Message font style — VIP only"}><span className="text-sm font-black">A</span></button>
                             <Input value={input} onChange={setInput} placeholder="Spread PLUR..." className="mb-0 flex-1"/>
                             <Button onClick={send} disabled={sending || !input.trim()} color="purple" className="px-4"><Send size={18}/></Button>
                         </div>
                         <p className="text-[8px] text-center text-lime-400/70 mt-2">🔒 Encrypted · Deleted messages are gone forever for both users.</p>
-                        <FontSelectorModal user={user} profile={profile} isOpen={msgFontOpen} onClose={() => setMsgFontOpen(false)} field="msgTextStyle" titleLabel="Message Font & Style" />
+                        <FontSelectorModal user={user} profile={profile} isOpen={msgFontOpen} onClose={() => setMsgFontOpen(false)} field="msgTextStyle" titleLabel="Message Font & Style" zClass="z-[80]" />
                     </>)}
 
                     {tab === 'alerts' && (<>
@@ -2399,11 +2415,11 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             {visNotifs.map(n => {
                                 const Icon = NOTIF_ICONS[n.type] || Bell;
                                 return (
-                                    <div key={n.id} className={`flex items-start gap-2 p-2 rounded border ${!n.read ? 'bg-pink-900/20 border-pink-500/40' : 'bg-white/5 border-white/10 opacity-70'}`}>
-                                        <Icon size={14} className="text-pink-400 shrink-0 mt-0.5"/>
+                                    <div key={n.id} onClick={() => { try { if (!n.read) setDoc(doc(db, 'artifacts', appId, 'users', myUid, 'notifications', n.id), { read: true }, { merge: true }); } catch (e) {} if (n.type !== 'friendreq' && onNotifNav) onNotifNav(n); }} className={`flex items-start gap-2 p-2 rounded border cursor-pointer hover:brightness-125 transition ${!n.read ? 'bg-pink-900/30 border-pink-500/50' : 'bg-white/5 border-white/10'}`}>
+                                        <Icon size={15} className="text-pink-300 shrink-0 mt-0.5"/>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] text-gray-100 break-words">{n.text}</p>
-                                            <p className="text-[8px] opacity-40">{new Date(n.at).toLocaleString()}</p>
+                                            <p className="text-[12px] text-white font-medium break-words leading-snug">{n.text}</p>
+                                            <p className="text-[9px] text-cyan-300/70">{new Date(n.at).toLocaleString()}{n.type !== 'friendreq' && <span className="text-pink-300 ml-1">· tap to view →</span>}</p>
                                             {n.type === 'friendreq' && n.refId && !(profile?.friends || []).includes(n.refId) && (
                                                 <div className="flex gap-2 mt-1">
                                                     <button onClick={async () => { try { await acceptFriend(myUid, n.refId); await sendFriendRequest(myUid, profile?.displayName || 'Raver', profile?.publicUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your Vibe Tribe request!', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
@@ -3290,25 +3306,36 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
 
+    const targetUid = user?.uid;
     useEffect(() => {
-        if(!isOpen || !user?.uid) return;
-        // V54.1: NO orderBy in the query — ordering another user's subcollection server-side
-        // was silently erroring (missing index / rule interaction), which left collections
-        // showing "Empty here." We fetch unordered and sort by timestamp on the client.
-        const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
+        if(!isOpen || !targetUid) return;
+        const filterBroken = (arr) => arr.filter(i => {
+            if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating';
+            if (i.isAICreation) { const img = i.imageUrl || i.mediaUrls?.[0]?.url || ''; return typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http')); }
+            return true;
+        });
+        // V57.1: when viewing ANOTHER raver's collection, read their PUBLIC posts from
+        // tradeItems (by ownerId) — this is always readable and is where listed items live,
+        // so collections reliably show items now. (The old inventory-subcollection read was
+        // returning empty.) The owner's own view still reads their full inventory.
+        if (readOnly) {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', targetUid));
+            return onSnapshot(q, s => {
+                let arr = s.docs.map(d => ({ ...d.data(), id: d.id }));
+                arr = arr.filter(i => !i.isCraftingStock);
+                arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                setItems(filterBroken(arr));
+            }, e => { console.log('collection(readOnly) load:', e); setItems([]); });
+        }
+        const q = query(collection(db, 'artifacts', appId, 'users', targetUid, 'inventory'));
         return onSnapshot(q, s => {
             let allItems = s.docs.map(d => ({...d.data(), id: d.id}));
             allItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-            // hide broken AI items (failed, or an AI creation whose image never generated)
-            const usable = allItems.filter(i => {
-                if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating';
-                if (i.isAICreation) { const img = i.imageUrl || i.mediaUrls?.[0]?.url || ''; return typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http')); }
-                return true;
-            });
+            const usable = filterBroken(allItems);
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
         }, e => { console.log('collection load:', e); setItems([]); });
-    }, [isOpen, user, type]);
+    }, [isOpen, targetUid, type, readOnly]);
     
     if(!isOpen) return null;
     return (
@@ -5091,6 +5118,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [activeTribe, setActiveTribe] = useState(null);
     const [tribeMsgs, setTribeMsgs] = useState([]);
     const [tribeInput, setTribeInput] = useState('');
+    const [friendSearch, setFriendSearch] = useState('');
     const myUid = user?.uid;
 
     // Load friends' profiles
@@ -5106,7 +5134,11 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     useEffect(() => {
         if (!isOpen || !myUid) return;
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('members', 'array-contains', myUid)), s => {
-            setTribes(s.docs.map(d => ({ ...d.data(), id: d.id })));
+            const list = s.docs.map(d => ({ ...d.data(), id: d.id }));
+            setTribes(list);
+            // update achievement metrics (best-effort)
+            const biggest = list.reduce((m, t) => Math.max(m, (t.memberCount || (t.members || []).length)), 0);
+            try { setDoc(doc(db, 'artifacts', appId, 'users', myUid), { tribesJoined: list.length, biggestTribe: biggest }, { merge: true }); } catch (e) {}
         }, e => console.log('tribes', e));
         return () => unsub();
     }, [isOpen, myUid]);
@@ -5138,7 +5170,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={() => { setActiveTribe(null); onClose(); }} title="🌈 Vibe Tribe">
+        <Modal isOpen={isOpen} onClose={() => { setActiveTribe(null); onClose(); }} title="🌈 Vibe Tribe" wide={true}>
             {!activeTribe ? (
                 <div>
                     <div className="flex gap-2 mb-3">
@@ -5147,17 +5179,33 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     </div>
 
                     {tab === 'friends' && (
-                        <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
-                            {loading ? <p className="text-center opacity-50 text-xs py-6">Loading your tribe…</p> : friends.length === 0 ? (
-                                <div className="text-center py-8"><Users size={32} className="mx-auto text-white/20 mb-2"/><p className="text-xs opacity-60">No friends yet! Tap "Add to Tribe" on any raver's profile or in search to build your Vibe Tribe.</p></div>
-                            ) : friends.map(f => (
-                                <div key={f.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
-                                    <img src={f.photoURL || 'https://placehold.co/40?text=U'} className="w-10 h-10 rounded-full object-cover border border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
-                                    <div className="flex-1 min-w-0"><p className="text-xs font-bold truncate">@{f.displayName || 'Raver'}</p><p className="text-[8px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p></div>
-                                    <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-1.5 hover:bg-white/10 rounded" title="Message"><Mail size={15}/></button>
-                                    <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your tribe?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-1.5 hover:bg-white/10 rounded" title="Remove friend"><X size={15}/></button>
+                        <div>
+                            {friends.length > 0 && (
+                                <div className="relative mb-3">
+                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                    <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
                                 </div>
-                            ))}
+                            )}
+                            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                                {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your tribe…</p> : friends.length === 0 ? (
+                                    <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Tap "Add to Tribe" on any raver's profile or in search to build your Vibe Tribe.</p></div>
+                                ) : (() => {
+                                    const fq = friendSearch.trim().toLowerCase();
+                                    const shown = fq ? friends.filter(f => (f.displayName || '').toLowerCase().includes(fq) || (f.publicUid || '').toLowerCase().includes(fq)) : friends;
+                                    if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
+                                    return shown.map(f => (
+                                        <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
+                                            <img src={f.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
+                                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
+                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
+                                                <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
+                                            </div>
+                                            <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={18}/></button>
+                                            <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your tribe?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-2 hover:bg-white/10 rounded-lg" title="Remove friend"><X size={18}/></button>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
                         </div>
                     )}
 
@@ -5329,6 +5377,54 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                     </div>
                     <div className="text-center md:text-left flex-1 w-full">
                         <div className="mb-1"><UserRating sum={profile.ratingSum} count={profile.ratingCount} size="lg" /><div className="flex items-center justify-center md:justify-start gap-2"><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}</h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>{profile.featuredBadge && <div className="flex justify-center md:justify-start mt-1"><BadgeChip badge={profile.featuredBadge} /></div>}</div>
+                        {!user?.isAnonymous && (() => {
+                    // V55.1: unified pin box, available to ALL users. FREE tier = up to 3 pins.
+                    // VIP tier = up to 6 pins (the 2nd row of 3). Non-VIP users see a VIP upsell
+                    // where the 4th slot would be. The pin chooser is INSIDE the box.
+                    const vip = isEffVIP(profile);
+                    const maxPins = vip ? 6 : 3;
+                    const pins = pinnedItems.slice(0, maxPins);
+                    let slots = pins.length + 1; // trailing click-box
+                    if (slots > maxPins) slots = maxPins;
+                    slots = Math.ceil(slots / 3) * 3; // round up to full row
+                    if (slots > maxPins) slots = maxPins;
+                    if (slots < 3) slots = 3;
+                    const showVipUpsell = !vip && pins.length >= 3; // free tier full -> tease row 2
+                    return (
+                        <div className="mt-2 bg-black/50 border border-pink-500/30 rounded-xl p-3">
+                            <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins <span className="opacity-50 normal-case font-normal">({pins.length}/{maxPins}){!vip ? ' · Free tier' : ''}</span></h4>
+                            <div className="grid grid-cols-3 gap-2">
+                                {Array.from({ length: slots }).map((_, index) => {
+                                    const item = pins[index];
+                                    if (item) {
+                                        return (
+                                            <div key={`pin-${item.id}`} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-pink-500/30 rounded-lg p-1 cursor-pointer hover:bg-white/10 transition-colors relative group aspect-square flex flex-col">
+                                                <button onClick={(e) => { e.stopPropagation(); unpinItem(item.id); }} className="absolute top-1 right-1 bg-black/80 text-red-400 p-0.5 rounded-full opacity-80 hover:opacity-100 z-10"><XCircle size={14}/></button>
+                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Pin'} className="w-full flex-1 object-cover rounded mb-1 border border-pink-500/20" />
+                                                <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
+                                            </div>
+                                        );
+                                    }
+                                    const isChooser = index === pins.length;
+                                    return (
+                                        <button key={`pin-empty-${index}`} onClick={() => isChooser && setPinModalOpen(true)} disabled={!isChooser} className={`border border-dashed rounded-lg flex flex-col items-center justify-center aspect-square transition ${isChooser ? 'border-pink-400/60 bg-pink-500/5 hover:bg-pink-500/15 cursor-pointer' : 'border-white/10 opacity-30 cursor-default'}`}>
+                                            <PlusCircle className={isChooser ? 'text-pink-400 mb-1' : 'text-white/40 mb-1'} size={18}/>
+                                            <span className="text-[8px] text-center font-bold px-1">{isChooser ? 'Pin an item' : ''}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {showVipUpsell ? (
+                                <button onClick={() => setModals({...modals, vip: true})} className="w-full mt-2 bg-gradient-to-r from-yellow-500/20 to-amber-500/10 border border-yellow-400/40 rounded-lg p-2 flex items-center justify-center gap-2 hover:from-yellow-500/30 transition">
+                                    <Crown size={14} className="text-yellow-400"/><span className="text-[9px] font-black text-yellow-300 uppercase">Unlock 3 more pins with VIP</span>
+                                </button>
+                            ) : (
+                                <p className="text-[8px] opacity-40 mt-2">Tap a + box to pin one of your items. {vip ? 'Pin up to 6 — a new row opens as you fill the current one.' : 'Free tier: up to 3 pins. VIP unlocks 6.'}</p>
+                            )}
+                        </div>
+                    );
+                })()}
+
                         
                         {(profile.isKandiCreator || profile.isAdmin) && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-lime-400 rounded-r flex items-center justify-between">
@@ -5396,54 +5492,6 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4"><button onClick={() => setModals({...modals, collection:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Package className="text-pink-500 mb-1"/> Collection</button> <button onClick={() => setModals({...modals, inventory:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Box className="text-lime-400 mb-1"/> My Inventory</button> </div>
-                
-{!user?.isAnonymous && (() => {
-                    // V55.1: unified pin box, available to ALL users. FREE tier = up to 3 pins.
-                    // VIP tier = up to 6 pins (the 2nd row of 3). Non-VIP users see a VIP upsell
-                    // where the 4th slot would be. The pin chooser is INSIDE the box.
-                    const vip = isEffVIP(profile);
-                    const maxPins = vip ? 6 : 3;
-                    const pins = pinnedItems.slice(0, maxPins);
-                    let slots = pins.length + 1; // trailing click-box
-                    if (slots > maxPins) slots = maxPins;
-                    slots = Math.ceil(slots / 3) * 3; // round up to full row
-                    if (slots > maxPins) slots = maxPins;
-                    if (slots < 3) slots = 3;
-                    const showVipUpsell = !vip && pins.length >= 3; // free tier full -> tease row 2
-                    return (
-                        <div className="mt-2 bg-black/50 border border-pink-500/30 rounded-xl p-3">
-                            <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins <span className="opacity-50 normal-case font-normal">({pins.length}/{maxPins}){!vip ? ' · Free tier' : ''}</span></h4>
-                            <div className="grid grid-cols-3 gap-2">
-                                {Array.from({ length: slots }).map((_, index) => {
-                                    const item = pins[index];
-                                    if (item) {
-                                        return (
-                                            <div key={`pin-${item.id}`} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-pink-500/30 rounded-lg p-1 cursor-pointer hover:bg-white/10 transition-colors relative group aspect-square flex flex-col">
-                                                <button onClick={(e) => { e.stopPropagation(); unpinItem(item.id); }} className="absolute top-1 right-1 bg-black/80 text-red-400 p-0.5 rounded-full opacity-80 hover:opacity-100 z-10"><XCircle size={14}/></button>
-                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Pin'} className="w-full flex-1 object-cover rounded mb-1 border border-pink-500/20" />
-                                                <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
-                                            </div>
-                                        );
-                                    }
-                                    const isChooser = index === pins.length;
-                                    return (
-                                        <button key={`pin-empty-${index}`} onClick={() => isChooser && setPinModalOpen(true)} disabled={!isChooser} className={`border border-dashed rounded-lg flex flex-col items-center justify-center aspect-square transition ${isChooser ? 'border-pink-400/60 bg-pink-500/5 hover:bg-pink-500/15 cursor-pointer' : 'border-white/10 opacity-30 cursor-default'}`}>
-                                            <PlusCircle className={isChooser ? 'text-pink-400 mb-1' : 'text-white/40 mb-1'} size={18}/>
-                                            <span className="text-[8px] text-center font-bold px-1">{isChooser ? 'Pin an item' : ''}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            {showVipUpsell ? (
-                                <button onClick={() => setModals({...modals, vip: true})} className="w-full mt-2 bg-gradient-to-r from-yellow-500/20 to-amber-500/10 border border-yellow-400/40 rounded-lg p-2 flex items-center justify-center gap-2 hover:from-yellow-500/30 transition">
-                                    <Crown size={14} className="text-yellow-400"/><span className="text-[9px] font-black text-yellow-300 uppercase">Unlock 3 more pins with VIP</span>
-                                </button>
-                            ) : (
-                                <p className="text-[8px] opacity-40 mt-2">Tap a + box to pin one of your items. {vip ? 'Pin up to 6 — a new row opens as you fill the current one.' : 'Free tier: up to 3 pins. VIP unlocks 6.'}</p>
-                            )}
-                        </div>
-                    );
-                })()}
 
                 <AchievementsCard profile={profile} editable={true} userUid={user.uid} />
                 {(profile.isAdmin || profile.isKandiCreator) && <InventoryManager user={user} profile={profile}/>}
@@ -5602,7 +5650,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V56.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V58.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6118,7 +6166,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V56.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V58.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6148,7 +6196,13 @@ cat << 'EOF' >> src/App.js
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
-            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} />}
+            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onNotifNav={(n) => {
+                // Route a tapped notification to the right place. Profile hosts achievements,
+                // Vibe Tribe & referrals; feed hosts comments/likes/sales/DIY.
+                const t = n.type;
+                if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
+                else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
+            }} />}
             <Modal isOpen={merchPopup} onClose={() => setMerchPopup(false)} title="Official Merch">
                 <div className="text-center space-y-4">
                     {['OFFICIAL', 'DROPS', 'SOON'].map((word, i) => (<h1 key={i} className="text-4xl font-black animate-text-shimmer opacity-90" style={{ backgroundImage: 'linear-gradient(45deg, #00ffff, #ffffff, #00ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>{word}.</h1>))}
@@ -6385,7 +6439,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V56.00.00 Phase 46: Apple Removed + Pin Tiers (3 free/6 VIP) + Free Radio</span>
+                    <span className="flex-1 text-center">V58.00.00 Phase 48: Tribe Rules Fix + Collection Fix + Font/Notif/Tribe Upgrades</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6580,9 +6634,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V56.00.00)..."
-sed -i "s/versionCode 1/versionCode 110/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "56.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V58.00.00)..."
+sed -i "s/versionCode 1/versionCode 112/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "58.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6629,7 +6683,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V56_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V58_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
