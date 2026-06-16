@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V58.00.00 Build Script Starting"
+echo " RaveKandi V59.02.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V58.00.00</title>
+    <title>RaveKandi V59.02.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V58.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V59.02.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -327,8 +327,8 @@ const trackUniqueVisit = async () => {
 };
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
-let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30 };
-const APP_VERSION = '58.00.00';
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
+const APP_VERSION = '59.02.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1594,24 +1594,17 @@ const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Custom Theming">
             <div className="space-y-4">
-                <p className="text-xs opacity-70">Paste an image URL, or upload a file directly to replace the app's default dark background.</p>
-                <div className="bg-black/50 border border-purple-500/40 p-3 rounded">
-                    <h4 className="text-[10px] uppercase font-bold text-purple-400 mb-2 flex items-center gap-1"><Sparkles size={12}/> RaveKandi Official Themes</h4>
-                    <div className="grid grid-cols-3 gap-2">
-                        {[1,2,3].map(n => (
-                            <div key={n} className="h-16 rounded border border-dashed border-white/20 bg-white/5 flex flex-col items-center justify-center opacity-60">
-                                <Lock size={12} className="text-purple-400 mb-1"/>
-                                <span className="text-[7px] uppercase font-bold text-center leading-tight">HD Animated<br/>Coming Soon</span>
-                            </div>
-                        ))}
-                    </div>
-                    <p className="text-[8px] opacity-50 mt-2">Exclusive animated HD backgrounds made by the RaveKandi team — dropping in a future update.</p>
-                </div>
-                <Input value={url} onChange={setUrl} placeholder="https://my-custom-gif.com/image.gif" />
+                <p className="text-xs opacity-70">Personalize your app background. Upload an image, paste an image URL, or paste a hosted <strong>video link</strong> for a live wallpaper.</p>
+                <Input value={url} onChange={setUrl} placeholder="https://...image.jpg OR https://...video.mp4" />
                 <div className="bg-white/5 p-3 rounded border border-white/10">
-                    <label className="text-[10px] font-bold text-pink-400 mb-1 block">Upload Background</label>
+                    <label className="text-[10px] font-bold text-pink-400 mb-1 block">Upload Image Background</label>
                     <input type="file" accept="image/*" onChange={handleFile} className="text-[10px] w-full" disabled={uploading}/>
                     {uploading && <p className="text-[10px] text-lime-400 mt-1">Processing...</p>}
+                    <p className="text-[8px] opacity-50 mt-1">Image upload only. For a video wallpaper, paste a hosted link above.</p>
+                </div>
+                <div className="bg-cyan-900/20 border border-cyan-500/30 rounded p-2.5">
+                    <p className="text-[10px] text-cyan-200 leading-relaxed mb-1">🎥 <strong>Video live wallpapers:</strong> host your video somewhere (Imgur, Cloudinary, a Discord CDN link, etc.) and paste the direct <strong>.mp4 / .webm</strong> link above — it'll play as an animated background!</p>
+                    <p className="text-[8px] opacity-50">Tip: keep videos short and small for smooth looping. The link must end in .mp4 or .webm.</p>
                 </div>
                 <p className="text-[9px] text-yellow-400 bg-yellow-900/20 border border-yellow-500/30 rounded p-2 text-center font-bold">⚠ You must press SAVE THEME for changes to apply — including after uploading an image or after clearing your theme.</p>
                 <div className="flex gap-2">
@@ -2058,7 +2051,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V58.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V59.02.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3950,6 +3943,91 @@ const VideoTakedownPanel = () => {
     );
 };
 
+const DurationPicker = ({ label, valueMs, onSet }) => {
+    const [qty, setQty] = useState(1);
+    const [unit, setUnit] = useState('hours');
+    const units = { minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 };
+    const active = valueMs && valueMs > Date.now();
+    const remain = active ? Math.max(0, valueMs - Date.now()) : 0;
+    const fmtRemain = () => {
+        if (!active) return 'no expiry set';
+        const h = Math.floor(remain / 3600000), m = Math.floor((remain % 3600000) / 60000);
+        if (h >= 24) return Math.floor(h / 24) + 'd ' + (h % 24) + 'h left';
+        return h + 'h ' + m + 'm left';
+    };
+    return (
+        <div className="bg-black/30 rounded p-2">
+            <label className="text-[9px] font-bold uppercase opacity-70 block mb-1">{label}</label>
+            <div className="flex gap-1 items-center flex-wrap">
+                <input type="number" min="1" value={qty} onChange={e => setQty(e.target.value)} className="bg-black border border-white/20 text-[10px] p-1.5 rounded w-14"/>
+                <select value={unit} onChange={e => setUnit(e.target.value)} className="bg-black border border-white/20 text-[10px] p-1.5 rounded">
+                    <option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="weeks">Weeks</option>
+                </select>
+                <button onClick={() => onSet(Date.now() + (parseInt(qty) || 1) * units[unit])} className="bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-1 text-[10px] font-bold">Set</button>
+                <button onClick={() => onSet(0)} className="bg-white/10 text-white/60 border border-white/20 rounded px-2 py-1 text-[10px]">No expiry</button>
+            </div>
+            <p className="text-[8px] mt-1 text-cyan-300">{fmtRemain()}{active ? ' (expires ' + new Date(valueMs).toLocaleString() + ')' : ''}</p>
+        </div>
+    );
+};
+
+const POPIN_THEMES = {
+    message: { grad: 'from-purple-600 via-fuchsia-600 to-purple-700', border: 'border-purple-300', icon: '💬', label: 'Message' },
+    maintenance: { grad: 'from-amber-600 via-yellow-600 to-orange-700', border: 'border-amber-300', icon: '🛠️', label: 'Maintenance' },
+    sale: { grad: 'from-pink-600 via-red-600 to-rose-700', border: 'border-pink-300', icon: '🔥', label: 'Sale' },
+    offer: { grad: 'from-green-600 via-emerald-600 to-teal-700', border: 'border-green-300', icon: '🎁', label: 'Special Offer' },
+    update: { grad: 'from-cyan-600 via-sky-600 to-blue-700', border: 'border-cyan-300', icon: '🚀', label: 'Update' },
+    event: { grad: 'from-pink-500 via-purple-500 to-cyan-500', border: 'border-fuchsia-300', icon: '🎉', label: 'Event' },
+    warning: { grad: 'from-orange-600 via-red-600 to-red-800', border: 'border-orange-300', icon: '⚠️', label: 'Important' },
+    celebration: { grad: 'from-yellow-500 via-amber-500 to-orange-500', border: 'border-yellow-200', icon: '🥳', label: 'Celebration' }
+};
+const AnnouncementPopIn = ({ cfg }) => {
+    const [dismissed, setDismissed] = useState(false);
+    const id = cfg?.popInId || '';
+    useEffect(() => { try { if (id && localStorage.getItem('rk_popin_seen') === id) setDismissed(true); else setDismissed(false); } catch (e) {} }, [id]);
+    if (!cfg?.popInActive || !id) return null;
+    if (cfg.popInExpiry > 0 && Date.now() > cfg.popInExpiry) return null;
+    if (dismissed) return null;
+    const theme = POPIN_THEMES[cfg.popInTheme] || POPIN_THEMES.message;
+    const close = () => { try { localStorage.setItem('rk_popin_seen', id); } catch (e) {} setDismissed(true); };
+    return createPortal(
+        <div className="fixed inset-0 z-[300] bg-black/85 flex items-center justify-center p-4" onClick={close}>
+            <div onClick={e => e.stopPropagation()} className={`relative max-w-md w-full rounded-3xl border-4 ${theme.border} bg-gradient-to-br ${theme.grad} shadow-[0_0_40px_rgba(255,255,255,0.3)] p-6 text-center`}>
+                <button onClick={close} className="absolute -top-3 -right-3 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 hover:scale-110 transition"><X size={20}/></button>
+                <div className="text-5xl mb-2">{theme.icon}</div>
+                <p className="text-[10px] uppercase font-black tracking-widest text-white/80 mb-3">{theme.label}</p>
+                {cfg.popInMedia && (cfg.popInMediaType === 'video'
+                    ? <video src={cfg.popInMedia} autoPlay loop muted playsInline className="w-full rounded-xl mb-3 max-h-60 object-cover"/>
+                    : <img src={cfg.popInMedia} className="w-full rounded-xl mb-3 max-h-60 object-cover"/>)}
+                <p className="text-white font-bold text-lg leading-relaxed whitespace-pre-wrap break-words drop-shadow">{cfg.popInMessage}</p>
+                <button onClick={close} className="mt-5 bg-white/90 text-black font-black uppercase tracking-wide text-sm px-8 py-2.5 rounded-full hover:bg-white transition active:scale-95">Got it!</button>
+            </div>
+        </div>, document.body);
+};
+
+const DiscoveryTip = ({ cfg }) => {
+    const [show, setShow] = useState(false);
+    useEffect(() => {
+        const mins = cfg?.discoveryTipMin || 0;
+        if (!mins || mins <= 0) return;
+        let last = 0; try { last = parseInt(localStorage.getItem('rk_tip_last') || '0'); } catch (e) {}
+        const due = !last || (Date.now() - last) > mins * 60000;
+        const t = setTimeout(() => { setShow(true); try { localStorage.setItem('rk_tip_last', String(Date.now())); } catch (e) {} }, due ? 8000 : mins * 60000);
+        return () => clearTimeout(t);
+    }, [cfg?.discoveryTipMin]);
+    if (!show) return null;
+    return createPortal(
+        <div className="fixed inset-0 z-[290] bg-black/70 flex items-center justify-center p-4" onClick={() => setShow(false)}>
+            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
+                <button onClick={() => setShow(false)} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+                <div className="text-4xl mb-2">💡✨</div>
+                <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Pro Tip</p>
+                <p className="text-white text-sm leading-relaxed">Almost <strong>everything</strong> on your screen is clickable and has a purpose! Tap names, badges, stats, icons, and items to discover hidden features. Explore RaveKandi — there's more than meets the eye. 🌈</p>
+                <button onClick={() => setShow(false)} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Explore!</button>
+            </div>
+        </div>, document.body);
+};
+
 const AdminAnalyticsBlock = () => {
     const [stats, setStats] = useState(null);
     useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => setStats(s.exists() ? s.data() : {}), e => {}), []);
@@ -3987,7 +4065,7 @@ const AdminAnalyticsBlock = () => {
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
     const T = ({ k, label }) => (
         <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
@@ -3998,7 +4076,42 @@ const RemoteConfigPanel = () => {
             <div className="grid grid-cols-2 gap-2">
                 <T k="checkoutEnabled" label="Checkout"/><T k="aiLabEnabled" label="AI Lab"/><T k="bannersEnabled" label="Banners"/><T k="boostsEnabled" label="Boosts"/><T k="launchPerks" label="Launch Perks"/><T k="paymentsLive" label="Payments LIVE"/>
             </div>
-            <Input label="Maintenance Message (blank = hidden banner)" value={cfg.maintenanceMessage || ''} onChange={v => setCfg({ ...cfg, maintenanceMessage: v })}/>
+            <div className="bg-amber-900/20 border border-amber-500/40 rounded-lg p-3 space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-amber-300 flex items-center gap-1">📢 Banner Announcement</h4>
+                <Input label="Message (blank = hidden)" value={cfg.maintenanceMessage || ''} onChange={v => setCfg({ ...cfg, maintenanceMessage: v })}/>
+                <label className="flex items-center gap-2 text-[10px]"><input type="checkbox" checked={!!cfg.bannerAnnounceOnly} onChange={e => setCfg({ ...cfg, bannerAnnounceOnly: e.target.checked })} className="accent-amber-500"/> Show as the ONLY banner message (hide marquee while active)</label>
+                <DurationPicker label="Auto-expire after" valueMs={cfg.maintenanceExpiry} onSet={(ms) => setCfg({ ...cfg, maintenanceExpiry: ms })}/>
+            </div>
+            <div className="bg-purple-900/20 border border-purple-500/40 rounded-lg p-3 space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-purple-300 flex items-center gap-1">🪧 Full-Screen Pop-In</h4>
+                <label className="flex items-center gap-2 text-[10px] font-bold"><input type="checkbox" checked={!!cfg.popInActive} onChange={e => setCfg({ ...cfg, popInActive: e.target.checked, popInId: e.target.checked ? ('pop_' + Date.now()) : (cfg.popInId || '') })} className="accent-purple-500"/> Pop-In ACTIVE (forces over every screen for all users)</label>
+                <div>
+                    <label className="text-[10px] font-bold text-purple-300 uppercase block mb-1">Theme</label>
+                    <select value={cfg.popInTheme || 'message'} onChange={e => setCfg({ ...cfg, popInTheme: e.target.value })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                        <option value="message">💬 Message (purple)</option>
+                        <option value="maintenance">🛠️ Maintenance (amber)</option>
+                        <option value="sale">🔥 Sale (red/pink)</option>
+                        <option value="offer">🎁 Offer (green)</option>
+                        <option value="update">🚀 Update (cyan)</option>
+                        <option value="event">🎉 Event (rainbow)</option>
+                        <option value="warning">⚠️ Warning (orange)</option>
+                        <option value="celebration">🥳 Celebration (gold)</option>
+                    </select>
+                </div>
+                <textarea value={cfg.popInMessage || ''} onChange={e => setCfg({ ...cfg, popInMessage: e.target.value })} placeholder="Your pop-in message..." className="w-full bg-black/50 border border-white/20 rounded p-2 text-xs h-20"/>
+                <div>
+                    <label className="text-[10px] font-bold text-purple-300 uppercase block mb-1">Image / Video (optional, &lt;5MB)</label>
+                    <input type="file" accept="image/*,video/*" onChange={(e) => {
+                        const file = e.target.files?.[0]; if (!file) return;
+                        if (file.size > 5 * 1024 * 1024) { alert('Please use a file under 5MB (it embeds inline). For big HD videos, host them and paste a URL in the message.'); return; }
+                        const reader = new FileReader();
+                        reader.onload = () => setCfg({ ...cfg, popInMedia: reader.result, popInMediaType: file.type.startsWith('video') ? 'video' : 'image' });
+                        reader.readAsDataURL(file);
+                    }} className="text-[10px] w-full"/>
+                    {cfg.popInMedia && <p className="text-[8px] text-lime-400 mt-1">✓ Media attached ({cfg.popInMediaType || 'image'}). <button onClick={() => setCfg({ ...cfg, popInMedia: '', popInMediaType: '' })} className="text-red-400 underline">remove</button></p>}
+                </div>
+                <DurationPicker label="Auto-dismiss after" valueMs={cfg.popInExpiry} onSet={(ms) => setCfg({ ...cfg, popInExpiry: ms })}/>
+            </div>
             <Input label="Minimum Version (e.g. 42.11.00 — blank = no gate)" value={cfg.minVersion || ''} onChange={v => setCfg({ ...cfg, minVersion: v })}/>
             <div>
                 <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Festival Clip Window (slot length)</label>
@@ -4020,6 +4133,20 @@ const RemoteConfigPanel = () => {
                     <option value={30}>Fast (30s)</option><option value={45}>Brisk (45s)</option><option value={60}>Normal (60s)</option><option value={90}>Relaxed (90s)</option><option value={120}>Slow (120s)</option><option value={180}>Very Slow (180s)</option>
                 </select>
                 <p className="text-[8px] opacity-60 mt-1">Lower = the top banner scrolls faster. Takes effect immediately for all users.</p>
+            </div>
+
+            <div className="bg-cyan-900/20 border border-cyan-500/40 rounded-lg p-3">
+                <label className="text-[10px] font-bold text-cyan-300 uppercase block mb-1">💡 Discovery Tip Frequency</label>
+                <select value={cfg.discoveryTipMin || 0} onChange={e => setCfg({ ...cfg, discoveryTipMin: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                    <option value={0}>Off</option>
+                    <option value={30}>Every 30 minutes</option>
+                    <option value={60}>Every hour</option>
+                    <option value={180}>Every 3 hours</option>
+                    <option value={360}>Every 6 hours</option>
+                    <option value={720}>Every 12 hours</option>
+                    <option value={1440}>Once a day</option>
+                </select>
+                <p className="text-[8px] opacity-60 mt-1">A friendly pop-in reminding users almost everything is clickable — encourages exploration. At most once per interval per device.</p>
             </div>
 
             <AdminAnalyticsBlock />
@@ -5650,7 +5777,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V58.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V59.02.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5715,6 +5842,7 @@ const App = () => {
     // V42.19 Phase 4: draggable floating radio button. Starts under the banner.
     const [radioBtnPos, setRadioBtnPos] = useState(() => { try { const s = JSON.parse(localStorage.getItem('rk_radio_btn_pos')); if (s && typeof s.x === 'number') return s; } catch (e) {} return { x: 8, y: 150 }; });
     const radioDragRef = useRef({ dragging: false, moved: false, offX: 0, offY: 0 });
+    const topBarRef = useRef(null);
     const [ticketOpen, setTicketOpen] = useState(false);
     const [viewingItem, setViewingItem] = useState(null);
     const [nowPlaying, setNowPlaying] = useState(null);
@@ -6166,7 +6294,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V58.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V59.02.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6183,11 +6311,25 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
-    const appBackgroundStyle = isEffVIP(profile) && profile.customBackground ? { backgroundImage: `url(${profile.customBackground})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
+    const bgUrl = isEffVIP(profile) ? profile.customBackground : null;
+    // V59.2: video wallpapers are enabled ONLY for hosted URLs (a pasted .mp4/.webm link
+    // streams from the USER's own host — zero bandwidth cost to us). We deliberately do NOT
+    // support data:video (embedded/uploaded video) as a background, so no large video file
+    // ever lands in our Firebase Storage/Firestore. Image backgrounds work via upload or URL.
+    const isHostedVideoUrl = typeof bgUrl === 'string' && /^https?:\/\/.+\.(mp4|webm|mov|m4v)(\?|$)/i.test(bgUrl);
+    const isVideoBg = !!(bgUrl && isHostedVideoUrl);
+    const isImageBg = bgUrl && !isHostedVideoUrl && !(typeof bgUrl === 'string' && bgUrl.startsWith('data:video'));
+    const appBackgroundStyle = isImageBg ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
+    // V59: hide the scrolling marquee when an admin banner is set to "announce only" mode.
+    const bannerMsgActive = rkConfig.maintenanceMessage && !(rkConfig.maintenanceExpiry > 0 && Date.now() > rkConfig.maintenanceExpiry);
+    const hideMarquee = rkConfig.bannerAnnounceOnly && bannerMsgActive;
 
     return (
-        <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30" style={appBackgroundStyle}>
+        <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30 relative" style={appBackgroundStyle}>
+            {isVideoBg && <video src={bgUrl} autoPlay loop muted playsInline className="fixed inset-0 w-full h-full object-cover -z-10" style={{ pointerEvents: 'none' }}/>}
             <WelcomeAlphaModal />
+            <AnnouncementPopIn cfg={rkConfig} />
+            <DiscoveryTip cfg={rkConfig} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
@@ -6243,7 +6385,7 @@ cat << 'EOF' >> src/App.js
             
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
 
-            <div className="sticky top-0 z-50">
+            <div className="sticky top-0 z-50" ref={topBarRef}>
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
                 <div onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
                 <div className="flex gap-3 items-end">
@@ -6254,7 +6396,7 @@ cat << 'EOF' >> src/App.js
                     <button onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
                 </div>
             </header>
-            <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
+            {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
                 <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: (RK_CFG.marqueeSpeed || 60) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
@@ -6262,18 +6404,18 @@ cat << 'EOF' >> src/App.js
                         </div>
                     ))}
                 </div>
-            </div>
+            </div>}
             </div>
             
             <button
                 onClick={() => { if (!radioDragRef.current.moved) setRadioOpen(true); }}
                 onPointerDown={(e) => { const r = radioDragRef.current; r.dragging = true; r.moved = false; r.offX = e.clientX - radioBtnPos.x; r.offY = e.clientY - radioBtnPos.y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
-                onPointerMove={(e) => { const r = radioDragRef.current; if (!r.dragging) return; const nx = e.clientX - r.offX, ny = e.clientY - r.offY; if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; const maxX = window.innerWidth - 56, maxY = window.innerHeight - 56; setRadioBtnPos({ x: Math.max(0, Math.min(nx, maxX)), y: Math.max(56, Math.min(ny, maxY)) }); }}
+                onPointerMove={(e) => { const r = radioDragRef.current; if (!r.dragging) return; const nx = e.clientX - r.offX, ny = e.clientY - r.offY; if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; const topGuard = (topBarRef.current ? topBarRef.current.offsetHeight : 120) + 8; const maxX = window.innerWidth - 56, maxY = window.innerHeight - 56; setRadioBtnPos({ x: Math.max(0, Math.min(nx, maxX)), y: Math.max(topGuard, Math.min(ny, maxY)) }); }}
                 onPointerUp={(e) => { const r = radioDragRef.current; r.dragging = false; try { localStorage.setItem('rk_radio_btn_pos', JSON.stringify(radioBtnPos)); } catch (er) {} try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (er) {} }}
                 className={`fixed z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-colors touch-none cursor-grab active:cursor-grabbing ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`}
                 style={{ left: radioBtnPos.x + 'px', top: radioBtnPos.y + 'px' }}
                 title="Rave Radio — drag to move, tap to open"><Radio size={32} className="text-white drop-shadow pointer-events-none"/></button>
-            {rkConfig.maintenanceMessage ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
+            {bannerMsgActive ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
             {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
                 <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6 text-center">
                     <div>
@@ -6338,6 +6480,10 @@ cat << 'EOF' >> src/App.js
                     </div>
                 )}
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
+                    <div className="bg-gradient-to-br from-pink-600/20 via-purple-600/15 to-cyan-600/20 border border-pink-500/40 rounded-xl p-3 mb-2 shadow-[0_0_15px_rgba(255,80,180,0.15)]">
+                        <p className="text-sm font-black text-pink-200 flex items-center gap-2 mb-1"><LayoutList size={16}/> Welcome to the Feed 🌈</p>
+                        <p className="text-xs text-white/80 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
+                    </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
                             <div><label className="text-[8px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="users">User Profiles</option></select></div>
@@ -6439,7 +6585,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V58.00.00 Phase 48: Tribe Rules Fix + Collection Fix + Font/Notif/Tribe Upgrades</span>
+                    <span className="flex-1 text-center">V59.02.00 Phase 49: Video Wallpapers via Hosted URL (user-hosted, zero egress)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6634,9 +6780,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V58.00.00)..."
-sed -i "s/versionCode 1/versionCode 112/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "58.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V59.02.00)..."
+sed -i "s/versionCode 1/versionCode 115/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "59.02.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6683,7 +6829,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V58_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V59_02_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
