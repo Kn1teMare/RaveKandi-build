@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V59.02.00 Build Script Starting"
+echo " RaveKandi V60.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V59.02.00</title>
+    <title>RaveKandi V60.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V59.02.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V60.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '59.02.00';
+const APP_VERSION = '60.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -613,7 +613,21 @@ const rkDec = (b64, key) => { try { const raw = decodeURIComponent(escape(atob(b
 // V47 Vibe Tribe: friend system. Friends are mutual uid arrays on each user doc.
 export const sendFriendRequest = async (fromUid, fromName, fromPublicUid, toUid) => {
     if (!fromUid || !toUid || fromUid === toUid) return;
-    await pushNotif(toUid, 'friendreq', '🤝 @' + (fromName || 'A raver') + ' wants to join your Vibe Tribe! Tap to accept.', fromUid);
+    // Persist the outgoing request on the sender's own doc so the button state survives a
+    // refresh and can be cancelled. Then notify the recipient.
+    await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { sentFriendReqs: arrayUnion(toUid) }, { merge: true });
+    await pushNotif(toUid, 'friendreq', '🤝 @' + (fromName || 'A raver') + ' wants to add you as a friend! Tap to accept.', fromUid);
+};
+// Cancel/unsend a pending outgoing friend request. Removes it from the sender's doc and best-
+// effort deletes the pending notification on the recipient's side.
+export const cancelFriendRequest = async (fromUid, toUid) => {
+    if (!fromUid || !toUid) return;
+    await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { sentFriendReqs: arrayRemove(toUid) }, { merge: true });
+    try {
+        const q = query(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), where('type', '==', 'friendreq'), where('refId', '==', fromUid));
+        const snap = await getDocs(q);
+        snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
+    } catch (e) {}
 };
 export const acceptFriend = async (myUid, otherUid) => {
     if (!myUid || !otherUid) return;
@@ -621,6 +635,9 @@ export const acceptFriend = async (myUid, otherUid) => {
     const b = doc(db, 'artifacts', appId, 'users', otherUid);
     await setDoc(a, { friends: arrayUnion(otherUid) }, { merge: true });
     await setDoc(b, { friends: arrayUnion(myUid) }, { merge: true });
+    // Clear any pending request both directions now that they're friends.
+    await setDoc(a, { sentFriendReqs: arrayRemove(otherUid) }, { merge: true }).catch(() => {});
+    await setDoc(b, { sentFriendReqs: arrayRemove(myUid) }, { merge: true }).catch(() => {});
 };
 // V47: Obliterate — mutual chat deletion. Either user can request; a 24h countdown starts.
 // If BOTH accept, the whole thread + messages are wiped. If the timer ends with only one
@@ -994,17 +1011,32 @@ const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
 // and the messenger. Resolves the target's real uid (cards sometimes only have publicUid).
-const AddFriendButton = ({ myProfile, myUid, targetUid, targetName, size = 'sm', className = '' }) => {
-    const [sent, setSent] = useState(false);
+const AddFriendButton = ({ myProfile, myUid, targetUid, targetName, size = 'sm', className = '', showHint = false }) => {
+    const [busy, setBusy] = useState(false);
     if (!myUid || !targetUid || targetUid === myUid || (myProfile?.publicUid && targetUid === myProfile.publicUid)) return null;
     const isFriend = (myProfile?.friends || []).includes(targetUid);
+    // Pending state is read from the sender's own profile (persists across refresh).
+    const pending = (myProfile?.sentFriendReqs || []).includes(targetUid);
     const pad = size === 'lg' ? 'text-xs py-1.5 px-3' : 'text-[9px] py-1 px-2';
-    if (isFriend) return <span className={`inline-flex items-center gap-1 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold ${pad} ${className}`}><Users size={size==='lg'?13:10}/> In Tribe</span>;
+    const icon = size==='lg'?14:11;
+    if (isFriend) return <span className={`inline-flex items-center gap-1 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold ${pad} ${className}`}><Check size={icon}/> Friends</span>;
+    const onClick = async (e) => {
+        e.stopPropagation();
+        if (busy) return; setBusy(true);
+        try {
+            if (pending) { await cancelFriendRequest(myUid, targetUid); }
+            else { await sendFriendRequest(myUid, myProfile?.displayName || 'Raver', myProfile?.publicUid, targetUid); }
+        } catch (err) {}
+        setBusy(false);
+    };
     return (
-        <button onClick={async (e) => { e.stopPropagation(); if (sent) return; try { await sendFriendRequest(myUid, myProfile?.displayName || 'Raver', myProfile?.publicUid, targetUid); setSent(true); } catch (err) {} }}
-            className={`inline-flex items-center gap-1 rounded-full font-bold transition active:scale-95 ${sent ? 'bg-white/10 text-white/50' : 'bg-pink-600/30 text-pink-200 border border-pink-400/40 hover:bg-pink-600/50'} ${pad} ${className}`}>
-            <UserPlus size={size==='lg'?13:10}/> {sent ? 'Request Sent' : 'Add to Tribe'}
-        </button>
+        <span className={`inline-flex flex-col items-center ${className}`}>
+            <button onClick={onClick} disabled={busy}
+                className={`inline-flex items-center gap-1 rounded-full font-bold transition active:scale-95 ${pending ? 'bg-white/10 text-white/60 border border-white/20' : 'bg-pink-600/30 text-pink-200 border border-pink-400/40 hover:bg-pink-600/50'} ${pad} ${size==='lg'?'w-full justify-center':''}`}>
+                {pending ? <Clock size={icon}/> : <UserPlus size={icon}/>} {pending ? 'Request Sent' : 'Add Friend'}
+            </button>
+            {showHint && pending && <span className="text-[8px] text-white/40 mt-1">Tap the button to unsend request</span>}
+        </span>
     );
 };
 
@@ -2051,7 +2083,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V59.02.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V60.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2415,10 +2447,10 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                             <p className="text-[9px] text-cyan-300/70">{new Date(n.at).toLocaleString()}{n.type !== 'friendreq' && <span className="text-pink-300 ml-1">· tap to view →</span>}</p>
                                             {n.type === 'friendreq' && n.refId && !(profile?.friends || []).includes(n.refId) && (
                                                 <div className="flex gap-2 mt-1">
-                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); await sendFriendRequest(myUid, profile?.displayName || 'Raver', profile?.publicUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your Vibe Tribe request!', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
+                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your friend request! You are now friends.', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
                                                 </div>
                                             )}
-                                            {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[8px] text-lime-400 mt-0.5">✅ In your Vibe Tribe</p>}
+                                            {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[8px] text-lime-400 mt-0.5">✅ Friends</p>}
                                         </div>
                                     </div>
                                 );
@@ -5090,10 +5122,14 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
                             </div>
                             <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-xs text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
-                            <div className="flex gap-2 mt-4 justify-center md:justify-start">
+                            {!isSelf && (
+                                <div className="mt-4">
+                                    <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="w-full" showHint={true} />
+                                </div>
+                            )}
+                            <div className="flex gap-2 mt-2 justify-center md:justify-start">
                                 <button onClick={() => setShowCollection(true)} className="rk-shimmer-border flex-1 text-xs flex justify-center items-center gap-2 py-2 rounded-lg font-bold active:scale-95"><Package size={14}/> Collection</button>
                                 {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
-                                {!isSelf && <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="flex-1 justify-center" />}
                             </div>
                         </div>
                     </div>
@@ -5246,6 +5282,25 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [tribeMsgs, setTribeMsgs] = useState([]);
     const [tribeInput, setTribeInput] = useState('');
     const [friendSearch, setFriendSearch] = useState('');
+    const [friendMode, setFriendMode] = useState('mine'); // 'mine' = my friends | 'find' = find new ravers
+    const [userResults, setUserResults] = useState([]);
+    const [searching, setSearching] = useState(false);
+    // Search all ravers by name/UID (excludes self + existing friends) for the "Find Ravers" tab.
+    const runUserSearch = async (term) => {
+        const t = (term || '').trim().toLowerCase();
+        if (t.length < 2) { setUserResults([]); return; }
+        setSearching(true);
+        try {
+            const snap = await getDocs(collection(db, 'artifacts', appId, 'users'));
+            const myFriends = profile?.friends || [];
+            const res = snap.docs.map(d => ({ ...d.data(), id: d.id }))
+                .filter(u => u.id !== myUid && (u.publicUid !== profile?.publicUid)
+                    && ((u.displayName || '').toLowerCase().includes(t) || (u.publicUid || '').toLowerCase().includes(t)))
+                .slice(0, 25);
+            setUserResults(res);
+        } catch (e) { setUserResults([]); }
+        setSearching(false);
+    };
     const myUid = user?.uid;
 
     // Load friends' profiles
@@ -5307,32 +5362,64 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
 
                     {tab === 'friends' && (
                         <div>
-                            {friends.length > 0 && (
-                                <div className="relative mb-3">
-                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
-                                    <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
+                            {/* Mode toggle: my friends vs find new ravers */}
+                            <div className="flex gap-1 mb-3 bg-black/40 rounded-lg p-1">
+                                <button onClick={() => setFriendMode('mine')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='mine' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>👥 My Friends</button>
+                                <button onClick={() => setFriendMode('find')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='find' ? 'bg-cyan-600 text-white' : 'text-white/50'}`}>🔍 Find Ravers</button>
+                            </div>
+
+                            {friendMode === 'mine' ? (
+                                <div>
+                                    {friends.length > 0 && (
+                                        <div className="relative mb-3">
+                                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                            <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
+                                        </div>
+                                    )}
+                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                        {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your friends…</p> : friends.length === 0 ? (
+                                            <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Switch to <strong>Find Ravers</strong> to search for people, or tap "Add Friend" on any raver's profile.</p></div>
+                                        ) : (() => {
+                                            const fq = friendSearch.trim().toLowerCase();
+                                            const shown = fq ? friends.filter(f => (f.displayName || '').toLowerCase().includes(fq) || (f.publicUid || '').toLowerCase().includes(fq)) : friends;
+                                            if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
+                                            return shown.map(f => (
+                                                <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
+                                                    <img src={f.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
+                                                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
+                                                        <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
+                                                        <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
+                                                    </div>
+                                                    <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={18}/></button>
+                                                    <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your friends?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-2 hover:bg-white/10 rounded-lg" title="Remove friend"><X size={18}/></button>
+                                                </div>
+                                            ));
+                                        })()}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="relative mb-3">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                        <input value={friendSearch} onChange={e => { setFriendSearch(e.target.value); runUserSearch(e.target.value); }} placeholder="Search ravers by name or UID..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-cyan-500/60 outline-none"/>
+                                    </div>
+                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                        {friendSearch.trim().length < 2 ? <p className="text-center opacity-50 text-sm py-8">Type at least 2 characters to search for ravers to add.</p>
+                                        : searching ? <p className="text-center opacity-50 text-sm py-6">Searching…</p>
+                                        : userResults.length === 0 ? <p className="text-center opacity-50 text-sm py-6">No ravers found matching "{friendSearch}".</p>
+                                        : userResults.map(u => (
+                                            <div key={u.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
+                                                <img src={u.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(u.publicUid || u.id); }}/>
+                                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(u.publicUid || u.id); }}>
+                                                    <p className="text-sm font-bold truncate flex items-center gap-1">@{u.displayName || 'Raver'}{u.featuredBadge && <BadgeChip badge={u.featuredBadge} />}</p>
+                                                    <p className="text-[10px] opacity-50">{u.itemsSold || 0} sold · {(u.friends||[]).length} friends</p>
+                                                </div>
+                                                <AddFriendButton myProfile={profile} myUid={myUid} targetUid={u.id} targetName={u.displayName} />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
-                            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
-                                {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your tribe…</p> : friends.length === 0 ? (
-                                    <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Tap "Add to Tribe" on any raver's profile or in search to build your Vibe Tribe.</p></div>
-                                ) : (() => {
-                                    const fq = friendSearch.trim().toLowerCase();
-                                    const shown = fq ? friends.filter(f => (f.displayName || '').toLowerCase().includes(fq) || (f.publicUid || '').toLowerCase().includes(fq)) : friends;
-                                    if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
-                                    return shown.map(f => (
-                                        <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
-                                            <img src={f.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
-                                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
-                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
-                                                <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
-                                            </div>
-                                            <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={18}/></button>
-                                            <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your tribe?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-2 hover:bg-white/10 rounded-lg" title="Remove friend"><X size={18}/></button>
-                                        </div>
-                                    ));
-                                })()}
-                            </div>
                         </div>
                     )}
 
@@ -5777,7 +5864,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V59.02.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V60.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6294,7 +6381,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V59.02.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V60.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6585,7 +6672,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V59.02.00 Phase 49: Video Wallpapers via Hosted URL (user-hosted, zero egress)</span>
+                    <span className="flex-1 text-center">V60.00.00 Phase 50: Friend System Overhaul (Add Friend button, search, cancel)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6780,9 +6867,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V59.02.00)..."
-sed -i "s/versionCode 1/versionCode 115/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "59.02.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V60.00.00)..."
+sed -i "s/versionCode 1/versionCode 116/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "60.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6829,7 +6916,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V59_02_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V60_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
