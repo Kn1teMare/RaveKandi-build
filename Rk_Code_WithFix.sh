@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V61.00.00 Build Script Starting"
+echo " RaveKandi V61.00.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V61.00.00</title>
+    <title>RaveKandi V61.00.01</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.00.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '61.00.00';
+const APP_VERSION = '61.00.01';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -2083,7 +2083,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.00.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -5947,7 +5947,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.00.01</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6130,19 +6130,6 @@ const App = () => {
         return () => { clearInterval(intLoad); unsubAuth(); };
     }, []);
 
-    // V60: start the pending tutorial only once the alpha modal AND any forced pop-in are
-    // dismissed, so the guided tour never overlaps the launch sequence.
-    useEffect(() => {
-        if (!tutorialActive && tutorialPending) {
-            let popInUp = false;
-            try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
-            if (!showAlphaModal && !popInUp) {
-                const t = setTimeout(() => { setTutorialActive(true); setTutorialPending(false); }, 400);
-                return () => clearTimeout(t);
-            }
-        }
-    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
-
     // V60: replay the tutorial from scratch (used by the Settings button).
     const replayTutorial = () => {
         try { localStorage.removeItem('rk_tutorial_done'); } catch (e) {}
@@ -6291,6 +6278,20 @@ const App = () => {
         }, e => console.log('config', e));
         return () => unsub();
     }, []);
+
+    // V60/V61: start the pending tutorial only once the alpha modal AND any forced pop-in are
+    // dismissed, so the guided tour never overlaps the launch sequence. (Declared after
+    // rkConfig to avoid a temporal-dead-zone crash.)
+    useEffect(() => {
+        if (!tutorialActive && tutorialPending) {
+            let popInUp = false;
+            try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
+            if (!showAlphaModal && !popInUp) {
+                const t = setTimeout(() => { setTutorialActive(true); setTutorialPending(false); }, 400);
+                return () => clearTimeout(t);
+            }
+        }
+    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
     // V52.2: count this device as a unique visitor (once ever) + daily-active ping.
     useEffect(() => { trackUniqueVisit(); }, []);
 
@@ -6495,7 +6496,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V61.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V61.00.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6788,7 +6789,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V61.00.00 Phase 51: Tutorial System + UI Polish + App Descriptions</span>
+                    <span className="flex-1 text-center">V61.00.01 Phase 51: HOTFIX — tutorial TDZ crash on launch</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6983,9 +6984,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V61.00.00)..."
-sed -i "s/versionCode 1/versionCode 117/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "61.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V61.00.01)..."
+sed -i "s/versionCode 1/versionCode 118/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "61.00.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7032,7 +7033,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V61_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V61_00_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
