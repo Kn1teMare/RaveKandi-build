@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V61.00.02 Build Script Starting"
+echo " RaveKandi V61.02.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V61.00.02</title>
+    <title>RaveKandi V61.02.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.00.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.02.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '61.00.02';
+const APP_VERSION = '61.02.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -580,7 +580,13 @@ const parseVideoLink = (raw) => {
             if (m) return { ok: true, platform: 'instagram', embedUrl: 'https://www.instagram.com/' + (m[1] === 'reels' ? 'reel' : m[1]) + '/' + m[2] + '/embed', watchUrl: s };
             return { ok: false, reason: 'Use a direct Instagram Reel or post link.' };
         }
-        return { ok: false, reason: 'Only YouTube, TikTok, and Instagram clip links are supported.' };
+        // Facebook videos, reels, and fb.watch — embedded via Facebook's video plugin player.
+        if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.watch' || host === 'fb.com') {
+            const isVid = host === 'fb.watch' || /\/(videos|reel|watch|story\.php|share\/v|share\/r)/.test(u.pathname) || u.searchParams.get('v');
+            if (isVid) return { ok: true, platform: 'facebook', embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(s) + '&autoplay=1&mute=1&width=560', watchUrl: s };
+            return { ok: false, reason: 'Use a direct Facebook video or Reel link.' };
+        }
+        return { ok: false, reason: 'Only YouTube, TikTok, Instagram, and Facebook clip links are supported.' };
     } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
 };
 
@@ -2083,7 +2089,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.00.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.02.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3129,7 +3135,7 @@ EOF
 
 # Block 11
 cat << 'EOF' >> src/App.js
-const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
+const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) => {
     const [showMore, setShowMore] = useState(false);
     const [trackId, setTrackId] = useState('');
     const [isEditing, setIsEditing] = useState(false);
@@ -3215,7 +3221,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={item.name || "Item Details"}>
+        <Modal isOpen={isOpen} onClose={onClose} zClass={zClass || 'z-50'} title={item.name || "Item Details"}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="h-72 w-full rounded-lg overflow-hidden border border-white/10 bg-black/60">
                     <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image || 'https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'} />
@@ -3366,7 +3372,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     if(!isOpen) return null;
     return (
         <>
-            <Modal isOpen={isOpen} onClose={onClose} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
+            <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
                     {items.map(item => (
@@ -3380,7 +3386,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                     ))}
                 </div>
             </Modal>
-            <ItemDetailModal item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} onViewFeed={onViewFeed}/>
+            <ItemDetailModal item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} onViewFeed={onViewFeed} zClass={readOnly ? 'z-[110]' : 'z-50'}/>
         </>
     );
 };
@@ -3776,7 +3782,7 @@ const SellKandiForm = ({ user, profile }) => {
         const images = files.filter(f => f.type.startsWith('image/')).length;
         const videos = files.filter(f => f.type.startsWith('video/'));
         if(images > 3) return alert("Maximum 3 images allowed.");
-        if(videos.length > 0) { alert("Heads up: post images here. To feature a video, use the homepage Festival Spotlight (paste a YouTube/TikTok/Instagram link). Video files have been skipped."); }
+        if(videos.length > 0) { alert("Heads up: post images here. To feature a video, use the homepage Festival Spotlight (paste a YouTube/TikTok/Instagram/Facebook link). Video files have been skipped."); }
         const imgOnly = files.filter(f => f.type.startsWith('image/'));
         if(imgOnly.length === 0) return alert("Please choose at least one image.");
         setMediaFiles(imgOnly);
@@ -4018,6 +4024,8 @@ const TUTORIAL_STEPS = [
 const TutorialOverlay = ({ active, onFinish }) => {
     const [step, setStep] = useState(0);
     const [rect, setRect] = useState(null);
+    // Always begin at step 1 each time the tutorial opens (fresh launch or replay from Settings).
+    useEffect(() => { if (active) setStep(0); }, [active]);
     const cur = TUTORIAL_STEPS[step];
     useEffect(() => {
         if (!active) return;
@@ -4039,7 +4047,9 @@ const TutorialOverlay = ({ active, onFinish }) => {
     const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
     const noteTop = hole ? (hole.top < window.innerHeight / 2 ? hole.top + hole.height + 16 : null) : null;
     const noteBottom = hole ? (hole.top >= window.innerHeight / 2 ? (window.innerHeight - hole.top) + 16 : null) : null;
-    const next = () => { if (last) onFinish(); else setStep(step + 1); };
+    const finish = () => { setStep(0); onFinish(); };
+    const next = () => { if (last) finish(); else setStep(step + 1); };
+    const back = () => { if (step > 0) setStep(step - 1); };
     return createPortal(
         <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
             {hole ? (
@@ -4059,8 +4069,11 @@ const TutorialOverlay = ({ active, onFinish }) => {
                     <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
                     <p className="text-sm text-white/90 leading-relaxed mb-4">{cur.body}</p>
                     <div className="flex items-center justify-between gap-2">
-                        <button onClick={onFinish} className="text-[11px] text-white/60 underline">Skip tour</button>
-                        <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>
+                        <button onClick={finish} className="text-[11px] text-white/60 underline">Skip tour</button>
+                        <div className="flex items-center gap-2">
+                            {step > 0 && <button onClick={back} className="bg-white/15 text-white font-bold text-sm px-4 py-2 rounded-full hover:bg-white/25 active:scale-95 transition flex items-center gap-1"><ChevronLeft size={16}/> Back</button>}
+                            <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -4929,7 +4942,7 @@ const HELP_TOPICS = [
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
     { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
     { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all." },
-    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
+    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
     { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
     { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
@@ -5275,7 +5288,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Festival Clip">
             <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, or Instagram</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
+                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, or Facebook</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
                 </div>
                 {confirmation && (
                     <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -5947,7 +5960,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.00.02</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.02.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6496,7 +6509,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V61.00.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V61.02.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6685,7 +6698,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
                     <div className="bg-gradient-to-br from-pink-600/20 via-purple-600/15 to-cyan-600/20 border border-pink-500/40 rounded-xl p-3 mb-2 shadow-[0_0_15px_rgba(255,80,180,0.15)]">
-                        <p className="text-lg font-black text-pink-200 flex items-center gap-2 mb-2"><LayoutList size={20}/> Welcome to the Feed 🌈</p>
+                        <p className="text-lg font-black flex items-center gap-2 mb-2"><LayoutList size={20} className="text-pink-200"/> <span className="rkfx-pastel" style={{ filter: 'drop-shadow(0 0 6px rgba(255,200,240,0.5))' }}>Welcome to the Feed</span> 🌈</p>
                         <p className="text-sm text-white/90 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
                     </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
@@ -6789,7 +6802,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V61.00.02 Phase 51: HOTFIX 2 — tutorial replayTutorial scope crash + latent admin msg bug</span>
+                    <span className="flex-1 text-center">V61.02.00 Phase 51: Facebook spotlight + feed glow + collection modal z-index fix</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6984,9 +6997,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V61.00.02)..."
-sed -i "s/versionCode 1/versionCode 119/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "61.00.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V61.02.00)..."
+sed -i "s/versionCode 1/versionCode 121/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "61.02.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7033,7 +7046,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V61_00_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V61_02_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
