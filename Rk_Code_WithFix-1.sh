@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V59.00.00 Build Script Starting"
+echo " RaveKandi V61.02.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V59.00.00</title>
+    <title>RaveKandi V61.02.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V59.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.02.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -205,7 +205,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
+  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '59.00.00';
+const APP_VERSION = '61.02.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -580,7 +580,13 @@ const parseVideoLink = (raw) => {
             if (m) return { ok: true, platform: 'instagram', embedUrl: 'https://www.instagram.com/' + (m[1] === 'reels' ? 'reel' : m[1]) + '/' + m[2] + '/embed', watchUrl: s };
             return { ok: false, reason: 'Use a direct Instagram Reel or post link.' };
         }
-        return { ok: false, reason: 'Only YouTube, TikTok, and Instagram clip links are supported.' };
+        // Facebook videos, reels, and fb.watch — embedded via Facebook's video plugin player.
+        if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.watch' || host === 'fb.com') {
+            const isVid = host === 'fb.watch' || /\/(videos|reel|watch|story\.php|share\/v|share\/r)/.test(u.pathname) || u.searchParams.get('v');
+            if (isVid) return { ok: true, platform: 'facebook', embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(s) + '&autoplay=1&mute=1&width=560', watchUrl: s };
+            return { ok: false, reason: 'Use a direct Facebook video or Reel link.' };
+        }
+        return { ok: false, reason: 'Only YouTube, TikTok, Instagram, and Facebook clip links are supported.' };
     } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
 };
 
@@ -613,7 +619,21 @@ const rkDec = (b64, key) => { try { const raw = decodeURIComponent(escape(atob(b
 // V47 Vibe Tribe: friend system. Friends are mutual uid arrays on each user doc.
 export const sendFriendRequest = async (fromUid, fromName, fromPublicUid, toUid) => {
     if (!fromUid || !toUid || fromUid === toUid) return;
-    await pushNotif(toUid, 'friendreq', '🤝 @' + (fromName || 'A raver') + ' wants to join your Vibe Tribe! Tap to accept.', fromUid);
+    // Persist the outgoing request on the sender's own doc so the button state survives a
+    // refresh and can be cancelled. Then notify the recipient.
+    await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { sentFriendReqs: arrayUnion(toUid) }, { merge: true });
+    await pushNotif(toUid, 'friendreq', '🤝 @' + (fromName || 'A raver') + ' wants to add you as a friend! Tap to accept.', fromUid);
+};
+// Cancel/unsend a pending outgoing friend request. Removes it from the sender's doc and best-
+// effort deletes the pending notification on the recipient's side.
+export const cancelFriendRequest = async (fromUid, toUid) => {
+    if (!fromUid || !toUid) return;
+    await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { sentFriendReqs: arrayRemove(toUid) }, { merge: true });
+    try {
+        const q = query(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), where('type', '==', 'friendreq'), where('refId', '==', fromUid));
+        const snap = await getDocs(q);
+        snap.forEach(d => deleteDoc(d.ref).catch(() => {}));
+    } catch (e) {}
 };
 export const acceptFriend = async (myUid, otherUid) => {
     if (!myUid || !otherUid) return;
@@ -621,6 +641,9 @@ export const acceptFriend = async (myUid, otherUid) => {
     const b = doc(db, 'artifacts', appId, 'users', otherUid);
     await setDoc(a, { friends: arrayUnion(otherUid) }, { merge: true });
     await setDoc(b, { friends: arrayUnion(myUid) }, { merge: true });
+    // Clear any pending request both directions now that they're friends.
+    await setDoc(a, { sentFriendReqs: arrayRemove(otherUid) }, { merge: true }).catch(() => {});
+    await setDoc(b, { sentFriendReqs: arrayRemove(myUid) }, { merge: true }).catch(() => {});
 };
 // V47: Obliterate — mutual chat deletion. Either user can request; a 24h countdown starts.
 // If BOTH accept, the whole thread + messages are wiped. If the timer ends with only one
@@ -994,17 +1017,32 @@ const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
 // and the messenger. Resolves the target's real uid (cards sometimes only have publicUid).
-const AddFriendButton = ({ myProfile, myUid, targetUid, targetName, size = 'sm', className = '' }) => {
-    const [sent, setSent] = useState(false);
+const AddFriendButton = ({ myProfile, myUid, targetUid, targetName, size = 'sm', className = '', showHint = false }) => {
+    const [busy, setBusy] = useState(false);
     if (!myUid || !targetUid || targetUid === myUid || (myProfile?.publicUid && targetUid === myProfile.publicUid)) return null;
     const isFriend = (myProfile?.friends || []).includes(targetUid);
+    // Pending state is read from the sender's own profile (persists across refresh).
+    const pending = (myProfile?.sentFriendReqs || []).includes(targetUid);
     const pad = size === 'lg' ? 'text-xs py-1.5 px-3' : 'text-[9px] py-1 px-2';
-    if (isFriend) return <span className={`inline-flex items-center gap-1 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold ${pad} ${className}`}><Users size={size==='lg'?13:10}/> In Tribe</span>;
+    const icon = size==='lg'?14:11;
+    if (isFriend) return <span className={`inline-flex items-center gap-1 rounded-full bg-lime-500/20 text-lime-300 border border-lime-400/40 font-bold ${pad} ${className}`}><Check size={icon}/> Friends</span>;
+    const onClick = async (e) => {
+        e.stopPropagation();
+        if (busy) return; setBusy(true);
+        try {
+            if (pending) { await cancelFriendRequest(myUid, targetUid); }
+            else { await sendFriendRequest(myUid, myProfile?.displayName || 'Raver', myProfile?.publicUid, targetUid); }
+        } catch (err) {}
+        setBusy(false);
+    };
     return (
-        <button onClick={async (e) => { e.stopPropagation(); if (sent) return; try { await sendFriendRequest(myUid, myProfile?.displayName || 'Raver', myProfile?.publicUid, targetUid); setSent(true); } catch (err) {} }}
-            className={`inline-flex items-center gap-1 rounded-full font-bold transition active:scale-95 ${sent ? 'bg-white/10 text-white/50' : 'bg-pink-600/30 text-pink-200 border border-pink-400/40 hover:bg-pink-600/50'} ${pad} ${className}`}>
-            <UserPlus size={size==='lg'?13:10}/> {sent ? 'Request Sent' : 'Add to Tribe'}
-        </button>
+        <span className={`inline-flex flex-col items-center ${className}`}>
+            <button onClick={onClick} disabled={busy}
+                className={`inline-flex items-center gap-1 rounded-full font-bold transition active:scale-95 ${pending ? 'bg-white/10 text-white/60 border border-white/20' : 'bg-pink-600/30 text-pink-200 border border-pink-400/40 hover:bg-pink-600/50'} ${pad} ${size==='lg'?'w-full justify-center':''}`}>
+                {pending ? <Clock size={icon}/> : <UserPlus size={icon}/>} {pending ? 'Request Sent' : 'Add Friend'}
+            </button>
+            {showHint && pending && <span className="text-[8px] text-white/40 mt-1">Tap the button to unsend request</span>}
+        </span>
     );
 };
 
@@ -1594,16 +1632,17 @@ const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Custom Theming">
             <div className="space-y-4">
-                <p className="text-xs opacity-70">Paste an image URL, or upload a file directly to replace the app's default dark background.</p>
-                <div className="bg-cyan-900/20 border border-cyan-500/30 rounded p-3">
-                    <p className="text-[10px] text-cyan-200 leading-relaxed mb-1">🎥 <strong>Live wallpapers supported!</strong> Paste a hosted image (.jpg/.gif/.png) OR <strong>video (.mp4/.webm)</strong> URL below. Video backgrounds play automatically as an animated live wallpaper behind the whole app.</p>
-                    <p className="text-[8px] opacity-50">Tip: host large HD videos on a CDN or image host and paste the direct link.</p>
-                </div>
-                <Input value={url} onChange={setUrl} placeholder="https://...image.gif OR https://...video.mp4" />
+                <p className="text-xs opacity-70">Personalize your app background. Upload an image, paste an image URL, or paste a hosted <strong>video link</strong> for a live wallpaper.</p>
+                <Input value={url} onChange={setUrl} placeholder="https://...image.jpg OR https://...video.mp4" />
                 <div className="bg-white/5 p-3 rounded border border-white/10">
-                    <label className="text-[10px] font-bold text-pink-400 mb-1 block">Upload Background</label>
+                    <label className="text-[10px] font-bold text-pink-400 mb-1 block">Upload Image Background</label>
                     <input type="file" accept="image/*" onChange={handleFile} className="text-[10px] w-full" disabled={uploading}/>
                     {uploading && <p className="text-[10px] text-lime-400 mt-1">Processing...</p>}
+                    <p className="text-[8px] opacity-50 mt-1">Image upload only. For a video wallpaper, paste a hosted link above.</p>
+                </div>
+                <div className="bg-cyan-900/20 border border-cyan-500/30 rounded p-2.5">
+                    <p className="text-[10px] text-cyan-200 leading-relaxed mb-1">🎥 <strong>Video live wallpapers:</strong> host your video somewhere (Imgur, Cloudinary, a Discord CDN link, etc.) and paste the direct <strong>.mp4 / .webm</strong> link above — it'll play as an animated background!</p>
+                    <p className="text-[8px] opacity-50">Tip: keep videos short and small for smooth looping. The link must end in .mp4 or .webm.</p>
                 </div>
                 <p className="text-[9px] text-yellow-400 bg-yellow-900/20 border border-yellow-500/30 rounded p-2 text-center font-bold">⚠ You must press SAVE THEME for changes to apply — including after uploading an image or after clearing your theme.</p>
                 <div className="flex gap-2">
@@ -2050,7 +2089,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V59.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.02.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2105,7 +2144,7 @@ const PingBar = ({ show }) => {
 
 const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
-const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav }) => {
+const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
@@ -2352,7 +2391,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                     {tab === 'msgs' && activeThread && (<>
                         <div className="flex items-center justify-between mb-2 bg-white/10 rounded-lg p-3 border border-purple-500/30">
                             <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-sm text-cyan-400 font-bold"><ChevronLeft size={20}/> Back</button>
-                            <span className="text-base font-black truncate px-2">@{activeName}</span>
+                            <button onClick={() => { if (onViewProfile && activeOtherUid) { onClose(); onViewProfile(activeOtherUid); } }} className="text-base font-black truncate px-2 hover:text-pink-300 transition active:scale-95" title="View profile">@{activeName}</button>
                             <div className="flex items-center gap-2 shrink-0">
                                 <button onClick={async () => { if (!threadDoc?.obliterate) { if (window.confirm('💥 OBLITERATE this chat?\n\nA 24-hour countdown starts. If BOTH of you agree, it deletes immediately. If the timer runs out, it deletes anyway — gone forever for both.')) { try { await requestObliterate(activeThread, myUid, activeOtherUid, profile?.displayName); } catch (e) {} } } }} className="text-orange-400 hover:text-orange-300" title="Obliterate chat"><Bomb size={16}/></button>
                                 <button onClick={delThread} className="text-red-400" title="Delete chat log (your side)"><Trash2 size={18}/></button>
@@ -2414,10 +2453,10 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                             <p className="text-[9px] text-cyan-300/70">{new Date(n.at).toLocaleString()}{n.type !== 'friendreq' && <span className="text-pink-300 ml-1">· tap to view →</span>}</p>
                                             {n.type === 'friendreq' && n.refId && !(profile?.friends || []).includes(n.refId) && (
                                                 <div className="flex gap-2 mt-1">
-                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); await sendFriendRequest(myUid, profile?.displayName || 'Raver', profile?.publicUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your Vibe Tribe request!', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
+                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your friend request! You are now friends.', myUid); } catch (e) {} }} className="text-[9px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
                                                 </div>
                                             )}
-                                            {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[8px] text-lime-400 mt-0.5">✅ In your Vibe Tribe</p>}
+                                            {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[8px] text-lime-400 mt-0.5">✅ Friends</p>}
                                         </div>
                                     </div>
                                 );
@@ -2682,7 +2721,7 @@ EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
-const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
+const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial }) => {
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
     const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
     const [showTicket, setShowTicket] = useState(false);
@@ -2834,8 +2873,9 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
             <p className="text-[8px] opacity-50 mt-1">Controls which alerts show in your Messenger's Notifications tab. All on by default.</p>
         </div>
 
-        <div className="border-b border-white/10 pb-4">
-            <h4 className="font-bold text-xs mb-2 text-yellow-400">Support</h4>
+        <div className="border-b border-white/10 pb-4 space-y-2">
+            <h4 className="font-bold text-xs mb-2 text-yellow-400">Help &amp; Support</h4>
+            <Button onClick={() => { if (onReplayTutorial) { onClose(); onReplayTutorial(); } }} color="purple" className="w-full text-[10px] flex items-center justify-center gap-2"><Compass size={14}/> Replay App Tutorial</Button>
             <Button onClick={() => setShowTicket(true)} color="accent" className="w-full text-[10px] flex items-center justify-center gap-2"><HelpCircle size={14}/> Report a Bug / Get Help</Button>
         </div>
 
@@ -3095,7 +3135,7 @@ EOF
 
 # Block 11
 cat << 'EOF' >> src/App.js
-const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
+const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) => {
     const [showMore, setShowMore] = useState(false);
     const [trackId, setTrackId] = useState('');
     const [isEditing, setIsEditing] = useState(false);
@@ -3181,7 +3221,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed }) => {
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={item.name || "Item Details"}>
+        <Modal isOpen={isOpen} onClose={onClose} zClass={zClass || 'z-50'} title={item.name || "Item Details"}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="h-72 w-full rounded-lg overflow-hidden border border-white/10 bg-black/60">
                     <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image || 'https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'} />
@@ -3332,7 +3372,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     if(!isOpen) return null;
     return (
         <>
-            <Modal isOpen={isOpen} onClose={onClose} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
+            <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
                     {items.map(item => (
@@ -3346,7 +3386,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                     ))}
                 </div>
             </Modal>
-            <ItemDetailModal item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} onViewFeed={onViewFeed}/>
+            <ItemDetailModal item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} onViewFeed={onViewFeed} zClass={readOnly ? 'z-[110]' : 'z-50'}/>
         </>
     );
 };
@@ -3742,7 +3782,7 @@ const SellKandiForm = ({ user, profile }) => {
         const images = files.filter(f => f.type.startsWith('image/')).length;
         const videos = files.filter(f => f.type.startsWith('video/'));
         if(images > 3) return alert("Maximum 3 images allowed.");
-        if(videos.length > 0) { alert("Heads up: post images here. To feature a video, use the homepage Festival Spotlight (paste a YouTube/TikTok/Instagram link). Video files have been skipped."); }
+        if(videos.length > 0) { alert("Heads up: post images here. To feature a video, use the homepage Festival Spotlight (paste a YouTube/TikTok/Instagram/Facebook link). Video files have been skipped."); }
         const imgOnly = files.filter(f => f.type.startsWith('image/'));
         if(imgOnly.length === 0) return alert("Please choose at least one image.");
         setMediaFiles(imgOnly);
@@ -3968,6 +4008,90 @@ const DurationPicker = ({ label, valueMs, onSet }) => {
             <p className="text-[8px] mt-1 text-cyan-300">{fmtRemain()}{active ? ' (expires ' + new Date(valueMs).toLocaleString() + ')' : ''}</p>
         </div>
     );
+};
+
+const TUTORIAL_STEPS = [
+    { tut: null, title: 'Welcome to RaveKandi! 🌈', body: "Let's take a 30-second tour of the app. We'll show you the main features — tap Next to begin!", center: true },
+    { tut: 'feed', title: 'The Feed 🛍️', body: "This is the community marketplace. Every post is an item a raver is selling or showing off — kandi, gear, custom pieces. Tap a post to view or buy, tap a @name to visit their profile." },
+    { tut: 'shop', title: 'The Shop 🏪', body: "Browse and filter everything for sale, or head to the DIY tab to request a custom piece from a creator. This is also where you list your own items to sell!" },
+    { tut: 'profile', title: 'Your Profile 👤', body: "Your home base. Set up your shop, pin your best pieces, show your collection, earn badges, and manage your settings. Your Friend UID here is also your referral code!" },
+    { tut: 'inbox', title: 'Inbox & Notifications 📬', body: "Message other ravers, get notified about sales, friend requests, comments and more. Tap a notification to jump straight to it." },
+    { tut: 'cart', title: 'Your Cart 🛒', body: "Items you're ready to buy land here. (Heads up: payments are in test mode during Alpha.)" },
+    { tut: 'home', title: 'Home Button 🏠', body: "Tap the RaveKandi logo anytime to return home. From here you can reach the DIY builder, your VIP perks, and everything else." },
+    { tut: null, title: "You're all set! 🎉", body: "That's the tour! Almost everything in the app is tappable — explore and find hidden features. You can replay this tutorial anytime from Settings. Welcome to the tribe! 🌈", center: true }
+];
+
+const TutorialOverlay = ({ active, onFinish }) => {
+    const [step, setStep] = useState(0);
+    const [rect, setRect] = useState(null);
+    // Always begin at step 1 each time the tutorial opens (fresh launch or replay from Settings).
+    useEffect(() => { if (active) setStep(0); }, [active]);
+    const cur = TUTORIAL_STEPS[step];
+    useEffect(() => {
+        if (!active) return;
+        const measure = () => {
+            if (!cur || !cur.tut || cur.center) { setRect(null); return; }
+            const el = document.querySelector('[data-tut="' + cur.tut + '"]');
+            if (el) { const r = el.getBoundingClientRect(); setRect({ top: r.top, left: r.left, width: r.width, height: r.height }); }
+            else setRect(null);
+        };
+        measure();
+        const t = setTimeout(measure, 60);
+        window.addEventListener('resize', measure);
+        window.addEventListener('scroll', measure, true);
+        return () => { clearTimeout(t); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
+    }, [active, step]);
+    if (!active || !cur) return null;
+    const last = step === TUTORIAL_STEPS.length - 1;
+    const pad = 8;
+    const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
+    const noteTop = hole ? (hole.top < window.innerHeight / 2 ? hole.top + hole.height + 16 : null) : null;
+    const noteBottom = hole ? (hole.top >= window.innerHeight / 2 ? (window.innerHeight - hole.top) + 16 : null) : null;
+    const finish = () => { setStep(0); onFinish(); };
+    const next = () => { if (last) finish(); else setStep(step + 1); };
+    const back = () => { if (step > 0) setStep(step - 1); };
+    return createPortal(
+        <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
+            {hole ? (
+                <>
+                    <div className="absolute bg-black/80" style={{ top: 0, left: 0, right: 0, height: Math.max(0, hole.top), pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height, pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height, pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top + hole.height, left: 0, right: 0, bottom: 0, pointerEvents: 'auto' }}/>
+                    <div className="absolute rounded-xl border-2 border-pink-400 animate-pulse" style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height, boxShadow: '0 0 20px rgba(236,72,153,0.6)', pointerEvents: 'none' }}/>
+                </>
+            ) : (
+                <div className="absolute inset-0 bg-black/85" style={{ pointerEvents: 'auto' }}/>
+            )}
+            <div className="absolute left-1/2 -translate-x-1/2 w-[88%] max-w-sm" style={{ pointerEvents: 'auto', ...(cur.center ? { top: '50%', transform: 'translate(-50%,-50%)' } : noteTop != null ? { top: noteTop } : { bottom: noteBottom }) }}>
+                <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-5 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
+                    <p className="text-[10px] uppercase font-black tracking-widest text-pink-200 mb-1">Step {step + 1} of {TUTORIAL_STEPS.length}</p>
+                    <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
+                    <p className="text-sm text-white/90 leading-relaxed mb-4">{cur.body}</p>
+                    <div className="flex items-center justify-between gap-2">
+                        <button onClick={finish} className="text-[11px] text-white/60 underline">Skip tour</button>
+                        <div className="flex items-center gap-2">
+                            {step > 0 && <button onClick={back} className="bg-white/15 text-white font-bold text-sm px-4 py-2 rounded-full hover:bg-white/25 active:scale-95 transition flex items-center gap-1"><ChevronLeft size={16}/> Back</button>}
+                            <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>, document.body);
+};
+
+const TutorialReminderPopIn = ({ active, onClose }) => {
+    if (!active) return null;
+    return createPortal(
+        <div className="fixed inset-0 z-[1500] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
+                <button onClick={onClose} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+                <div className="text-4xl mb-2">🧭</div>
+                <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Need a refresher?</p>
+                <p className="text-white text-sm leading-relaxed">You can replay the app tutorial anytime — find <strong>"Replay Tutorial"</strong> in your Settings. Happy raving! 🌈</p>
+                <button onClick={onClose} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Got it!</button>
+            </div>
+        </div>, document.body);
 };
 
 const POPIN_THEMES = {
@@ -4818,7 +4942,7 @@ const HELP_TOPICS = [
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
     { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
     { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all." },
-    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
+    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
     { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
     { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
@@ -5089,10 +5213,14 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
                             </div>
                             <button onClick={() => setShowAnalytics(true)} className="w-full text-center text-xs text-cyan-400 hover:text-white mb-4 underline opacity-80">View Detailed Analytics</button>
 
-                            <div className="flex gap-2 mt-4 justify-center md:justify-start">
+                            {!isSelf && (
+                                <div className="mt-4">
+                                    <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="w-full" showHint={true} />
+                                </div>
+                            )}
+                            <div className="flex gap-2 mt-2 justify-center md:justify-start">
                                 <button onClick={() => setShowCollection(true)} className="rk-shimmer-border flex-1 text-xs flex justify-center items-center gap-2 py-2 rounded-lg font-bold active:scale-95"><Package size={14}/> Collection</button>
                                 {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
-                                {!isSelf && <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="flex-1 justify-center" />}
                             </div>
                         </div>
                     </div>
@@ -5160,7 +5288,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Festival Clip">
             <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, or Instagram</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
+                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, or Facebook</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
                 </div>
                 {confirmation && (
                     <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -5245,6 +5373,25 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [tribeMsgs, setTribeMsgs] = useState([]);
     const [tribeInput, setTribeInput] = useState('');
     const [friendSearch, setFriendSearch] = useState('');
+    const [friendMode, setFriendMode] = useState('mine'); // 'mine' = my friends | 'find' = find new ravers
+    const [userResults, setUserResults] = useState([]);
+    const [searching, setSearching] = useState(false);
+    // Search all ravers by name/UID (excludes self + existing friends) for the "Find Ravers" tab.
+    const runUserSearch = async (term) => {
+        const t = (term || '').trim().toLowerCase();
+        if (t.length < 2) { setUserResults([]); return; }
+        setSearching(true);
+        try {
+            const snap = await getDocs(collection(db, 'artifacts', appId, 'users'));
+            const myFriends = profile?.friends || [];
+            const res = snap.docs.map(d => ({ ...d.data(), id: d.id }))
+                .filter(u => u.id !== myUid && (u.publicUid !== profile?.publicUid)
+                    && ((u.displayName || '').toLowerCase().includes(t) || (u.publicUid || '').toLowerCase().includes(t)))
+                .slice(0, 25);
+            setUserResults(res);
+        } catch (e) { setUserResults([]); }
+        setSearching(false);
+    };
     const myUid = user?.uid;
 
     // Load friends' profiles
@@ -5306,32 +5453,64 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
 
                     {tab === 'friends' && (
                         <div>
-                            {friends.length > 0 && (
-                                <div className="relative mb-3">
-                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
-                                    <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
+                            {/* Mode toggle: my friends vs find new ravers */}
+                            <div className="flex gap-1 mb-3 bg-black/40 rounded-lg p-1">
+                                <button onClick={() => setFriendMode('mine')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='mine' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>👥 My Friends</button>
+                                <button onClick={() => setFriendMode('find')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='find' ? 'bg-cyan-600 text-white' : 'text-white/50'}`}>🔍 Find Ravers</button>
+                            </div>
+
+                            {friendMode === 'mine' ? (
+                                <div>
+                                    {friends.length > 0 && (
+                                        <div className="relative mb-3">
+                                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                            <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
+                                        </div>
+                                    )}
+                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                        {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your friends…</p> : friends.length === 0 ? (
+                                            <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Switch to <strong>Find Ravers</strong> to search for people, or tap "Add Friend" on any raver's profile.</p></div>
+                                        ) : (() => {
+                                            const fq = friendSearch.trim().toLowerCase();
+                                            const shown = fq ? friends.filter(f => (f.displayName || '').toLowerCase().includes(fq) || (f.publicUid || '').toLowerCase().includes(fq)) : friends;
+                                            if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
+                                            return shown.map(f => (
+                                                <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
+                                                    <img src={f.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
+                                                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
+                                                        <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
+                                                        <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
+                                                    </div>
+                                                    <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={18}/></button>
+                                                    <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your friends?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-2 hover:bg-white/10 rounded-lg" title="Remove friend"><X size={18}/></button>
+                                                </div>
+                                            ));
+                                        })()}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="relative mb-3">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                        <input value={friendSearch} onChange={e => { setFriendSearch(e.target.value); runUserSearch(e.target.value); }} placeholder="Search ravers by name or UID..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-cyan-500/60 outline-none"/>
+                                    </div>
+                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                        {friendSearch.trim().length < 2 ? <p className="text-center opacity-50 text-sm py-8">Type at least 2 characters to search for ravers to add.</p>
+                                        : searching ? <p className="text-center opacity-50 text-sm py-6">Searching…</p>
+                                        : userResults.length === 0 ? <p className="text-center opacity-50 text-sm py-6">No ravers found matching "{friendSearch}".</p>
+                                        : userResults.map(u => (
+                                            <div key={u.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
+                                                <img src={u.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(u.publicUid || u.id); }}/>
+                                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(u.publicUid || u.id); }}>
+                                                    <p className="text-sm font-bold truncate flex items-center gap-1">@{u.displayName || 'Raver'}{u.featuredBadge && <BadgeChip badge={u.featuredBadge} />}</p>
+                                                    <p className="text-[10px] opacity-50">{u.itemsSold || 0} sold · {(u.friends||[]).length} friends</p>
+                                                </div>
+                                                <AddFriendButton myProfile={profile} myUid={myUid} targetUid={u.id} targetName={u.displayName} />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
-                            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
-                                {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your tribe…</p> : friends.length === 0 ? (
-                                    <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Tap "Add to Tribe" on any raver's profile or in search to build your Vibe Tribe.</p></div>
-                                ) : (() => {
-                                    const fq = friendSearch.trim().toLowerCase();
-                                    const shown = fq ? friends.filter(f => (f.displayName || '').toLowerCase().includes(fq) || (f.publicUid || '').toLowerCase().includes(fq)) : friends;
-                                    if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
-                                    return shown.map(f => (
-                                        <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
-                                            <img src={f.photoURL || 'https://placehold.co/48?text=U'} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}/>
-                                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
-                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
-                                                <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
-                                            </div>
-                                            <button onClick={() => { if (onMessageUser) { onClose(); onMessageUser(f.id, f.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={18}/></button>
-                                            <button onClick={async () => { if (window.confirm('Remove @' + (f.displayName||'this raver') + ' from your tribe?')) { try { await removeFriend(myUid, f.id); setFriends(friends.filter(x => x.id !== f.id)); } catch (e) {} } }} className="text-red-400 p-2 hover:bg-white/10 rounded-lg" title="Remove friend"><X size={18}/></button>
-                                        </div>
-                                    ));
-                                })()}
-                            </div>
                         </div>
                     )}
 
@@ -5415,7 +5594,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     );
 };
 
-const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser }) => {
+const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
@@ -5457,7 +5636,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <h2 className="text-2xl font-black italic text-red-500 uppercase tracking-widest">Admin Portal</h2>
                 <button onClick={() => setShowAdminPortal(false)} className="text-white"><XCircle size={32}/></button>
             </div>
-            <AdminDashboard user={user} profile={profile} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Applicant' }); setMsgOpen(true); }}/>
+            <AdminDashboard user={user} profile={profile} onMessageUser={(uid, name) => { if (onMessageUser) onMessageUser(uid, name || 'Applicant'); }}/>
         </div>
     );
 
@@ -5469,7 +5648,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <UsernameModal user={user} profile={profile} isOpen={modals.username} onClose={()=>setModals({...modals, username:false})}/>
                 <CollectionPopout user={user} type="posts" isOpen={modals.collection} onClose={()=>setModals({...modals, collection:false})} onViewFeed={onViewFeed}/>
                 <CollectionPopout user={user} type="stock" isOpen={modals.inventory} onClose={()=>setModals({...modals, inventory:false})}/>
-                <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})}/>
+                <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})} onReplayTutorial={onReplayTutorial}/>
                 <BioModal user={user} currentBio={profile.bio || ''} isOpen={modals.bio} onClose={()=>setModals({...modals, bio:false})}/>
                 <EditSocialsModal user={user} profile={profile} isOpen={modals.socials} onClose={()=>setModals({...modals, socials:false})}/>
                 <ReferralModal user={user} profile={profile} isOpen={modals.referrals} onClose={()=>setModals({...modals, referrals:false})}/>
@@ -5567,7 +5746,12 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         )}
 
 
-                        <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={() => setShowRevShare(true)}><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{profile.publicUid || user.uid}</span> <Share2 size={10} className="inline ml-2 text-cyan-400"/> <span className="text-[8px] text-cyan-400 uppercase font-bold ml-1">RevShare</span></div></div>
+                        <div className="mb-3 w-full">
+                            <div onClick={() => setShowRevShare(true)} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border-2 border-lime-400/40 px-5 py-3.5 rounded-xl font-mono text-base w-full text-center md:text-left cursor-pointer hover:border-lime-400 transition-colors flex items-center justify-center md:justify-start gap-2 flex-wrap">
+                                <span className="font-bold">Friend UID:</span> <span className="text-lime-400 font-black text-lg break-all">{profile.publicUid || user.uid}</span> <Share2 size={15} className="text-cyan-400"/> <span className="text-[10px] text-cyan-400 uppercase font-bold">RevShare</span>
+                            </div>
+                            <p className="text-[10px] text-cyan-300/70 mt-1.5 text-center md:text-left">Tap the block to open the referral program 🎁</p>
+                        </div>
                         
                         <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-cyan-500/10 p-4 rounded-xl text-lg relative border-2 border-pink-500/40 flex items-start min-h-[72px] cursor-pointer hover:border-pink-400/70 transition-colors shadow-[0_0_15px_rgba(255,80,180,0.15)]" onClick={()=>setModals({...modals, bio:true})}>
                             {!profile.bio && <span className="text-xs uppercase font-bold opacity-40 mr-2 select-none self-center">✎ BIO</span>}
@@ -5776,7 +5960,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V59.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.02.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5833,6 +6017,9 @@ const App = () => {
     const [creatorAppOpen, setCreatorAppOpen] = useState(false);
     const [openReferrals, setOpenReferrals] = useState(false);
     const [showAlphaModal, setShowAlphaModal] = useState(false);
+    const [tutorialActive, setTutorialActive] = useState(false);
+    const [tutorialPending, setTutorialPending] = useState(false);
+    const [tutorialReminder, setTutorialReminder] = useState(false);
     const [showVipModal, setShowVipModal] = useState(false);
     
     // PHASE 8: Rave Radio State
@@ -5944,10 +6131,25 @@ const App = () => {
         setTimeout(() => { 
             clearInterval(intLoad); setLoadPct(100); setLoadMsg("Ready to Rave!");
             if (localStorage.getItem('hideAlphaWarning') !== 'true') setShowAlphaModal(true);
+            // V60: tutorial gating. New signed-in users get the guided tutorial (after the
+            // alpha modal closes). Users who've already seen it get a one-time reminder that
+            // it lives in Settings.
+            if (user && !user.isAnonymous) {
+                if (localStorage.getItem('rk_tutorial_done') !== 'true') { setTutorialPending(true); }
+                else if (localStorage.getItem('rk_tut_reminder_seen') !== 'true') { setTutorialReminder(true); localStorage.setItem('rk_tut_reminder_seen', 'true'); }
+            }
             setTimeout(() => setLoading(false), 200); 
         }, 2500);
         return () => { clearInterval(intLoad); unsubAuth(); };
     }, []);
+
+    // V60: replay the tutorial from scratch (used by the Settings button).
+    const replayTutorial = () => {
+        try { localStorage.removeItem('rk_tutorial_done'); } catch (e) {}
+        setPage('home');
+        setTutorialReminder(false);
+        setTimeout(() => setTutorialActive(true), 250);
+    };
 
     useEffect(() => { if(!user || user.isAnonymous) return; const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid), s => setProfile(s.data() || {})); return () => unsub(); }, [user]);
     
@@ -6089,6 +6291,20 @@ const App = () => {
         }, e => console.log('config', e));
         return () => unsub();
     }, []);
+
+    // V60/V61: start the pending tutorial only once the alpha modal AND any forced pop-in are
+    // dismissed, so the guided tour never overlaps the launch sequence. (Declared after
+    // rkConfig to avoid a temporal-dead-zone crash.)
+    useEffect(() => {
+        if (!tutorialActive && tutorialPending) {
+            let popInUp = false;
+            try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
+            if (!showAlphaModal && !popInUp) {
+                const t = setTimeout(() => { setTutorialActive(true); setTutorialPending(false); }, 400);
+                return () => clearTimeout(t);
+            }
+        }
+    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
     // V52.2: count this device as a unique visitor (once ever) + daily-active ping.
     useEffect(() => { trackUniqueVisit(); }, []);
 
@@ -6293,7 +6509,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V59.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V61.02.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6311,8 +6527,14 @@ EOF
 # Block 19
 cat << 'EOF' >> src/App.js
     const bgUrl = isEffVIP(profile) ? profile.customBackground : null;
-    const isVideoBg = bgUrl && (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(bgUrl) || (typeof bgUrl === 'string' && bgUrl.startsWith('data:video')));
-    const appBackgroundStyle = (bgUrl && !isVideoBg) ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
+    // V59.2: video wallpapers are enabled ONLY for hosted URLs (a pasted .mp4/.webm link
+    // streams from the USER's own host — zero bandwidth cost to us). We deliberately do NOT
+    // support data:video (embedded/uploaded video) as a background, so no large video file
+    // ever lands in our Firebase Storage/Firestore. Image backgrounds work via upload or URL.
+    const isHostedVideoUrl = typeof bgUrl === 'string' && /^https?:\/\/.+\.(mp4|webm|mov|m4v)(\?|$)/i.test(bgUrl);
+    const isVideoBg = !!(bgUrl && isHostedVideoUrl);
+    const isImageBg = bgUrl && !isHostedVideoUrl && !(typeof bgUrl === 'string' && bgUrl.startsWith('data:video'));
+    const appBackgroundStyle = isImageBg ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
     // V59: hide the scrolling marquee when an admin banner is set to "announce only" mode.
     const bannerMsgActive = rkConfig.maintenanceMessage && !(rkConfig.maintenanceExpiry > 0 && Date.now() > rkConfig.maintenanceExpiry);
     const hideMarquee = rkConfig.bannerAnnounceOnly && bannerMsgActive;
@@ -6323,15 +6545,17 @@ cat << 'EOF' >> src/App.js
             <WelcomeAlphaModal />
             <AnnouncementPopIn cfg={rkConfig} />
             <DiscoveryTip cfg={rkConfig} />
+            <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
+            <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
-            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
+            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
-            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onNotifNav={(n) => {
+            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onViewProfile={(uid) => setViewingProfileId(uid)} onNotifNav={(n) => {
                 // Route a tapped notification to the right place. Profile hosts achievements,
                 // Vibe Tribe & referrals; feed hosts comments/likes/sales/DIY.
                 const t = n.type;
@@ -6380,13 +6604,13 @@ cat << 'EOF' >> src/App.js
 
             <div className="sticky top-0 z-50" ref={topBarRef}>
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
-                <div onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
+                <div data-tut="home" onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
                 <div className="flex gap-3 items-end">
-                    <button onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
-                    <button onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
-                    <button onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
-                    <button onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
-                    <button onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
+                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
+                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
+                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
+                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
+                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
                 </div>
             </header>
             {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
@@ -6474,8 +6698,8 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
                     <div className="bg-gradient-to-br from-pink-600/20 via-purple-600/15 to-cyan-600/20 border border-pink-500/40 rounded-xl p-3 mb-2 shadow-[0_0_15px_rgba(255,80,180,0.15)]">
-                        <p className="text-sm font-black text-pink-200 flex items-center gap-2 mb-1"><LayoutList size={16}/> Welcome to the Feed 🌈</p>
-                        <p className="text-xs text-white/80 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
+                        <p className="text-lg font-black flex items-center gap-2 mb-2"><LayoutList size={20} className="text-pink-200"/> <span className="rkfx-pastel" style={{ filter: 'drop-shadow(0 0 6px rgba(255,200,240,0.5))' }}>Welcome to the Feed</span> 🌈</p>
+                        <p className="text-sm text-white/90 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
                     </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
@@ -6567,7 +6791,7 @@ cat << 'EOF' >> src/App.js
                         )}
                    </div>
                 )}
-                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }}/>}
+                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
             </main>
             <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 font-mono uppercase z-50 px-3 py-1.5">
                 {nowPlaying && (
@@ -6578,7 +6802,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V59.00.00 Phase 49: Announcement System + Discovery Tip + Video BGs + Feed Notice</span>
+                    <span className="flex-1 text-center">V61.02.00 Phase 51: Facebook spotlight + feed glow + collection modal z-index fix</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6773,9 +6997,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V59.00.00)..."
-sed -i "s/versionCode 1/versionCode 113/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "59.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V61.02.00)..."
+sed -i "s/versionCode 1/versionCode 121/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "61.02.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6822,7 +7046,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V59_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V61_02_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
