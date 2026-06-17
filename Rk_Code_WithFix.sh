@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V60.00.00 Build Script Starting"
+echo " RaveKandi V61.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V60.00.00</title>
+    <title>RaveKandi V61.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V60.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -205,7 +205,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
+  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -328,7 +328,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '60.00.00';
+const APP_VERSION = '61.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -2083,7 +2083,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V60.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2138,7 +2138,7 @@ const PingBar = ({ show }) => {
 
 const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
 
-const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav }) => {
+const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
     const [tab, setTab] = useState('msgs');
     const [activeThread, setActiveThread] = useState(null);
@@ -2385,7 +2385,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                     {tab === 'msgs' && activeThread && (<>
                         <div className="flex items-center justify-between mb-2 bg-white/10 rounded-lg p-3 border border-purple-500/30">
                             <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); }} className="flex items-center gap-1 text-sm text-cyan-400 font-bold"><ChevronLeft size={20}/> Back</button>
-                            <span className="text-base font-black truncate px-2">@{activeName}</span>
+                            <button onClick={() => { if (onViewProfile && activeOtherUid) { onClose(); onViewProfile(activeOtherUid); } }} className="text-base font-black truncate px-2 hover:text-pink-300 transition active:scale-95" title="View profile">@{activeName}</button>
                             <div className="flex items-center gap-2 shrink-0">
                                 <button onClick={async () => { if (!threadDoc?.obliterate) { if (window.confirm('💥 OBLITERATE this chat?\n\nA 24-hour countdown starts. If BOTH of you agree, it deletes immediately. If the timer runs out, it deletes anyway — gone forever for both.')) { try { await requestObliterate(activeThread, myUid, activeOtherUid, profile?.displayName); } catch (e) {} } } }} className="text-orange-400 hover:text-orange-300" title="Obliterate chat"><Bomb size={16}/></button>
                                 <button onClick={delThread} className="text-red-400" title="Delete chat log (your side)"><Trash2 size={18}/></button>
@@ -2715,7 +2715,7 @@ EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
-const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
+const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial }) => {
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
     const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
     const [showTicket, setShowTicket] = useState(false);
@@ -2867,8 +2867,9 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose }) => {
             <p className="text-[8px] opacity-50 mt-1">Controls which alerts show in your Messenger's Notifications tab. All on by default.</p>
         </div>
 
-        <div className="border-b border-white/10 pb-4">
-            <h4 className="font-bold text-xs mb-2 text-yellow-400">Support</h4>
+        <div className="border-b border-white/10 pb-4 space-y-2">
+            <h4 className="font-bold text-xs mb-2 text-yellow-400">Help &amp; Support</h4>
+            <Button onClick={() => { if (onReplayTutorial) { onClose(); onReplayTutorial(); } }} color="purple" className="w-full text-[10px] flex items-center justify-center gap-2"><Compass size={14}/> Replay App Tutorial</Button>
             <Button onClick={() => setShowTicket(true)} color="accent" className="w-full text-[10px] flex items-center justify-center gap-2"><HelpCircle size={14}/> Report a Bug / Get Help</Button>
         </div>
 
@@ -4001,6 +4002,83 @@ const DurationPicker = ({ label, valueMs, onSet }) => {
             <p className="text-[8px] mt-1 text-cyan-300">{fmtRemain()}{active ? ' (expires ' + new Date(valueMs).toLocaleString() + ')' : ''}</p>
         </div>
     );
+};
+
+const TUTORIAL_STEPS = [
+    { tut: null, title: 'Welcome to RaveKandi! 🌈', body: "Let's take a 30-second tour of the app. We'll show you the main features — tap Next to begin!", center: true },
+    { tut: 'feed', title: 'The Feed 🛍️', body: "This is the community marketplace. Every post is an item a raver is selling or showing off — kandi, gear, custom pieces. Tap a post to view or buy, tap a @name to visit their profile." },
+    { tut: 'shop', title: 'The Shop 🏪', body: "Browse and filter everything for sale, or head to the DIY tab to request a custom piece from a creator. This is also where you list your own items to sell!" },
+    { tut: 'profile', title: 'Your Profile 👤', body: "Your home base. Set up your shop, pin your best pieces, show your collection, earn badges, and manage your settings. Your Friend UID here is also your referral code!" },
+    { tut: 'inbox', title: 'Inbox & Notifications 📬', body: "Message other ravers, get notified about sales, friend requests, comments and more. Tap a notification to jump straight to it." },
+    { tut: 'cart', title: 'Your Cart 🛒', body: "Items you're ready to buy land here. (Heads up: payments are in test mode during Alpha.)" },
+    { tut: 'home', title: 'Home Button 🏠', body: "Tap the RaveKandi logo anytime to return home. From here you can reach the DIY builder, your VIP perks, and everything else." },
+    { tut: null, title: "You're all set! 🎉", body: "That's the tour! Almost everything in the app is tappable — explore and find hidden features. You can replay this tutorial anytime from Settings. Welcome to the tribe! 🌈", center: true }
+];
+
+const TutorialOverlay = ({ active, onFinish }) => {
+    const [step, setStep] = useState(0);
+    const [rect, setRect] = useState(null);
+    const cur = TUTORIAL_STEPS[step];
+    useEffect(() => {
+        if (!active) return;
+        const measure = () => {
+            if (!cur || !cur.tut || cur.center) { setRect(null); return; }
+            const el = document.querySelector('[data-tut="' + cur.tut + '"]');
+            if (el) { const r = el.getBoundingClientRect(); setRect({ top: r.top, left: r.left, width: r.width, height: r.height }); }
+            else setRect(null);
+        };
+        measure();
+        const t = setTimeout(measure, 60);
+        window.addEventListener('resize', measure);
+        window.addEventListener('scroll', measure, true);
+        return () => { clearTimeout(t); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
+    }, [active, step]);
+    if (!active || !cur) return null;
+    const last = step === TUTORIAL_STEPS.length - 1;
+    const pad = 8;
+    const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
+    const noteTop = hole ? (hole.top < window.innerHeight / 2 ? hole.top + hole.height + 16 : null) : null;
+    const noteBottom = hole ? (hole.top >= window.innerHeight / 2 ? (window.innerHeight - hole.top) + 16 : null) : null;
+    const next = () => { if (last) onFinish(); else setStep(step + 1); };
+    return createPortal(
+        <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
+            {hole ? (
+                <>
+                    <div className="absolute bg-black/80" style={{ top: 0, left: 0, right: 0, height: Math.max(0, hole.top), pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height, pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height, pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" style={{ top: hole.top + hole.height, left: 0, right: 0, bottom: 0, pointerEvents: 'auto' }}/>
+                    <div className="absolute rounded-xl border-2 border-pink-400 animate-pulse" style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height, boxShadow: '0 0 20px rgba(236,72,153,0.6)', pointerEvents: 'none' }}/>
+                </>
+            ) : (
+                <div className="absolute inset-0 bg-black/85" style={{ pointerEvents: 'auto' }}/>
+            )}
+            <div className="absolute left-1/2 -translate-x-1/2 w-[88%] max-w-sm" style={{ pointerEvents: 'auto', ...(cur.center ? { top: '50%', transform: 'translate(-50%,-50%)' } : noteTop != null ? { top: noteTop } : { bottom: noteBottom }) }}>
+                <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-5 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
+                    <p className="text-[10px] uppercase font-black tracking-widest text-pink-200 mb-1">Step {step + 1} of {TUTORIAL_STEPS.length}</p>
+                    <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
+                    <p className="text-sm text-white/90 leading-relaxed mb-4">{cur.body}</p>
+                    <div className="flex items-center justify-between gap-2">
+                        <button onClick={onFinish} className="text-[11px] text-white/60 underline">Skip tour</button>
+                        <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>
+                    </div>
+                </div>
+            </div>
+        </div>, document.body);
+};
+
+const TutorialReminderPopIn = ({ active, onClose }) => {
+    if (!active) return null;
+    return createPortal(
+        <div className="fixed inset-0 z-[1500] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
+                <button onClick={onClose} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+                <div className="text-4xl mb-2">🧭</div>
+                <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Need a refresher?</p>
+                <p className="text-white text-sm leading-relaxed">You can replay the app tutorial anytime — find <strong>"Replay Tutorial"</strong> in your Settings. Happy raving! 🌈</p>
+                <button onClick={onClose} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Got it!</button>
+            </div>
+        </div>, document.body);
 };
 
 const POPIN_THEMES = {
@@ -5503,7 +5581,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     );
 };
 
-const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser }) => {
+const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
@@ -5557,7 +5635,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <UsernameModal user={user} profile={profile} isOpen={modals.username} onClose={()=>setModals({...modals, username:false})}/>
                 <CollectionPopout user={user} type="posts" isOpen={modals.collection} onClose={()=>setModals({...modals, collection:false})} onViewFeed={onViewFeed}/>
                 <CollectionPopout user={user} type="stock" isOpen={modals.inventory} onClose={()=>setModals({...modals, inventory:false})}/>
-                <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})}/>
+                <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})} onReplayTutorial={replayTutorial}/>
                 <BioModal user={user} currentBio={profile.bio || ''} isOpen={modals.bio} onClose={()=>setModals({...modals, bio:false})}/>
                 <EditSocialsModal user={user} profile={profile} isOpen={modals.socials} onClose={()=>setModals({...modals, socials:false})}/>
                 <ReferralModal user={user} profile={profile} isOpen={modals.referrals} onClose={()=>setModals({...modals, referrals:false})}/>
@@ -5655,7 +5733,12 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         )}
 
 
-                        <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full" onClick={() => setShowRevShare(true)}><div className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-xs w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{profile.publicUid || user.uid}</span> <Share2 size={10} className="inline ml-2 text-cyan-400"/> <span className="text-[8px] text-cyan-400 uppercase font-bold ml-1">RevShare</span></div></div>
+                        <div className="mb-3 w-full">
+                            <div onClick={() => setShowRevShare(true)} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border-2 border-lime-400/40 px-5 py-3.5 rounded-xl font-mono text-base w-full text-center md:text-left cursor-pointer hover:border-lime-400 transition-colors flex items-center justify-center md:justify-start gap-2 flex-wrap">
+                                <span className="font-bold">Friend UID:</span> <span className="text-lime-400 font-black text-lg break-all">{profile.publicUid || user.uid}</span> <Share2 size={15} className="text-cyan-400"/> <span className="text-[10px] text-cyan-400 uppercase font-bold">RevShare</span>
+                            </div>
+                            <p className="text-[10px] text-cyan-300/70 mt-1.5 text-center md:text-left">Tap the block to open the referral program 🎁</p>
+                        </div>
                         
                         <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-cyan-500/10 p-4 rounded-xl text-lg relative border-2 border-pink-500/40 flex items-start min-h-[72px] cursor-pointer hover:border-pink-400/70 transition-colors shadow-[0_0_15px_rgba(255,80,180,0.15)]" onClick={()=>setModals({...modals, bio:true})}>
                             {!profile.bio && <span className="text-xs uppercase font-bold opacity-40 mr-2 select-none self-center">✎ BIO</span>}
@@ -5864,7 +5947,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V60.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -5921,6 +6004,9 @@ const App = () => {
     const [creatorAppOpen, setCreatorAppOpen] = useState(false);
     const [openReferrals, setOpenReferrals] = useState(false);
     const [showAlphaModal, setShowAlphaModal] = useState(false);
+    const [tutorialActive, setTutorialActive] = useState(false);
+    const [tutorialPending, setTutorialPending] = useState(false);
+    const [tutorialReminder, setTutorialReminder] = useState(false);
     const [showVipModal, setShowVipModal] = useState(false);
     
     // PHASE 8: Rave Radio State
@@ -6032,10 +6118,38 @@ const App = () => {
         setTimeout(() => { 
             clearInterval(intLoad); setLoadPct(100); setLoadMsg("Ready to Rave!");
             if (localStorage.getItem('hideAlphaWarning') !== 'true') setShowAlphaModal(true);
+            // V60: tutorial gating. New signed-in users get the guided tutorial (after the
+            // alpha modal closes). Users who've already seen it get a one-time reminder that
+            // it lives in Settings.
+            if (user && !user.isAnonymous) {
+                if (localStorage.getItem('rk_tutorial_done') !== 'true') { setTutorialPending(true); }
+                else if (localStorage.getItem('rk_tut_reminder_seen') !== 'true') { setTutorialReminder(true); localStorage.setItem('rk_tut_reminder_seen', 'true'); }
+            }
             setTimeout(() => setLoading(false), 200); 
         }, 2500);
         return () => { clearInterval(intLoad); unsubAuth(); };
     }, []);
+
+    // V60: start the pending tutorial only once the alpha modal AND any forced pop-in are
+    // dismissed, so the guided tour never overlaps the launch sequence.
+    useEffect(() => {
+        if (!tutorialActive && tutorialPending) {
+            let popInUp = false;
+            try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
+            if (!showAlphaModal && !popInUp) {
+                const t = setTimeout(() => { setTutorialActive(true); setTutorialPending(false); }, 400);
+                return () => clearTimeout(t);
+            }
+        }
+    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
+
+    // V60: replay the tutorial from scratch (used by the Settings button).
+    const replayTutorial = () => {
+        try { localStorage.removeItem('rk_tutorial_done'); } catch (e) {}
+        setPage('home');
+        setTutorialReminder(false);
+        setTimeout(() => setTutorialActive(true), 250);
+    };
 
     useEffect(() => { if(!user || user.isAnonymous) return; const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid), s => setProfile(s.data() || {})); return () => unsub(); }, [user]);
     
@@ -6381,7 +6495,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V60.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V61.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6417,15 +6531,17 @@ cat << 'EOF' >> src/App.js
             <WelcomeAlphaModal />
             <AnnouncementPopIn cfg={rkConfig} />
             <DiscoveryTip cfg={rkConfig} />
+            <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
+            <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
-            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)}/>}
+            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
-            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onNotifNav={(n) => {
+            {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onViewProfile={(uid) => setViewingProfileId(uid)} onNotifNav={(n) => {
                 // Route a tapped notification to the right place. Profile hosts achievements,
                 // Vibe Tribe & referrals; feed hosts comments/likes/sales/DIY.
                 const t = n.type;
@@ -6474,13 +6590,13 @@ cat << 'EOF' >> src/App.js
 
             <div className="sticky top-0 z-50" ref={topBarRef}>
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
-                <div onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
+                <div data-tut="home" onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
                 <div className="flex gap-3 items-end">
-                    <button onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
-                    <button onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
-                    <button onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
-                    <button onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
-                    <button onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
+                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
+                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
+                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
+                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
+                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
                 </div>
             </header>
             {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
@@ -6568,8 +6684,8 @@ cat << 'EOF' >> src/App.js
                 )}
                 {page === 'feed' && (<div className="max-w-2xl mx-auto space-y-4">
                     <div className="bg-gradient-to-br from-pink-600/20 via-purple-600/15 to-cyan-600/20 border border-pink-500/40 rounded-xl p-3 mb-2 shadow-[0_0_15px_rgba(255,80,180,0.15)]">
-                        <p className="text-sm font-black text-pink-200 flex items-center gap-2 mb-1"><LayoutList size={16}/> Welcome to the Feed 🌈</p>
-                        <p className="text-xs text-white/80 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
+                        <p className="text-lg font-black text-pink-200 flex items-center gap-2 mb-2"><LayoutList size={20}/> Welcome to the Feed 🌈</p>
+                        <p className="text-sm text-white/90 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Tap any post to view details, like it, comment, or buy. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below to find exactly what you're after!</p>
                     </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
@@ -6661,7 +6777,7 @@ cat << 'EOF' >> src/App.js
                         )}
                    </div>
                 )}
-                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }}/>}
+                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
             </main>
             <div className="fixed bottom-0 w-full bg-black/95 border-t border-white/10 font-mono uppercase z-50 px-3 py-1.5">
                 {nowPlaying && (
@@ -6672,7 +6788,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V60.00.00 Phase 50: Friend System Overhaul (Add Friend button, search, cancel)</span>
+                    <span className="flex-1 text-center">V61.00.00 Phase 51: Tutorial System + UI Polish + App Descriptions</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6867,9 +6983,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V60.00.00)..."
-sed -i "s/versionCode 1/versionCode 116/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "60.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V61.00.00)..."
+sed -i "s/versionCode 1/versionCode 117/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "61.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -6916,7 +7032,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V60_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V61_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
