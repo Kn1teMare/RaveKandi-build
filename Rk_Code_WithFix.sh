@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V61.02.00 Build Script Starting"
+echo " RaveKandi V62.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V61.02.00</title>
+    <title>RaveKandi V62.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V61.02.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V62.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -327,8 +327,8 @@ const trackUniqueVisit = async () => {
 };
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
-let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0 };
-const APP_VERSION = '61.02.00';
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi' };
+const APP_VERSION = '62.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -2018,6 +2018,7 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
 };
 
 const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
+    const [showTiers, setShowTiers] = useState(false);
     if (!isOpen) return null;
     const code = profile?.publicUid || user?.uid || '';
     const shareUrl = buildShareUrl({ ref: code });
@@ -2046,7 +2047,9 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
         try { await navigator.share({ title: 'RaveKandi', text: shareText + ' #RaveKandi #PLUR', url: shareUrl }); }
         catch (e) { try { navigator.clipboard.writeText(shareText + ' #RaveKandi #PLUR'); alert("Story caption + link copied! Open your social app and paste it into a new Story."); } catch(e2) {} }
     };
-    const pct = profile?.customRevSharePct ?? getReferralTier(profile?.referrals || 0).sharePct;
+    const refCount = profile?.referrals || 0;
+    const tier = getReferralTier(refCount);
+    const pct = profile?.customRevSharePct ?? tier.sharePct;
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="RevShare Program">
             <div className="space-y-4">
@@ -2054,9 +2057,12 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     Share your Friend UID. When friends sign up with it, you earn a percentage of the app's commission on <strong>everything they buy — for life</strong>. More referrals = higher tier = bigger cut, up to <strong>25% of the commission</strong> at Eternal Rave.
                 </div>
                 <div className="bg-black/60 border border-white/20 rounded p-3 text-center">
-                    <p className="text-[9px] uppercase opacity-60 mb-1">Your Friend UID</p>
-                    <p className="font-mono text-lg font-black text-lime-400 break-all">{code}</p>
-                    <p className="text-[9px] mt-1 text-cyan-400">Current RevShare Rate: {pct}%</p>
+                    <p className="text-[10px] uppercase opacity-60 mb-1">Your Friend UID</p>
+                    <p className="font-mono text-2xl font-black text-lime-400 break-all">{code}</p>
+                    <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                        <span className={`text-sm font-black ${tier.color}`}>{tier.badge} Tier</span>
+                        <span className="text-[10px] text-cyan-400">· {pct}% RevShare · {refCount} referral{refCount === 1 ? '' : 's'}</span>
+                    </div>
                 </div>
                 <Button onClick={doCopyLink} color="lime" className="w-full text-xs flex items-center justify-center gap-2 mb-1"><Link size={16}/> Copy My Invite Link</Button>
                 <div className="grid grid-cols-3 gap-2">
@@ -2064,6 +2070,7 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     <Button onClick={doShare} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-3"><Share2 size={16}/> Share</Button>
                     <Button onClick={doStory} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
                 </div>
+                <Button onClick={() => setShowTiers(true)} color="accent" className="w-full text-xs flex items-center justify-center gap-2"><Award size={16}/> RevShare Tiers &amp; Benefits</Button>
                 <div className="bg-gradient-to-r from-pink-900/30 to-purple-900/30 border border-pink-500/40 rounded-lg p-3 space-y-2">
                     <p className="text-[11px] font-black text-pink-300 uppercase tracking-wide flex items-center gap-1"><Link size={13}/> Earn the "Link in Bio Hero" badge 🏅</p>
                     <p className="text-[10px] text-gray-100 leading-relaxed">Add your invite link to your Instagram bio. Everyone who taps it gets your referral <strong>auto-applied</strong> on signup — passive RevShare forever. Two taps:</p>
@@ -2073,6 +2080,32 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                 </div>
                 <p className="text-[9px] text-center opacity-50">Share opens your phone's share sheet — send to any app, DM, or post straight to your Story.</p>
             </div>
+            <Modal isOpen={showTiers} onClose={() => setShowTiers(false)} zClass="z-[120]" title="RevShare Tiers & Benefits">
+                <div className="space-y-3">
+                    <p className="text-sm text-gray-100 leading-relaxed">Every friend who signs up with your Friend UID earns you a cut of the app's commission on <strong>everything they buy — forever</strong>. The more ravers you bring, the higher your tier climbs and the bigger your cut, all the way to <strong className="text-amber-300">25%</strong>.</p>
+                    <div className="bg-black/50 p-3 rounded border border-white/10 max-h-[55vh] overflow-y-auto">
+                        <table className="w-full text-xs">
+                            <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Referrals</th><th className="pb-1">RevShare</th></tr></thead>
+                            <tbody>
+                                {REFERRAL_TIERS.map(t => {
+                                    const isCurrent = refCount >= t.min && refCount <= t.max && !profile?.customRevSharePct;
+                                    return (
+                                        <tr key={t.badge} className={`border-b border-white/5 ${isCurrent ? 'bg-white/10' : ''}`}>
+                                            <td className={`py-1.5 font-bold ${t.color}`}>{t.badge}{isCurrent && <span className="text-[8px] text-white/70 ml-1">← YOU</span>}</td>
+                                            <td className="py-1.5">{t.min.toLocaleString()}-{t.max >= 999999 ? '∞' : t.max.toLocaleString()}</td>
+                                            <td className="py-1.5 text-lime-300 font-bold">{t.sharePct}%</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="bg-cyan-900/20 p-3 rounded text-xs border border-cyan-500/30">
+                        <span className="font-bold text-cyan-400 block mb-1">How it works</span>
+                        <p className="text-gray-100 leading-relaxed">Your RevShare % is a share of RaveKandi's commission — it never comes out of your friend's pocket or your own sales. It stacks across every referred raver, and it's paid for life. Climb the tiers by inviting more of your rave fam!</p>
+                    </div>
+                </div>
+            </Modal>
         </Modal>
     );
 };
@@ -2089,7 +2122,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V61.02.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V62.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3952,6 +3985,82 @@ const FindUsersPanel = ({ onPick }) => {
     );
 };
 
+// V61: Admin force-clip + placeholder manager. Lets an admin push one or more rotational
+// festival clips directly (no daily limit, marked isForced), and configure a PLACEHOLDER clip
+// that shows whenever no live clip is active — so the spotlight is never empty. When a forced
+// or user clip's window expires, the panel rotates back to this placeholder automatically.
+const ForceClipPanel = ({ cfg, setCfg }) => {
+    const [url, setUrl] = useState('');
+    const [caption, setCaption] = useState('');
+    const [name, setName] = useState('');
+    const [mins, setMins] = useState(30);
+    const [count, setCount] = useState(1);
+    const [busy, setBusy] = useState(false);
+    const parsed = url.trim() ? parseVideoLink(url) : null;
+
+    const pushForced = async () => {
+        if (!parsed || !parsed.ok) { alert('Paste a valid YouTube, TikTok, Instagram, or Facebook clip link first.'); return; }
+        setBusy(true);
+        try {
+            const W = (parseInt(mins) || 30) * 60000;
+            const n = Math.max(1, Math.min(parseInt(count) || 1, 20));
+            // Chain the forced clips back-to-back starting now.
+            let cursor = Date.now();
+            for (let i = 0; i < n; i++) {
+                const slotId = 'forced_' + cursor;
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', slotId), {
+                    uid: 'admin', name: (name.trim() || 'RaveKandi'), ownerPublicUid: 'admin',
+                    platform: parsed.platform, embedUrl: parsed.embedUrl || null, watchUrl: parsed.watchUrl,
+                    caption: (caption || '').slice(0, 100), postedAt: Date.now(),
+                    start: cursor, end: cursor + W, isForced: true
+                });
+                cursor += W;
+            }
+            alert('Forced ' + n + ' clip window(s) live now (' + mins + ' min each).');
+            setUrl(''); setCaption(''); setName('');
+        } catch (e) { alert('Failed: ' + e.message); }
+        setBusy(false);
+    };
+
+    const phParsed = (cfg.spotlightPlaceholderUrl || '').trim() ? parseVideoLink(cfg.spotlightPlaceholderUrl) : null;
+
+    return (
+        <div className="space-y-3">
+            <div className="bg-pink-900/20 border border-pink-500/40 rounded-lg p-3 space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-pink-300">🎬 Force Rotational Clip(s)</h4>
+                <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Paste YouTube / TikTok / Instagram / Facebook link" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                {parsed && <p className={`text-[9px] ${parsed.ok ? 'text-lime-400' : 'text-red-400'}`}>{parsed.ok ? '✓ ' + parsed.platform + ' clip verified' : parsed.reason}</p>}
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Display name (default: RaveKandi)" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={100} placeholder="Caption (optional)" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                <div className="flex gap-2">
+                    <div className="flex-1">
+                        <label className="text-[8px] uppercase opacity-60 block mb-0.5">Minutes each</label>
+                        <input type="number" min="1" value={mins} onChange={e => setMins(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                    </div>
+                    <div className="flex-1">
+                        <label className="text-[8px] uppercase opacity-60 block mb-0.5"># of windows</label>
+                        <input type="number" min="1" max="20" value={count} onChange={e => setCount(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                    </div>
+                </div>
+                <Button onClick={pushForced} disabled={busy || !parsed?.ok} color="primary" className="w-full text-xs">{busy ? 'Pushing…' : 'Force Clip(s) Live 🎬'}</Button>
+                <p className="text-[8px] opacity-50">Forced clips bypass the daily limit and chain back-to-back from now. Multiple windows = the same clip repeats, or use the takedown panel to manage them.</p>
+            </div>
+
+            <div className="bg-purple-900/20 border border-purple-500/40 rounded-lg p-3 space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-purple-300">📌 Spotlight Placeholder</h4>
+                <label className="flex items-center gap-2 text-[10px] font-bold"><input type="checkbox" checked={!!cfg.spotlightPlaceholderActive} onChange={e => setCfg({ ...cfg, spotlightPlaceholderActive: e.target.checked })} className="accent-purple-500"/> Show placeholder when no clip is live</label>
+                <input value={cfg.spotlightPlaceholderUrl || ''} onChange={e => setCfg({ ...cfg, spotlightPlaceholderUrl: e.target.value })} placeholder="Placeholder clip link (YouTube/TikTok/IG/FB)" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                {phParsed && <p className={`text-[9px] ${phParsed.ok ? 'text-lime-400' : 'text-red-400'}`}>{phParsed.ok ? '✓ ' + phParsed.platform + ' placeholder verified' : phParsed.reason}</p>}
+                <input value={cfg.spotlightPlaceholderName || ''} onChange={e => setCfg({ ...cfg, spotlightPlaceholderName: e.target.value })} placeholder="Placeholder name (default: RaveKandi)" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                <input value={cfg.spotlightPlaceholderCaption || ''} onChange={e => setCfg({ ...cfg, spotlightPlaceholderCaption: e.target.value })} maxLength={100} placeholder="Placeholder caption (optional)" className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                <p className="text-[8px] opacity-50">When a real clip's window ends, the spotlight rotates back to this placeholder instead of going empty. Save config below to apply.</p>
+            </div>
+
+            <VideoTakedownPanel />
+        </div>
+    );
+};
+
 const VideoTakedownPanel = () => {
     const [vids, setVids] = useState([]);
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setVids(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => a.start - b.start)), e => console.log(e)), []);
@@ -4188,7 +4297,7 @@ const AdminAnalyticsBlock = () => {
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
     const T = ({ k, label }) => (
         <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
@@ -4275,6 +4384,11 @@ const RemoteConfigPanel = () => {
             <AdminAnalyticsBlock />
             <p className="text-[8px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
             <p className="text-[8px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
+            <div className="border-t border-white/10 pt-3 mt-2">
+                <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Festival Spotlight Control</h4>
+                <ForceClipPanel cfg={cfg} setCfg={setCfg} />
+                <p className="text-[8px] opacity-50 mt-1">Placeholder settings save with the button below. Forced clips push live immediately.</p>
+            </div>
             <Button onClick={save} disabled={saving} color="purple" className="w-full text-xs">{saving ? 'Pushing…' : 'Push Config Live'}</Button>
         </div>
     );
@@ -4496,7 +4610,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
 
             <div className="bg-white/5 p-3 rounded mb-4 border border-red-500/40">
                 <h4 className="text-[10px] uppercase font-bold text-red-300 mb-2">🎬 Featured Videos — Moderation</h4>
-                <p className="text-[8px] opacity-60 mb-2">Take down any user clip instantly — deletes the video from storage and clears its window.</p>
+                <p className="text-[8px] opacity-60 mb-2">Take down any user clip instantly. Force clips &amp; the placeholder are in Remote Config above.</p>
                 <VideoTakedownPanel />
             </div>
 
@@ -5325,8 +5439,17 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
         return () => unsub();
     }, []);
 
-    const active = slots.find(s => s.start <= nowTick && nowTick < s.end) || null;
+    const liveClip = slots.find(s => s.start <= nowTick && nowTick < s.end) || null;
     const upcoming = slots.filter(s => s.start > nowTick).sort((a, b) => a.start - b.start);
+    // V61: when no live clip, fall back to the admin placeholder (if configured). The
+    // placeholder holds the spot until a user posts, and the panel rotates back to it the
+    // moment a forced/user clip's window expires.
+    let placeholder = null;
+    if (!liveClip && RK_CFG.spotlightPlaceholderActive && (RK_CFG.spotlightPlaceholderUrl || '').trim()) {
+        const pp = parseVideoLink(RK_CFG.spotlightPlaceholderUrl);
+        if (pp && pp.ok) placeholder = { platform: pp.platform, embedUrl: pp.embedUrl || null, watchUrl: pp.watchUrl, name: RK_CFG.spotlightPlaceholderName || 'RaveKandi', caption: RK_CFG.spotlightPlaceholderCaption || '', ownerPublicUid: null, uid: null, isPlaceholder: true };
+    }
+    const active = liveClip || placeholder;
 
     // V42.14: window-expiry just clears the slot doc (no files are stored, so
     // nothing to delete from storage). Any viewer past the window cleans it up.
@@ -5346,9 +5469,15 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
                     )}
                     <div className="p-3 bg-gradient-to-r from-purple-900/40 to-pink-900/40">
                         {active.caption && <p className="text-xs text-gray-100 italic mb-2 break-words">"{active.caption}"</p>}
-                        <button onClick={() => onViewProfile(active.ownerPublicUid || active.uid)} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-lg py-2 text-sm font-black uppercase tracking-wide transition-colors">
-                            <User size={16}/> Featured: @{active.name} — View Profile
-                        </button>
+                        {active.isPlaceholder ? (
+                            <div className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-700/60 to-pink-700/60 rounded-lg py-2 text-sm font-black uppercase tracking-wide">
+                                <Sparkles size={16}/> {active.name}
+                            </div>
+                        ) : (
+                            <button onClick={() => onViewProfile(active.ownerPublicUid || active.uid)} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-lg py-2 text-sm font-black uppercase tracking-wide transition-colors">
+                                <User size={16}/> Featured: @{active.name} — View Profile
+                            </button>
+                        )}
                     </div>
                 </div>
             ) : (
@@ -5960,7 +6089,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V61.02.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V62.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6509,7 +6638,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V61.02.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V62.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6802,7 +6931,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V61.02.00 Phase 51: Facebook spotlight + feed glow + collection modal z-index fix</span>
+                    <span className="flex-1 text-center">V62.00.00 Phase 52: Forced festival clips + spotlight placeholder</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -6997,9 +7126,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V61.02.00)..."
-sed -i "s/versionCode 1/versionCode 121/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "61.02.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V62.00.00)..."
+sed -i "s/versionCode 1/versionCode 123/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "62.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7046,7 +7175,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V61_02_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V62_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
