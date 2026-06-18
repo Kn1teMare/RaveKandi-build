@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V62.00.00 Build Script Starting"
+echo " RaveKandi V63.00.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V62.00.00</title>
+    <title>RaveKandi V63.00.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,7 +127,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V62.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.00.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -205,7 +205,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, 
+  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, Type, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -327,8 +327,8 @@ const trackUniqueVisit = async () => {
 };
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
-let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi' };
-const APP_VERSION = '62.00.00';
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
+const APP_VERSION = '63.00.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -346,6 +346,21 @@ const IS_IOS_BROWSER = (() => { try { const ua = navigator.userAgent || ''; cons
 // V42.16: true when running in a normal browser tab (NOT the installed home-screen app).
 const IS_STANDALONE = (() => { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } })();
 const IS_IOS = (() => { try { return /iphone|ipad|ipod/i.test(navigator.userAgent || ''); } catch (e) { return false; } })();
+const IS_ANDROID = (() => { try { return /android/i.test(navigator.userAgent || ''); } catch (e) { return false; } })();
+// V62: detect HOW the user is connected so the install popup can offer the right options.
+// 'apk' = running inside the native Capacitor APK; 'pwa' = installed home-screen web app;
+// 'web' = a normal browser tab (iOS or Android or desktop).
+const CONNECTION_MODE = (() => {
+    try {
+        if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) return 'apk';
+        const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+        if (standalone) return 'pwa';
+        return 'web';
+    } catch (e) { return 'web'; }
+})();
+// GitHub-hosted Android APK (direct download). App-store links are placeholders until launch.
+const ANDROID_APK_URL = 'https://github.com/Kn1teMare/RaveKandi-build/releases/latest';
+const WEB_APP_URL = 'https://ravekandi.web.app';
 const DAILY_AI_LIMIT = 5;
 
 const RADIO_STATIONS = [
@@ -470,6 +485,41 @@ const REFERRAL_TIERS = [
     { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300' }
 ];
 export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
+
+// V62: Radio chat constants. Each in-app station has its own chat channel keyed by station id;
+// 'global' is the shared all-stations room (default).
+const CHAT_GLOBAL_ID = 'global';
+// Hard list of slurs to block (NOT profanity — profanity is allowed). Kept intentionally
+// minimal and focused on hate speech. Leetspeak/spacing bypasses are normalized before match.
+const CHAT_BLOCKED_TERMS = ['nigger','nigga','faggot','fag','retard','chink','spic','kike','wetback','tranny','coon','gook','beaner','dyke'];
+// Detect links / contact handles so non-VIP users can't drop them (anti-spam).
+const looksLikeLink = (text) => {
+    const t = (text || '').toLowerCase();
+    if (/https?:\/\//.test(t) || /www\./.test(t)) return true;
+    // domain.tld with common TLDs, including spaced/dotted bypasses like "site dot com"
+    if (/\b[a-z0-9-]+\.(com|net|org|io|gg|me|co|tv|app|link|xyz|store|shop|info|biz|ly|to|cc)\b/.test(t)) return true;
+    if (/[a-z0-9-]+\s*(dot|\(dot\)|\[dot\])\s*(com|net|org|io|gg|me|co|tv|app)/.test(t)) return true;
+    // social handles / "dm me on X"
+    if (/@[a-z0-9_.]{3,}/.test(t) && /(insta|ig|snap|tele|telegram|whatsapp|wa|cashapp|venmo|paypal|onlyfans|of|disc)/.test(t)) return true;
+    return false;
+};
+// Normalize leetspeak + separators so "n i g g e r" / "n1gg3r" are caught.
+const normalizeForFilter = (text) => (text || '').toLowerCase()
+    .replace(/[0]/g, 'o').replace(/[1!|]/g, 'i').replace(/[3]/g, 'e').replace(/[4@]/g, 'a').replace(/[5$]/g, 's').replace(/[7]/g, 't')
+    .replace(/[^a-z]/g, '');
+const chatModerate = (text, { isVIP }) => {
+    const raw = (text || '').trim();
+    if (!raw) return { ok: false, reason: 'empty' };
+    const norm = normalizeForFilter(raw);
+    for (const term of CHAT_BLOCKED_TERMS) { if (norm.includes(normalizeForFilter(term))) return { ok: false, reason: 'hate', flagged: true }; }
+    // Links: blocked for everyone in the normal message path (VIPs share links via the
+    // dedicated "share social link" action, which is rate-limited separately).
+    if (looksLikeLink(raw)) return { ok: false, reason: 'link', flagged: true };
+    return { ok: true };
+};
+// Today's date key for per-day share caps.
+const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate(); };
+
 
 const Volume = ({size, color}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
 const SOCIAL_PLATFORMS = [
@@ -1510,6 +1560,9 @@ const VIPCheckoutForm = ({ user, onClose }) => {
                 <p>📢 Banner Messages on the live marquee</p>
                 <p>⚡ Post Boosts — pin your items to the top of the feed</p>
                 <p>🔤 Font Selector for bio, posts & messages</p>
+                <p>💬 No cooldown in Rave Radio chat (skip the anti-spam wait)</p>
+                <p>🔗 Share your social links in chat (limited per day)</p>
+                <p>📦 Share collection items directly in chat</p>
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setPlan('monthly')} className={`p-3 rounded-xl border-2 text-left ${plan === 'monthly' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
@@ -1654,6 +1707,256 @@ const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
     );
 };
 
+// V62: VIP collection-item picker. Lists the user's own listed items (feed-card style) and
+// posts the chosen one into the radio chat as a 'collection' message. Day-capped.
+const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) => {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [notice, setNotice] = useState('');
+    const myUid = user?.uid;
+    useEffect(() => {
+        if (!isOpen || !myUid) return;
+        setLoading(true);
+        (async () => {
+            try {
+                const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', myUid)));
+                setItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+            } catch (e) { setItems([]); } finally { setLoading(false); }
+        })();
+    }, [isOpen, myUid]);
+    const shareItem = async (it) => {
+        const cap = RK_CFG.chatCollectionShareMax || 5;
+        const key = 'rk_chat_collshare_' + todayKey();
+        let used = 0; try { used = parseInt(localStorage.getItem(key) || '0') || 0; } catch (e) {}
+        if (used >= cap) { setNotice('You’ve hit today’s limit of ' + cap + ' collection shares. Resets tomorrow.'); return; }
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'radioChat', chanId, 'messages'), {
+                uid: myUid, name: profile?.displayName || 'Raver', publicUid: profile?.publicUid || myUid,
+                photoURL: profile?.photoURL || '', badge: profile?.featuredBadge || null,
+                kind: 'collection', at: Date.now(),
+                item: { id: it.id, name: it.name || 'Item', image: (it.images && it.images[0]) || it.image || '', price: it.price != null ? it.price : null }
+            });
+            try { localStorage.setItem(key, String(used + 1)); } catch (e) {}
+            setNotice('📦 Shared to chat (' + (used + 1) + '/' + cap + ' today)!');
+            setTimeout(() => { setNotice(''); onClose(); }, 1200);
+        } catch (e) { setNotice('Couldn’t share: ' + e.message); }
+    };
+    if (!isOpen) return null;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} zClass="z-[280]" title="📦 Share a Collection Item">
+            {notice && <p className="text-[11px] text-lime-300 bg-lime-900/20 border border-lime-500/30 rounded p-2 mb-2">{notice}</p>}
+            <p className="text-[10px] text-white/60 mb-2">Pick an item to drop into the chat. Limited to {RK_CFG.chatCollectionShareMax || 5} shares per day.</p>
+            {loading ? <p className="text-center opacity-50 py-8 text-xs animate-pulse">Loading your collection…</p> : items.length === 0 ? (
+                <p className="text-center opacity-50 py-8 text-xs">You haven’t listed any items yet. Post something to share it here!</p>
+            ) : (
+                <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto p-1">
+                    {items.map(it => (
+                        <button key={it.id} onClick={() => shareItem(it)} className="bg-black/50 border border-white/15 rounded-lg overflow-hidden text-left hover:border-pink-500/60 transition">
+                            <div className="h-24 bg-black/60"><img src={(it.images && it.images[0]) || it.image || 'https://placehold.co/120?text=Item'} className="w-full h-full object-cover"/></div>
+                            <div className="p-2"><p className="text-[11px] font-bold truncate">{it.name || 'Item'}</p>{it.price != null && <p className="text-[10px] text-lime-300">${Number(it.price).toFixed(2)}</p>}</div>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+const RADIO_CHAT_FONT_FIELD = 'chatTextStyle';
+
+// V62: Global/per-station radio chat. View-only preview lives in the player; this modal is the
+// full room. Messages: public/data/radioChat/{station}/messages. Presence + typing:
+// public/data/radioChat/{station}/presence/{uid}.
+const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onChangeStation, onViewProfile, onShareCollection }) => {
+    const [msgs, setMsgs] = useState([]);
+    const [input, setInput] = useState('');
+    const [fontOpen, setFontOpen] = useState(false);
+    const [cooldown, setCooldown] = useState(0);
+    const [typingUsers, setTypingUsers] = useState(0);
+    const [activeUsers, setActiveUsers] = useState(0);
+    const [notice, setNotice] = useState('');
+    const scrollRef = useRef(null);
+    const typingTimer = useRef(null);
+    const chanId = station?.id || CHAT_GLOBAL_ID;
+    const myUid = user?.uid;
+    const vip = isEffVIP(profile);
+    const chatPath = ['artifacts', appId, 'public', 'data', 'radioChat', chanId, 'messages'];
+    const presencePath = ['artifacts', appId, 'public', 'data', 'radioChat', chanId, 'presence'];
+
+    // Live messages (latest 60).
+    useEffect(() => {
+        if (!isOpen) return;
+        const qy = query(collection(db, ...chatPath), orderBy('at', 'desc'), limit(60));
+        const unsub = onSnapshot(qy, s => {
+            const rows = s.docs.map(d => ({ ...d.data(), id: d.id })).reverse();
+            setMsgs(rows);
+            setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
+        }, e => console.log('radioChat', e));
+        return () => unsub();
+    }, [isOpen, chanId]);
+
+    // Presence + typing: heartbeat my presence; count active + typing in the last ~12s.
+    useEffect(() => {
+        if (!isOpen || !myUid) return;
+        const myRef = doc(db, ...presencePath, myUid);
+        const beat = async (typing) => { try { await setDoc(myRef, { at: Date.now(), typing: !!typing, name: profile?.displayName || 'Raver' }, { merge: true }); } catch (e) {} };
+        beat(false);
+        const hb = setInterval(() => beat(false), 8000);
+        const qy = query(collection(db, ...presencePath));
+        const unsub = onSnapshot(qy, s => {
+            const now = Date.now();
+            const live = s.docs.map(d => d.data()).filter(p => p.at && (now - p.at) < 12000);
+            setActiveUsers(live.length);
+            setTypingUsers(live.filter(p => p.typing && (now - p.at) < 6000 && p.name !== (profile?.displayName || 'Raver')).length);
+        }, e => console.log('presence', e));
+        return () => { clearInterval(hb); unsub(); try { setDoc(myRef, { at: 0, typing: false }, { merge: true }); } catch (e) {} };
+    }, [isOpen, chanId, myUid]);
+
+    // Cooldown ticker (non-VIP anti-spam delay).
+    useEffect(() => { if (cooldown <= 0) return; const t = setInterval(() => setCooldown(c => Math.max(0, c - 1)), 1000); return () => clearInterval(t); }, [cooldown]);
+
+    const markTyping = () => {
+        if (!myUid) return;
+        try { setDoc(doc(db, ...presencePath, myUid), { at: Date.now(), typing: true, name: profile?.displayName || 'Raver' }, { merge: true }); } catch (e) {}
+        if (typingTimer.current) clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => { try { setDoc(doc(db, ...presencePath, myUid), { typing: false }, { merge: true }); } catch (e) {} }, 4000);
+    };
+
+    const send = async () => {
+        const text = input.trim();
+        if (!text || !myUid || cooldown > 0) return;
+        const mod = chatModerate(text, { isVIP: vip });
+        if (!mod.ok) {
+            if (mod.reason === 'hate') setNotice('🚫 That message contains blocked language and was not sent. Repeated attempts may lead to a ban.');
+            else if (mod.reason === 'link') setNotice('🔗 Links aren\u2019t allowed in chat. ' + (vip ? 'Use the "Share Social Link" button below to post one (limited per day).' : 'Spamming or posting links can lead to warnings or a ban.'));
+            else setNotice('Message not sent.');
+            setTimeout(() => setNotice(''), 4000);
+            return;
+        }
+        try {
+            await addDoc(collection(db, ...chatPath), {
+                uid: myUid, name: profile?.displayName || 'Raver', publicUid: profile?.publicUid || myUid,
+                photoURL: profile?.photoURL || '', badge: profile?.featuredBadge || null,
+                style: profile?.[RADIO_CHAT_FONT_FIELD] || profile?.msgTextStyle || null,
+                text, at: Date.now(), kind: 'text'
+            });
+            setInput('');
+            if (!vip) { const d = RK_CFG.chatDelaySec || 8; setCooldown(d); }
+        } catch (e) { setNotice('Couldn\u2019t send: ' + e.message); setTimeout(() => setNotice(''), 4000); }
+    };
+
+    // VIP: share one social link per message, capped per day.
+    const shareSocialLink = async () => {
+        if (!vip) return;
+        const link = (input.trim());
+        if (!looksLikeLink(link)) { setNotice('Paste a valid social/profile link first (then tap Share Link).'); setTimeout(() => setNotice(''), 4000); return; }
+        const cap = RK_CFG.chatVipShareMax || 5;
+        let used = 0; const key = 'rk_chat_linkshare_' + todayKey();
+        try { used = parseInt(localStorage.getItem(key) || '0') || 0; } catch (e) {}
+        if (used >= cap) { setNotice('You\u2019ve hit today\u2019s limit of ' + cap + ' link shares. Resets tomorrow.'); setTimeout(() => setNotice(''), 4000); return; }
+        try {
+            await addDoc(collection(db, ...chatPath), {
+                uid: myUid, name: profile?.displayName || 'Raver', publicUid: profile?.publicUid || myUid,
+                photoURL: profile?.photoURL || '', badge: profile?.featuredBadge || null,
+                style: profile?.[RADIO_CHAT_FONT_FIELD] || null, text: link, at: Date.now(), kind: 'link'
+            });
+            try { localStorage.setItem(key, String(used + 1)); } catch (e) {}
+            setInput(''); setNotice('🔗 Link shared (' + (used + 1) + '/' + cap + ' today).'); setTimeout(() => setNotice(''), 3000);
+        } catch (e) { setNotice('Couldn\u2019t share: ' + e.message); setTimeout(() => setNotice(''), 4000); }
+    };
+
+    if (!isOpen) return null;
+    const cap = RK_CFG.chatVipShareMax || 5;
+
+    return createPortal(
+        <div className="fixed inset-0 z-[260] bg-black/90 flex items-end sm:items-center justify-center p-2 sm:p-4">
+            <div className="bg-[#0f001e] border-2 border-pink-500/40 rounded-2xl w-full max-w-lg flex flex-col shadow-[0_0_30px_rgba(236,72,153,0.35)]" style={{ maxHeight: '92vh' }}>
+                {/* Header: station selector + active count + close */}
+                <div className="p-3 border-b border-white/15 flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[9px] uppercase font-black text-pink-300 tracking-widest">Radio Chat</p>
+                        <div className="relative mt-1">
+                            <select value={chanId} onChange={e => onChangeStation(e.target.value)} className="w-full appearance-none bg-black border border-white/25 rounded-lg pl-2 pr-7 py-1.5 text-xs font-bold text-cyan-300">
+                                <option value={CHAT_GLOBAL_ID}>🌐 Global Chat (all stations)</option>
+                                {stations.map(st => <option key={st.id} value={st.id}>{st.name}</option>)}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none"/>
+                        </div>
+                    </div>
+                    {/* active-user neon count box */}
+                    <div className="shrink-0 text-center px-2 py-1 rounded-lg border border-cyan-400/50 bg-black/50" style={{ boxShadow: '0 0 12px rgba(0,255,255,0.35)' }}>
+                        <span className="rkfx-pastel text-xl font-black leading-none">{activeUsers}</span>
+                        <p className="text-[7px] uppercase text-white/50 tracking-wide">in chat</p>
+                    </div>
+                    <button onClick={onClose} className="shrink-0 text-white/70 hover:text-white"><XCircle size={24}/></button>
+                </div>
+
+                {/* Anti-spam / rules notice */}
+                <div className="px-3 py-1.5 bg-amber-900/15 border-b border-amber-500/20">
+                    <p className="text-[8px] text-amber-200/80 leading-tight">No links (VIP link-share only), no hate speech. Spamming leads to warnings → bans. Be excellent to each other. PLUR 🌈</p>
+                </div>
+
+                {/* Messages */}
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[200px]">
+                    {msgs.length === 0 && <p className="text-center text-white/40 text-xs py-8">No messages yet — say hi to the {chanId === CHAT_GLOBAL_ID ? 'whole rave' : station?.name + ' crew'}! 🌈</p>}
+                    {msgs.map(m => {
+                        const ts = getUserTextStyle(m.style);
+                        const mine = m.uid === myUid;
+                        return (
+                            <div key={m.id} className="flex items-start gap-2">
+                                <img src={m.photoURL || 'https://placehold.co/32?text=U'} onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="w-8 h-8 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                        <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className={`text-[11px] font-black ${mine ? 'text-lime-300' : 'text-cyan-300'} hover:underline`}>@{m.name}</button>
+                                        {m.badge && <BadgeChip badge={m.badge} />}
+                                    </div>
+                                    {m.kind === 'collection' && m.item ? (
+                                        <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="mt-1 flex items-center gap-2 bg-black/50 border border-pink-500/30 rounded-lg p-2 w-full text-left hover:bg-white/5">
+                                            <img src={m.item.image || 'https://placehold.co/48?text=Item'} className="w-12 h-12 rounded object-cover shrink-0"/>
+                                            <div className="min-w-0"><p className="text-[11px] font-bold truncate text-pink-200">{m.item.name}</p>{m.item.price != null && <p className="text-[10px] text-lime-300">${Number(m.item.price).toFixed(2)}</p>}<p className="text-[8px] text-white/40">Shared from collection · tap to view</p></div>
+                                        </button>
+                                    ) : m.kind === 'link' ? (
+                                        <a href={m.text} target="_blank" rel="noreferrer" className="text-[12px] text-cyan-400 underline break-all">{m.text}</a>
+                                    ) : (
+                                        <p className={'text-[13px] text-white/90 break-words ' + ts.className} style={ts.style}>{m.text}</p>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Typing indicator */}
+                <div className="px-3 h-4">{typingUsers > 0 && <p className="text-[9px] text-pink-300/80 italic">{typingUsers} {typingUsers === 1 ? 'raver is' : 'ravers are'} typing…</p>}</div>
+
+                {/* Notice line */}
+                {notice && <div className="px-3 pb-1"><p className="text-[10px] text-yellow-300 bg-yellow-900/20 border border-yellow-500/30 rounded p-1.5">{notice}</p></div>}
+
+                {/* Composer */}
+                <div className="p-3 border-t border-white/15 space-y-2">
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setFontOpen(true)} title="Font & style" className="shrink-0 w-9 h-9 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center text-pink-300 hover:bg-white/20"><Type size={16}/></button>
+                        <input value={input} onChange={e => { setInput(e.target.value); markTyping(); }} onKeyDown={e => { if (e.key === 'Enter') send(); }} maxLength={300} placeholder={cooldown > 0 ? ('Wait ' + cooldown + 's…') : 'Message the chat…'} className="flex-1 bg-black border border-white/25 rounded-lg px-3 py-2 text-sm focus:border-pink-500/60 outline-none"/>
+                        <button onClick={send} disabled={cooldown > 0 || !input.trim()} className="shrink-0 bg-pink-600 disabled:bg-white/10 disabled:text-white/40 text-white font-black rounded-lg px-4 py-2 text-sm active:scale-95">Send</button>
+                    </div>
+                    {/* VIP-only actions */}
+                    <div className="flex items-center gap-2">
+                        {vip ? (
+                            <>
+                                <Button onClick={shareSocialLink} color="cyan" className="flex-1 text-[10px] flex items-center justify-center gap-1"><Link size={12}/> Share Social Link</Button>
+                                <Button onClick={() => { if (onShareCollection) onShareCollection(chanId); }} color="purple" className="flex-1 text-[10px] flex items-center justify-center gap-1"><Package size={12}/> Share Collection Item</Button>
+                            </>
+                        ) : (
+                            <p className="text-[9px] text-white/40 text-center w-full">✨ VIP unlocks link sharing &amp; collection sharing in chat — and no message cooldown.</p>
+                        )}
+                    </div>
+                    {vip && <p className="text-[8px] opacity-40 text-center">Link &amp; collection shares are limited to {cap}/{RK_CFG.chatCollectionShareMax || 5} per day to keep chat clean.</p>}
+                </div>
+            </div>
+            <FontSelectorModal user={user} profile={profile} isOpen={fontOpen} onClose={() => setFontOpen(false)} field={RADIO_CHAT_FONT_FIELD} titleLabel="Chat Font & Style" zClass="z-[280]" />
+        </div>, document.body);
+};
+
 const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
     <div className="mb-3">
         <div className="flex justify-between text-[10px] font-bold mb-1"><span className="text-cyan-400 uppercase tracking-widest">{label}</span><span className="text-lime-400">{value}{suffix}</span></div>
@@ -1661,7 +1964,7 @@ const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
     </div>
 );
 
-const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying }) => {
+const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying, onViewProfileFromRadio }) => {
     const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
     const [station, setStation] = useState(RADIO_STATIONS[0]);
     const [playing, setPlaying] = useState(false);
@@ -1672,6 +1975,11 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const [mid, setMid] = useState(0);
     const [treble, setTreble] = useState(0);
     const [eqActive, setEqActive] = useState(false);
+    const [soundOpen, setSoundOpen] = useState(false);      // volume/EQ popup
+    const [chatOpen, setChatOpen] = useState(false);        // full chat modal
+    const [chatChan, setChatChan] = useState(CHAT_GLOBAL_ID);// selected chat channel
+    const [chatPreview, setChatPreview] = useState([]);     // view-only preview msgs
+    const [collShareOpen, setCollShareOpen] = useState(false); // collection picker for chat share
 
     const audioRef = useRef(null);
     const ctxRef = useRef(null);
@@ -1701,6 +2009,14 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
     useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
     useEffect(() => { if (onPlayingChange) onPlayingChange(playing); }, [playing]);
+
+    // V62: view-only chat preview inside the player (latest 5 of the selected channel).
+    useEffect(() => {
+        if (!isOpen) return;
+        const qy = query(collection(db, 'artifacts', appId, 'public', 'data', 'radioChat', chatChan, 'messages'), orderBy('at', 'desc'), limit(5));
+        const unsub = onSnapshot(qy, s => setChatPreview(s.docs.map(d => ({ ...d.data(), id: d.id })).reverse()), e => console.log('chatPreview', e));
+        return () => unsub();
+    }, [isOpen, chatChan]);
 
     // V37.11: now-playing song polling. SomaFM exposes a public JSON now-playing API;
     // other stations report as a live stream (no track metadata available).
@@ -1787,13 +2103,20 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                     <button onClick={() => setRadioTab('youtube')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded flex items-center justify-center gap-1 ${radioTab==='youtube' ? 'bg-red-600 text-white' : 'text-white/50'}`}><Youtube size={11}/> YouTube</button>
                                 </div>
                                 {radioTab === 'inapp' ? (
-                                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-                                        {RADIO_STATIONS.map(st => (
-                                            <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
-                                                <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
-                                                <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
-                                            </button>
-                                        ))}
+                                    <div className="relative border border-pink-500/30 rounded-xl bg-black/40 p-2" style={{ boxShadow: 'inset 0 0 12px rgba(0,0,0,0.5)' }}>
+                                        <p className="text-[8px] uppercase font-bold text-pink-300/70 mb-1 px-1 flex items-center justify-between"><span>📻 Pick a station — scroll for more</span><ChevronDown size={11} className="animate-bounce"/></p>
+                                        <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-3 rk-scrollbox">
+                                            {RADIO_STATIONS.map(st => (
+                                                <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
+                                                    <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
+                                                    <p className="text-[8px] text-white/60 uppercase">{st.genre}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {/* visible scroll-wheel track on the right */}
+                                        <div className="absolute right-1 top-7 bottom-2 w-1.5 rounded-full bg-white/10 pointer-events-none">
+                                            <div className="w-full rounded-full bg-pink-500/60" style={{ height: '40%' }}/>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div>
@@ -1813,19 +2136,64 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                         {playing ? <span className="font-black text-[10px] tracking-widest">PAUSE</span> : <Play size={28} fill="currentColor"/>}
                                     </button>
                                 </div>
-                                <div className="bg-white/5 p-3 rounded border border-white/10">
-                                    <EqSlider label="Volume" value={volume} min={0} max={100} onChange={setVolume} suffix="%" />
-                                    <EqSlider label="Bass" value={bass} min={-12} max={12} onChange={setBass} suffix=" dB" />
-                                    <EqSlider label="Mid" value={mid} min={-12} max={12} onChange={setMid} suffix=" dB" />
-                                    <EqSlider label="Treble" value={treble} min={-12} max={12} onChange={setTreble} suffix=" dB" />
-                                    {!eqActive && <p className="text-[8px] text-yellow-400/80 text-center mt-1">EQ activates when playback starts.</p>}
+
+                                {/* V62: view-only chat preview + tap-to-join. In-app music chat only. */}
+                                <div>
+                                    <p className="text-[9px] text-center text-pink-300/80 font-bold uppercase tracking-wide mb-1">💬 Tap below to join the live chat</p>
+                                    <button onClick={() => setChatOpen(true)} className="w-full bg-black/60 border border-pink-500/40 rounded-xl p-2.5 text-left hover:border-pink-500/70 transition" style={{ minHeight: '92px' }}>
+                                        {chatPreview.length === 0 ? (
+                                            <p className="text-[11px] text-white/40 text-center py-5">No messages yet — be the first to vibe in chat! 🌈</p>
+                                        ) : (
+                                            <div className="space-y-1">
+                                                {chatPreview.map(m => (
+                                                    <p key={m.id} className="text-[11px] truncate"><span className="font-black text-cyan-300">@{m.name}:</span> <span className="text-white/80">{m.kind === 'collection' ? '📦 shared a collection item' : m.kind === 'link' ? '🔗 shared a link' : m.text}</span></p>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <p className="text-[8px] text-pink-400/70 text-center mt-1 font-bold">Tap to open chat →</p>
+                                    </button>
                                 </div>
+
+                                {/* Sound (volume + EQ) button opens a popup */}
+                                <button onClick={() => setSoundOpen(true)} className="w-full bg-white/5 border border-white/15 rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-cyan-300 hover:bg-white/10 transition"><Volume size={18}/> Volume &amp; Sound Controls</button>
                                 <p className="text-[8px] text-center text-white/40">Live streams powered by SomaFM.com</p>
                             </div>
                         )}
                     </Card>
                 </div>
             )}
+
+            {/* V62: Volume + in-depth sound controls popup */}
+            <Modal isOpen={soundOpen} onClose={() => setSoundOpen(false)} zClass="z-[240]" title="🔊 Volume & Sound">
+                <div className="space-y-1">
+                    <EqSlider label="Volume" value={volume} min={0} max={100} onChange={setVolume} suffix="%" />
+                    <div className="border-t border-white/10 my-2 pt-2">
+                        <p className="text-[10px] uppercase font-black text-pink-300 tracking-widest mb-2">3-Band Equalizer</p>
+                        <EqSlider label="Bass" value={bass} min={-12} max={12} onChange={setBass} suffix=" dB" />
+                        <EqSlider label="Mid" value={mid} min={-12} max={12} onChange={setMid} suffix=" dB" />
+                        <EqSlider label="Treble" value={treble} min={-12} max={12} onChange={setTreble} suffix=" dB" />
+                    </div>
+                    <div className="border-t border-white/10 my-2 pt-2">
+                        <p className="text-[10px] uppercase font-black text-cyan-300 tracking-widest mb-2">Presets</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => { setBass(0); setMid(0); setTreble(0); }} className="text-[10px] py-2 rounded bg-white/10 border border-white/20 font-bold hover:bg-white/20">Flat</button>
+                            <button onClick={() => { setBass(8); setMid(-2); setTreble(3); }} className="text-[10px] py-2 rounded bg-pink-900/30 border border-pink-500/40 font-bold hover:bg-pink-900/50">Bass Boost</button>
+                            <button onClick={() => { setBass(5); setMid(2); setTreble(6); }} className="text-[10px] py-2 rounded bg-cyan-900/30 border border-cyan-500/40 font-bold hover:bg-cyan-900/50">Club</button>
+                            <button onClick={() => { setBass(-2); setMid(4); setTreble(2); }} className="text-[10px] py-2 rounded bg-purple-900/30 border border-purple-500/40 font-bold hover:bg-purple-900/50">Vocal</button>
+                            <button onClick={() => { setBass(6); setMid(0); setTreble(8); }} className="text-[10px] py-2 rounded bg-lime-900/30 border border-lime-500/40 font-bold hover:bg-lime-900/50">Crisp</button>
+                            <button onClick={() => { setBass(10); setMid(3); setTreble(10); }} className="text-[10px] py-2 rounded bg-yellow-900/30 border border-yellow-500/40 font-bold hover:bg-yellow-900/50">Festival</button>
+                        </div>
+                    </div>
+                    {!eqActive && <p className="text-[8px] text-yellow-400/80 text-center mt-1">EQ activates once playback starts.</p>}
+                    <p className="text-[8px] text-center text-white/40 mt-1">Tip: Bass Boost &amp; Festival hit hardest with headphones or a speaker.</p>
+                </div>
+            </Modal>
+
+            {/* V62: Full radio chat */}
+            <RadioChatModal user={user} profile={profile} isOpen={chatOpen} onClose={() => setChatOpen(false)} station={chatChan === CHAT_GLOBAL_ID ? null : RADIO_STATIONS.find(s => s.id === chatChan)} stations={RADIO_STATIONS} onChangeStation={(id) => setChatChan(id)} onViewProfile={onViewProfileFromRadio} onShareCollection={() => setCollShareOpen(true)} />
+
+            {/* V62: collection-item picker for chat sharing (VIP) */}
+            <ChatCollectionShareModal user={user} profile={profile} isOpen={collShareOpen} onClose={() => setCollShareOpen(false)} chanId={chatChan} />
         </>
     );
 };
@@ -2122,7 +2490,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V62.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.00.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -4297,7 +4665,7 @@ const AdminAnalyticsBlock = () => {
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
     const T = ({ k, label }) => (
         <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
@@ -4365,6 +4733,27 @@ const RemoteConfigPanel = () => {
                     <option value={30}>Fast (30s)</option><option value={45}>Brisk (45s)</option><option value={60}>Normal (60s)</option><option value={90}>Relaxed (90s)</option><option value={120}>Slow (120s)</option><option value={180}>Very Slow (180s)</option>
                 </select>
                 <p className="text-[8px] opacity-60 mt-1">Lower = the top banner scrolls faster. Takes effect immediately for all users.</p>
+            </div>
+
+            <div className="bg-pink-900/20 border border-pink-500/40 rounded-lg p-3 space-y-2">
+                <h4 className="text-[11px] font-black uppercase text-pink-300">💬 Radio Chat Controls</h4>
+                <div>
+                    <label className="text-[9px] font-bold uppercase opacity-70 block mb-1">Message delay (anti-spam, non-VIP)</label>
+                    <select value={cfg.chatDelaySec || 8} onChange={e => setCfg({ ...cfg, chatDelaySec: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                        {[0,3,5,8,10,15,20,30].map(s => <option key={s} value={s}>{s === 0 ? 'No delay' : s + ' seconds between messages'}</option>)}
+                    </select>
+                    <p className="text-[8px] opacity-50 mt-1">VIP users bypass this delay entirely.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label className="text-[9px] font-bold uppercase opacity-70 block mb-1">VIP link shares/day</label>
+                        <input type="number" min="0" max="50" value={cfg.chatVipShareMax ?? 5} onChange={e => setCfg({ ...cfg, chatVipShareMax: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                    </div>
+                    <div>
+                        <label className="text-[9px] font-bold uppercase opacity-70 block mb-1">Collection shares/day</label>
+                        <input type="number" min="0" max="50" value={cfg.chatCollectionShareMax ?? 5} onChange={e => setCfg({ ...cfg, chatCollectionShareMax: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded"/>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-cyan-900/20 border border-cyan-500/40 rounded-lg p-3">
@@ -6089,7 +6478,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V62.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.00.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -6638,7 +7027,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V62.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.00.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -6704,24 +7093,46 @@ cat << 'EOF' >> src/App.js
             </Modal>
             {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
             <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
-            <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Install RaveKandi">
+            <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Get RaveKandi">
                 <div className="space-y-3 text-sm">
-                    <p className="text-xs opacity-80">Get the full app experience — add RaveKandi to your Home Screen and it launches fullscreen with its own icon, just like an installed app:</p>
-                    {IS_IOS ? (
-                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
-                        <p className="font-bold text-cyan-400 uppercase text-[10px]">On iPhone (Safari):</p>
-                        <p><strong className="text-cyan-400">1.</strong> Tap the <strong>Share</strong> button in Safari's toolbar (the square with an arrow pointing up).</p>
-                        <p><strong className="text-cyan-400">2.</strong> Scroll down and tap <strong>"Add to Home Screen."</strong></p>
-                        <p><strong className="text-cyan-400">3.</strong> Tap <strong>Add</strong> — done! Launch RaveKandi from your Home Screen. 🌈</p>
+                    <p className="text-xs opacity-80">RaveKandi works right here in your browser — or install it for a fullscreen, app-like experience. Pick whatever suits your device:</p>
+
+                    {/* Always-available: open / continue on the web version */}
+                    <a href={WEB_APP_URL} target="_blank" rel="noreferrer" className="block">
+                        <div className="bg-gradient-to-r from-cyan-600/30 to-blue-600/30 border border-cyan-400/50 rounded-lg p-3 flex items-center gap-3 hover:from-cyan-600/50 hover:to-blue-600/50 transition">
+                            <Globe size={26} className="text-cyan-300 shrink-0"/>
+                            <div><p className="font-black text-sm text-cyan-200">Use the Web Version</p><p className="text-[10px] text-white/70">Open ravekandi.web.app in your browser — nothing to install. Works on any device.</p></div>
+                        </div>
+                    </a>
+
+                    {/* iPhone install steps */}
+                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-1.5 text-xs">
+                        <p className="font-bold text-pink-300 uppercase text-[10px] flex items-center gap-1">🍏 On iPhone (Safari) — Install to Home Screen</p>
+                        <p><strong className="text-pink-300">1.</strong> Tap the <strong>Share</strong> button (square with an up-arrow).</p>
+                        <p><strong className="text-pink-300">2.</strong> Scroll down, tap <strong>"Add to Home Screen."</strong></p>
+                        <p><strong className="text-pink-300">3.</strong> Tap <strong>Add</strong> — it launches fullscreen with its own icon. 🌈</p>
                     </div>
-                    ) : (
-                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-2 text-xs">
-                        <p className="font-bold text-cyan-400 uppercase text-[10px]">On Android (Chrome):</p>
-                        <p><strong className="text-cyan-400">1.</strong> Tap the <strong>⋮ menu</strong> (top-right of Chrome).</p>
-                        <p><strong className="text-cyan-400">2.</strong> Tap <strong>"Install app"</strong> or <strong>"Add to Home screen."</strong></p>
-                        <p><strong className="text-cyan-400">3.</strong> Confirm — done! Launch RaveKandi from your Home Screen. 🌈</p>
+
+                    {/* Android options: PWA install + direct APK */}
+                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-1.5 text-xs">
+                        <p className="font-bold text-lime-300 uppercase text-[10px] flex items-center gap-1">🤖 On Android — Two Options</p>
+                        <p><strong className="text-lime-300">A.</strong> <strong>Install from browser:</strong> Chrome <strong>⋮ menu</strong> → <strong>"Install app"</strong> / "Add to Home screen."</p>
+                        <p><strong className="text-lime-300">B.</strong> <strong>Download the APK</strong> for the native app:</p>
+                        <a href={ANDROID_APK_URL} target="_blank" rel="noreferrer" className="block mt-1">
+                            <div className="bg-lime-600/20 border border-lime-400/50 rounded p-2 flex items-center gap-2 hover:bg-lime-600/40 transition">
+                                <Download size={18} className="text-lime-300 shrink-0"/>
+                                <span className="text-[11px] font-bold text-lime-200">Download Android APK</span>
+                            </div>
+                        </a>
+                        <p className="text-[8px] opacity-50 mt-1">APK installs may ask you to allow "install from unknown sources" — that's normal for direct downloads outside the Play Store.</p>
                     </div>
-                    )}
+
+                    {/* App-store placeholders (hidden until launch) */}
+                    <div className="bg-black/40 border border-dashed border-white/15 rounded p-3 text-center">
+                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-wide">Coming soon</p>
+                        <p className="text-[9px] text-white/40 mt-1">📱 App Store &amp; Google Play downloads are on the way — for now, use the web version or the Android APK above.</p>
+                    </div>
+
                     <div className="flex gap-2">
                         <Button onClick={() => { try { localStorage.setItem('rk_ios_a2hs', '1'); } catch (e) {} setIosGuide(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
                         <Button onClick={() => setIosGuide(false)} color="cyan" className="flex-1 text-xs">Got It!</Button>
@@ -6729,7 +7140,7 @@ cat << 'EOF' >> src/App.js
                 </div>
             </Modal>
             
-            <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} />
+            <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} />
 
             <div className="sticky top-0 z-50" ref={topBarRef}>
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
@@ -6931,7 +7342,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V62.00.00 Phase 52: Forced festival clips + spotlight placeholder</span>
+                    <span className="flex-1 text-center">V63.00.00 Phase 53: Radio chat system + install/connection options + sound popup</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7126,9 +7537,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V62.00.00)..."
-sed -i "s/versionCode 1/versionCode 123/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "62.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.00.00)..."
+sed -i "s/versionCode 1/versionCode 124/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.00.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7175,7 +7586,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V62_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_00_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
