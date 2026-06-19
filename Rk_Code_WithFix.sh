@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.00.00 Build Script Starting"
+echo " RaveKandi V63.02.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.00.00</title>
+    <title>RaveKandi V63.02.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -49,6 +49,23 @@ cat << 'EOF' > public/index.html
       @keyframes rkShimmerMove { 0%{background-position:0% 0;} 100%{background-position:200% 0;} }
       .rkfx-neon { color:#fff; text-shadow:0 0 4px #fff,0 0 8px var(--rkfx-c,#ff2db3),0 0 16px var(--rkfx-c,#ff2db3),0 0 28px var(--rkfx-c,#ff2db3); }
       .rkfx-gradient { background-image: linear-gradient(90deg,var(--rkfx-c,#ff2db3),var(--rkfx-c2,#2db3ff)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+      /* V63: custom-colored animated gradient — flows between the user's two chosen colors */
+      .rkfx-flow { background-image: linear-gradient(90deg,var(--rkfx-c,#ff2db3),var(--rkfx-c2,#2db3ff),var(--rkfx-c,#ff2db3)); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 4s linear infinite; }
+      /* V63: custom-colored shimmer — sweeps a white highlight across the two chosen colors */
+      .rkfx-shimmer2 { background-image: linear-gradient(90deg,var(--rkfx-c,#ff80bf),#ffffff,var(--rkfx-c2,#80ffff),#ffffff,var(--rkfx-c,#ff80bf)); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 2.6s linear infinite; }
+      /* V63: flowing metallic — animated brushed-metal sheen */
+      .rkfx-flowmetal { background-image: linear-gradient(110deg,#e8e8e8 0%,#9a9a9a 25%,#ffffff 45%,#7a7a7a 55%,#cfcfcf 75%,#9a9a9a 100%); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; text-shadow:0 1px 1px rgba(255,255,255,0.2); animation: rkShimmerMove 3.5s linear infinite; }
+      /* V63: iridescent — soft oil-slick pearl that drifts */
+      .rkfx-iridescent { background-image: linear-gradient(90deg,#a8edea,#fed6e3,#d3a4ff,#a1c4fd,#c2ffd8,#a8edea); background-size:400% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkCascade 7s ease infinite; }
+      /* V63: trippy — high-saturation rainbow churn */
+      .rkfx-trippy { background-image: linear-gradient(90deg,#ff0080,#ff8c00,#ffee00,#00ff6a,#00d4ff,#9d4edd,#ff0080); background-size:400% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkCascade 3.5s linear infinite; filter:saturate(1.3); }
+      /* V63: chromatic — RGB split / glitch aberration */
+      .rkfx-chromatic { color:#fff; text-shadow:-2px 0 1px rgba(255,0,90,0.85), 2px 0 1px rgba(0,200,255,0.85), 0 0 6px rgba(255,255,255,0.3); animation: rkChroma 2.4s ease-in-out infinite; }
+      @keyframes rkChroma { 0%,100%{text-shadow:-2px 0 1px rgba(255,0,90,0.85),2px 0 1px rgba(0,200,255,0.85),0 0 6px rgba(255,255,255,0.3);} 50%{text-shadow:2px 0 1px rgba(255,0,90,0.85),-2px 0 1px rgba(0,200,255,0.85),0 0 6px rgba(255,255,255,0.3);} }
+      /* V63: gold foil — warm shimmering gold */
+      .rkfx-gold { background-image: linear-gradient(110deg,#fff3b0,#d4af37,#fff3b0,#b8860b,#ffe9a8); background-size:250% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3s linear infinite; }
+      /* V63: holographic — bright sweeping holo sticker */
+      .rkfx-holo { background-image: linear-gradient(115deg,#ff6ec4,#7873f5,#4ade80,#facc15,#ff6ec4); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3.2s linear infinite; filter:saturate(1.15); }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
     </style>
   </head>
@@ -127,7 +144,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.00.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.02.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -205,7 +222,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
-  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, Type, 
+  Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, EyeOff, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, Type, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
   ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
@@ -328,7 +345,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.00.00';
+const APP_VERSION = '63.02.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -555,16 +572,35 @@ const RK_FONTS = [
     { id: 'round', name: 'Rounded', stack: '"Trebuchet MS", "Segoe UI", sans-serif' },
     { id: 'wide', name: 'Wide Impact', stack: '"Arial Black", Impact, sans-serif' },
     { id: 'hand', name: 'Handwritten', stack: '"Comic Sans MS", "Bradley Hand", cursive' },
+    { id: 'slab', name: 'Bold Slab', stack: '"Rockwell", "Courier New", serif' },
+    { id: 'condensed', name: 'Condensed', stack: '"Arial Narrow", "Helvetica Neue", sans-serif' },
+    { id: 'palatino', name: 'Classic Book', stack: '"Palatino Linotype", "Book Antiqua", Palatino, serif' },
+    { id: 'tahoma', name: 'Clean Sans', stack: 'Tahoma, Verdana, Geneva, sans-serif' },
+    { id: 'copper', name: 'Engraved Caps', stack: '"Copperplate", "Copperplate Gothic Light", fantasy' },
+    { id: 'lucida', name: 'Soft Script', stack: '"Lucida Handwriting", "Segoe Script", cursive' },
+    { id: 'gill', name: 'Modern Humanist', stack: '"Gill Sans", "Gill Sans MT", "Segoe UI", sans-serif' },
+    { id: 'garamond', name: 'Refined Serif', stack: 'Garamond, "Hoefler Text", "Times New Roman", serif' },
 ];
 const RK_FX = [
     { id: 'none', name: 'None' },
     { id: 'pastel', name: 'Pastel Gradient' },
     { id: 'metallic', name: 'Metallic' },
+    { id: 'flowmetal', name: 'Flowing Metal' },
     { id: 'shimmer', name: 'Shimmering' },
+    { id: 'iridescent', name: 'Iridescent' },
+    { id: 'trippy', name: 'Trippy' },
+    { id: 'chromatic', name: 'Chromatic' },
+    { id: 'gold', name: 'Gold Foil' },
+    { id: 'holo', name: 'Holographic' },
     { id: 'neon', name: 'Neon Glow' },
+    { id: 'flow', name: 'Custom Flow (2-color)' },
+    { id: 'shimmer2', name: 'Custom Shimmer (2-color)' },
     { id: 'gradient', name: 'Custom Gradient' },
     { id: 'solid', name: 'Solid Color' },
 ];
+// Effects that read the user's chosen colors (--rkfx-c / --rkfx-c2).
+const RK_FX_USES_C = ['neon', 'solid'];
+const RK_FX_USES_C2 = ['gradient', 'flow', 'shimmer2'];
 // Build inline style + className from a saved textStyle object {font, fx, c, c2, bright}.
 // Brightness is capped 60–100% to prevent unreadable over-bright text.
 const getUserTextStyle = (ts) => {
@@ -788,10 +824,11 @@ export const leaveTribe = async (tribeId, myUid) => {
     await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length });
 };
 // Send a message to the tribe group chat (stored as a subcollection).
-export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj) => {
+export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj, extra) => {
     if (!text || !text.trim()) return;
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), {
-        sender: fromUid, senderName: fromName || 'Raver', text: text.trim().slice(0, 1000), at: Date.now(), badge: badgeObj || null
+        sender: fromUid, senderName: fromName || 'Raver', text: text.trim().slice(0, 1000), at: Date.now(), badge: badgeObj || null,
+        style: (extra && extra.style) || null, photoURL: (extra && extra.photoURL) || '', publicUid: (extra && extra.publicUid) || fromUid
     });
     // track for achievements (best-effort)
     try { await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { tribeMessages: increment(1) }, { merge: true }); } catch (e) {}
@@ -1542,7 +1579,7 @@ const VIPCheckoutForm = ({ user, onClose }) => {
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
             <div className="bg-lime-900/25 border-2 border-lime-400/70 rounded-xl p-4 text-left space-y-2">
                 <p className="text-sm font-black text-lime-300 uppercase tracking-wide">🎉 Launch Special — VIP is FREE!</p>
-                <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — 6 Profile Pins, Custom Themes, Banner Messages, Post Boosts and the Font Selector are unlocked for you right now. (Rave Radio is free for everyone, always!)</p>
+                <p className="text-[11px] text-gray-100 leading-relaxed">As a thank-you for being part of the RaveKandi soft launch, <strong>every raver gets full VIP access at no cost</strong> — 6 Profile Pins, Custom Themes, Banner Messages, Post Boosts, the Font Selector, plus no chat cooldown and chat link &amp; collection sharing are unlocked for you right now. (Rave Radio is free for everyone, always!)</p>
                 <p className="text-[11px] text-gray-100 leading-relaxed">🪙 Launch perk #2: <strong>seller commission is automatically cut from 20% to just 10%</strong> on every sale for as long as the launch period lasts.</p>
                 <p className="text-[11px] text-yellow-200 leading-relaxed">🔒 <strong>Early Adopter Lock-In:</strong> sign up during the launch period and your VIP is <strong>permanent</strong> — you keep 6 Profile Pins, Themes, Banners, Boosts & the Font Selector forever. Your seller commission is also <strong>locked at 10% for life</strong>, even after launch ends and new sellers move to 20%.</p>
                 <p className="text-[9px] opacity-60">Enjoy the festival! 💖</p>
@@ -1618,8 +1655,8 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
         try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { [field]: null }, { merge: true }); setFont('default'); setFx('none'); setBright(100); onClose(); }
         catch (e) {} finally { setSaving(false); }
     };
-    const needsC = (fx === 'neon' || fx === 'gradient' || fx === 'solid');
-    const needsC2 = (fx === 'gradient');
+    const needsC = (RK_FX_USES_C.includes(fx) || RK_FX_USES_C2.includes(fx));
+    const needsC2 = RK_FX_USES_C2.includes(fx);
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={'🔤 ' + titleLabel} zClass={zClass}>
             <div className="space-y-3">
@@ -1637,14 +1674,20 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
                 <div>
                     <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Effect</label>
                     <div className="grid grid-cols-3 gap-1">
-                        {RK_FX.map(f => <button key={f.id} onClick={() => setFx(f.id)} className={'p-2 rounded text-[10px] border ' + (fx === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}>{f.name}</button>)}
+                        {RK_FX.map(f => {
+                            const thumb = getUserTextStyle({ fx: f.id, c, c2 });
+                            return <button key={f.id} onClick={() => setFx(f.id)} className={'p-2 rounded text-[10px] border font-black ' + (fx === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}><span className={thumb.className} style={thumb.style}>{f.name}</span></button>;
+                        })}
                     </div>
                 </div>
                 {needsC && (
-                    <div className="flex items-center gap-3">
-                        <label className="text-[10px] font-bold text-cyan-400 uppercase">{needsC2 ? 'Color 1' : 'Color'}</label>
-                        <input type="color" value={c} onChange={e => setC(e.target.value)} className="w-10 h-8 rounded bg-transparent border border-white/20"/>
-                        {needsC2 && <><label className="text-[10px] font-bold text-cyan-400 uppercase">Color 2</label><input type="color" value={c2} onChange={e => setC2(e.target.value)} className="w-10 h-8 rounded bg-transparent border border-white/20"/></>}
+                    <div className="bg-black/40 border border-cyan-500/20 rounded-lg p-3">
+                        <p className="text-[9px] text-cyan-300/80 mb-2">🎨 {needsC2 ? 'This effect flows between your two chosen colors — pick them below.' : 'Pick the color for this effect below.'}</p>
+                        <div className="flex items-center gap-3">
+                            <label className="text-[10px] font-bold text-cyan-400 uppercase">{needsC2 ? 'Color 1' : 'Color'}</label>
+                            <input type="color" value={c} onChange={e => setC(e.target.value)} className="w-12 h-9 rounded bg-transparent border border-white/20"/>
+                            {needsC2 && <><label className="text-[10px] font-bold text-cyan-400 uppercase">Color 2</label><input type="color" value={c2} onChange={e => setC2(e.target.value)} className="w-12 h-9 rounded bg-transparent border border-white/20"/></>}
+                        </div>
                     </div>
                 )}
                 <div>
@@ -1720,7 +1763,9 @@ const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) =>
         (async () => {
             try {
                 const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', myUid)));
-                setItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+                // Only real listed items — exclude DIY requests, open requests, and design concepts.
+                const rows = snap.docs.map(d => ({ ...d.data(), id: d.id })).filter(i => !i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept);
+                setItems(rows);
             } catch (e) { setItems([]); } finally { setLoading(false); }
         })();
     }, [isOpen, myUid]);
@@ -1734,7 +1779,7 @@ const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) =>
                 uid: myUid, name: profile?.displayName || 'Raver', publicUid: profile?.publicUid || myUid,
                 photoURL: profile?.photoURL || '', badge: profile?.featuredBadge || null,
                 kind: 'collection', at: Date.now(),
-                item: { id: it.id, name: it.name || 'Item', image: (it.images && it.images[0]) || it.image || '', price: it.price != null ? it.price : null }
+                item: { id: it.id, name: it.name || 'Item', image: it.mediaUrls?.[0]?.url || it.imageUrl || it.image || '', price: it.price != null ? it.price : null }
             });
             try { localStorage.setItem(key, String(used + 1)); } catch (e) {}
             setNotice('📦 Shared to chat (' + (used + 1) + '/' + cap + ' today)!');
@@ -1752,7 +1797,7 @@ const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) =>
                 <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto p-1">
                     {items.map(it => (
                         <button key={it.id} onClick={() => shareItem(it)} className="bg-black/50 border border-white/15 rounded-lg overflow-hidden text-left hover:border-pink-500/60 transition">
-                            <div className="h-24 bg-black/60"><img src={(it.images && it.images[0]) || it.image || 'https://placehold.co/120?text=Item'} className="w-full h-full object-cover"/></div>
+                            <div className="h-24 bg-black/60"><img src={it.mediaUrls?.[0]?.url || it.imageUrl || it.image || 'https://placehold.co/120?text=Item'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/120?text=Item'; }} className="w-full h-full object-cover"/></div>
                             <div className="p-2"><p className="text-[11px] font-bold truncate">{it.name || 'Item'}</p>{it.price != null && <p className="text-[10px] text-lime-300">${Number(it.price).toFixed(2)}</p>}</div>
                         </button>
                     ))}
@@ -1918,7 +1963,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                                     ) : m.kind === 'link' ? (
                                         <a href={m.text} target="_blank" rel="noreferrer" className="text-[12px] text-cyan-400 underline break-all">{m.text}</a>
                                     ) : (
-                                        <p className={'text-[13px] text-white/90 break-words ' + ts.className} style={ts.style}>{m.text}</p>
+                                        <p className={'text-[13px] break-words ' + (ts.className ? ts.className : 'text-white/90')} style={ts.style && Object.keys(ts.style).length ? ts.style : { color: undefined }}>{m.text}</p>
                                     )}
                                 </div>
                             </div>
@@ -1980,6 +2025,8 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const [chatChan, setChatChan] = useState(CHAT_GLOBAL_ID);// selected chat channel
     const [chatPreview, setChatPreview] = useState([]);     // view-only preview msgs
     const [collShareOpen, setCollShareOpen] = useState(false); // collection picker for chat share
+    const [stScroll, setStScroll] = useState({ thumb: 40, top: 0 }); // station list scroll indicator
+    const stationListRef = useRef(null);
 
     const audioRef = useRef(null);
     const ctxRef = useRef(null);
@@ -2105,7 +2152,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 {radioTab === 'inapp' ? (
                                     <div className="relative border border-pink-500/30 rounded-xl bg-black/40 p-2" style={{ boxShadow: 'inset 0 0 12px rgba(0,0,0,0.5)' }}>
                                         <p className="text-[8px] uppercase font-bold text-pink-300/70 mb-1 px-1 flex items-center justify-between"><span>📻 Pick a station — scroll for more</span><ChevronDown size={11} className="animate-bounce"/></p>
-                                        <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-3 rk-scrollbox">
+                                        <div ref={stationListRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(15, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-3 rk-scrollbox">
                                             {RADIO_STATIONS.map(st => (
                                                 <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
                                                     <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
@@ -2113,9 +2160,9 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                                 </button>
                                             ))}
                                         </div>
-                                        {/* visible scroll-wheel track on the right */}
+                                        {/* visible scroll-wheel track on the right — thumb tracks scroll position */}
                                         <div className="absolute right-1 top-7 bottom-2 w-1.5 rounded-full bg-white/10 pointer-events-none">
-                                            <div className="w-full rounded-full bg-pink-500/60" style={{ height: '40%' }}/>
+                                            <div className="w-full rounded-full bg-pink-500/70 transition-all duration-75" style={{ height: stScroll.thumb + '%', marginTop: stScroll.top + '%' }}/>
                                         </div>
                                     </div>
                                 ) : (
@@ -2490,7 +2537,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.00.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.02.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3259,6 +3306,11 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
                 {profile?.showPing !== false ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
             </button>
             <p className="text-[8px] opacity-50 mt-1">Displays live network latency at the bottom of the screen. On by default for new accounts.</p>
+            <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { hideDIYFromOthers: !profile?.hideDIYFromOthers }, { merge: true }); }} className="w-full flex justify-between items-center bg-white/5 p-2 rounded border border-white/10 mt-2">
+                <span className="text-[10px] font-bold">Hide my DIY / AI projects from others</span>
+                {profile?.hideDIYFromOthers ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
+            </button>
+            <p className="text-[8px] opacity-50 mt-1">When on, your custom DIY builds &amp; AI design concepts stay private — other ravers won't see them in your collection. Your listed items for sale always remain visible.</p>
         </div>
 
         <div className="border-b border-white/10 pb-4">
@@ -3735,7 +3787,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) =>
     );
 };
 
-const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false }) => {
+const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false, hideDIY = false }) => {
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
 
@@ -3756,6 +3808,8 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             return onSnapshot(q, s => {
                 let arr = s.docs.map(d => ({ ...d.data(), id: d.id }));
                 arr = arr.filter(i => !i.isCraftingStock);
+                // V63: respect the owner's "hide my DIY/AI projects from others" preference.
+                if (hideDIY) arr = arr.filter(i => !i.isDIYRequest && !i.isAICreation && !i.isDesignConcept && !i.isRequest && i.status !== 'request');
                 arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
                 setItems(filterBroken(arr));
             }, e => { console.log('collection(readOnly) load:', e); setItems([]); });
@@ -3768,7 +3822,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
         }, e => { console.log('collection load:', e); setItems([]); });
-    }, [isOpen, targetUid, type, readOnly]);
+    }, [isOpen, targetUid, type, readOnly, hideDIY]);
     
     if(!isOpen) return null;
     return (
@@ -3782,6 +3836,9 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[8px] text-yellow-400">Processing...</span></div>
                             ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
+                            {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
+                                <div className={`mt-1 text-[7px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
+                            )}
                             <div className="flex justify-between items-center mt-2 border-t border-white/10 pt-2"><span className="text-[10px] text-lime-400 font-bold">${item.sell || item.price || '0.00'}</span><span className="text-[8px] opacity-50">{item.status || 'Ready'}</span></div>
                         </div>
                     ))}
@@ -4142,7 +4199,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
-                        {canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
+                        {item.isShowingOff ? <span className="text-[10px] text-fuchsia-200 bg-fuchsia-900/40 border border-fuchsia-500/40 px-2 py-1 rounded font-black uppercase">✨ Showing Off</span> : canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
                 </div>
                 {item.description && (
@@ -4155,9 +4212,9 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 )}
                 <div className="flex gap-2 mt-2">
                     {item._boosted && <span className="text-[8px] bg-gradient-to-r from-yellow-300 to-pink-500 text-black px-1 rounded font-black uppercase">⚡ BOOSTED</span>}
-                    {(item.stockQty ?? 1) <= 0 ? <span className="text-[8px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
-                    {isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[8px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
-                    {(item.bulkTiers && item.bulkTiers.length > 0) ? <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">Bulk: {item.bulkTiers.map(t => `${t.qty}+ ${t.pct}%`).join(' · ')}</span> : (item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>)}
+                    {item.isShowingOff ? <span className="text-[8px] bg-fuchsia-500/20 text-fuchsia-300 px-1 rounded border border-fuchsia-500/50 font-bold uppercase">Showcase</span> : (item.stockQty ?? 1) <= 0 ? <span className="text-[8px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[8px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
+                    {!item.isShowingOff && isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[8px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
+                    {!item.isShowingOff && ((item.bulkTiers && item.bulkTiers.length > 0) ? <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">Bulk: {item.bulkTiers.map(t => `${t.qty}+ ${t.pct}%`).join(' · ')}</span> : (item.bulkDiscountPct > 0 && <span className="text-[8px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>))}
                     <span className="text-[8px] bg-black/50 px-1 rounded border border-white/10 flex items-center gap-1"><Eye size={8}/> {item.viewCount || 0}</span>
                     {avgRating && <span className="text-[8px] bg-yellow-900/30 px-1 rounded border border-yellow-500/50 flex items-center gap-1 text-yellow-400"><StarIcon size={8} fill="currentColor"/> {avgRating}</span>}
                 </div>
@@ -4165,7 +4222,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             
             <div className="mt-auto flex justify-between items-center pt-3 border-t border-white/10">
                 <div className="flex gap-3"><button onClick={toggleLike} className={liked ? 'text-pink-500' : 'text-white/50'}><Heart size={18} fill={liked?"currentColor":"none"}/></button><button onClick={() => setShowComments(true)} className="text-white/50 hover:text-white"><MessageSquare size={18}/></button><button onClick={handleShare} className="text-white/50 hover:text-cyan-400"><Share2 size={18}/></button></div>
-                {item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
+                {item.isShowingOff ? ( <Button onClick={() => onViewItem(item)} color="purple" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> View</Button> ) : item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
             </div>
         </Card> 
     );
@@ -4173,7 +4230,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
 
 const SellKandiForm = ({ user, profile }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [form, setForm] = useState({ name: '', price: '', description: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false });
+    const [form, setForm] = useState({ name: '', price: '', description: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false });
     const [mediaFiles, setMediaFiles] = useState([]);
     const [loading, setLoading] = useState(false); const [uploadPercent, setUploadPercent] = useState(0);
     
@@ -4191,8 +4248,12 @@ const SellKandiForm = ({ user, profile }) => {
 
     const sub = async () => { 
         if(user?.isAnonymous) return alert("Please create an account to post items.");
-        if(!form.name || !form.price || !form.stockQty || mediaFiles.length === 0 || !user?.uid) return alert("Fill all required fields including Stock Qty and Media.");
-        if(parseInt(form.stockQty) < 1) return alert("Stock Quantity must be at least 1.");
+        if (form.isShowingOff) {
+            if (!form.name || mediaFiles.length === 0 || !user?.uid) return alert("Add a name and at least one photo to show off your piece.");
+        } else {
+            if(!form.name || !form.price || !form.stockQty || mediaFiles.length === 0 || !user?.uid) return alert("Fill all required fields including Stock Qty and Media.");
+            if(parseInt(form.stockQty) < 1) return alert("Stock Quantity must be at least 1.");
+        }
         setLoading(true); setUploadPercent(0);
         
         try { 
@@ -4206,7 +4267,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const item = { ...form, price: parseFloat(form.price), type: form.type || 'Other', stockQty: parseInt(form.stockQty), bulkTiers: cleanTiers, bulkDiscountQty: firstTier.qty, bulkDiscountPct: firstTier.pct, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false }; 
+            const item = { ...form, price: form.isShowingOff ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: form.isShowingOff ? 0 : parseInt(form.stockQty), bulkTiers: form.isShowingOff ? [] : cleanTiers, bulkDiscountQty: form.isShowingOff ? 0 : firstTier.qty, bulkDiscountPct: form.isShowingOff ? 0 : firstTier.pct, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -4233,6 +4294,12 @@ const SellKandiForm = ({ user, profile }) => {
             </div>
 
             <Input label="Name" value={form.name} onChange={v => setForm({...form, name: v})} />
+            <div className="mb-4 bg-gradient-to-r from-fuchsia-900/30 to-pink-900/30 p-3 rounded-lg border border-fuchsia-500/40">
+                <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.isShowingOff} onChange={e=>setForm({...form, isShowingOff: e.target.checked})} className="accent-fuchsia-500 w-4 h-4"/><span className="text-xs font-black text-fuchsia-300 uppercase">✨ Just Showing Off (not for sale)</span></label>
+                <p className="text-[9px] opacity-60 mt-1">Share your piece with the community without selling it — no price, no stock, no checkout. Pure flex. 🌈</p>
+            </div>
+            {!form.isShowingOff ? (
+            <>
             <div className="grid grid-cols-2 gap-2">
                 <Input label="Price ($)" type="number" value={form.price} onChange={v => setForm({...form, price: v})} />
                 <Input label="Item Type" type="select" options={KANDI_TYPES} value={form.type} onChange={v => setForm({...form, type: v})} />
@@ -4241,6 +4308,10 @@ const SellKandiForm = ({ user, profile }) => {
                 <Input label="Stock Qty" type="number" value={form.stockQty} onChange={v => setForm({...form, stockQty: v})} />
                 <div className="flex items-end"><p className="text-[9px] opacity-60 pb-2">Set bulk discounts below — buyers who add that many get the % off.</p></div>
             </div>
+            </>
+            ) : (
+            <Input label="Item Type" type="select" options={KANDI_TYPES} value={form.type} onChange={v => setForm({...form, type: v})} />
+            )}
             <div className="mb-4 bg-white/5 p-3 rounded border border-lime-500/20">
                 <label className="text-[10px] font-bold text-lime-400 uppercase mb-2 block">Bulk Discount Tiers (optional)</label>
                 {form.bulkTiers.map((t, i) => (
@@ -5448,7 +5519,7 @@ const HELP_TOPICS = [
     { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
     { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
-    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. During launch perks, VIP is free for everyone." },
+    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. In Rave Radio chat, VIP also removes the message cooldown, lets you share your social links (limited per day), and lets you share collection items in chat. During launch perks, VIP is free for everyone." },
     { cat: 'Radio', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone — stream live electronic stations across every genre — house, techno, trance, dnb, dubstep, hardstyle, psytrance and more — with a built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
     { cat: 'Payments', title: '🛡️ Checkout Options', content: "Pay by card through Stripe's encrypted portal, or with Solana crypto (Phantom, Coinbase, MetaMask) for near-zero fees. Your payment details are never stored by RaveKandi." },
     { cat: 'Safety', title: '🚩 Reporting & Support', content: "Use the Bugs/Feedback button to report issues. Admins can take down inappropriate content and moderate the community. For account help, submit a support ticket — replies arrive in your notifications." },
@@ -5599,7 +5670,7 @@ const PinSelectModal = ({ user, profile, isOpen, onClose }) => {
     );
 };
 
-const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }) => {
+const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem }) => {
     const [targ, setTarg] = useState(null);
     const [errMsg, setErrMsg] = useState('');
     const [pinnedItems, setPinnedItems] = useState([]);
@@ -5661,7 +5732,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
             : (
                 <div className="max-w-4xl mx-auto px-4 pb-20 pt-6 space-y-6">
                     <UserStatsDashboard profile={targ} isOpen={showAnalytics} onClose={() => setShowAnalytics(false)} />
-                    <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} />
+                    <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} hideDIY={!!targ.hideDIYFromOthers} />
                     <StatDetailModal statKey={statDetail} uid={targ.id} profile={targ} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                     <ItemDetailModal item={selectedPinned} user={{ uid: viewerUid }} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onClose}/>
 
@@ -5689,7 +5760,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage }
                                     <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins</h4>
                                     <div className="flex gap-2 overflow-x-auto pb-1">
                                         {pinnedItems.slice(0, 6).map(item => (
-                                            <div key={item.id} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-white/10 rounded p-1 w-24 shrink-0 cursor-pointer hover:bg-white/10 transition-colors">
+                                            <div key={item.id} onClick={async () => { if (onViewFeedItem) { try { const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', targ.id))); const match = snap.docs.map(d => ({ ...d.data(), id: d.id })).find(t => (t.name && item.name && t.name === item.name) || (item.imageUrl && (t.imageUrl === item.imageUrl)) || (item.mediaUrls?.[0]?.url && t.mediaUrls?.[0]?.url === item.mediaUrls[0].url)); onClose(); onViewFeedItem(match || item); } catch (e) { onClose(); onViewFeedItem(item); } } else { setSelectedPinned(item); } }} className="bg-white/5 border border-white/10 rounded p-1 w-24 shrink-0 cursor-pointer hover:bg-white/10 transition-colors">
                                                 <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image} className="w-full h-16 object-cover rounded mb-1 border-2 border-pink-500/30" />
                                                 <p className="text-[8px] font-bold truncate text-white text-center">★ {item.name}</p>
                                             </div>
@@ -5894,6 +5965,12 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [friendMode, setFriendMode] = useState('mine'); // 'mine' = my friends | 'find' = find new ravers
     const [userResults, setUserResults] = useState([]);
     const [searching, setSearching] = useState(false);
+    const [tribeFontOpen, setTribeFontOpen] = useState(false);       // font selector in tribe chat
+    const [showMembers, setShowMembers] = useState(false);           // member list popup
+    const [memberProfiles, setMemberProfiles] = useState([]);        // loaded member cards
+    const [memberSearch, setMemberSearch] = useState('');            // search within tribe members
+    const [tribeAddSearch, setTribeAddSearch] = useState('');        // add-by-search in tribe view
+    const [tribeAddResults, setTribeAddResults] = useState([]);
     // Search all ravers by name/UID (excludes self + existing friends) for the "Find Ravers" tab.
     const runUserSearch = async (term) => {
         const t = (term || '').trim().toLowerCase();
@@ -5943,6 +6020,28 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         return () => unsub();
     }, [activeTribe]);
 
+    // Load tribe member profiles (for the member-list popup).
+    useEffect(() => {
+        if (!showMembers || !activeTribe) { return; }
+        const ids = (activeTribe.members || []).slice(0, 200);
+        Promise.all(ids.map(id => getDoc(doc(db, 'artifacts', appId, 'users', id)).then(s => s.exists() ? { ...s.data(), id: s.id } : null).catch(() => null)))
+            .then(list => setMemberProfiles(list.filter(Boolean)));
+    }, [showMembers, activeTribe]);
+
+    // Search all ravers to add to the active tribe (excludes existing members).
+    const runTribeAddSearch = async (term) => {
+        const t = (term || '').trim().toLowerCase();
+        if (t.length < 2) { setTribeAddResults([]); return; }
+        try {
+            const snap = await getDocs(collection(db, 'artifacts', appId, 'users'));
+            const mem = (activeTribe?.members || []);
+            const res = snap.docs.map(d => ({ ...d.data(), id: d.id }))
+                .filter(u => u.id !== myUid && !mem.includes(u.id) && ((u.displayName || '').toLowerCase().includes(t) || (u.publicUid || '').toLowerCase().includes(t)))
+                .slice(0, 25);
+            setTribeAddResults(res);
+        } catch (e) { setTribeAddResults([]); }
+    };
+
     if (!isOpen) return null;
 
     const doCreateTribe = async () => {
@@ -5957,7 +6056,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const sendTMsg = async () => {
         if (!tribeInput.trim() || !activeTribe) return;
         const txt = tribeInput; setTribeInput('');
-        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null); } catch (e) {}
+        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null, { style: profile?.msgTextStyle || profile?.textStyle || null, photoURL: profile?.photoURL || '', publicUid: profile?.publicUid || myUid }); } catch (e) {}
     };
 
     return (
@@ -6087,25 +6186,79 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     <div className="flex items-center justify-between mb-2 bg-purple-900/30 border border-purple-500/40 rounded-lg p-2">
                         <button onClick={() => setActiveTribe(null)} className="text-cyan-400 text-xs font-bold flex items-center gap-1"><ChevronLeft size={16}/> Back</button>
                         <span className="text-sm font-black truncate px-2">🌈 {activeTribe.name}</span>
-                        <span className="text-[8px] opacity-50">{activeTribe.memberCount} 👥</span>
+                        <button onClick={() => setShowMembers(true)} className="text-[10px] font-bold bg-purple-600/60 hover:bg-purple-600 border border-purple-400/40 rounded-full px-2 py-1 flex items-center gap-1" title="View members"><Users size={12}/> {activeTribe.memberCount || (activeTribe.members||[]).length}</button>
                     </div>
-                    <div className="h-[50vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-2 flex flex-col mb-2">
+                    <div className="h-[46vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col mb-2">
                         {tribeMsgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi to your tribe! 🌈</p>}
                         {tribeMsgs.map(m => {
                             const mine = m.sender === myUid;
+                            const ts = getUserTextStyle(m.style);
                             return (
-                                <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
-                                    {!mine && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className="text-[9px] font-bold text-pink-300">@{m.senderName}</span>{m.badge && <BadgeChip badge={m.badge} />}</div>}
-                                    <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}><p className="whitespace-pre-wrap break-words">{m.text}</p></div>
-                                    <p className={`text-[8px] opacity-40 mt-0.5 ${mine ? 'text-right' : ''}`}>{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                <div key={m.id} className={`flex items-start gap-2 max-w-[88%] ${mine ? 'self-end flex-row-reverse' : 'self-start'}`}>
+                                    <img src={m.photoURL || 'https://placehold.co/32?text=U'} onClick={() => { onClose(); onViewProfile(m.publicUid || m.sender); }} className="w-7 h-7 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
+                                    <div className={mine ? 'items-end flex flex-col' : ''}>
+                                        <div className="flex items-center gap-1 mb-0.5">
+                                            <button onClick={() => { onClose(); onViewProfile(m.publicUid || m.sender); }} className={`text-[9px] font-bold ${mine ? 'text-lime-300' : 'text-pink-300'} hover:underline`}>@{m.senderName}</button>{m.badge && <BadgeChip badge={m.badge} />}
+                                        </div>
+                                        <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}><p className={'whitespace-pre-wrap break-words ' + ts.className} style={ts.style}>{m.text}</p></div>
+                                        <p className="text-[8px] opacity-40 mt-0.5">{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        <button onClick={() => { if (!isEffVIP(profile)) { alert('🔤 The Font & Style selector is a VIP perk — unlock it, or enjoy it free during launch!'); return; } setTribeFontOpen(true); }} title="Chat font & style" className={"shrink-0 w-10 h-10 rounded-lg border flex items-center justify-center " + (isEffVIP(profile) ? "bg-fuchsia-600/30 border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-600/50" : "bg-white/5 border-white/15 text-white/40")}><Type size={16}/></button>
                         <Input value={tribeInput} onChange={setTribeInput} placeholder="Message your tribe..." className="mb-0 flex-1"/>
                         <Button onClick={sendTMsg} disabled={!tribeInput.trim()} color="purple" className="px-4"><Send size={18}/></Button>
                     </div>
+
+                    {/* Member list popup with search + add-by-search */}
+                    <Modal isOpen={showMembers} onClose={() => { setShowMembers(false); setMemberSearch(''); setTribeAddSearch(''); setTribeAddResults([]); }} zClass="z-[130]" title={'🌈 ' + activeTribe.name + ' — Members'}>
+                        <div className="space-y-3">
+                            <div className="relative">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)} placeholder="Search members in this tribe..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-purple-500/60"/>
+                            </div>
+                            <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                                {memberProfiles.length === 0 ? <p className="text-center opacity-50 text-xs py-4">Loading members…</p> : (() => {
+                                    const mq = memberSearch.trim().toLowerCase();
+                                    const shown = mq ? memberProfiles.filter(p => (p.displayName||'').toLowerCase().includes(mq) || (p.publicUid||'').toLowerCase().includes(mq)) : memberProfiles;
+                                    if (shown.length === 0) return <p className="text-center opacity-50 text-xs py-4">No members match "{memberSearch}".</p>;
+                                    return shown.map(p => (
+                                        <div key={p.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 hover:bg-white/10 transition">
+                                            <img src={p.photoURL || 'https://placehold.co/48?text=U'} onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }} className="w-10 h-10 rounded-full object-cover border-2 border-purple-500/40 cursor-pointer"/>
+                                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }}>
+                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{p.displayName || 'Raver'}{p.id === activeTribe.creatorId && <span className="text-[7px] bg-yellow-500/20 text-yellow-300 px-1 rounded">FOUNDER</span>}{p.featuredBadge && <BadgeChip badge={p.featuredBadge} />}</p>
+                                                <p className="text-[10px] opacity-50">{p.itemsSold || 0} sold · {(p.friends||[]).length} friends</p>
+                                            </div>
+                                            {p.id !== myUid && <button onClick={() => { if (onMessageUser) { setShowMembers(false); onClose(); onMessageUser(p.id, p.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={16}/></button>}
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
+                            <div className="border-t border-white/10 pt-3">
+                                <p className="text-[10px] font-bold text-cyan-300 mb-2">➕ Add a raver to this tribe (starts a vote)</p>
+                                <div className="relative mb-2">
+                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
+                                    <input value={tribeAddSearch} onChange={e => { setTribeAddSearch(e.target.value); runTribeAddSearch(e.target.value); }} placeholder="Search ravers by name or UID..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-cyan-500/60"/>
+                                </div>
+                                <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
+                                    {tribeAddSearch.trim().length < 2 ? <p className="text-center opacity-50 text-[11px] py-3">Type at least 2 characters to search.</p>
+                                    : tribeAddResults.length === 0 ? <p className="text-center opacity-50 text-[11px] py-3">No ravers found.</p>
+                                    : tribeAddResults.map(u => (
+                                        <div key={u.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
+                                            <img src={u.photoURL || 'https://placehold.co/48?text=U'} className="w-8 h-8 rounded-full object-cover border border-cyan-500/40"/>
+                                            <div className="flex-1 min-w-0"><p className="text-xs font-bold truncate">@{u.displayName || 'Raver'}</p></div>
+                                            <button onClick={async () => { try { const needed = await proposeToTribe(activeTribe.id, u.id, u.displayName || 'Raver', myUid); alert('Proposed @' + (u.displayName||'raver') + '. Needs ' + needed + ' vote(s) to join.'); setTribeAddSearch(''); setTribeAddResults([]); } catch (e) { alert(e.message); } }} className="text-[10px] font-bold bg-cyan-600 text-white rounded-full px-3 py-1">Propose</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </Modal>
+
+                    <FontSelectorModal user={user} profile={profile} isOpen={tribeFontOpen} onClose={() => setTribeFontOpen(false)} field="msgTextStyle" titleLabel="Tribe Chat Font" zClass="z-[130]" />
                 </div>
             )}
         </Modal>
@@ -6164,7 +6317,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
         <div className="relative">
             <div className={`max-w-4xl mx-auto px-4 pb-20 space-y-6 ${user?.isAnonymous ? 'pointer-events-none filter blur-[2px] opacity-40 grayscale' : ''}`}>
                 <UsernameModal user={user} profile={profile} isOpen={modals.username} onClose={()=>setModals({...modals, username:false})}/>
-                <CollectionPopout user={user} type="posts" isOpen={modals.collection} onClose={()=>setModals({...modals, collection:false})} onViewFeed={onViewFeed}/>
+                <CollectionPopout user={user} type="posts" isOpen={modals.collection} onClose={()=>setModals({...modals, collection:false})} onViewFeed={onViewFeed} hideDIY={!!profile?.hideDIYFromOthers}/>
                 <CollectionPopout user={user} type="stock" isOpen={modals.inventory} onClose={()=>setModals({...modals, inventory:false})}/>
                 <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})} onReplayTutorial={onReplayTutorial}/>
                 <BioModal user={user} currentBio={profile.bio || ''} isOpen={modals.bio} onClose={()=>setModals({...modals, bio:false})}/>
@@ -6478,7 +6631,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.00.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.02.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7027,7 +7180,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.00.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.02.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7066,7 +7219,7 @@ cat << 'EOF' >> src/App.js
             <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
             <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
-            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} />}
+            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)}/>}
             <KandiCreatorApplicationModal user={user} isOpen={creatorAppOpen} onClose={() => setCreatorAppOpen(false)} />
@@ -7169,9 +7322,13 @@ cat << 'EOF' >> src/App.js
                 onPointerDown={(e) => { const r = radioDragRef.current; r.dragging = true; r.moved = false; r.offX = e.clientX - radioBtnPos.x; r.offY = e.clientY - radioBtnPos.y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
                 onPointerMove={(e) => { const r = radioDragRef.current; if (!r.dragging) return; const nx = e.clientX - r.offX, ny = e.clientY - r.offY; if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; const topGuard = (topBarRef.current ? topBarRef.current.offsetHeight : 120) + 8; const maxX = window.innerWidth - 56, maxY = window.innerHeight - 56; setRadioBtnPos({ x: Math.max(0, Math.min(nx, maxX)), y: Math.max(topGuard, Math.min(ny, maxY)) }); }}
                 onPointerUp={(e) => { const r = radioDragRef.current; r.dragging = false; try { localStorage.setItem('rk_radio_btn_pos', JSON.stringify(radioBtnPos)); } catch (er) {} try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (er) {} }}
-                className={`fixed z-40 w-14 h-14 rounded-full flex items-center justify-center border-2 transition-colors touch-none cursor-grab active:cursor-grabbing ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`}
+                className={`fixed z-40 w-16 h-16 rounded-full flex flex-col items-center justify-center border-2 transition-colors touch-none cursor-grab active:cursor-grabbing ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`}
                 style={{ left: radioBtnPos.x + 'px', top: radioBtnPos.y + 'px' }}
-                title="Rave Radio — drag to move, tap to open"><Radio size={32} className="text-white drop-shadow pointer-events-none"/></button>
+                title="Rave Radio — drag to move, tap to open">
+                <Radio size={18} className="text-white drop-shadow pointer-events-none -mb-0.5"/>
+                <span className="text-[6px] font-black uppercase tracking-tight text-white/90 leading-none pointer-events-none">Rave Radio</span>
+                <span className={`text-[9px] font-black leading-none pointer-events-none mt-0.5 ${isRadioPlaying ? 'text-lime-200' : 'text-red-200'}`}>{isRadioPlaying ? 'ON' : 'OFF'}</span>
+            </button>
             {bannerMsgActive ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
             {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
                 <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6 text-center">
@@ -7342,7 +7499,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.00.00 Phase 53: Radio chat system + install/connection options + sound popup</span>
+                    <span className="flex-1 text-center">V63.02.00 Phase 55: expanded font styles + effects (flowmetal/iridescent/trippy/chromatic/holo) + custom gradient & shimmer colors</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7537,9 +7694,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.00.00)..."
-sed -i "s/versionCode 1/versionCode 124/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.00.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.02.00)..."
+sed -i "s/versionCode 1/versionCode 127/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.02.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7586,7 +7743,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_00_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_02_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
