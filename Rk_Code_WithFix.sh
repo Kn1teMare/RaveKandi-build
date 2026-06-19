@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.02.00 Build Script Starting"
+echo " RaveKandi V63.03.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.02.00</title>
+    <title>RaveKandi V63.03.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -67,6 +67,11 @@ cat << 'EOF' > public/index.html
       /* V63: holographic — bright sweeping holo sticker */
       .rkfx-holo { background-image: linear-gradient(115deg,#ff6ec4,#7873f5,#4ade80,#facc15,#ff6ec4); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3.2s linear infinite; filter:saturate(1.15); }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
+      /* V63: visible scrollbar for picker scroll-boxes so users know they can scroll */
+      .rk-scroll { scrollbar-width: thin; scrollbar-color: #ec4899 rgba(255,255,255,0.08); }
+      .rk-scroll::-webkit-scrollbar { width: 8px; }
+      .rk-scroll::-webkit-scrollbar-track { background: rgba(255,255,255,0.08); border-radius: 8px; }
+      .rk-scroll::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#ff50b4,#a855f7); border-radius: 8px; border: 1px solid rgba(0,0,0,0.3); }
     </style>
   </head>
   <body>
@@ -144,7 +149,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.02.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -225,7 +230,7 @@ import {
   Ban, ShieldOff, UserPlus, Bomb, Clock, Code, Compass, Copy, CreditCard, DollarSign, Download, Edit, Eye, EyeOff, Facebook, FileText, Filter, Gift, Globe, Hammer, Heart, Type, 
   Image as ImageIcon, Info, Instagram, LayoutList, Link, Lock, LogOut, Mail, MapPin, MessageSquare, 
   Package, Pencil, Play, PlusCircle, MinusCircle, Receipt, RefreshCw, Save, Send, Settings, Share2, Shield, ShieldCheck, 
-  ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, 
+  ShoppingBag, Smartphone, Sparkles, Star, Tag, Trash2, Truck, Twitch, Twitter, User, Video, Wallet, FlaskConical, 
   Wand2, X, XCircle, Youtube, Zap, HelpCircle, Search, Phone, Music, Ghost, CheckSquare, Square, Activity, WifiOff, Users, ThumbsUp, MoreHorizontal, ShoppingCart, 
   Trash, Maximize2, List, BarChart3, TrendingUp, Radio, Crown, Music as MusicIcon, Star as StarIcon, Disc
 } from 'lucide-react';
@@ -345,7 +350,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.02.00';
+const APP_VERSION = '63.03.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1666,14 +1671,14 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
                     <p className={'text-sm mt-1 ' + prev.className} style={prev.style}>The quick brown fox vibes all night</p>
                 </div>
                 <div>
-                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Font</label>
-                    <div className="grid grid-cols-3 gap-1">
+                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1 flex items-center justify-between"><span>Font</span><span className="text-[8px] opacity-50 normal-case font-normal">scroll ↓</span></label>
+                    <div className="grid grid-cols-3 gap-1 max-h-32 overflow-y-auto rk-scroll pr-2 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {RK_FONTS.map(f => <button key={f.id} onClick={() => setFont(f.id)} style={{ fontFamily: f.stack }} className={'p-2 rounded text-[10px] border ' + (font === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}>{f.name}</button>)}
                     </div>
                 </div>
                 <div>
-                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">Effect</label>
-                    <div className="grid grid-cols-3 gap-1">
+                    <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1 flex items-center justify-between"><span>Effect</span><span className="text-[8px] opacity-50 normal-case font-normal">scroll ↓</span></label>
+                    <div className="grid grid-cols-3 gap-1 max-h-32 overflow-y-auto rk-scroll pr-2 overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {RK_FX.map(f => {
                             const thumb = getUserTextStyle({ fx: f.id, c, c2 });
                             return <button key={f.id} onClick={() => setFx(f.id)} className={'p-2 rounded text-[10px] border font-black ' + (fx === f.id ? 'border-pink-500 bg-pink-900/30' : 'border-white/15 bg-black/40')}><span className={thumb.className} style={thumb.style}>{f.name}</span></button>;
@@ -2026,6 +2031,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const [chatPreview, setChatPreview] = useState([]);     // view-only preview msgs
     const [collShareOpen, setCollShareOpen] = useState(false); // collection picker for chat share
     const [stScroll, setStScroll] = useState({ thumb: 40, top: 0 }); // station list scroll indicator
+    const [bgAudio, setBgAudio] = useState(() => { try { return localStorage.getItem('rk_bg_audio') !== 'off'; } catch (e) { return true; } });
     const stationListRef = useRef(null);
 
     const audioRef = useRef(null);
@@ -2056,6 +2062,29 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
     useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
     useEffect(() => { if (onPlayingChange) onPlayingChange(playing); }, [playing]);
+
+    // V63: background playback control. When ON (default), set MediaSession metadata so the OS
+    // keeps the stream alive with lock-screen controls; when OFF, pause the moment the app is
+    // hidden so audio only plays in-app.
+    useEffect(() => {
+        const onVis = () => {
+            if (document.hidden && !bgAudio && audioRef.current && playing) {
+                audioRef.current.pause(); setPlaying(false); setStatus('Paused (background audio is off)');
+            }
+        };
+        document.addEventListener('visibilitychange', onVis);
+        return () => document.removeEventListener('visibilitychange', onVis);
+    }, [bgAudio, playing]);
+
+    useEffect(() => {
+        try {
+            if ('mediaSession' in navigator && playing && station) {
+                navigator.mediaSession.metadata = new window.MediaMetadata({ title: station.name, artist: 'RaveKandi Radio', album: station.genre || 'Rave Radio' });
+                navigator.mediaSession.setActionHandler('play', () => { try { audioRef.current && audioRef.current.play(); setPlaying(true); } catch (e) {} });
+                navigator.mediaSession.setActionHandler('pause', () => { try { audioRef.current && audioRef.current.pause(); setPlaying(false); } catch (e) {} });
+            }
+        } catch (e) {}
+    }, [playing, station]);
 
     // V62: view-only chat preview inside the player (latest 5 of the selected channel).
     useEffect(() => {
@@ -2125,7 +2154,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
 
     return (
         <>
-            <audio ref={audioRef} crossOrigin="anonymous" onError={() => { if (playing) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
+            <audio ref={audioRef} crossOrigin="anonymous" playsInline preload="none" onError={() => { if (playing) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
             {isOpen && (
                 <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4 overflow-y-auto">
                     <Card className="max-w-md w-full my-8 bg-[#0f001e]/95" glow="purpleGlow">
@@ -2150,7 +2179,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                     <button onClick={() => setRadioTab('youtube')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded flex items-center justify-center gap-1 ${radioTab==='youtube' ? 'bg-red-600 text-white' : 'text-white/50'}`}><Youtube size={11}/> YouTube</button>
                                 </div>
                                 {radioTab === 'inapp' ? (
-                                    <div className="relative border border-pink-500/30 rounded-xl bg-black/40 p-2" style={{ boxShadow: 'inset 0 0 12px rgba(0,0,0,0.5)' }}>
+                                    <div className="relative border-2 border-pink-500/60 rounded-xl bg-black/40 p-2" style={{ boxShadow: '0 0 12px rgba(236,72,153,0.6), inset 0 0 12px rgba(0,0,0,0.5)' }}>
                                         <p className="text-[8px] uppercase font-bold text-pink-300/70 mb-1 px-1 flex items-center justify-between"><span>📻 Pick a station — scroll for more</span><ChevronDown size={11} className="animate-bounce"/></p>
                                         <div ref={stationListRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(15, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-3 rk-scrollbox">
                                             {RADIO_STATIONS.map(st => (
@@ -2187,7 +2216,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 {/* V62: view-only chat preview + tap-to-join. In-app music chat only. */}
                                 <div>
                                     <p className="text-[9px] text-center text-pink-300/80 font-bold uppercase tracking-wide mb-1">💬 Tap below to join the live chat</p>
-                                    <button onClick={() => setChatOpen(true)} className="w-full bg-black/60 border border-pink-500/40 rounded-xl p-2.5 text-left hover:border-pink-500/70 transition" style={{ minHeight: '92px' }}>
+                                    <button onClick={() => setChatOpen(true)} className="w-full bg-black/60 border-2 border-cyan-400/60 rounded-xl p-2.5 text-left hover:border-cyan-400 transition" style={{ minHeight: '92px', boxShadow: '0 0 12px rgba(34,211,238,0.5)' }}>
                                         {chatPreview.length === 0 ? (
                                             <p className="text-[11px] text-white/40 text-center py-5">No messages yet — be the first to vibe in chat! 🌈</p>
                                         ) : (
@@ -2202,7 +2231,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 </div>
 
                                 {/* Sound (volume + EQ) button opens a popup */}
-                                <button onClick={() => setSoundOpen(true)} className="w-full bg-white/5 border border-white/15 rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-cyan-300 hover:bg-white/10 transition"><Volume size={18}/> Volume &amp; Sound Controls</button>
+                                <button onClick={() => setSoundOpen(true)} className="w-full bg-white/5 border-2 border-purple-400/60 rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-cyan-300 hover:bg-white/10 transition" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.5)' }}><Volume size={18}/> Volume &amp; Sound Controls</button>
                                 <p className="text-[8px] text-center text-white/40">Live streams powered by SomaFM.com</p>
                             </div>
                         )}
@@ -2232,6 +2261,13 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                         </div>
                     </div>
                     {!eqActive && <p className="text-[8px] text-yellow-400/80 text-center mt-1">EQ activates once playback starts.</p>}
+                    <div className="border-t border-white/10 my-2 pt-2">
+                        <button onClick={() => { const next = !bgAudio; setBgAudio(next); try { localStorage.setItem('rk_bg_audio', next ? 'on' : 'off'); } catch (e) {} }} className="w-full flex justify-between items-center bg-white/5 p-2.5 rounded-lg border border-white/10">
+                            <span className="text-[11px] font-bold flex items-center gap-2"><Radio size={14}/> Play in Background</span>
+                            {bgAudio ? <CheckSquare size={18} className="text-lime-400"/> : <Square size={18} className="text-white/30"/>}
+                        </button>
+                        <p className="text-[8px] opacity-60 mt-1 leading-relaxed">When ON, the radio keeps playing when you leave the app or lock your screen. <span className="text-yellow-300">If OFF, the radio will NOT play in the background — it stops when you leave the app.</span></p>
+                    </div>
                     <p className="text-[8px] text-center text-white/40 mt-1">Tip: Bass Boost &amp; Festival hit hardest with headphones or a speaker.</p>
                 </div>
             </Modal>
@@ -2537,7 +2573,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.02.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -2881,7 +2917,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             <Button onClick={send} disabled={sending || !input.trim()} color="purple" className="px-4"><Send size={18}/></Button>
                         </div>
                         <p className="text-[8px] text-center text-lime-400/70 mt-2">🔒 Encrypted · Deleted messages are gone forever for both users.</p>
-                        <FontSelectorModal user={user} profile={profile} isOpen={msgFontOpen} onClose={() => setMsgFontOpen(false)} field="msgTextStyle" titleLabel="Message Font & Style" zClass="z-[80]" />
+                        <FontSelectorModal user={user} profile={profile} isOpen={msgFontOpen} onClose={() => setMsgFontOpen(false)} field="msgTextStyle" titleLabel="Message Font & Style" zClass="z-[200]" />
                     </>)}
 
                     {tab === 'alerts' && (<>
@@ -4067,9 +4103,14 @@ const DIYBuilder = ({ onSubmitRequest }) => {
 
     return ( 
         <div className="flex flex-col gap-4">
+            <Card className="p-6 text-center border-cyan-500/30">
+                <Hammer size={48} className="mx-auto mb-4 text-cyan-400"/>
+                <h2 className="text-2xl font-bold mb-1 uppercase">DIY Build Lab</h2>
+                <p className="text-[10px] opacity-60 mb-3">Custom kandi · Bracelets · Cuffs · Sets — built by real Creators</p>
+            </Card>
             <Card className="border-cyan-500/30">
-                <h3 className="font-black uppercase text-sm text-cyan-400 mb-2 italic tracking-widest">How DIY Builds Work</h3>
-                <div className="text-[11px] text-gray-100 space-y-1 leading-relaxed">
+                <h3 className="font-black uppercase text-base text-cyan-400 mb-2 italic tracking-widest">How DIY Builds Work</h3>
+                <div className="text-sm text-gray-100 space-y-2 leading-relaxed">
                     <p><span className="text-pink-400 font-bold">1.</span> Pick a Creator above to load their real crafting inventory (beads, strings, charms).</p>
                     <p><span className="text-pink-400 font-bold">2.</span> Tap parts to add them to Your Build — the price totals automatically as you design.</p>
                     <p><span className="text-pink-400 font-bold">3.</span> Describe your vision (colors, pattern, sizing) and hit Submit Build.</p>
@@ -4561,7 +4602,7 @@ const DurationPicker = ({ label, valueMs, onSet }) => {
 const TUTORIAL_STEPS = [
     { tut: null, title: 'Welcome to RaveKandi! 🌈', body: "Let's take a 30-second tour of the app. We'll show you the main features — tap Next to begin!", center: true },
     { tut: 'feed', title: 'The Feed 🛍️', body: "This is the community marketplace. Every post is an item a raver is selling or showing off — kandi, gear, custom pieces. Tap a post to view or buy, tap a @name to visit their profile." },
-    { tut: 'shop', title: 'The Shop 🏪', body: "Browse and filter everything for sale, or head to the DIY tab to request a custom piece from a creator. This is also where you list your own items to sell!" },
+    { tut: 'shop', title: 'The Custom Lab 🧪', body: "This is where custom creations happen! Use the AI Design Lab to plan a piece (materials, cost & build time), or the DIY tab to request a custom build from a Creator. You can also list your own items to sell here." },
     { tut: 'profile', title: 'Your Profile 👤', body: "Your home base. Set up your shop, pin your best pieces, show your collection, earn badges, and manage your settings. Your Friend UID here is also your referral code!" },
     { tut: 'inbox', title: 'Inbox & Notifications 📬', body: "Message other ravers, get notified about sales, friend requests, comments and more. Tap a notification to jump straight to it." },
     { tut: 'cart', title: 'Your Cart 🛒', body: "Items you're ready to buy land here. (Heads up: payments are in test mode during Alpha.)" },
@@ -6329,7 +6370,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
                 <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} onClose={() => setModals({...modals, vibeTribe: false})} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
-                <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" />
+                <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" zClass="z-[200]" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
@@ -6631,7 +6672,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.02.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7180,7 +7221,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.02.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7301,7 +7342,7 @@ cat << 'EOF' >> src/App.js
                 <div className="flex gap-3 items-end">
                     <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
                     <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
-                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><ShoppingBag className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Shop</span></button>
+                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><FlaskConical className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Custom Lab</span></button>
                     <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
                     <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
                 </div>
@@ -7499,7 +7540,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.02.00 Phase 55: expanded font styles + effects (flowmetal/iridescent/trippy/chromatic/holo) + custom gradient & shimmer colors</span>
+                    <span className="flex-1 text-center">V63.03.00 Phase 55: font scrollboxes + pin-X z-fix + Custom Lab rebrand + DIY header + radio neon borders + background audio</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7694,9 +7735,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.02.00)..."
-sed -i "s/versionCode 1/versionCode 127/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.02.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.03.00)..."
+sed -i "s/versionCode 1/versionCode 128/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.03.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7743,7 +7784,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_02_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_03_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
