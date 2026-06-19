@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.03.00 Build Script Starting"
+echo " RaveKandi V63.03.02 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.03.00</title>
+    <title>RaveKandi V63.03.02</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -149,7 +149,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.02'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -350,7 +350,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.03.00';
+const APP_VERSION = '63.03.02';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -2573,7 +2573,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.02'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -4028,33 +4028,37 @@ EOF
 
 # Block 13
 cat << 'EOF' >> src/App.js
-const CreatorSelectCarousel = ({ onSelectCreator }) => {
+const CreatorSelectCarousel = ({ onSelectCreator, selectedId }) => {
     const [creators, setCreators] = useState([]);
-    const [activeId, setActiveId] = useState(null);
+    const [stScroll, setStScroll] = useState({ thumb: 50, top: 0 });
+    const gridRef = useRef(null);
 
     useEffect(() => {
         const q = query(collection(db, 'artifacts', appId, 'users'), where('isKandiCreator', '==', true));
         getDocs(q).then(snap => setCreators(snap.docs.map(d => ({...d.data(), id: d.id}))));
     }, []);
 
-    const handleSelect = (c) => {
-        setActiveId(c.id);
-        onSelectCreator(c);
-    };
+    if (creators.length === 0) return <div className="text-center p-4 text-[10px] opacity-50 border border-white/10 rounded mb-2">No active Kandi Creators found.</div>;
 
-    if (creators.length === 0) return <div className="text-center p-4 text-[10px] opacity-50 border border-white/10 rounded mb-4">No active Kandi Creators found.</div>;
-
+    // 2 rows of 4 visible; vertical scroll for the rest, with a visible scroll-wheel track.
     return (
-        <div className="mb-4">
-            <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2">1. Choose a Verified Creator</h4>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-                {creators.map(c => (
-                    <div key={c.id} onClick={() => handleSelect(c)} className={`shrink-0 w-24 p-2 rounded-xl border flex flex-col items-center cursor-pointer transition-colors ${activeId === c.id ? 'bg-pink-500/20 border-pink-500' : 'bg-black/50 border-white/10 hover:bg-white/5'}`}>
-                        <img src={c.photoURL || 'https://placehold.co/50'} className="w-10 h-10 rounded-full mb-1 object-cover border border-white/20"/>
-                        <p className="text-[8px] font-bold truncate w-full text-center">{c.displayName}</p>
-                        <p className="text-[7px] opacity-50 flex items-center gap-1"><Award size={8}/> {c.completedTrades || 0}</p>
+        <div className="mb-2">
+            <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center justify-between"><span>Choose a Verified Creator</span>{creators.length > 8 && <span className="text-[8px] opacity-50 normal-case font-normal flex items-center gap-1">scroll <ChevronDown size={10} className="animate-bounce"/></span>}</h4>
+            <div className="relative border-2 border-pink-500/40 rounded-xl bg-black/40 p-2" style={{ boxShadow: '0 0 10px rgba(236,72,153,0.3) inset' }}>
+                <div ref={gridRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(20, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="grid grid-cols-4 gap-2 overflow-y-auto rk-scroll pr-3 overscroll-contain" style={{ maxHeight: '188px', WebkitOverflowScrolling: 'touch' }}>
+                    {creators.map(c => (
+                        <div key={c.id} onClick={() => onSelectCreator(c)} className={`p-2 rounded-xl border flex flex-col items-center cursor-pointer transition-colors ${selectedId === c.id ? 'bg-pink-500/20 border-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-black/50 border-white/10 hover:bg-white/5'}`}>
+                            <img src={c.photoURL || 'https://placehold.co/50'} className="w-10 h-10 rounded-full mb-1 object-cover border border-white/20"/>
+                            <p className="text-[8px] font-bold truncate w-full text-center">{c.displayName}</p>
+                            <p className="text-[7px] opacity-50 flex items-center gap-1"><Award size={8}/> {c.completedTrades || 0}</p>
+                        </div>
+                    ))}
+                </div>
+                {creators.length > 8 && (
+                    <div className="absolute right-1 top-2 bottom-2 w-1.5 rounded-full bg-white/10 pointer-events-none">
+                        <div className="w-full rounded-full bg-pink-500/70 transition-all duration-75" style={{ height: stScroll.thumb + '%', marginTop: stScroll.top + '%' }}/>
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );
@@ -4103,31 +4107,31 @@ const DIYBuilder = ({ onSubmitRequest }) => {
 
     return ( 
         <div className="flex flex-col gap-4">
-            <Card className="p-6 text-center border-cyan-500/30">
-                <Hammer size={48} className="mx-auto mb-4 text-cyan-400"/>
-                <h2 className="text-2xl font-bold mb-1 uppercase">DIY Build Lab</h2>
+            <Card className="p-5 text-center border-cyan-500/30">
+                <Hammer size={44} className="mx-auto mb-2 text-cyan-400"/>
+                <h2 className="text-2xl font-bold uppercase">DIY Build Lab</h2>
                 <p className="text-[10px] opacity-60 mb-3">Custom kandi · Bracelets · Cuffs · Sets — built by real Creators</p>
-            </Card>
-            <Card className="border-cyan-500/30">
-                <h3 className="font-black uppercase text-base text-cyan-400 mb-2 italic tracking-widest">How DIY Builds Work</h3>
-                <div className="text-sm text-gray-100 space-y-2 leading-relaxed">
-                    <p><span className="text-pink-400 font-bold">1.</span> Pick a Creator above to load their real crafting inventory (beads, strings, charms).</p>
-                    <p><span className="text-pink-400 font-bold">2.</span> Tap parts to add them to Your Build — the price totals automatically as you design.</p>
-                    <p><span className="text-pink-400 font-bold">3.</span> Describe your vision (colors, pattern, sizing) and hit Submit Build.</p>
-                    <p><span className="text-pink-400 font-bold">4.</span> Track your request in your Collection — Pending → Active → Completed as the Creator works.</p>
-                    <p><span className="text-pink-400 font-bold">5.</span> ⚖ Fairness window: a requested Creator gets <strong>24–72h</strong> (scaled by price & complexity) to accept before your request automatically opens to ALL Creators.</p>
+                <div className="border-t border-cyan-500/20 pt-3 text-left">
+                    <h3 className="font-black uppercase text-sm text-cyan-400 mb-1.5 italic tracking-widest">How DIY Builds Work</h3>
+                    <div className="text-[13px] text-gray-100 space-y-0.5 leading-snug">
+                        <p><span className="text-pink-400 font-bold">1.</span> Pick a Creator above to load their real crafting inventory (beads, strings, charms).</p>
+                        <p><span className="text-pink-400 font-bold">2.</span> Tap parts to add them to Your Build — the price totals automatically as you design.</p>
+                        <p><span className="text-pink-400 font-bold">3.</span> Describe your vision (colors, pattern, sizing) and hit Submit Build.</p>
+                        <p><span className="text-pink-400 font-bold">4.</span> Track your request in your Collection — Pending → Active → Completed as the Creator works.</p>
+                        <p><span className="text-pink-400 font-bold">5.</span> ⚖ Fairness window: a requested Creator gets <strong>24–72h</strong> (scaled by price & complexity) to accept before your request automatically opens to ALL Creators.</p>
+                    </div>
                 </div>
             </Card>
-            <div className="text-center my-2"><p className="text-xs text-gray-100">Step 1: Choose an <strong className="text-cyan-400">individual Creator</strong> below…</p></div>
-            <CreatorSelectCarousel onSelectCreator={(c) => { setActiveCreator(c); setOpenMode(false); }} />
-
-            <div className="flex items-center gap-3 my-3"><div className="flex-1 h-px bg-white/15"/><span className="text-sm font-black text-yellow-300 uppercase tracking-widest" style={{ filter: 'drop-shadow(0 0 6px rgba(250,204,21,0.5))' }}>— OR —</span><div className="flex-1 h-px bg-white/15"/></div>
-            <p className="text-center text-xs text-gray-100 mb-2">…<strong className="text-lime-300">open your request to ALL Creators</strong> at once:</p>
-
-            <button onClick={() => { const next = !openMode; setOpenMode(next); if (next) setActiveCreator(null); }} className={`w-full p-3 rounded-xl border-2 border-dashed font-black uppercase text-xs tracking-widest transition-all ${openMode ? 'border-lime-400 bg-lime-900/30 text-lime-300 shadow-[0_0_15px_rgba(163,230,53,0.4)]' : 'border-white/20 bg-white/5 text-white/60 hover:bg-white/10'}`}>
-                📢 All Inventory / Open Request to ALL Creators {openMode && '✓ ACTIVE'}
-            </button>
-            {openMode && <p className="text-[9px] text-lime-300/80 -mt-2 px-1">Open mode: your request goes straight to the Awaiting Creator queue where every Creator can see and accept it. Add parts from the shared inventory (if available) or just describe your vision and set a budget.</p>}
+            <div className="flex flex-col gap-1.5">
+                <div className="text-center"><p className="text-xs text-gray-100">Step 1: Choose an <strong className="text-cyan-400">individual Creator</strong> below…</p></div>
+                <CreatorSelectCarousel selectedId={openMode ? null : activeCreator?.id} onSelectCreator={(c) => { setActiveCreator(c); setOpenMode(false); }} />
+                <div className="flex items-center gap-3"><div className="flex-1 h-px bg-white/15"/><span className="text-2xl font-black text-yellow-300 uppercase tracking-widest" style={{ filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.6))' }}>— OR —</span><div className="flex-1 h-px bg-white/15"/></div>
+                <p className="text-center text-xs text-gray-100">…<strong className="text-lime-300">open your request to ALL Creators</strong> at once:</p>
+                <button onClick={() => { const next = !openMode; setOpenMode(next); if (next) setActiveCreator(null); }} className={`w-full p-3 rounded-xl border-2 border-dashed font-black uppercase text-xs tracking-widest transition-all ${openMode ? 'border-lime-400 bg-lime-900/30 text-lime-300 shadow-[0_0_15px_rgba(163,230,53,0.4)]' : 'border-white/20 bg-white/5 text-white/60 hover:bg-white/10'}`}>
+                    📢 All Inventory / Open Request to ALL Creators {openMode && '✓ ACTIVE'}
+                </button>
+                {openMode && <p className="text-[9px] text-lime-300/80 px-1">Open mode: your request goes straight to the Awaiting Creator queue where every Creator can see and accept it. Add parts from the shared inventory (if available) or just describe your vision and set a budget.</p>}
+            </div>
             
             <div className="flex flex-col md:flex-row gap-4">
                 {success && (
@@ -6672,7 +6676,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.02</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7221,7 +7225,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.02</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7339,12 +7343,12 @@ cat << 'EOF' >> src/App.js
             <div className="sticky top-0 z-50" ref={topBarRef}>
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
                 <div data-tut="home" onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
-                <div className="flex gap-3 items-end">
-                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[10px] font-bold uppercase tracking-wide text-white/80">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
-                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
-                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1"><FlaskConical className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Custom Lab</span></button>
-                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/><span className={`text-[10px] font-bold uppercase tracking-wide ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
-                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/><span className="text-[10px] font-bold uppercase tracking-wide text-lime-400/80">Cart</span></button>
+                <div className="flex gap-2 items-start">
+                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group w-12"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[9px] font-bold uppercase tracking-wide text-white/80 leading-none">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
+                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
+                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><FlaskConical className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-tight leading-none text-center ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Custom<br/>Lab</span></button>
+                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
+                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/></span><span className="text-[9px] font-bold uppercase tracking-wide leading-none text-lime-400/80">Cart</span></button>
                 </div>
             </header>
             {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
@@ -7540,7 +7544,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.03.00 Phase 55: font scrollboxes + pin-X z-fix + Custom Lab rebrand + DIY header + radio neon borders + background audio</span>
+                    <span className="flex-1 text-center">V63.03.02 Phase 55: DIY tab layout (merged lab+info card, 2x4 scrollable creators, condensed OR, creator/all-mode deselect)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7735,9 +7739,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.03.00)..."
-sed -i "s/versionCode 1/versionCode 128/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.03.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.03.02)..."
+sed -i "s/versionCode 1/versionCode 130/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.03.02"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7784,7 +7788,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_03_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_03_02_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
