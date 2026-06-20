@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.03.02 Build Script Starting"
+echo " RaveKandi V63.03.04 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.03.02</title>
+    <title>RaveKandi V63.03.04</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -30,7 +30,14 @@ cat << 'EOF' > public/index.html
     <meta name="theme-color" content="#0f001e">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      body { background-color: #0a0014; color: white; margin: 0; padding: 0; }
+      body { background-color: #0a0014; color: white; margin: 0; padding: 0; -ms-overflow-style: none; }
+      /* V63: hide the native page scrollbar app-wide (scrolling still works). The .rk-scroll
+         picker boxes opt back IN to a visible bar below. */
+      html, body { scrollbar-width: none; }
+      html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+      /* V63: lock horizontal scrolling — the page can only scroll up/down, never left/right. */
+      html, body { overflow-x: hidden; max-width: 100%; width: 100%; overscroll-behavior-x: none; }
+      #root { overflow-x: hidden; max-width: 100%; }
       @keyframes rkMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
       .rk-marquee-track { display: flex; width: max-content; animation: rkMarquee 60s linear infinite; will-change: transform; }
       @keyframes rkGhostFlash { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
@@ -149,7 +156,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.02'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.04'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -350,7 +357,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.03.02';
+const APP_VERSION = '63.03.04';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -2573,7 +2580,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.02'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.04'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -6676,7 +6683,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.02</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.04</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7225,7 +7232,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.02</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.04</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7341,14 +7348,14 @@ cat << 'EOF' >> src/App.js
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} />
 
             <div className="sticky top-0 z-50" ref={topBarRef}>
-            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-end justify-between">
-                <div data-tut="home" onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-2"><Zap className="text-yellow-400" size={34} fill="currentColor"/><h1 className="text-2xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
-                <div className="flex gap-2 items-start">
-                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group w-12"><span className="rk-msg-icon w-11 h-11 rounded-xl flex items-center justify-center"><Mail size={24} className="text-white drop-shadow"/></span><span className="text-[9px] font-bold uppercase tracking-wide text-white/80 leading-none">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
-                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
-                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><FlaskConical className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-tight leading-none text-center ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Custom<br/>Lab</span></button>
-                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={28}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
-                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1 w-12"><span className="h-11 flex items-center"><ShoppingCart className="text-lime-400 shadow-neon-green" size={28}/></span><span className="text-[9px] font-bold uppercase tracking-wide leading-none text-lime-400/80">Cart</span></button>
+            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-2 py-3 flex items-end justify-between gap-1">
+                <div data-tut="home" onClick={() => setPage('home')} className="flex flex-col items-start cursor-pointer transition-transform active:scale-95 pb-1"><div className="flex items-center gap-1.5"><Zap className="text-yellow-400" size={28} fill="currentColor"/><h1 className="text-xl font-black italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff' }}>RaveKandi</h1></div><span className="text-[8px] text-white/50 uppercase tracking-wide pl-1">tap for home</span></div>
+                <div className="flex gap-1 items-start">
+                    <button data-tut="inbox" onClick={() => setMsgOpen(true)} className="relative flex flex-col items-center gap-1 group w-11"><span className="rk-msg-icon w-10 h-10 rounded-xl flex items-center justify-center"><Mail size={22} className="text-white drop-shadow"/></span><span className="text-[9px] font-bold uppercase tracking-wide text-white/80 leading-none">Inbox</span>{inboxBadge > 0 && <span className="absolute -top-1.5 -right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1 min-w-[16px] text-center">{inboxBadge > 99 ? '99+' : inboxBadge}</span>}</button>
+                    <button data-tut="feed" onClick={() => setPage('feed')} className="flex flex-col items-center gap-1 w-11"><span className="h-10 flex items-center"><LayoutList className={page==='feed'?'text-pink-500 shadow-neon-pink':'text-white/80'} size={26}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='feed'?'text-pink-400':'text-white/60'}`}>Feed</span></button>
+                    <button data-tut="shop" onClick={() => setPage('shop')} className="flex flex-col items-center gap-1 w-11"><span className="h-10 flex items-center"><FlaskConical className={page==='shop'?'text-cyan-400 shadow-neon-blue':'text-white/80'} size={26}/></span><span className={`text-[9px] font-bold uppercase tracking-tight leading-none text-center ${page==='shop'?'text-cyan-400':'text-white/60'}`}>Custom<br/>Lab</span></button>
+                    <button data-tut="profile" onClick={() => setPage('profile')} className="flex flex-col items-center gap-1 w-11"><span className="h-10 flex items-center"><User className={page==='profile'?'text-purple-500 shadow-neon-purple':'text-white/80'} size={26}/></span><span className={`text-[9px] font-bold uppercase tracking-wide leading-none ${page==='profile'?'text-purple-400':'text-white/60'}`}>Profile</span></button>
+                    <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1 w-11"><span className="h-10 flex items-center"><ShoppingCart className="text-lime-400 shadow-neon-green" size={26}/></span><span className="text-[9px] font-bold uppercase tracking-wide leading-none text-lime-400/80">Cart</span></button>
                 </div>
             </header>
             {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
@@ -7544,7 +7551,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.03.02 Phase 55: DIY tab layout (merged lab+info card, 2x4 scrollable creators, condensed OR, creator/all-mode deselect)</span>
+                    <span className="flex-1 text-center">V63.03.04 Phase 55: lock horizontal page scroll (no left/right scroll)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7739,9 +7746,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.03.02)..."
-sed -i "s/versionCode 1/versionCode 130/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.03.02"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.03.04)..."
+sed -i "s/versionCode 1/versionCode 132/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.03.04"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7788,7 +7795,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_03_02_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_03_04_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
