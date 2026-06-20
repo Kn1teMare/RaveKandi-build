@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.03.04 Build Script Starting"
+echo " RaveKandi V63.04.01 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.03.04</title>
+    <title>RaveKandi V63.04.01</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -156,7 +156,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.03.04'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.04.01'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -357,7 +357,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.03.04';
+const APP_VERSION = '63.04.01';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -1776,7 +1776,7 @@ const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) =>
             try {
                 const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', myUid)));
                 // Only real listed items — exclude DIY requests, open requests, and design concepts.
-                const rows = snap.docs.map(d => ({ ...d.data(), id: d.id })).filter(i => !i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept);
+                const rows = snap.docs.map(d => ({ ...d.data(), id: d.id })).filter(i => !i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept && !i.isHidden);
                 setItems(rows);
             } catch (e) { setItems([]); } finally { setLoading(false); }
         })();
@@ -2580,7 +2580,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.03.04'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.04.01'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3673,16 +3673,50 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) =>
 
     const handleDelete = async () => {
         if(item.purchaseCount > 0 || item.trackingNumber || (item.status === 'approved' && item.isDIYRequest)) {
-            return alert("Cannot delete an item that has active purchases, tracking, or an accepted Creator commision.");
+            return alert("Cannot delete an item that has active purchases, tracking, or an accepted Creator commission. Tip: if the sale is finished, use \"Mark Sold & Hide\" to remove it from view instead.");
         }
-        if(!window.confirm("Permanently delete this post?")) return;
-        const batch = writeBatch(db);
-        
-        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id)); } catch(e){}
-        if(item.refId) { try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId)); } catch(e){} }
-        else { try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.id)); } catch(e){} }
-        
+        if(!window.confirm("Permanently delete this post? This cannot be undone.\n\n(If a sale is complete, consider \"Mark Sold & Hide\" instead so your records stay intact.)")) return;
+        // Delete the public listing first — surface any permission error instead of hiding it.
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id));
+        } catch (e) {
+            console.log('delete tradeItem failed', e);
+            alert("Couldn't delete this post: " + (e.message || 'permission error') + "\n\nIf this keeps happening, use \"Mark Sold & Hide\" to hide it instead.");
+            return;
+        }
+        // Best-effort cleanup of the mirrored inventory doc (non-fatal if it's already gone).
+        const invId = item.refId || item.id;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', invId)); } catch (e) { console.log('inventory cleanup', e); }
         onClose();
+    };
+
+    // V63: re-list a previously hidden post — makes it visible again in the feed and collections.
+    const handleUnhide = async () => {
+        if (!window.confirm("Unhide this post?\n\nIt will show in the feed and your collection again. If it was a finished sale, only unhide if you still have it available.")) return;
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { isHidden: false, hiddenAt: null });
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId || item.id), { isHidden: false }, { merge: true }); } catch (e) {}
+            alert("Post unhidden — it's visible again. (Heads up: stock is still 0 if it was marked sold; edit the post to set stock if you're re-listing.)");
+            onClose();
+        } catch (e) {
+            console.log('unhide post failed', e);
+            alert("Couldn't unhide this post: " + (e.message || 'permission error'));
+        }
+    };
+
+    // V63: soft-hide a completed/sold post. Keeps the record but removes it from the feed and
+    // from every collection view. Owner-only; works even when hard-delete is blocked.
+    const handleHidePost = async () => {
+        if (!window.confirm("Mark this post as SOLD and hide it?\n\nIt will be removed from the feed and your public collection, but kept in your records. You can't re-list a hidden post.")) return;
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 });
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId || item.id), { isHidden: true }, { merge: true }); } catch (e) {}
+            alert("Post hidden. It's gone from the feed and collections but saved in your records.");
+            onClose();
+        } catch (e) {
+            console.log('hide post failed', e);
+            alert("Couldn't hide this post: " + (e.message || 'permission error'));
+        }
     };
 
     const submitReview = async () => {
@@ -3813,6 +3847,8 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) =>
                         <div className="flex justify-between items-center mb-2">
                             <button onClick={() => setShowMore(!showMore)} className="flex items-center gap-2 text-xs text-lime-400 font-bold">{showMore ? "Hide" : "Show"} Stats <MoreHorizontal size={12}/></button>
                             <div className="flex gap-2">
+                                {!item.isHidden && <button onClick={handleHidePost} title="Mark sold & hide" className="text-yellow-300 bg-yellow-900/30 p-1 rounded flex items-center gap-1"><EyeOff size={14}/><span className="text-[9px] font-bold">Sold &amp; Hide</span></button>}
+                                {item.isHidden && <button onClick={handleUnhide} title="Unhide / re-list this post" className="text-lime-300 bg-lime-900/30 p-1 rounded flex items-center gap-1"><Eye size={14}/><span className="text-[9px] font-bold">Unhide</span></button>}
                                 <button onClick={() => setIsEditing(true)} className="text-cyan-400 bg-cyan-900/30 p-1 rounded"><Edit size={14}/></button>
                                 <button onClick={handleDelete} className="text-red-400 bg-red-900/30 p-1 rounded"><Trash2 size={14}/></button>
                             </div>
@@ -3833,11 +3869,13 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) =>
 const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false, hideDIY = false }) => {
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
+    const [showHidden, setShowHidden] = useState(false); // owner-only: reveal hidden/sold posts to unhide them
 
     const targetUid = user?.uid;
     useEffect(() => {
         if(!isOpen || !targetUid) return;
-        const filterBroken = (arr) => arr.filter(i => {
+        const filterBroken = (arr, allowHidden) => arr.filter(i => {
+            if (i.isHidden && !allowHidden) return false; // V63: hidden (sold) posts removed from views unless the owner opts to show them
             if (i.status === 'failed' || i.status === 'generating') return i.status === 'generating';
             if (i.isAICreation) { const img = i.imageUrl || i.mediaUrls?.[0]?.url || ''; return typeof img === 'string' && (img.startsWith('data:') || img.startsWith('http')); }
             return true;
@@ -3861,20 +3899,26 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
         return onSnapshot(q, s => {
             let allItems = s.docs.map(d => ({...d.data(), id: d.id}));
             allItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-            const usable = filterBroken(allItems);
+            const usable = filterBroken(allItems, showHidden);
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
         }, e => { console.log('collection load:', e); setItems([]); });
-    }, [isOpen, targetUid, type, readOnly, hideDIY]);
+    }, [isOpen, targetUid, type, readOnly, hideDIY, showHidden]);
     
     if(!isOpen) return null;
     return (
         <>
             <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
+                {!readOnly && type === 'posts' && (
+                    <button onClick={() => setShowHidden(!showHidden)} className={`w-full mb-3 flex items-center justify-center gap-2 py-2 rounded-lg border text-[11px] font-bold transition ${showHidden ? 'bg-yellow-900/30 border-yellow-500/40 text-yellow-300' : 'bg-white/5 border-white/15 text-white/60 hover:bg-white/10'}`}>
+                        {showHidden ? <Eye size={14}/> : <EyeOff size={14}/>} {showHidden ? 'Showing hidden/sold posts — tap any to unhide' : 'Show hidden / sold posts'}
+                    </button>
+                )}
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
                     {items.map(item => (
-                        <div key={item.id} onClick={() => setSelectedItem(item)} className={`bg-white/5 p-2 rounded-lg border flex flex-col relative group cursor-pointer hover:bg-white/10 ${item.status === 'generating' ? 'border-yellow-500/50' : 'border-white/10'}`}>
+                        <div key={item.id} onClick={() => setSelectedItem(item)} className={`bg-white/5 p-2 rounded-lg border flex flex-col relative group cursor-pointer hover:bg-white/10 ${item.isHidden ? 'border-yellow-500/40 opacity-60' : item.status === 'generating' ? 'border-yellow-500/50' : 'border-white/10'}`}>
+                            {item.isHidden && <span className="absolute top-1 left-1 z-10 text-[7px] font-black uppercase bg-yellow-500/80 text-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><EyeOff size={8}/> Hidden</span>}
                             {item.status === 'generating' ? (
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[8px] text-yellow-400">Processing...</span></div>
                             ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
@@ -6683,7 +6727,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.03.04</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.04.01</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7148,6 +7192,7 @@ const App = () => {
     );
     
     const filteredItems = items.filter(i => {
+        if(i.isHidden) return false; // V63: sold & hidden posts never show in the feed
         if(i.status === 'pending' || i.status === 'request') return false; 
         if(i.isDIYRequest || i.isRequest) return false; 
         if(filters.searchUid && i.ownerPublicUid !== filters.searchUid && i.ownerId !== filters.searchUid) return false;
@@ -7232,7 +7277,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.03.04</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.04.01</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7377,9 +7422,10 @@ cat << 'EOF' >> src/App.js
                 className={`fixed z-40 w-16 h-16 rounded-full flex flex-col items-center justify-center border-2 transition-colors touch-none cursor-grab active:cursor-grabbing ${isRadioPlaying ? 'rk-radio-on border-lime-300' : 'rk-radio-off border-red-400'}`}
                 style={{ left: radioBtnPos.x + 'px', top: radioBtnPos.y + 'px' }}
                 title="Rave Radio — drag to move, tap to open">
-                <Radio size={18} className="text-white drop-shadow pointer-events-none -mb-0.5"/>
+                <Radio size={16} className="text-white drop-shadow pointer-events-none -mb-0.5"/>
                 <span className="text-[6px] font-black uppercase tracking-tight text-white/90 leading-none pointer-events-none">Rave Radio</span>
-                <span className={`text-[9px] font-black leading-none pointer-events-none mt-0.5 ${isRadioPlaying ? 'text-lime-200' : 'text-red-200'}`}>{isRadioPlaying ? 'ON' : 'OFF'}</span>
+                <span className={`text-[8px] font-black leading-none pointer-events-none ${isRadioPlaying ? 'text-lime-200' : 'text-red-200'}`}>{isRadioPlaying ? 'ON' : 'OFF'}</span>
+                <span className="text-[5px] uppercase tracking-tight text-white/60 leading-none pointer-events-none mt-0.5">drag to move</span>
             </button>
             {bannerMsgActive ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
             {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
@@ -7551,7 +7597,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.03.04 Phase 55: lock horizontal page scroll (no left/right scroll)</span>
+                    <span className="flex-1 text-center">V63.04.01 Phase 56: unhide posts (Show Hidden toggle + Unhide button)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7746,9 +7792,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.03.04)..."
-sed -i "s/versionCode 1/versionCode 132/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.03.04"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.04.01)..."
+sed -i "s/versionCode 1/versionCode 135/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.04.01"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7795,7 +7841,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_03_04_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_04_01_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
