@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.04.01 Build Script Starting"
+echo " RaveKandi V63.05.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.04.01</title>
+    <title>RaveKandi V63.05.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -156,7 +156,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.04.01'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.05.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -357,7 +357,7 @@ const trackUniqueVisit = async () => {
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
 let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.04.01';
+const APP_VERSION = '63.05.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -684,7 +684,14 @@ const parseVideoLink = (raw) => {
             if (isVid) return { ok: true, platform: 'facebook', embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(s) + '&autoplay=1&mute=1&width=560', watchUrl: s };
             return { ok: false, reason: 'Use a direct Facebook video or Reel link.' };
         }
-        return { ok: false, reason: 'Only YouTube, TikTok, Instagram, and Facebook clip links are supported.' };
+        // Twitter / X — accept status (tweet) links. X disallows raw iframe video embeds, so we
+        // store it as a watch link (clip opens on X); still verified & profile button shows.
+        if (host === 'twitter.com' || host === 'x.com' || host === 'mobile.twitter.com') {
+            const m = u.pathname.match(/\/([A-Za-z0-9_]+)\/status\/(\d+)/);
+            if (m) return { ok: true, platform: 'twitter', embedUrl: null, watchUrl: 'https://x.com/' + m[1] + '/status/' + m[2] };
+            return { ok: false, reason: 'Use a direct X/Twitter post (status) link.' };
+        }
+        return { ok: false, reason: 'Only YouTube, TikTok, Instagram, Facebook, and X/Twitter clip links are supported.' };
     } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
 };
 
@@ -2580,7 +2587,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.04.01'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.05.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -4534,7 +4541,7 @@ const ForceClipPanel = ({ cfg, setCfg }) => {
     const parsed = url.trim() ? parseVideoLink(url) : null;
 
     const pushForced = async () => {
-        if (!parsed || !parsed.ok) { alert('Paste a valid YouTube, TikTok, Instagram, or Facebook clip link first.'); return; }
+        if (!parsed || !parsed.ok) { alert('Paste a valid YouTube, TikTok, Instagram, Facebook, or X/Twitter clip link first.'); return; }
         setBusy(true);
         try {
             const W = (parseInt(mins) || 30) * 60000;
@@ -4881,7 +4888,7 @@ const RemoteConfigPanel = () => {
             </div>
             <Input label="Minimum Version (e.g. 42.11.00 — blank = no gate)" value={cfg.minVersion || ''} onChange={v => setCfg({ ...cfg, minVersion: v })}/>
             <div>
-                <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Festival Clip Window (slot length)</label>
+                <label className="text-[10px] font-bold text-pink-300 uppercase block mb-1">🎬 Rave Clip Window (slot length)</label>
                 <select value={cfg.videoWindowMin || 30} onChange={e => setCfg({ ...cfg, videoWindowMin: parseInt(e.target.value) })} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
                     {[1,5,10,15,30,45,60,90,120].map(m => <option key={m} value={m}>{m} minute{m>1?'s':''} per clip</option>)}
                 </select>
@@ -4941,7 +4948,7 @@ const RemoteConfigPanel = () => {
             <p className="text-[8px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
             <p className="text-[8px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
             <div className="border-t border-white/10 pt-3 mt-2">
-                <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Festival Spotlight Control</h4>
+                <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Rave Spotlight Control</h4>
                 <ForceClipPanel cfg={cfg} setCfg={setCfg} />
                 <p className="text-[8px] opacity-50 mt-1">Placeholder settings save with the button below. Forced clips push live immediately.</p>
             </div>
@@ -4965,6 +4972,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
     const [vipUnit, setVipUnit] = useState('months');
     const [forceBadgeId, setForceBadgeId] = useState('');
     const [statEdits, setStatEdits] = useState({});
+    const [clipMaxEdit, setClipMaxEdit] = useState('');
     const [batchRate, setBatchRate] = useState('');
     const [batchBusy, setBatchBusy] = useState(false);
 
@@ -5047,7 +5055,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             else setUserMatches(matches); // show a picker
         } catch (e) { alert(e.message); }
     };
-    const pickUser = (u) => { setManagedUser(u); setRevPct(u.customRevSharePct ?? ''); setUserMatches([]); setStatEdits({}); setForceBadgeId(''); };
+    const pickUser = (u) => { setManagedUser(u); setRevPct(u.customRevSharePct ?? ''); setUserMatches([]); setStatEdits({}); setForceBadgeId(''); setClipMaxEdit(typeof u.videoMaxDaily === 'number' ? String(u.videoMaxDaily) : ''); };
 
     const toggleCreator = async (grant) => {
         if (!managedUser) return;
@@ -5245,6 +5253,17 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                     <Button onClick={forceVipPermanent} color="gold" className="flex-1 text-[10px]">👑 Permanent VIP</Button>
                                     <Button onClick={() => setVipFor(managedUser.id, managedUser.displayName, false)} color="accent" className="flex-1 text-[10px]">Remove VIP</Button>
                                 </div>
+                            </div>
+
+                            <div className="mt-3 pt-3 border-t border-white/10">
+                                <p className="text-[9px] font-black uppercase text-pink-300 mb-1">🎬 Rave Clip Limit</p>
+                                <p className="text-[8px] opacity-60 mb-2">Used today: <strong>{managedUser.videoDay === todayKey() ? (managedUser.videoCountToday || 0) : 0}</strong> · Daily max: <strong>{typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4}</strong> {typeof managedUser.videoMaxDaily === 'number' ? '(custom)' : '(default)'}</p>
+                                <div className="flex gap-2 items-center mb-2">
+                                    <input value={clipMaxEdit} onChange={e => setClipMaxEdit(e.target.value)} type="number" min="0" max="99" placeholder="4" className="bg-black border border-white/20 text-[10px] p-2 rounded w-16"/>
+                                    <Button onClick={async () => { const v = parseInt(clipMaxEdit); if (isNaN(v) || v < 0) { alert('Enter a number (0 or more).'); return; } try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoMaxDaily: v }, { merge: true }); setManagedUser({ ...managedUser, videoMaxDaily: v }); alert('Set ' + (managedUser.displayName || 'user') + "'s daily clip max to " + v + '.'); } catch (e) { alert('Failed: ' + e.message); } }} color="cyan" className="text-[10px]">Set Max</Button>
+                                    <Button onClick={async () => { try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoMaxDaily: null }, { merge: true }); const m = { ...managedUser }; delete m.videoMaxDaily; setManagedUser(m); setClipMaxEdit(''); alert('Reset to default (4/day).'); } catch (e) { alert('Failed: ' + e.message); } }} color="accent" className="text-[10px]">Default</Button>
+                                </div>
+                                <Button onClick={async () => { const max = typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4; if (!window.confirm("Hard reset " + (managedUser.displayName || 'user') + "'s clip count? This sets clips-used-today back to 0, giving them their full " + max + " clips for today.")) return; try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoDay: todayKey(), videoCountToday: 0 }, { merge: true }); setManagedUser({ ...managedUser, videoDay: todayKey(), videoCountToday: 0 }); alert('Clip count hard reset — they have their full ' + max + ' clips for today.'); } catch (e) { alert('Failed: ' + e.message); } }} color="primary" className="w-full text-[10px] flex items-center justify-center gap-1"><Video size={12}/> Hard Reset Clip Count (give full {typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4} today)</Button>
                             </div>
                         </div>
                         <div>
@@ -5612,7 +5631,7 @@ const HELP_TOPICS = [
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
     { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
     { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all." },
-    { cat: 'Community', title: '🎬 Festival Spotlight', content: "Share a festival clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
+    { cat: 'Community', title: '🎬 Rave Spotlight', content: "Share a rave clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
     { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
     { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. In Rave Radio chat, VIP also removes the message cooldown, lets you share your social links (limited per day), and lets you share collection items in chat. During launch perks, VIP is free for everyone." },
@@ -5919,6 +5938,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
 
     const todayKey = new Date().toDateString();
     const usedToday = profile?.videoDay === todayKey ? (profile?.videoCountToday || 0) : 0;
+    const clipMax = (typeof profile?.videoMaxDaily === 'number' && profile.videoMaxDaily >= 0) ? profile.videoMaxDaily : 4;
 
     const checkLink = () => {
         const v = parseVideoLink(link);
@@ -5928,7 +5948,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
 
     const submitVideo = async () => {
         if (!parsed) return alert('Paste your clip link and tap Check first.');
-        if (usedToday >= 4) return alert('Daily limit reached — 4 featured clips per day. Resets at midnight.');
+        if (usedToday >= clipMax) return alert('Daily limit reached — ' + clipMax + ' featured clips per day. Resets at midnight.');
         setBusy(true);
         try {
             const W = videoWindowMs();
@@ -5941,9 +5961,9 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
             let s = curStart + W;
             while (taken.has(s)) s += W;
             const assigned = [s];
-            const GRACE = Math.floor(W * 0.1); // ~10% extra time as a little bonus
             const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, platform: parsed.platform, embedUrl: parsed.embedUrl || null, watchUrl: parsed.watchUrl, caption: (caption || '').slice(0, 100), postedAt: now };
-            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W + GRACE }); }
+            // end must equal start + W exactly (an allowed window length) or the security rule rejects the write.
+            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W }); }
             await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { videoDay: todayKey, videoCountToday: usedToday + 1, videosPosted: increment(1) }, { merge: true });
             const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
             const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
@@ -5955,10 +5975,10 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
     const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Festival Clip">
+        <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Rave Clip">
             <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, or Facebook</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Festival Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
+                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, Facebook, or X/Twitter</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Rave Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
                 </div>
                 {confirmation && (
                     <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -5968,7 +5988,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
                     </div>
                 )}
                 <div>
-                    <span className="text-[10px] font-bold text-cyan-400 uppercase">Clip link (YouTube · TikTok · Instagram)</span>
+                    <span className="text-[10px] font-bold text-cyan-400 uppercase">Clip link (YouTube · TikTok · Instagram · Facebook · X)</span>
                     <div className="flex gap-1 mt-1">
                         <input value={link} onChange={e => { setLink(e.target.value); setParsed(null); }} placeholder="https://youtube.com/shorts/…" className="flex-1 p-2 rounded bg-white/10 border-2 border-white/30 text-[11px]"/>
                         <Button onClick={checkLink} color="cyan" className="px-3 text-[10px]">Check</Button>
@@ -5981,7 +6001,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
                     </div>
                 )}
                 <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={100} placeholder="Caption (optional, 100 chars)" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs"/>
-                <p className="text-[8px] opacity-50 text-right">{4 - usedToday} clips left today</p>
+                <p className="text-[8px] opacity-50 text-right">{Math.max(0, clipMax - usedToday)} clips left today</p>
                 <Button onClick={submitVideo} disabled={busy || !parsed || usedToday >= 4} color="primary" className="w-full">{busy ? 'Submitting…' : 'Feature My Clip 🎬'}</Button>
             </div>
         </Modal>
@@ -6042,7 +6062,7 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
                     <p className="text-xs text-white/40 text-center px-4">No clip featured right now — be the first to share your festival vibe!</p>
                 </div>
             )}
-            <Button onClick={onOpenSubmit} color="primary" className="w-full mt-2 text-xs flex items-center justify-center gap-2"><Video size={14}/> Feature Your Festival Clip</Button>
+            <Button onClick={onOpenSubmit} color="primary" className="w-full mt-2 text-xs flex items-center justify-center gap-2"><Video size={14}/> Feature Your Rave Clip</Button>
             {upcoming.length > 0 && <p className="text-[8px] text-center opacity-50 mt-1">⏳ {upcoming.length} clip(s) queued — yours rotates in automatically</p>}
         </div>
     );
@@ -6727,7 +6747,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.04.01</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.05.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7277,7 +7297,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.04.01</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.05.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7458,7 +7478,7 @@ cat << 'EOF' >> src/App.js
                         </div>
 
                         <div className="py-6 w-full max-w-md mx-auto">
-                            <h2 className="text-2xl font-black mb-4 italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff', backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>Festival Spotlight 🎬</h2>
+                            <h2 className="text-2xl font-black mb-4 italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff', backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>Rave Spotlight 🎬</h2>
                             <FeaturedVideoBlock user={user} profile={profile} nowTick={nowTick} onViewProfile={setViewingProfileId} onOpenSubmit={() => setVideoSubmitOpen(true)} />
                         </div>
                         
@@ -7470,7 +7490,7 @@ cat << 'EOF' >> src/App.js
 
                         <div className="max-w-md mx-auto w-full bg-black/60 border-2 border-dashed border-purple-400/50 rounded-xl p-4 text-center" style={{ boxShadow: '0 0 18px rgba(216,180,254,0.35)' }}>
                             <p className="text-lg font-black uppercase tracking-wide rk-pastel-shift bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg, #ffd1f7, #c4f0ff, #d8ffd1, #fff3c4, #ffd1f7)' }}>🎬 Share your festival vibe!</p>
-                            <p className="text-xs text-gray-100 mt-1 mb-3">Got a clip from a show — pyro, a stage moment, a kandi trade? Feature it in the Festival Spotlight above and put your profile in front of every raver.</p>
+                            <p className="text-xs text-gray-100 mt-1 mb-3">Got a clip from a show — pyro, a stage moment, a kandi trade? Feature it in the Rave Spotlight above and put your profile in front of every raver.</p>
                             <Button onClick={() => setVideoSubmitOpen(true)} color="purple" className="w-full text-xs">🎬 Feature Your Clip</Button>
                         </div>
 
@@ -7597,7 +7617,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.04.01 Phase 56: unhide posts (Show Hidden toggle + Unhide button)</span>
+                    <span className="flex-1 text-center">V63.05.00 Phase 57: fix clip submit permission + rename to Rave Clip + X/Twitter support + admin clip max/reset controls</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7792,9 +7812,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.04.01)..."
-sed -i "s/versionCode 1/versionCode 135/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.04.01"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.05.00)..."
+sed -i "s/versionCode 1/versionCode 136/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.05.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7841,7 +7861,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_04_01_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_05_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
