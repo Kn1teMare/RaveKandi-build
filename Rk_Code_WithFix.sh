@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e removed — non-zero exits from pkg/gradle killed the build silently
 echo "============================================"
-echo " RaveKandi V63.05.00 Build Script Starting"
+echo " RaveKandi V63.07.00 Build Script Starting"
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -21,7 +21,7 @@ cat << 'EOF' > public/index.html
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <title>RaveKandi V63.05.00</title>
+    <title>RaveKandi V63.07.00</title>
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json">
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -156,7 +156,7 @@ class ErrorBoundary extends React.Component {
         <div style={{ position: 'fixed', bottom: minimized ? '10px' : '0', right: minimized ? '10px' : '0', width: minimized ? 'auto' : '100%', height: minimized ? 'auto' : '100%', backgroundColor: minimized ? '#f87171' : 'rgba(0,0,0,0.95)', color: 'white', zIndex: 99999, padding: minimized ? '8px 12px' : '20px', borderRadius: minimized ? '20px' : '0', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: minimized ? '0' : '15px' }}>
             <span style={{ fontWeight: 'bold', fontSize: minimized ? '12px' : '18px', color: minimized ? 'black' : '#f87171', cursor: 'pointer' }} onClick={() => this.setState({ minimized: !minimized })}>
-              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.05.00'}
+              {minimized ? `🐞 Bugs (${errorLogs.length})` : 'System Diagnostic Log V63.07.00'}
             </span>
             {!minimized && <button onClick={() => this.setState({ minimized: true })} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>×</button>}
           </div>
@@ -247,7 +247,16 @@ const appId = 'ravekandi-core-prod';
 // V42.21 Phase 6: real shareable links that open the app. Optionally embed a referral
 // code (?ref=) so the invitee's signup auto-fills it, and an item (?item=) for deep
 // links. APP_ORIGIN is the live host so links work even when shared from the installed PWA.
-const APP_ORIGIN = (() => { try { const o = window.location.origin; return (o && o.startsWith('http')) ? o : 'https://ravekandi.web.app'; } catch (e) { return 'https://ravekandi.web.app'; } })();
+const APP_ORIGIN = (() => {
+    const REAL = 'https://ravekandi.web.app';
+    try {
+        const o = (window.location.origin || '').toLowerCase();
+        // Only trust the live web origin. APK/PWA report localhost / capacitor:// / file:// /
+        // 10.0.2.2 etc., which make broken share links — force the real domain in those cases.
+        if (o.includes('ravekandi') && o.startsWith('https://')) return window.location.origin;
+        return REAL;
+    } catch (e) { return REAL; }
+})();
 const buildShareUrl = ({ ref, item } = {}) => { const p = new URLSearchParams(); if (ref) p.set('ref', ref); if (item) p.set('item', item); const qs = p.toString(); return APP_ORIGIN + (qs ? ('/?' + qs) : '/'); };
 // Read invite params once at load (used to auto-fill referral on signup + deep-link items).
 const RK_URL_PARAMS = (() => { try { const p = new URLSearchParams(window.location.search); return { ref: p.get('ref') || '', item: p.get('item') || '' }; } catch (e) { return { ref: '', item: '' }; } })();
@@ -356,8 +365,8 @@ const trackUniqueVisit = async () => {
 };
 
 // Remote config: live-synced from artifacts/{appId}/global/config by an App listener.
-let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5 };
-const APP_VERSION = '63.05.00';
+let RK_CFG = { checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5, storyImageUrl: '', storyImageActive: false };
+const APP_VERSION = '63.07.00';
 const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0), pb = String(b).replace(/^V/i, '').split('.').map(n => parseInt(n) || 0); for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; };
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
@@ -390,6 +399,24 @@ const CONNECTION_MODE = (() => {
 // GitHub-hosted Android APK (direct download). App-store links are placeholders until launch.
 const ANDROID_APK_URL = 'https://github.com/Kn1teMare/RaveKandi-build/releases/latest';
 const WEB_APP_URL = 'https://ravekandi.web.app';
+
+// V63: Native story-sharing (Instagram/Snapchat/Facebook ADD_TO_STORY intents) is built but
+// INERT until RaveKandi is fully launched on the native app stores. Flip this to true only when
+// the Capacitor APK ships with the native story-intent plugin wired up. Until then the app uses
+// the Web Share API + download fallback everywhere (which works today, no native code needed).
+const LAUNCH_NATIVE_SHARE = false;
+// Attempt a true native "add image to story" via Capacitor plugins. Returns true if it handled
+// the share, false to let the caller fall back to Web Share / download. No-op while inert.
+const tryNativeStoryShare = async (platform, dataUrl) => {
+    if (!LAUNCH_NATIVE_SHARE) return false;
+    try {
+        if (!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) return false;
+        const plugin = window.Capacitor.Plugins && window.Capacitor.Plugins.RaveStoryShare;
+        if (!plugin || !plugin.shareToStory) return false;
+        await plugin.shareToStory({ platform, image: dataUrl });
+        return true;
+    } catch (e) { console.log('native story share failed', e); return false; }
+};
 const DAILY_AI_LIMIT = 5;
 
 const RADIO_STATIONS = [
@@ -1350,6 +1377,99 @@ const UsernameModal = ({ user, profile, isOpen, onClose }) => {
     );
 };
 
+const FriendUidModal = ({ user, profile, isOpen, onClose }) => {
+    const [val, setVal] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [ack, setAck] = useState(false);
+    const current = profile?.publicUid || user?.uid || '';
+    const alreadyChanged = !!profile?.publicUidChanged;
+
+    useEffect(() => { if (isOpen) { setVal(''); setErr(''); setAck(false); } }, [isOpen]);
+
+    const submit = async () => {
+        setErr('');
+        const nu = (val || '').trim();
+        // Same constraints used across the app: 3–24 chars, letters/numbers/_-. only.
+        if (nu.length < 3 || nu.length > 24) return setErr('UID must be 3–24 characters.');
+        if (!/^[A-Za-z0-9_.-]+$/.test(nu)) return setErr('Only letters, numbers, and _ . - are allowed (no spaces).');
+        if (nu === current) return setErr("That's already your UID.");
+        if (alreadyChanged) return setErr("You've already used your one-time UID change.");
+        if (!ack) return setErr('Please confirm you understand this is permanent.');
+        setBusy(true);
+        try {
+            // Uniqueness: reject if any other account already uses this UID (as publicUid or as a raw doc id).
+            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', nu)));
+            const takenByOther = snap.docs.some(d => d.id !== user.uid);
+            if (takenByOther) { setBusy(false); return setErr('That UID is already taken — try another.'); }
+            try { const dref = await getDoc(doc(db, 'artifacts', appId, 'users', nu)); if (dref.exists() && nu !== user.uid) { setBusy(false); return setErr('That UID is already taken — try another.'); } } catch (e) {}
+
+            const past = (profile?.pastPublicUids || []).filter(Boolean);
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), {
+                publicUid: nu,
+                publicUidChanged: true,
+                pastPublicUids: current ? [...past, current] : past,
+                publicUidChangedAt: Date.now(),
+            }, { merge: true });
+
+            // Best-effort: propagate the new UID onto the user's own posts so profile links keep working.
+            try {
+                const mine = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid)));
+                const batch = writeBatch(db); let w = 0;
+                mine.docs.forEach(d => { batch.update(d.ref, { ownerPublicUid: nu }); w++; });
+                if (w > 0) await batch.commit();
+            } catch (e) { console.log('uid propagate', e); }
+
+            alert("Your Friend UID is now: " + nu + "\n\nThis was your one-time change — it can't be changed again. Your old UID no longer points to you, so share your new one!");
+            onClose();
+        } catch (e) {
+            console.log('uid change failed', e);
+            setErr("Couldn't change UID: " + (e.message || 'error'));
+        } finally { setBusy(false); }
+    };
+
+    if (!isOpen) return null;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} zClass="z-[200]" title="🆔 Change Your Friend UID">
+            <div className="space-y-3">
+                <div className="bg-black/40 border border-white/15 rounded-lg p-3">
+                    <p className="text-[9px] uppercase opacity-60 mb-1">Current Friend UID</p>
+                    <p className="text-lg font-black text-cyan-300 break-all">{current}</p>
+                </div>
+
+                {alreadyChanged ? (
+                    <div className="bg-yellow-900/30 border border-yellow-500/40 rounded-lg p-3">
+                        <p className="text-[11px] font-bold text-yellow-300 flex items-center gap-1"><Lock size={14}/> Already changed</p>
+                        <p className="text-[10px] text-gray-100 mt-1">You've already used your one-time Friend UID change, so it's now locked. If you really need another change, contact support — an admin can do it for you.</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="bg-red-900/30 border-2 border-red-500/50 rounded-lg p-3">
+                            <p className="text-[11px] font-black text-red-300 uppercase flex items-center gap-1"><AlertTriangle size={14}/> This cannot be undone</p>
+                            <ul className="text-[10px] text-gray-100 mt-1.5 space-y-1 list-disc pl-4">
+                                <li>You get <strong>ONE</strong> Friend UID change, ever. After this it's permanent.</li>
+                                <li>Your old UID stops pointing to you — anyone who saved it can no longer find you.</li>
+                                <li>Update your shared links, bio, and story image after changing.</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-1">New Friend UID</label>
+                            <input value={val} onChange={e => { setVal(e.target.value); setErr(''); }} maxLength={24} placeholder="3–24 chars: letters, numbers, _ . -" className="w-full p-2.5 rounded bg-white/10 border-2 border-white/30 text-sm focus:border-pink-500/60 outline-none"/>
+                        </div>
+                        <label className="flex items-start gap-2 text-[10px] text-gray-100 cursor-pointer">
+                            <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} className="mt-0.5 accent-pink-500"/>
+                            <span>I understand this is my <strong>one-time, permanent</strong> Friend UID change and it <strong>cannot be undone</strong>.</span>
+                        </label>
+                        {err && <p className="text-[10px] text-red-300 bg-red-900/20 border border-red-500/40 rounded p-2">{err}</p>}
+                        <Button onClick={submit} disabled={busy || !val.trim() || !ack} color="primary" className="w-full text-xs">{busy ? 'Changing…' : 'Permanently Change My UID'}</Button>
+                    </>
+                )}
+                {err && alreadyChanged && <p className="text-[10px] text-red-300">{err}</p>}
+            </div>
+        </Modal>
+    );
+};
+
 const PublicProfileModal = ({ uid, onClose }) => {
     const [targ, setTarg] = useState(null);
     const [errMsg, setErrMsg] = useState('');
@@ -1414,6 +1534,164 @@ EOF
 
 # Block 8
 cat << 'EOF' >> src/App.js
+// V63: Story share generator. Composites the admin-uploaded branded background + the user's
+// Friend UID + a scannable QR (encoding their ?ref= invite link) onto an on-device canvas, then
+// shares the PNG (Web Share API), attempts a native story intent if launched, or downloads as a
+// fallback. NOTHING is uploaded to our servers — the image is generated in the browser and only
+// the one background asset is ever stored. QR makes the story actionable (auto-applies referral).
+const STORY_PLATFORMS = [
+    { id: 'instagram', name: 'Instagram', color: '#E1306C' },
+    { id: 'snapchat', name: 'Snapchat', color: '#FFFC00' },
+    { id: 'facebook', name: 'Facebook', color: '#1877F2' },
+    { id: 'twitter', name: 'X / Twitter', color: '#1DA1F2' },
+    { id: 'tiktok', name: 'TikTok', color: '#69C9D0' },
+    { id: 'other', name: 'Other / Save', color: '#a855f7' },
+];
+const StoryShareModal = ({ user, profile, isOpen, onClose }) => {
+    const code = profile?.publicUid || user?.uid || '';
+    const inviteUrl = buildShareUrl({ ref: code });
+    const bg = RK_CFG.storyImageUrl || '';
+    const canvasRef = useRef(null);
+    const qrWrapRef = useRef(null);
+    const [ready, setReady] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [note, setNote] = useState('');
+
+    // Build the composite whenever the modal opens.
+    useEffect(() => {
+        if (!isOpen) return;
+        setReady(false);
+        const W = 1080, H = 1920; // standard story canvas
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        const drawOverlay = () => {
+            // Semi-transparent panel near the bottom for the code + QR so it's legible on any bg.
+            const panelY = H - 470;
+            ctx.fillStyle = 'rgba(10,0,20,0.72)';
+            if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(60, panelY, W - 120, 400, 36); ctx.fill(); }
+            else { ctx.fillRect(60, panelY, W - 120, 400); }
+            // "Add me on RaveKandi"
+            ctx.fillStyle = '#ff80df'; ctx.textAlign = 'left';
+            ctx.font = 'bold 52px Arial';
+            ctx.fillText('Add me on RaveKandi', 110, panelY + 90);
+            // Friend UID label + value
+            ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = 'bold 30px Arial';
+            ctx.fillText('MY FRIEND UID', 110, panelY + 150);
+            ctx.fillStyle = '#80ffff'; ctx.font = 'bold 64px Arial';
+            ctx.fillText(code, 110, panelY + 220);
+            // Helper line
+            ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '28px Arial';
+            ctx.fillText('Scan the code or search my UID', 110, panelY + 290);
+            ctx.fillText('in the app to add me + earn RevShare!', 110, panelY + 330);
+            // QR (drawn from the hidden QRCodeCanvas) on the right side of the panel
+            try {
+                const qrCanvas = qrWrapRef.current && qrWrapRef.current.querySelector('canvas');
+                if (qrCanvas) {
+                    const qrSize = 300;
+                    ctx.fillStyle = '#ffffff';
+                    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(W - 110 - qrSize, panelY + 70, qrSize, qrSize, 18); ctx.fill(); }
+                    else ctx.fillRect(W - 110 - qrSize, panelY + 70, qrSize, qrSize);
+                    ctx.drawImage(qrCanvas, W - 110 - qrSize + 14, panelY + 70 + 14, qrSize - 28, qrSize - 28);
+                }
+            } catch (e) { console.log('qr draw', e); }
+            setReady(true);
+        };
+
+        if (bg) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                // cover-fit the background
+                const ar = img.width / img.height, car = W / H;
+                let dw = W, dh = H, dx = 0, dy = 0;
+                if (ar > car) { dh = H; dw = H * ar; dx = (W - dw) / 2; } else { dw = W; dh = W / ar; dy = (H - dh) / 2; }
+                ctx.fillStyle = '#0a0014'; ctx.fillRect(0, 0, W, H);
+                try { ctx.drawImage(img, dx, dy, dw, dh); } catch (e) {}
+                drawOverlay();
+            };
+            img.onerror = () => { ctx.fillStyle = '#0a0014'; ctx.fillRect(0, 0, W, H); drawOverlay(); };
+            img.src = bg;
+        } else {
+            // No admin background yet — generate a branded gradient so the feature still works.
+            const g = ctx.createLinearGradient(0, 0, W, H);
+            g.addColorStop(0, '#2a0a3a'); g.addColorStop(0.5, '#0a0014'); g.addColorStop(1, '#1a0a2a');
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = '#ff80df'; ctx.textAlign = 'center'; ctx.font = 'italic bold 96px Arial';
+            ctx.fillText('RaveKandi', W / 2, 360);
+            ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '40px Arial';
+            ctx.fillText('the home base for rave culture', W / 2, 430);
+            ctx.textAlign = 'left';
+            drawOverlay();
+        }
+    }, [isOpen, bg, code]);
+
+    const getBlob = () => new Promise((res) => { try { canvasRef.current.toBlob(b => res(b), 'image/png', 0.92); } catch (e) { res(null); } });
+    const getDataUrl = () => { try { return canvasRef.current.toDataURL('image/png'); } catch (e) { return ''; } };
+
+    const doDownload = () => {
+        try {
+            const url = getDataUrl();
+            const a = document.createElement('a'); a.href = url; a.download = 'ravekandi-' + code + '.png';
+            document.body.appendChild(a); a.click(); a.remove();
+            setNote('Image saved! Open your story, add the saved image, and post. 🌈');
+        } catch (e) { setNote("Couldn't save the image on this device."); }
+    };
+
+    const shareToPlatform = async (platform) => {
+        setBusy(true); setNote('');
+        const dataUrl = getDataUrl();
+        // 1) Native story intent (inert until launch).
+        if (await tryNativeStoryShare(platform, dataUrl)) { setBusy(false); onClose(); return; }
+        // 2) Web Share API with the image file (opens the share sheet → user picks the app).
+        try {
+            const blob = await getBlob();
+            if (blob && navigator.canShare) {
+                const file = new File([blob], 'ravekandi-' + code + '.png', { type: 'image/png' });
+                if (navigator.canShare({ files: [file] })) {
+                    await navigator.share({ files: [file], text: 'Add me on RaveKandi! My UID: ' + code + ' ' + inviteUrl });
+                    setBusy(false); onClose(); return;
+                }
+            }
+        } catch (e) { /* user cancelled or unsupported — fall through to download */ }
+        // 3) Fallback: download + (for some platforms) open the app so they can attach it.
+        doDownload();
+        try {
+            if (platform === 'instagram') window.open('instagram://story-camera', '_blank');
+            else if (platform === 'snapchat') window.open('snapchat://', '_blank');
+            else if (platform === 'facebook') window.open('fb://', '_blank');
+        } catch (e) {}
+        setBusy(false);
+    };
+
+    if (!isOpen) return null;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} zClass="z-[200]" title="📸 Share to Your Story">
+            {/* hidden QR source — rendered offscreen, read into the canvas */}
+            <div ref={qrWrapRef} style={{ position: 'absolute', left: '-9999px', top: 0 }} aria-hidden="true">
+                <QRCodeCanvas value={inviteUrl} size={300} level="M" includeMargin={false} />
+            </div>
+            <div className="space-y-3">
+                <p className="text-[11px] text-white/70">A ready-to-post story with your Friend UID and a scannable QR code. Pick where to share it — your followers scan the code and you both earn RevShare.</p>
+                <div className="bg-black/40 rounded-xl p-2 flex justify-center">
+                    <canvas ref={canvasRef} className="rounded-lg" style={{ width: '180px', height: '320px', border: '1px solid rgba(255,255,255,0.15)' }}/>
+                </div>
+                {!ready && <p className="text-[10px] text-center text-white/50 animate-pulse">Building your story image…</p>}
+                <div className="grid grid-cols-3 gap-2">
+                    {STORY_PLATFORMS.map(p => (
+                        <button key={p.id} onClick={() => shareToPlatform(p.id)} disabled={busy || !ready} className="py-2.5 rounded-lg border text-[11px] font-bold disabled:opacity-40 transition" style={{ borderColor: p.color + '88', background: p.color + '22', color: '#fff' }}>{p.name}</button>
+                    ))}
+                </div>
+                <Button onClick={doDownload} disabled={!ready} color="accent" className="w-full text-[11px] flex items-center justify-center gap-2"><Download size={14}/> Save Image to Device</Button>
+                {note && <p className="text-[10px] text-lime-300 bg-lime-900/20 border border-lime-500/30 rounded p-2">{note}</p>}
+                <p className="text-[8px] opacity-50 text-center">Tip: tapping a platform opens your phone's share sheet — choose "Add to Story." If your device can't share the file directly, the image saves to your photos so you can post it manually.</p>
+            </div>
+        </Modal>
+    );
+};
+
 const ReferralModal = ({ user, profile, isOpen, onClose }) => {
     const [refs, setRefs] = useState([]);
     const [search, setSearch] = useState('');
@@ -2484,6 +2762,8 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
 
 const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
     const [showTiers, setShowTiers] = useState(false);
+    const [storyOpen, setStoryOpen] = useState(false);
+    const [uidOpen, setUidOpen] = useState(false);
     if (!isOpen) return null;
     const code = profile?.publicUid || user?.uid || '';
     const shareUrl = buildShareUrl({ ref: code });
@@ -2530,10 +2810,13 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     </div>
                 </div>
                 <Button onClick={doCopyLink} color="lime" className="w-full text-xs flex items-center justify-center gap-2 mb-1"><Link size={16}/> Copy My Invite Link</Button>
+                {!profile?.publicUidChanged && (
+                    <button onClick={() => setUidOpen(true)} className="w-full mb-2 text-[11px] font-bold text-pink-300 hover:text-pink-200 border border-pink-500/30 rounded-lg py-2 flex items-center justify-center gap-1.5"><Edit size={13}/> Change My Friend UID (one-time)</button>
+                )}
                 <div className="grid grid-cols-3 gap-2">
                     <Button onClick={doCopy} color="cyan" className="text-[10px] flex flex-col items-center gap-1 py-3"><Copy size={16}/> Copy UID</Button>
                     <Button onClick={doShare} color="purple" className="text-[10px] flex flex-col items-center gap-1 py-3"><Share2 size={16}/> Share</Button>
-                    <Button onClick={doStory} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
+                    <Button onClick={() => setStoryOpen(true)} color="primary" className="text-[10px] flex flex-col items-center gap-1 py-3"><Camera size={16}/> Story</Button>
                 </div>
                 <Button onClick={() => setShowTiers(true)} color="accent" className="w-full text-xs flex items-center justify-center gap-2"><Award size={16}/> RevShare Tiers &amp; Benefits</Button>
                 <div className="bg-gradient-to-r from-pink-900/30 to-purple-900/30 border border-pink-500/40 rounded-lg p-3 space-y-2">
@@ -2571,6 +2854,8 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose }) => {
                     </div>
                 </div>
             </Modal>
+            <StoryShareModal user={user} profile={profile} isOpen={storyOpen} onClose={() => setStoryOpen(false)} />
+            <FriendUidModal user={user} profile={profile} isOpen={uidOpen} onClose={() => setUidOpen(false)} />
         </Modal>
     );
 };
@@ -2587,7 +2872,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                 uid: user?.uid || 'guest', username: profile?.displayName || 'Guest', publicUid: profile?.publicUid || '',
-                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.05.00'
+                category, subject: subject.trim(), message: message.trim(), status: 'open', createdAt: Date.now(), appVersion: 'V63.07.00'
             });
             try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
@@ -3225,6 +3510,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
     const [showTicket, setShowTicket] = useState(false);
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState(''); 
+    const [showContact, setShowContact] = useState(false); // email+phone hidden by default
     const [prefs, setPrefs] = useState({ phone: {}, email: {} });
     const [newUid, setNewUid] = useState('');
     const [loading, setLoading] = useState(false);
@@ -3329,7 +3615,21 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
             )}
         </div>
 
-        <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-2 text-pink-400">Contact Info</h4><Input value={phone} onChange={setPhone} placeholder="Phone Number" className="mb-2"/><Input value={email} onChange={setEmail} placeholder="Email Address"/></div>
+        <div className="border-b border-white/10 pb-4">
+            <div className="flex items-center justify-between mb-2">
+                <h4 className="font-bold text-xs text-pink-400">Contact Info</h4>
+                <button onClick={() => setShowContact(!showContact)} className="text-[10px] font-bold text-cyan-400 flex items-center gap-1">{showContact ? <><EyeOff size={12}/> Hide</> : <><Eye size={12}/> Reveal</>}</button>
+            </div>
+            <p className="text-[8px] opacity-50 mb-2">Your email &amp; phone are hidden by default for privacy. Tap Reveal to view or edit them.</p>
+            {showContact ? (
+                <><Input value={phone} onChange={setPhone} placeholder="Phone Number" className="mb-2"/><Input value={email} onChange={setEmail} placeholder="Email Address"/></>
+            ) : (
+                <div className="space-y-2">
+                    <div className="bg-white/5 border border-white/10 rounded p-2 flex items-center justify-between"><span className="text-[10px] opacity-60">Phone</span><span className="text-[11px] font-mono tracking-widest">{phone ? '•••• •••• ' + phone.slice(-2) : 'Not set'}</span></div>
+                    <div className="bg-white/5 border border-white/10 rounded p-2 flex items-center justify-between"><span className="text-[10px] opacity-60">Email</span><span className="text-[11px] font-mono">{email ? (email[0] + '•••••@' + (email.split('@')[1] || '•••')) : 'Not set'}</span></div>
+                </div>
+            )}
+        </div>
 
         {!user?.isAnonymous && (
             <div className="border-b border-white/10 pb-4">
@@ -3698,32 +3998,53 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass }) =>
     };
 
     // V63: re-list a previously hidden post — makes it visible again in the feed and collections.
+    // Resolve which tradeItems doc (if any) this item maps to, so hide/unhide reliably hits the
+    // public listing even when the item we're holding came from the inventory subcollection.
+    const resolveTradeItemId = async () => {
+        // 1) If the item itself is a tradeItems doc (has ownerId), its id is correct.
+        if (item.ownerId) return item.id;
+        // 2) refId sometimes points at the tradeItems doc.
+        // 3) Otherwise, find the owner's listing by matching name + image.
+        try {
+            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid)));
+            const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (item.refId && rows.some(r => r.id === item.refId)) return item.refId;
+            const match = rows.find(r => (r.name && item.name && r.name === item.name) || (item.imageUrl && r.imageUrl === item.imageUrl) || (item.mediaUrls?.[0]?.url && r.mediaUrls?.[0]?.url === item.mediaUrls[0].url));
+            if (match) return match.id;
+        } catch (e) { console.log('resolveTradeItemId', e); }
+        return item.refId || item.id;
+    };
+
+    const setHiddenState = async (hidden) => {
+        const tradeId = await resolveTradeItemId();
+        let touched = false;
+        // setDoc(merge) won't throw on a missing doc — it just creates/updates safely.
+        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeId), hidden ? { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 } : { isHidden: false, hiddenAt: null }, { merge: true }); touched = true; } catch (e) { console.log('hide tradeItems', e); }
+        // Always sync the inventory mirror (id may be item.id or item.refId).
+        for (const invId of [item.refId, item.id].filter(Boolean)) {
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', invId), { isHidden: hidden }, { merge: true }); touched = true; } catch (e) {}
+        }
+        return touched;
+    };
+
     const handleUnhide = async () => {
         if (!window.confirm("Unhide this post?\n\nIt will show in the feed and your collection again. If it was a finished sale, only unhide if you still have it available.")) return;
         try {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { isHidden: false, hiddenAt: null });
-            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId || item.id), { isHidden: false }, { merge: true }); } catch (e) {}
+            await setHiddenState(false);
             alert("Post unhidden — it's visible again. (Heads up: stock is still 0 if it was marked sold; edit the post to set stock if you're re-listing.)");
             onClose();
-        } catch (e) {
-            console.log('unhide post failed', e);
-            alert("Couldn't unhide this post: " + (e.message || 'permission error'));
-        }
+        } catch (e) { console.log('unhide failed', e); alert("Couldn't unhide this post: " + (e.message || 'error')); }
     };
 
     // V63: soft-hide a completed/sold post. Keeps the record but removes it from the feed and
     // from every collection view. Owner-only; works even when hard-delete is blocked.
     const handleHidePost = async () => {
-        if (!window.confirm("Mark this post as SOLD and hide it?\n\nIt will be removed from the feed and your public collection, but kept in your records. You can't re-list a hidden post.")) return;
+        if (!window.confirm("Mark this post as SOLD and hide it?\n\nIt will be removed from the feed and your public collection, but kept in your records.")) return;
         try {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 });
-            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId || item.id), { isHidden: true }, { merge: true }); } catch (e) {}
-            alert("Post hidden. It's gone from the feed and collections but saved in your records.");
-            onClose();
-        } catch (e) {
-            console.log('hide post failed', e);
-            alert("Couldn't hide this post: " + (e.message || 'permission error'));
-        }
+            const ok = await setHiddenState(true);
+            if (ok) { alert("Post hidden. It's gone from the feed and collections but saved in your records."); onClose(); }
+            else alert("Couldn't hide this post — please try again.");
+        } catch (e) { console.log('hide failed', e); alert("Couldn't hide this post: " + (e.message || 'error')); }
     };
 
     const submitReview = async () => {
@@ -4839,7 +5160,7 @@ const AdminAnalyticsBlock = () => {
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => setCfg({ checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5, storyImageUrl: '', storyImageActive: false, ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     if (!cfg) return <p className="text-[10px] opacity-50">Loading config…</p>;
     const T = ({ k, label }) => (
         <button onClick={() => setCfg({ ...cfg, [k]: !cfg[k] })} className={`p-2 rounded border text-[9px] font-bold uppercase ${cfg[k] ? 'border-lime-400 bg-lime-500/15 text-lime-300' : 'border-red-400 bg-red-500/15 text-red-300'}`}>{label}: {cfg[k] ? 'ON' : 'OFF'}</button>
@@ -4952,6 +5273,21 @@ const RemoteConfigPanel = () => {
                 <ForceClipPanel cfg={cfg} setCfg={setCfg} />
                 <p className="text-[8px] opacity-50 mt-1">Placeholder settings save with the button below. Forced clips push live immediately.</p>
             </div>
+
+            <div className="border-t border-white/10 pt-3 mt-2">
+                <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">📸 Story Share Image</h4>
+                <label className="flex items-center gap-2 text-[10px] font-bold mb-2"><input type="checkbox" checked={!!cfg.storyImageActive} onChange={e => setCfg({ ...cfg, storyImageActive: e.target.checked })} className="accent-pink-500"/> Enable the branded Story share image</label>
+                <p className="text-[8px] opacity-60 mb-2">Upload one branded background (portrait 9:16 works best). The app composites each user's Friend UID + a scannable QR onto it on their device — nothing is uploaded per-user, so this costs no extra storage. Leave the bottom ~25% clear for the UID/QR panel.</p>
+                {cfg.storyImageUrl ? (
+                    <div className="flex items-center gap-2 mb-2">
+                        <img src={cfg.storyImageUrl} className="w-12 h-20 object-cover rounded border border-white/20"/>
+                        <Button onClick={() => setCfg({ ...cfg, storyImageUrl: '' })} color="accent" className="text-[10px]">Remove</Button>
+                    </div>
+                ) : <p className="text-[9px] text-white/40 mb-2">No background uploaded — users get a branded gradient fallback.</p>}
+                <input type="file" accept="image/*" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { const img = await compressImage(f); setCfg({ ...cfg, storyImageUrl: img }); } catch (err) { alert('Upload failed: ' + err.message); } }} className="text-[10px] w-full"/>
+                <p className="text-[8px] opacity-50 mt-1">Saves with Push Config Live. Stored once in config (not per-user).</p>
+            </div>
+
             <Button onClick={save} disabled={saving} color="purple" className="w-full text-xs">{saving ? 'Pushing…' : 'Push Config Live'}</Button>
         </div>
     );
@@ -4973,6 +5309,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
     const [forceBadgeId, setForceBadgeId] = useState('');
     const [statEdits, setStatEdits] = useState({});
     const [clipMaxEdit, setClipMaxEdit] = useState('');
+    const [uidEdit, setUidEdit] = useState('');
     const [batchRate, setBatchRate] = useState('');
     const [batchBusy, setBatchBusy] = useState(false);
 
@@ -5055,7 +5392,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             else setUserMatches(matches); // show a picker
         } catch (e) { alert(e.message); }
     };
-    const pickUser = (u) => { setManagedUser(u); setRevPct(u.customRevSharePct ?? ''); setUserMatches([]); setStatEdits({}); setForceBadgeId(''); setClipMaxEdit(typeof u.videoMaxDaily === 'number' ? String(u.videoMaxDaily) : ''); };
+    const pickUser = (u) => { setManagedUser(u); setRevPct(u.customRevSharePct ?? ''); setUserMatches([]); setStatEdits({}); setForceBadgeId(''); setClipMaxEdit(typeof u.videoMaxDaily === 'number' ? String(u.videoMaxDaily) : ''); setUidEdit(''); };
 
     const toggleCreator = async (grant) => {
         if (!managedUser) return;
@@ -5264,6 +5601,28 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                     <Button onClick={async () => { try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoMaxDaily: null }, { merge: true }); const m = { ...managedUser }; delete m.videoMaxDaily; setManagedUser(m); setClipMaxEdit(''); alert('Reset to default (4/day).'); } catch (e) { alert('Failed: ' + e.message); } }} color="accent" className="text-[10px]">Default</Button>
                                 </div>
                                 <Button onClick={async () => { const max = typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4; if (!window.confirm("Hard reset " + (managedUser.displayName || 'user') + "'s clip count? This sets clips-used-today back to 0, giving them their full " + max + " clips for today.")) return; try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoDay: todayKey(), videoCountToday: 0 }, { merge: true }); setManagedUser({ ...managedUser, videoDay: todayKey(), videoCountToday: 0 }); alert('Clip count hard reset — they have their full ' + max + ' clips for today.'); } catch (e) { alert('Failed: ' + e.message); } }} color="primary" className="w-full text-[10px] flex items-center justify-center gap-1"><Video size={12}/> Hard Reset Clip Count (give full {typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4} today)</Button>
+                            </div>
+
+                            <div className="mt-3 pt-3 border-t border-white/10">
+                                <p className="text-[9px] font-black uppercase text-cyan-300 mb-1">🆔 Force-Change Friend UID</p>
+                                <p className="text-[8px] opacity-60 mb-2">Current: <strong className="text-cyan-300">{managedUser.publicUid || managedUser.id}</strong>{managedUser.publicUidChanged ? ' · (user already used their one-time change)' : ''}. As admin you can override it any time — this bypasses the one-time limit but does NOT reset their personal change flag.</p>
+                                <div className="flex gap-2 items-center">
+                                    <input value={uidEdit} onChange={e => setUidEdit(e.target.value)} placeholder="new-uid" className="bg-black border border-white/20 text-[10px] p-2 rounded flex-1"/>
+                                    <Button onClick={async () => {
+                                        const nu = (uidEdit || '').trim();
+                                        if (nu.length < 3 || nu.length > 24 || !/^[A-Za-z0-9_.-]+$/.test(nu)) { alert('UID must be 3–24 chars: letters, numbers, _ . - only.'); return; }
+                                        if (nu === (managedUser.publicUid || managedUser.id)) { alert("That's already their UID."); return; }
+                                        try {
+                                            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', nu)));
+                                            if (snap.docs.some(d => d.id !== managedUser.id)) { alert('That UID is already taken by another account.'); return; }
+                                            if (!window.confirm('Force ' + (managedUser.displayName || 'user') + "'s Friend UID to \"" + nu + '\"? Their old UID will stop pointing to them.')) return;
+                                            const past = (managedUser.pastPublicUids || []).filter(Boolean); const cur = managedUser.publicUid || managedUser.id;
+                                            await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { publicUid: nu, pastPublicUids: cur ? [...past, cur] : past, publicUidAdminChangedAt: Date.now() }, { merge: true });
+                                            try { const mine = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', managedUser.id))); const batch = writeBatch(db); let w = 0; mine.docs.forEach(d => { batch.update(d.ref, { ownerPublicUid: nu }); w++; }); if (w > 0) await batch.commit(); } catch (e) {}
+                                            setManagedUser({ ...managedUser, publicUid: nu }); setUidEdit(''); alert('Friend UID changed to ' + nu + '.');
+                                        } catch (e) { alert('Failed: ' + e.message); }
+                                    }} color="cyan" className="text-[10px]">Force Set</Button>
+                                </div>
                             </div>
                         </div>
                         <div>
@@ -6008,7 +6367,8 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
     );
 };
 
-const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmit }) => {
+const FeaturedVideoBlock = ({ user, profile, nowTick, cfg, onViewProfile, onOpenSubmit }) => {
+    const RKC = cfg || RK_CFG;
     const [slots, setSlots] = useState([]);
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'videoSlots')), s => setSlots(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('videoSlots', e));
@@ -6021,9 +6381,9 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, onViewProfile, onOpenSubmi
     // placeholder holds the spot until a user posts, and the panel rotates back to it the
     // moment a forced/user clip's window expires.
     let placeholder = null;
-    if (!liveClip && RK_CFG.spotlightPlaceholderActive && (RK_CFG.spotlightPlaceholderUrl || '').trim()) {
-        const pp = parseVideoLink(RK_CFG.spotlightPlaceholderUrl);
-        if (pp && pp.ok) placeholder = { platform: pp.platform, embedUrl: pp.embedUrl || null, watchUrl: pp.watchUrl, name: RK_CFG.spotlightPlaceholderName || 'RaveKandi', caption: RK_CFG.spotlightPlaceholderCaption || '', ownerPublicUid: null, uid: null, isPlaceholder: true };
+    if (!liveClip && RKC.spotlightPlaceholderActive && (RKC.spotlightPlaceholderUrl || '').trim()) {
+        const pp = parseVideoLink(RKC.spotlightPlaceholderUrl);
+        if (pp && pp.ok) placeholder = { platform: pp.platform, embedUrl: pp.embedUrl || null, watchUrl: pp.watchUrl, name: RKC.spotlightPlaceholderName || 'RaveKandi', caption: RKC.spotlightPlaceholderCaption || '', ownerPublicUid: null, uid: null, isPlaceholder: true };
     }
     const active = liveClip || placeholder;
 
@@ -6392,6 +6752,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const [showBadges, setShowBadges] = useState(false);
     const [statDetail, setStatDetail] = useState(null);
     const [showRevShare, setShowRevShare] = useState(false);
+    const [uidModalOpen, setUidModalOpen] = useState(false);
+    const [uidHintDismissed, setUidHintDismissed] = useState(() => { try { return localStorage.getItem('rk_uid_hint_seen') === '1'; } catch (e) { return false; } });
     const [showBanner, setShowBanner] = useState(false);
     const [showBoost, setShowBoost] = useState(false);
     const [selectedPinned, setSelectedPinned] = useState(null);
@@ -6449,6 +6811,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
+                <FriendUidModal user={user} profile={profile} isOpen={uidModalOpen} onClose={() => setUidModalOpen(false)} />
                 <BannerModal user={user} profile={profile} isOpen={showBanner} onClose={() => setShowBanner(false)} onGoVip={() => setModals({...modals, vip: true})} />
                 <BoostModal user={user} profile={profile} isOpen={showBoost} onClose={() => setShowBoost(false)} onGoVip={() => setModals({...modals, vip: true})} onGoSell={() => onViewFeed(profile?.publicUid || user.uid)} />
                 
@@ -6534,10 +6897,23 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
 
 
                         <div className="mb-3 w-full">
-                            <div onClick={() => setShowRevShare(true)} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border-2 border-lime-400/40 px-5 py-3.5 rounded-xl font-mono text-base w-full text-center md:text-left cursor-pointer hover:border-lime-400 transition-colors flex items-center justify-center md:justify-start gap-2 flex-wrap">
-                                <span className="font-bold">Friend UID:</span> <span className="text-lime-400 font-black text-lg break-all">{profile.publicUid || user.uid}</span> <Share2 size={15} className="text-cyan-400"/> <span className="text-[10px] text-cyan-400 uppercase font-bold">RevShare</span>
+                            <div className="relative">
+                                <div onClick={() => setShowRevShare(true)} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border-2 border-lime-400/40 px-5 py-3.5 rounded-xl font-mono text-base w-full text-center md:text-left cursor-pointer hover:border-lime-400 transition-colors flex items-center justify-center md:justify-start gap-2 flex-wrap">
+                                    <span className="font-bold">Friend UID:</span> <span className="text-lime-400 font-black text-lg break-all">{profile.publicUid || user.uid}</span> <Share2 size={15} className="text-cyan-400"/> <span className="text-[10px] text-cyan-400 uppercase font-bold">RevShare</span>
+                                </div>
+                                {/* First-login transparent overlay suggesting a one-time UID change */}
+                                {!uidHintDismissed && !profile.publicUidChanged && (
+                                    <div onClick={() => { setUidHintDismissed(true); try { localStorage.setItem('rk_uid_hint_seen', '1'); } catch (e) {} setUidModalOpen(true); }} className="absolute inset-0 rounded-xl bg-black/55 backdrop-blur-[1px] border-2 border-pink-400/60 flex flex-col items-center justify-center cursor-pointer text-center px-3 animate-pulse" style={{ boxShadow: '0 0 18px rgba(255,80,180,0.4)' }}>
+                                        <p className="text-[11px] font-black text-pink-200 uppercase tracking-wide flex items-center gap-1"><Edit size={13}/> Want a custom Friend UID?</p>
+                                        <p className="text-[9px] text-white/80 mt-0.5">Tap to set your own (one-time change). Or tap away to keep this one.</p>
+                                        <button onClick={(e) => { e.stopPropagation(); setUidHintDismissed(true); try { localStorage.setItem('rk_uid_hint_seen', '1'); } catch (ee) {} }} className="absolute top-1 right-2 text-white/60 text-base font-bold leading-none">×</button>
+                                    </div>
+                                )}
                             </div>
-                            <p className="text-[10px] text-cyan-300/70 mt-1.5 text-center md:text-left">Tap the block to open the referral program 🎁</p>
+                            <div className="flex items-center justify-center md:justify-start gap-3 mt-1.5">
+                                <p className="text-[10px] text-cyan-300/70">Tap the block to open the referral program 🎁</p>
+                                {!profile.publicUidChanged && <button onClick={() => setUidModalOpen(true)} className="text-[10px] font-bold text-pink-300 hover:text-pink-200 flex items-center gap-1"><Edit size={11}/> Change UID</button>}
+                            </div>
                         </div>
                         
                         <div className="bg-gradient-to-br from-pink-500/10 via-purple-500/5 to-cyan-500/10 p-4 rounded-xl text-lg relative border-2 border-pink-500/40 flex items-start min-h-[72px] cursor-pointer hover:border-pink-400/70 transition-colors shadow-[0_0_15px_rgba(255,80,180,0.15)]" onClick={()=>setModals({...modals, bio:true})}>
@@ -6747,7 +7123,7 @@ const AuthScreen = ({ setLoadMsg }) => {
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
-                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.05.00</p>
+                <p className="text-center text-[9px] text-lime-400/70 mb-5 font-mono">build V63.07.00</p>
                 
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
@@ -7297,7 +7673,7 @@ const App = () => {
                 <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
-                    <p className="text-xs font-mono text-white/50 mb-4">V63.05.00</p>
+                    <p className="text-xs font-mono text-white/50 mb-4">V63.07.00</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
                         <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
@@ -7479,7 +7855,7 @@ cat << 'EOF' >> src/App.js
 
                         <div className="py-6 w-full max-w-md mx-auto">
                             <h2 className="text-2xl font-black mb-4 italic tracking-tighter" style={{ textShadow: '0 0 15px #ff00ff', backgroundImage: 'linear-gradient(45deg, #ff80bf, #80ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>Rave Spotlight 🎬</h2>
-                            <FeaturedVideoBlock user={user} profile={profile} nowTick={nowTick} onViewProfile={setViewingProfileId} onOpenSubmit={() => setVideoSubmitOpen(true)} />
+                            <FeaturedVideoBlock user={user} profile={profile} nowTick={nowTick} cfg={rkConfig} onViewProfile={setViewingProfileId} onOpenSubmit={() => setVideoSubmitOpen(true)} />
                         </div>
                         
                         <div className="w-full border-t border-white/10 pt-8 mt-2 px-1 text-left">
@@ -7617,7 +7993,7 @@ cat << 'EOF' >> src/App.js
                 )}
                 <div className="flex items-center justify-between text-[10px] text-white/40">
                     <PingBar show={profile?.showPing !== false} />
-                    <span className="flex-1 text-center">V63.05.00 Phase 57: fix clip submit permission + rename to Rave Clip + X/Twitter support + admin clip max/reset controls</span>
+                    <span className="flex-1 text-center">V63.07.00 Phase 59: Friend UID change cluster (one-time permanent change, first-login overlay, RevShare panel option, admin force-change)</span>
                     <button onClick={() => setHelpOpen(true)} className="w-14 flex items-center justify-end gap-0.5 text-cyan-400 hover:text-cyan-300" title="Help & How It Works"><HelpCircle size={13}/><span className="text-[9px] font-bold">HELP</span></button>
                 </div>
             </div>
@@ -7812,9 +8188,9 @@ if (fs.existsSync(file)) {
 }
 '
 
-echo "Applying Android Version Patch (V63.05.00)..."
-sed -i "s/versionCode 1/versionCode 136/g" android/app/build.gradle
-sed -i 's/versionName "1.0"/versionName "63.05.00"/g' android/app/build.gradle
+echo "Applying Android Version Patch (V63.07.00)..."
+sed -i "s/versionCode 1/versionCode 139/g" android/app/build.gradle
+sed -i 's/versionName "1.0"/versionName "63.07.00"/g' android/app/build.gradle
 
 echo "Enforcing Strict AAPT2/API 34 Dependency Matrix..."
 sed -i "s/compileSdkVersion = [0-9]*/compileSdkVersion = 34/g" android/variables.gradle
@@ -7861,7 +8237,7 @@ echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew clean assembleDebug --no-daemon --max-workers=1 < /dev/null
 
-APK_NAME="RaveKandi_V63_05_00_$(date +%H%M%S).apk"
+APK_NAME="RaveKandi_V63_07_00_$(date +%H%M%S).apk"
 OUT_DIR="$HOME/RaveKandi_Output"
 mkdir -p "$OUT_DIR"
 
