@@ -12474,6 +12474,20 @@ RaveKandi as built: $0 (physical goods on your own payment rails are exempt
 and REQUIRED to bypass Play Billing). Keep VIP/digital sales on the website
 (app only honors them) and it stays $0.
 
+--- STEP 0: BECOME A DEVELOPER (one-time) ---
+1. Go to play.google.com/console and sign in with your Google account.
+2. Create developer account -> choose PERSONAL (Organization needs a
+   D-U-N-S business number; skip it).
+3. Pick your public developer name, pay the $25 one-time fee.
+4. Identity verification: upload a government ID photo; approval takes
+   hours to ~2 days (email confirmation).
+5. Once approved: Play Console -> "Create app" -> name "RaveKandi",
+   English, type App, Free, accept declarations. Then work the
+   "Set up your app" dashboard checklist top to bottom using the
+   steps below.
+Store listing assets you will need: 2+ phone screenshots, a 512x512
+icon PNG, and a 1024x500 feature graphic.
+
 --- STEP 1: ACCOUNT ---
 Personal account => the 12-TESTER RULE applies:
   1. Create a Closed Testing track, upload the .aab from Downloads.
