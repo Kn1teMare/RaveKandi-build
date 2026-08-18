@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=36
-RK_PATCH=2
-RK_BUILD=214
+RK_PATCH=3
+RK_BUILD=215
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -5663,13 +5663,22 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     // That fallback existed so the owner's own inventory items still showed their controls.
     // Ownership is now proven by the PARENT telling us whose inventory we are looking at,
     // rather than inferred from a missing field.
-    const isOwner = !!user?.uid && (
-        item.ownerId === user.uid
-        || item.ownerPublicUid === user.uid
-        || (!!invOwnerUid && invOwnerUid === user.uid)
+    // V65.36.03: `user` is overloaded. CollectionPopout is opened with user={{ uid: targ.id }}
+    // when browsing SOMEONE ELSE's collection — there the prop means "whose collection", not
+    // "who is looking". So `item.ownerId === user.uid` was true for every item on every profile,
+    // and the owner controls rendered for everyone. Build 214 could not have caught this: the
+    // check was correct, the value fed into it was not.
+    //
+    // Ownership now reads the actual signed-in account from Firebase auth. There is exactly one
+    // of those and no caller can misdirect it.
+    const meUid = auth?.currentUser?.uid || null;
+    const isOwner = !!meUid && (
+        item.ownerId === meUid
+        || item.ownerPublicUid === meUid
+        || (!!invOwnerUid && invOwnerUid === meUid)
     );
-    const isBuyer = item.buyers?.includes(user?.uid);
-    const hasReviewed = reviews.some(r => r.uid === user?.uid);
+    const isBuyer = item.buyers?.includes(meUid);
+    const hasReviewed = reviews.some(r => r.uid === meUid);
 
     const saveTracking = async () => {
         setShipErr('');
@@ -5690,7 +5699,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                 shipConfirmed: false,
             };
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), shipInfo);
-            if (item.refId) { try { await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId), shipInfo); } catch (e) {} }
+            if (item.refId) { try { await updateDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', item.refId), shipInfo); } catch (e) {} }
             // 3) Notify + "email" each buyer (the notification system is the in-app inbox; if real
             //    email is wired, pushNotif routes there too). Includes the carrier + clickable link.
             const buyers = item.buyers || [];
@@ -5704,7 +5713,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         const batch = writeBatch(db);
         const updates = { ...editForm, price: parseFloat(editForm.price), stockQty: parseInt(editForm.stockQty) };
         batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), updates);
-        if(item.refId) batch.update(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', item.refId), updates);
+        if(item.refId) batch.update(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', item.refId), updates);
         await batch.commit();
         setIsEditing(false);
         alert("Post updated!");
@@ -5725,7 +5734,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         }
         // Best-effort cleanup of the mirrored inventory doc (non-fatal if it's already gone).
         const invId = item.refId || item.id;
-        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', invId)); } catch (e) { console.log('inventory cleanup', e); }
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', invId)); } catch (e) { console.log('inventory cleanup', e); }
         onClose();
     };
 
@@ -5738,7 +5747,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         // 2) refId sometimes points at the tradeItems doc.
         // 3) Otherwise, find the owner's listing by matching name + image.
         try {
-            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid)));
+            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', meUid)));
             const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             if (item.refId && rows.some(r => r.id === item.refId)) return item.refId;
             const match = rows.find(r => (r.name && item.name && r.name === item.name) || (item.imageUrl && r.imageUrl === item.imageUrl) || (item.mediaUrls?.[0]?.url && r.mediaUrls?.[0]?.url === item.mediaUrls[0].url));
@@ -5754,7 +5763,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeId), hidden ? { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 } : { isHidden: false, hiddenAt: null }, { merge: true }); touched = true; } catch (e) { console.log('hide tradeItems', e); }
         // Always sync the inventory mirror (id may be item.id or item.refId).
         for (const invId of [item.refId, item.id].filter(Boolean)) {
-            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'inventory', invId), { isHidden: hidden }, { merge: true }); touched = true; } catch (e) {}
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', invId), { isHidden: hidden }, { merge: true }); touched = true; } catch (e) {}
         }
         return touched;
     };
@@ -5781,7 +5790,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
 
     const submitReview = async () => {
         if(!reviewText.trim()) return;
-        const newReview = { uid: user.uid, user: user.displayName || 'Buyer', rating: reviewRating, text: reviewText, timestamp: Date.now() };
+        const newReview = { uid: meUid, user: user.displayName || 'Buyer', rating: reviewRating, text: reviewText, timestamp: Date.now() };
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { reviews: arrayUnion(newReview) });
         // V42.29 Stage A: roll this rating into the SELLER's running average so it can be
         // shown on their cards/posts/profile. ratingSum/ratingCount -> avg = sum/count.
@@ -6009,6 +6018,10 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
 };
 
 const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false, hideDIY = false }) => {
+    // V65.36.03: `user` here means "whose collection", which is not always the viewer — profiles
+    // open this with user={{ uid: targ.id }}. Comparing against the signed-in account is the only
+    // reliable way to know whose stash is on screen, including when you open your own profile.
+    const rkIsMine = !!auth?.currentUser?.uid && user?.uid === auth.currentUser.uid;
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
     const [showHidden, setShowHidden] = useState(false); // owner-only: reveal hidden/sold posts to unhide them
@@ -6050,7 +6063,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     if(!isOpen) return null;
     return (
         <>
-            <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={readOnly ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
+            <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={!rkIsMine ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
                 {!readOnly && type === 'posts' && (
                     <button onClick={() => setShowHidden(!showHidden)} className={`w-full mb-3 flex items-center justify-center gap-2 py-2 rounded-lg border text-[11px] font-bold transition ${showHidden ? 'bg-yellow-900/30 border-yellow-500/40 text-yellow-300' : 'bg-white/5 border-white/15 text-white/60 hover:bg-white/10'}`}>
                         {showHidden ? <Eye size={14}/> : <EyeOff size={14}/>} {showHidden ? 'Showing hidden/sold posts — tap any to unhide' : 'Show hidden / sold posts'}
