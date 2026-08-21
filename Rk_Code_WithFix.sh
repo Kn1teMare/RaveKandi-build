@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=37
-RK_PATCH=0
-RK_BUILD=216
+RK_PATCH=1
+RK_BUILD=217
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -363,6 +363,10 @@ import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, i
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
+// V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
+// WebView history when this plugin is absent — it does not. Android's back press closed the
+// activity outright and popstate never fired, so the whole back stack was dead code on device.
+import { App as CapApp } from '@capacitor/app';
 import { registerPlugin as capRegisterPlugin } from '@capacitor/core';
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 // Create the JS proxy for our custom native plugin. For LOCAL (non-npm) Capacitor plugins,
@@ -1677,9 +1681,11 @@ const Input = ({ label, value, onChange, type = 'text', options, className, plac
 // modals stacked open — losing everything the user was doing. Back should mean "undo the last
 // thing that opened", and only leave once there is nothing left to close.
 //
-// One mechanism covers both platforms: Capacitor's Android back button drives WebView history
-// by default, so a history/popstate trap is caught identically in the APK and in a browser tab.
-// No @capacitor/app dependency, no divergent code paths.
+// Two entry points, one decision function (rkHandleBack). The browser uses a history/popstate
+// trap; Android uses @capacitor/app's backButton event. Build 216 shipped only the popstate half
+// on the assumption that Capacitor routes the hardware button through WebView history. It does
+// not — without a registered backButton listener Capacitor finishes the activity, which is why
+// the app still closed from every screen.
 //
 // The trap works by keeping exactly one spare history entry. Each back press consumes it; the
 // handler closes the topmost overlay and pushes a fresh one. Net zero growth, so the history
@@ -1698,6 +1704,19 @@ const rkOverlayAdd = (entry) => {
 const rkOverlayDrop = (entry) => {
     const i = rkOverlays.indexOf(entry);
     if (i !== -1) rkOverlays.splice(i, 1);
+};
+
+// The single decision point. Returns true if the press was consumed. Both the Android hardware
+// button and the browser back button route through this, so the two can never disagree.
+const rkHandleBack = () => {
+    if (rkOverlays.length > 0) {
+        const top = rkOverlays[rkOverlays.length - 1];
+        rkOverlayDrop(top);
+        try { top.close(); } catch (e) {}
+        return true;
+    }
+    if (rkTabBackHandler) { try { return !!rkTabBackHandler(); } catch (e) { return false; } }
+    return false;
 };
 
 // Shared by <Modal> and by any overlay built from raw markup (ItemDetailModal, side docks,
@@ -12150,21 +12169,29 @@ const App = () => {
             if (h[0] !== 'home') { h[0] = 'home'; navBackRef.current = true; setPage('home'); return true; }
             return false;   // at home with nothing open — let the press through
         };
-        const onPop = () => {
-            if (rkOverlays.length > 0) {
-                const top = rkOverlays[rkOverlays.length - 1];
-                rkOverlayDrop(top);
-                try { top.close(); } catch (e) {}
-                rkPushTrap();
-                return;
-            }
-            if (rkTabBackHandler && rkTabBackHandler()) { rkPushTrap(); return; }
-            // Nothing consumed it: the browser navigates away, or Android exits. Deliberate —
-            // trapping back forever on the home screen would make the app impossible to leave.
-        };
+        // BROWSER: each press consumes the trap entry; re-push one if we handled it. If nothing
+        // was left to close, we do NOT re-push, and the browser leaves the page normally.
+        const onPop = () => { if (rkHandleBack()) rkPushTrap(); };
         window.addEventListener('popstate', onPop);
         rkPushTrap();
-        return () => { window.removeEventListener('popstate', onPop); rkTabBackHandler = null; };
+
+        // ANDROID: with a backButton listener registered, Capacitor hands us the press instead of
+        // finishing the activity. Nothing left to close means we exit deliberately, so the app
+        // never becomes impossible to leave.
+        let capSub = null;
+        try {
+            if (rkIsNative()) {
+                CapApp.addListener('backButton', () => {
+                    if (!rkHandleBack()) { try { CapApp.exitApp(); } catch (e) {} }
+                }).then(h => { capSub = h; }).catch(() => {});
+            }
+        } catch (e) {}
+
+        return () => {
+            window.removeEventListener('popstate', onPop);
+            rkTabBackHandler = null;
+            try { if (capSub && capSub.remove) capSub.remove(); } catch (e) {}
+        };
     }, []);
     const [walletNudge, setWalletNudge] = useState({ open: false, next: null });
     const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -13327,6 +13354,7 @@ cat << 'EOF' > package.json
   "version": "1.0.0",
   "dependencies": {
     "@capacitor/android": "5.7.4",
+    "@capacitor/app": "5.0.7",
     "@capacitor/core": "5.7.4",
     "@capacitor/push-notifications": "5.1.2",
     "@capacitor/splash-screen": "5.0.7",
@@ -14682,7 +14710,22 @@ if [ "$RK_NO_WEB" != "1" ]; then
             j.hosting = {
                 public: "build",
                 ignore: ["firebase.json", "**/.*", "**/node_modules/**"],
-                rewrites: [ { source: "**", destination: "/index.html" } ]
+                rewrites: [ { source: "**", destination: "/index.html" } ],
+                // V65.37.01: the web app was stuck on Build 202 for weeks while the APK updated
+                // normally. Cause: no cache headers, so browsers held index.html indefinitely. The
+                // stale HTML asked for JS bundle hashes that no longer existed, the SPA rewrite
+                // answered those 404s with index.html, and the browser tried to parse HTML as
+                // JavaScript -> "Uncaught SyntaxError: Unexpected token '<'".
+                //
+                // CRA fingerprints every bundle (main.<hash>.js), so those are safe to cache
+                // forever — a new build produces a new filename. index.html is the one file that
+                // must never be cached: it is the map to which hashes are current.
+                headers: [
+                    { source: "/index.html", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+                    { source: "/", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+                    { source: "/manifest.json", headers: [{ key: "Cache-Control", value: "no-cache" }] },
+                    { source: "**/*.@(js|css|woff|woff2|png|jpg|jpeg|svg|webp)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] }
+                ]
             };
             if (!j.functions) j.functions = { source: "functions" };
             // V65.32: firestore rules are registered here too. Without this the hosting write
@@ -14698,7 +14741,13 @@ if [ "$RK_NO_WEB" != "1" ]; then
   "hosting": {
     "public": "build",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [ { "source": "**", "destination": "/index.html" } ]
+    "rewrites": [ { "source": "**", "destination": "/index.html" } ],
+    "headers": [
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+      { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+      { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "**/*.@(js|css|woff|woff2|png|jpg|jpeg|svg|webp)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+    ]
   },
   "functions": { "source": "functions" },
   "firestore": { "rules": "firestore.rules" }
