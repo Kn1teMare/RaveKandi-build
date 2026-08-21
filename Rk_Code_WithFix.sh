@@ -15,9 +15,9 @@
 # three separate times. Everything below now derives from these four numbers.
 # ============================================================================
 RK_MAJOR=65
-RK_MINOR=36
-RK_PATCH=3
-RK_BUILD=215
+RK_MINOR=37
+RK_PATCH=0
+RK_BUILD=216
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1670,7 +1670,54 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
 
 const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name, id }) => { const ac = autoComplete || 'off'; const noFill = ac === 'off' ? { autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-form-type': 'other' } : {}; return ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} autoComplete={ac} {...noFill} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input id={id || name} name={name} autoComplete={ac} {...noFill} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> ); };
 
-const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false }) => { if (!isOpen) return null; return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body ); };
+// ============================================================================================
+// V65.37 — BACK NAVIGATION STACK
+//
+// Previously the back button exited the app (or navigated away in a browser) even with three
+// modals stacked open — losing everything the user was doing. Back should mean "undo the last
+// thing that opened", and only leave once there is nothing left to close.
+//
+// One mechanism covers both platforms: Capacitor's Android back button drives WebView history
+// by default, so a history/popstate trap is caught identically in the APK and in a browser tab.
+// No @capacitor/app dependency, no divergent code paths.
+//
+// The trap works by keeping exactly one spare history entry. Each back press consumes it; the
+// handler closes the topmost overlay and pushes a fresh one. Net zero growth, so the history
+// stack cannot balloon during a long session.
+// ============================================================================================
+const rkOverlays = [];
+let rkTabBackHandler = null;   // registered by <App/>: returns true if it consumed the press
+
+const rkPushTrap = () => { try { window.history.pushState({ rkTrap: Date.now() }, ''); } catch (e) {} };
+
+const rkOverlayAdd = (entry) => {
+    rkOverlays.push(entry);
+    // Only the first overlay needs a trap — deeper ones reuse the one the handler re-pushes.
+    if (rkOverlays.length === 1) rkPushTrap();
+};
+const rkOverlayDrop = (entry) => {
+    const i = rkOverlays.indexOf(entry);
+    if (i !== -1) rkOverlays.splice(i, 1);
+};
+
+// Shared by <Modal> and by any overlay built from raw markup (ItemDetailModal, side docks,
+// the diagnostic log) so nothing is left outside the stack.
+const useRkBackClose = (isOpen, onClose) => {
+    useEffect(() => {
+        if (!isOpen || typeof onClose !== 'function') return;
+        const entry = { close: onClose };
+        rkOverlayAdd(entry);
+        return () => rkOverlayDrop(entry);
+    }, [isOpen, onClose]);
+};
+
+const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false }) => {
+    // Hook runs before the early return — bailing out first would break the rules of hooks and
+    // React would throw on the second render.
+    useRkBackClose(isOpen, onClose);
+    if (!isOpen) return null;
+    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
+};
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
 // and the messenger. Resolves the target's real uid (cards sometimes only have publicUid).
@@ -5629,6 +5676,9 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     // would have created stray documents under users/{uid}/inventory.
     const [visLocal, setVisLocal] = useState(null);
     useEffect(() => { setVisLocal(null); }, [item?.id]);
+    // Built from raw markup rather than <Modal>, so it has to join the back stack by hand or
+    // back would skip straight past it to whatever is underneath.
+    useRkBackClose(isOpen, onClose);
     const visNow = visLocal ? visLocal.vis : (item?.vis || 'private');
     const visAllowNow = visLocal ? visLocal.visAllowed : (item?.visAllowed || []);
     const visLockedNow = visLocal ? visLocal.visLocked : !!item?.visLocked;
@@ -6643,7 +6693,11 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
                 <div className="flex justify-between items-center">
                     <div className="flex flex-col items-start gap-1">
-                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-xs text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300 cursor-pointer flex flex-col items-start gap-0.5"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-0.5"><User size={10}/>@{item.ownerName}</span>{item.ownerBadge && <span className="flex"><BadgeChip badge={item.ownerBadge} /></span>}</button>
+                        {/* V65.37: the username was a 12px line with the badge stacked underneath and no
+                            padding, so the tap target was a few pixels tall and wedged between two other
+                            controls — easy to miss, easy to hit the wrong thing. Now 14px, badge moved to
+                            the RIGHT on the same line, and py-1.5 gives clear space above and below. */}
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300"><User size={12}/>@{item.ownerName}</span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
@@ -12062,12 +12116,56 @@ const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCente
 const selectStyle = "w-full bg-white/10 border border-white/25 rounded-lg px-2 py-2 text-xs h-10 focus:outline-none focus:border-cyan-500/50 text-white";
 const App = () => {
     const [page, setPage] = useState('home');
+    // V65.37: page history for back navigation. Kept in a ref because the popstate handler is
+    // registered once and would otherwise close over a stale copy of state on every press.
+    const pageHistRef = useRef(['home']);
+    const navBackRef = useRef(false);
+    const viewingProfileRef = useRef(null);
     const [feedWelcomeHidden, setFeedWelcomeHidden] = useState(() => { try { return localStorage.getItem('rk_feed_welcome_hidden') === '1'; } catch (e) { return false; } }); const [tab, setTab] = useState('custom');
     const [user, setUser] = useState(null); const [profile, setProfile] = useState({}); const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ postType: 'all', itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' });
     const [forceSettings, setForceSettings] = useState(false);
     const [cartOpen, setCartOpen] = useState(false);
     const [viewingProfileId, setViewingProfileId] = useState(null);
+    useEffect(() => { viewingProfileRef.current = viewingProfileId; }, [viewingProfileId]);
+
+    // V65.37: record forward navigation only. Without the navBackRef guard, the setPage() the
+    // back handler performs would immediately re-append the page it just left and back would
+    // appear to do nothing.
+    useEffect(() => {
+        if (navBackRef.current) { navBackRef.current = false; return; }
+        const h = pageHistRef.current;
+        if (h[h.length - 1] !== page) h.push(page);
+        if (h.length > 25) h.shift();
+    }, [page]);
+
+    // The single back handler. Order: topmost overlay -> open profile -> previous page -> home
+    // -> genuinely leave. Registered once; everything it needs lives in refs, because a listener
+    // bound on mount would otherwise close over the state as it was at mount time.
+    useEffect(() => {
+        rkTabBackHandler = () => {
+            if (viewingProfileRef.current) { setViewingProfileId(null); return true; }
+            const h = pageHistRef.current;
+            if (h.length > 1) { h.pop(); navBackRef.current = true; setPage(h[h.length - 1]); return true; }
+            if (h[0] !== 'home') { h[0] = 'home'; navBackRef.current = true; setPage('home'); return true; }
+            return false;   // at home with nothing open — let the press through
+        };
+        const onPop = () => {
+            if (rkOverlays.length > 0) {
+                const top = rkOverlays[rkOverlays.length - 1];
+                rkOverlayDrop(top);
+                try { top.close(); } catch (e) {}
+                rkPushTrap();
+                return;
+            }
+            if (rkTabBackHandler && rkTabBackHandler()) { rkPushTrap(); return; }
+            // Nothing consumed it: the browser navigates away, or Android exits. Deliberate —
+            // trapping back forever on the home screen would make the app impossible to leave.
+        };
+        window.addEventListener('popstate', onPop);
+        rkPushTrap();
+        return () => { window.removeEventListener('popstate', onPop); rkTabBackHandler = null; };
+    }, []);
     const [walletNudge, setWalletNudge] = useState({ open: false, next: null });
     const [walletModalOpen, setWalletModalOpen] = useState(false);
     const [quickLaunchOpen, setQuickLaunchOpen] = useState(false);
