@@ -15,9 +15,9 @@
 # three separate times. Everything below now derives from these four numbers.
 # ============================================================================
 RK_MAJOR=65
-RK_MINOR=37
-RK_PATCH=1
-RK_BUILD=217
+RK_MINOR=38
+RK_PATCH=0
+RK_BUILD=218
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1630,6 +1630,18 @@ const LoadingBar = ({ progress = 100, className = '' }) => (
     </div>
 );
 
+// V65.38: MultiSelectDropdown works on display strings, so post types need a label<->key map
+// rather than raw keys leaking into the UI.
+const RK_POST_TYPE_LABEL = { sale: '🛒 For Sale', official: '👑 Official', trades: '🤝 Open to Trades', showcase: '✨ Showcase' };
+const RK_POST_TYPES = Object.values(RK_POST_TYPE_LABEL);
+const RK_POST_TYPE_KEY = Object.keys(RK_POST_TYPE_LABEL).reduce((m, k) => { m[RK_POST_TYPE_LABEL[k]] = k; return m; }, {});
+
+// V65.38: a trailing space from a phone keyboard's autocomplete made every search miss, with
+// no indication why — the term looked identical on screen. Leading/trailing whitespace is
+// stripped and internal runs collapsed, so "  Rave  Kandi " matches "Rave Kandi". A leading @
+// goes too, since people type it out of habit.
+const rkCleanSearch = (s) => String(s == null ? '' : s).replace(/^[\s@]+/, '').replace(/\s+$/, '').replace(/\s{2,}/g, ' ');
+
 const MultiSelectDropdown = ({ options, selected, onChange }) => {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -2712,7 +2724,7 @@ const RkVisibilityPicker = ({ value, allowed, onChange, ownerUid, compact }) => 
         onChange(mode, next);
     };
     const addByName = async () => {
-        const t = (term || '').trim().replace(/^@+/, '');
+        const t = rkCleanSearch(term);
         if (!t) return;
         try {
             let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
@@ -6093,7 +6105,11 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     const rkIsMine = !!auth?.currentUser?.uid && user?.uid === auth.currentUser.uid;
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
-    const [showHidden, setShowHidden] = useState(false); // owner-only: reveal hidden/sold posts to unhide them
+    // V65.38: owners now see their WHOLE collection by default and opt to filter sold/hidden
+    // items out. Defaulting to hidden meant your own items silently vanished from your own
+    // collection after a sale, which reads as data loss. Viewers still never see hidden posts —
+    // that is enforced below and does not depend on this toggle.
+    const [showHidden, setShowHidden] = useState(!readOnly);
 
     const targetUid = user?.uid;
     useEffect(() => {
@@ -6135,7 +6151,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             <Modal isOpen={isOpen} onClose={onClose} zClass={readOnly ? 'z-[100]' : 'z-50'} title={!rkIsMine ? "Collection" : (type === 'posts' ? "My Collection" : "My Stock")}>
                 {!readOnly && type === 'posts' && (
                     <button onClick={() => setShowHidden(!showHidden)} className={`w-full mb-3 flex items-center justify-center gap-2 py-2 rounded-lg border text-[11px] font-bold transition ${showHidden ? 'bg-yellow-900/30 border-yellow-500/40 text-yellow-300' : 'bg-white/5 border-white/15 text-white/60 hover:bg-white/10'}`}>
-                        {showHidden ? <Eye size={14}/> : <EyeOff size={14}/>} {showHidden ? 'Showing hidden/sold posts — tap any to unhide' : 'Show hidden / sold posts'}
+                        {showHidden ? <Eye size={14}/> : <EyeOff size={14}/>} {showHidden ? 'Showing everything — tap to hide sold items' : 'Sold items hidden — tap to show all'}
                     </button>
                 )}
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
@@ -12142,7 +12158,12 @@ const App = () => {
     const viewingProfileRef = useRef(null);
     const [feedWelcomeHidden, setFeedWelcomeHidden] = useState(() => { try { return localStorage.getItem('rk_feed_welcome_hidden') === '1'; } catch (e) { return false; } }); const [tab, setTab] = useState('custom');
     const [user, setUser] = useState(null); const [profile, setProfile] = useState({}); const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
-    const [filters, setFilters] = useState({ postType: 'all', itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' });
+    // V65.38: postType was a single-select, so you could see Official OR Trades but never both.
+    // Split in two: `view` picks WHICH SECTION renders (items / music / profiles — genuinely
+    // exclusive, they are different components), and `postTypes` is a multi-select filter within
+    // the items view. `showSold` defaults false so out-of-stock listings stop cluttering the feed.
+    const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' });
+    const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' };
     const [forceSettings, setForceSettings] = useState(false);
     const [cartOpen, setCartOpen] = useState(false);
     const [viewingProfileId, setViewingProfileId] = useState(null);
@@ -12426,11 +12447,11 @@ const App = () => {
         // Load the directory for User Profiles mode OR whenever there's a search term
         // (so user cards can appear under "All" search too). V42.16 Phase 2.
         const hasSearch = (filters.searchUid || '').trim().length >= 2;
-        if (page !== 'feed' || !user || (filters.postType !== 'users' && !hasSearch)) return;
+        if (page !== 'feed' || !user || (filters.view !== 'users' && !hasSearch)) return;
         getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
             .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
             .catch(e => console.log('User dir load failed', e));
-    }, [page, filters.postType, filters.searchUid, user]);
+    }, [page, filters.view, filters.searchUid, user]);
     useEffect(() => {
         // Exact UID/username lookup so a searched raver who isn't in the recent-50
         // directory still surfaces. Runs for any post type when searching.
@@ -12740,16 +12761,34 @@ const App = () => {
     
     if (showWelcome) return <WelcomeCarousel onDone={() => setShowWelcome(false)} />;
 
+    // Same rule the item card uses, so "OUT OF STOCK" on a card and "sold" in the feed filter
+    // can never disagree.
+    const rkIsSold = (i) => ((i.stockQty ?? (i.purchaseCount > 0 ? 0 : 1)) <= 0);
+
     const filteredItems = items.filter(i => {
         if(i.isHidden) return false; // V63: sold & hidden posts never show in the feed
         if(i.status === 'pending' || i.status === 'request') return false; 
         if(i.isDIYRequest || i.isRequest) return false; 
         if(filters.searchUid && i.ownerPublicUid !== filters.searchUid && i.ownerId !== filters.searchUid) return false;
-        if(filters.postType === 'official' && !i.isAppProduct) return false;
-        if(filters.postType === 'trades') { if(!i.isForTrade) return false; if(filters.tradeEvent && (i.tradeWants?.event || '') !== filters.tradeEvent) return false; }
+        // V65.38: sold-out listings are hidden by default and shown ONLY when the sort is set to
+        // "Sold". Showing them inline padded the feed with things nobody can buy.
+        if(filters.sort === 'sold') { if(!rkIsSold(i)) return false; }
+        else if(rkIsSold(i)) return false;
+        // Multi-select: an empty list means no restriction; otherwise the item must match at
+        // least one checked type (OR, not AND — an item is rarely both official and a trade).
+        if(filters.postTypes.length > 0) {
+            const hit = filters.postTypes.some(t =>
+                t === 'official' ? !!i.isAppProduct :
+                t === 'trades'   ? !!i.isForTrade :
+                t === 'showcase' ? !!i.isShowingOff :
+                t === 'sale'     ? (!i.isShowingOff && !i.isAppProduct) : false);
+            if(!hit) return false;
+        }
+        if(filters.postTypes.includes('trades') && filters.tradeEvent && (i.tradeWants?.event || '') !== filters.tradeEvent) return false;
         if(filters.itemTypes.length > 0 && !filters.itemTypes.includes(i.type || 'Other')) return false;
         return true;
     }).sort((a, b) => {
+        if (filters.sort === 'sold') return b.timestamp - a.timestamp;
         if (filters.sort === 'recent') return b.timestamp - a.timestamp;
         if (filters.sort === 'popular') return (b.likes?.length || 0) - (a.likes?.length || 0);
         if (filters.sort === 'priceHigh') return b.price - a.price;
@@ -13196,7 +13235,8 @@ cat << 'EOF' >> src/App.js
                     </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
-                            <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Post Type</label><select value={filters.postType} onChange={e=>setFilters({...filters, postType: e.target.value, tradeEvent: ''})} className={selectStyle}><option value="all">All</option><option value="official">Official</option><option value="trades">🤝 Open to Trades</option><option value="music">🎵 Music</option><option value="users">User Profiles</option></select></div>
+                            <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Show</label><select value={filters.view} onChange={e=>setFilters({...filters, view: e.target.value, tradeEvent: ''})} className={selectStyle}><option value="all">🛍️ Items</option><option value="music">🎵 Music</option><option value="users">👥 User Profiles</option></select></div>
+                            {filters.view === 'all' && <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Post Type</label><MultiSelectDropdown options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>}
                             <div>
                                 <label className="text-[10px] font-bold opacity-50 uppercase ml-1">Sort</label>
                                 <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
@@ -13207,11 +13247,12 @@ cat << 'EOF' >> src/App.js
                                     <option value="viewed">Most Viewed</option>
                                     <option value="priceHigh">Price: High - Low</option>
                                     <option value="priceLow">Price: Low - High</option>
+                                    <option value="sold">💤 Sold / Out of Stock</option>
                                 </select>
                             </div>
                             <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Item Type</label><MultiSelectDropdown options={KANDI_TYPES} selected={filters.itemTypes} onChange={v => setFilters({...filters, itemTypes: v})}/></div>
                         </div>
-                        {filters.postType === 'trades' && (() => {
+                        {filters.postTypes.includes('trades') && (() => {
                             const events = Array.from(new Set(items.filter(i => i.isForTrade && i.tradeWants?.event).map(i => i.tradeWants.event))).slice(0, 30);
                             return (
                                 <div className="border-t border-white/10 pt-2">
@@ -13226,24 +13267,24 @@ cat << 'EOF' >> src/App.js
                             );
                         })()}
                         <div className="border-t border-white/10 pt-3">
-                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder="Search UID or Username..." value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
+                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder="Search UID or Username..." value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: rkCleanSearch(e.target.value)})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
                         </div>
                         <div className="flex justify-between items-center pt-2">
                             <div className="flex-1 mr-2"></div>
                             <div className="flex gap-2 items-center">
                                 <button onClick={manualRefresh} className={`text-white/50 hover:text-white transition-transform ${isSyncing ? 'animate-spin text-lime-400' : ''}`}><RefreshCw size={16}/></button>
-                                <button onClick={() => setFilters({ postType: 'all', itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' })} className="bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded">Clear Filters</button>
+                                <button onClick={() => setFilters(rkClearFilters)} className="bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded">Clear Filters</button>
                             </div>
                         </div>
                     </Card>
-                    {filters.postType !== 'users' && <SellKandiForm user={user} profile={profile}/>}
+                    {filters.view !== 'users' && <SellKandiForm user={user} profile={profile}/>}
                     {isSyncing && (
                         <div className="flex flex-col items-center justify-center py-6 mb-4 bg-black/40 border border-white/10 rounded-xl">
                             <RefreshCw size={32} className="animate-spin text-lime-400 mb-3" />
                             <p className="text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 font-bold animate-pulse text-sm">{syncMsgs[syncMsgIdx]}</p>
                         </div>
                     )}
-                    {filters.postType === 'music' ? (<FeedMusicSection user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId}/>) : filters.postType === 'users' ? (
+                    {filters.view === 'music' ? (<FeedMusicSection user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId}/>) : filters.view === 'users' ? (
                         <div className="grid grid-cols-1 gap-3">
                             {visibleUsers.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No ravers match that search.</p>}
                             {visibleUsers.map(u => (
