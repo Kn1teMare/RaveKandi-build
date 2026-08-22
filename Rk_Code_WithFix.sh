@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=38
-RK_PATCH=0
-RK_BUILD=218
+RK_PATCH=1
+RK_BUILD=219
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1642,7 +1642,7 @@ const RK_POST_TYPE_KEY = Object.keys(RK_POST_TYPE_LABEL).reduce((m, k) => { m[RK
 // goes too, since people type it out of habit.
 const rkCleanSearch = (s) => String(s == null ? '' : s).replace(/^[\s@]+/, '').replace(/\s+$/, '').replace(/\s{2,}/g, ' ');
 
-const MultiSelectDropdown = ({ options, selected, onChange }) => {
+const MultiSelectDropdown = ({ options, selected, onChange, label = 'Item Type' }) => {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
     const filtered = options.filter(o => !search || o.toLowerCase().includes(search.toLowerCase()));
@@ -1652,7 +1652,7 @@ const MultiSelectDropdown = ({ options, selected, onChange }) => {
                 <span className="truncate">{selected.length ? (selected.length + ' selected') : 'All Types'}</span>
                 <ChevronDown size={12}/>
             </button>
-            <Modal isOpen={open} onClose={() => { setOpen(false); setSearch(''); }} title="Filter by Item Type">
+            <Modal isOpen={open} onClose={() => { setOpen(false); setSearch(''); }} title={'Filter by ' + label}>
                 <div className="space-y-2">
                     <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search types…" className="w-full p-2 rounded bg-white/10 border border-white/25 text-xs outline-none focus:border-pink-500/60"/>
                     <div className="flex items-center justify-between text-[10px]">
@@ -5839,14 +5839,18 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
 
     const setHiddenState = async (hidden) => {
         const tradeId = await resolveTradeItemId();
-        let touched = false;
-        // setDoc(merge) won't throw on a missing doc — it just creates/updates safely.
-        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeId), hidden ? { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 } : { isHidden: false, hiddenAt: null }, { merge: true }); touched = true; } catch (e) { console.log('hide tradeItems', e); }
-        // Always sync the inventory mirror (id may be item.id or item.refId).
+        // V65.38.01: the PUBLIC doc decides what other ravers see. The old code returned success
+        // if EITHER write landed, so when the tradeItems write was denied the inventory mirror
+        // still flipped and the post reported as hidden while staying visible to everyone else.
+        let publicOk = false;
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeId), hidden ? { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 } : { isHidden: false, hiddenAt: null }, { merge: true });
+            publicOk = true;
+        } catch (e) { console.log('hide tradeItems', e); }
         for (const invId of [item.refId, item.id].filter(Boolean)) {
-            try { await setDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', invId), { isHidden: hidden }, { merge: true }); touched = true; } catch (e) {}
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', invId), { isHidden: hidden }, { merge: true }); } catch (e) {}
         }
-        return touched;
+        return publicOk;
     };
 
     const handleUnhide = async () => {
@@ -6135,14 +6139,39 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                 setItems(filterBroken(arr));
             }, e => { console.log('collection(readOnly) load:', e); setItems([]); });
         }
-        const q = query(collection(db, 'artifacts', appId, 'users', targetUid, 'inventory'));
-        return onSnapshot(q, s => {
-            let allItems = s.docs.map(d => ({...d.data(), id: d.id}));
-            allItems.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-            const usable = filterBroken(allItems, showHidden);
+        // V65.38.01: the owner's collection now UNIONS their inventory with their own public
+        // listings. A post writes two documents in one batch — tradeItems plus an inventory
+        // mirror — and reading only the mirror meant any post whose mirror was missing or
+        // written under a different id simply never appeared, with no error to show for it.
+        // Reading both and de-duplicating makes a posted item impossible to lose.
+        //
+        // Dedup key: the mirror stores refId = the tradeItems id, so refId||id collapses the
+        // two copies of the same listing into one card.
+        let invRows = [], pubRows = [], invReady = false, pubReady = false;
+        const publish = () => {
+            if (!invReady && !pubReady) return;
+            const seen = {};
+            [...invRows, ...pubRows].forEach(r => {
+                const k = r.refId || r.id;
+                // Prefer the inventory copy: it carries cost/margin fields the public doc lacks.
+                if (!seen[k] || (r.__src === 'inv' && seen[k].__src !== 'inv')) seen[k] = r;
+            });
+            let all = Object.values(seen);
+            all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            const usable = filterBroken(all, showHidden);
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
             if (type === 'stock') setItems(usable.filter(i => i.isCraftingStock));
-        }, e => { console.log('collection load:', e); setItems([]); });
+        };
+        const unsubInv = onSnapshot(query(collection(db, 'artifacts', appId, 'users', targetUid, 'inventory')), s => {
+            invRows = s.docs.map(d => ({ ...d.data(), id: d.id, __src: 'inv' }));
+            invReady = true; publish();
+        }, e => { console.log('collection load (inventory):', e); invReady = true; publish(); });
+        // Crafting stock lives only in inventory, so the public half is skipped for that tab.
+        const unsubPub = type === 'stock' ? null : onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', targetUid)), s => {
+            pubRows = s.docs.map(d => ({ ...d.data(), id: d.id, refId: d.id, __src: 'pub' })).filter(i => !i.isCraftingStock);
+            pubReady = true; publish();
+        }, e => { console.log('collection load (public):', e); pubReady = true; publish(); });
+        return () => { try { unsubInv(); } catch (e) {} try { if (unsubPub) unsubPub(); } catch (e) {} };
     }, [isOpen, targetUid, type, readOnly, hideDIY, showHidden]);
     
     if(!isOpen) return null;
@@ -12763,13 +12792,32 @@ const App = () => {
 
     // Same rule the item card uses, so "OUT OF STOCK" on a card and "sold" in the feed filter
     // can never disagree.
-    const rkIsSold = (i) => ((i.stockQty ?? (i.purchaseCount > 0 ? 0 : 1)) <= 0);
+    // V65.38.01: the first version read stockQty 0 as sold, but showcase and trade-only posts are
+    // SAVED with stockQty 0 because they were never for sale — so every "Showing Off" post
+    // vanished from the feed. Sold now means a sellable listing whose stock actually ran out.
+    const rkIsSold = (i) => {
+        if (i.isShowingOff || i.isTradeOnly) return false;   // never had stock to run out of
+        if (i.isHidden) return true;                          // explicitly marked sold & hidden
+        if (typeof i.stockQty !== 'number') return false;     // untracked stock = always available
+        return i.stockQty <= 0;
+    };
 
     const filteredItems = items.filter(i => {
         if(i.isHidden) return false; // V63: sold & hidden posts never show in the feed
         if(i.status === 'pending' || i.status === 'request') return false; 
         if(i.isDIYRequest || i.isRequest) return false; 
-        if(filters.searchUid && i.ownerPublicUid !== filters.searchUid && i.ownerId !== filters.searchUid) return false;
+        // V65.38.01: clean at COMPARE time, never on keystroke. Cleaning as you typed deleted the
+        // character you had just entered — a leading @ vanished instantly, and the space bar did
+        // nothing because a trailing space was stripped before React re-rendered (which is also
+        // why double-tapping space produced a period: Android's shortcut fired on a field that
+        // never accepted the first space).
+        if(rkCleanSearch(filters.searchUid)) {
+            const q = rkCleanSearch(filters.searchUid).toLowerCase();
+            const hit = String(i.ownerPublicUid || '').toLowerCase() === q
+                || String(i.ownerId || '').toLowerCase() === q
+                || String(i.ownerName || '').toLowerCase() === q;
+            if(!hit) return false;
+        }
         // V65.38: sold-out listings are hidden by default and shown ONLY when the sort is set to
         // "Sold". Showing them inline padded the feed with things nobody can buy.
         if(filters.sort === 'sold') { if(!rkIsSold(i)) return false; }
@@ -13236,7 +13284,7 @@ cat << 'EOF' >> src/App.js
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
                         <div className="grid grid-cols-3 gap-3 mb-3">
                             <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Show</label><select value={filters.view} onChange={e=>setFilters({...filters, view: e.target.value, tradeEvent: ''})} className={selectStyle}><option value="all">🛍️ Items</option><option value="music">🎵 Music</option><option value="users">👥 User Profiles</option></select></div>
-                            {filters.view === 'all' && <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Post Type</label><MultiSelectDropdown options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>}
+                            {filters.view === 'all' && <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Post Type</label><MultiSelectDropdown label="Post Type" options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>}
                             <div>
                                 <label className="text-[10px] font-bold opacity-50 uppercase ml-1">Sort</label>
                                 <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
@@ -13267,7 +13315,7 @@ cat << 'EOF' >> src/App.js
                             );
                         })()}
                         <div className="border-t border-white/10 pt-3">
-                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder="Search UID or Username..." value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: rkCleanSearch(e.target.value)})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
+                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder="Search UID or Username..." value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
                         </div>
                         <div className="flex justify-between items-center pt-2">
                             <div className="flex-1 mr-2"></div>
