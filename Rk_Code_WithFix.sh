@@ -15,9 +15,9 @@
 # three separate times. Everything below now derives from these four numbers.
 # ============================================================================
 RK_MAJOR=65
-RK_MINOR=38
-RK_PATCH=1
-RK_BUILD=219
+RK_MINOR=39
+RK_PATCH=0
+RK_BUILD=221
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -5696,7 +5696,7 @@ EOF
 
 # Block 11
 cat << 'EOF' >> src/App.js
-const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invOwnerUid }) => {
+const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invOwnerUid, invDocId, tradeDocId }) => {
     // V65.36: `item` is a PROP, not state — the previous build called setSelectedItem() here,
     // which belongs to the parent and does not exist in this scope. The updateDoc succeeded and
     // then the refresh line threw, so the value saved but the UI showed an error and never
@@ -6056,6 +6056,43 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                             {item.isPinned ? (
                                 <p className="text-[10px] text-lime-200 leading-snug">📌 Pinned items are public — that is what pinning does. Unpin it to make it private again.</p>
                             ) : (<>
+                                {/* V65.38.02: TWO different things live in a collection.
+                                    A PUBLIC LISTING (has a tradeItems doc) is what the feed reads — its
+                                    visibility is governed by isHidden on that public doc, so writing vis
+                                    to the inventory mirror did nothing at all. That is why the selection
+                                    snapped back to "Only me" and the item stayed visible to everyone:
+                                    the write landed on a document nobody reads for that purpose.
+                                    A PRIVATE STASH ITEM has no listing, and vis on the inventory doc is
+                                    exactly right for it.
+                                    Listings get a two-way listed/unlisted control because that is what is
+                                    actually enforceable today. Friends-only and selected-ravers on a
+                                    public listing needs the feed query and rules reworked — promising it
+                                    here would be telling you something is private when it is not. */}
+                                {tradeDocId ? (
+                                    <div className="space-y-1.5">
+                                        {/* V65.39: all four modes now, because the feed is assembled from queries
+                                            that honour them — friends-only posts reach your friends' feeds, and
+                                            named ravers see the ones shared with them. Writes go to the PUBLIC doc,
+                                            which is what every reader actually queries. isHidden is left alone:
+                                            that belongs to Sold & Hide and means something different. */}
+                                        <p className="text-[10px] text-white/70 leading-snug">This is a <strong className="text-cyan-200">public listing</strong>. Anything but "Everyone" removes it from the open feed.</p>
+                                        <RkVisibilityPicker
+                                            compact
+                                            value={visNow}
+                                            allowed={visAllowNow}
+                                            ownerUid={invOwnerUid}
+                                            onChange={async (m, allow) => {
+                                                const next = { vis: m, visAllowed: m === 'selected' ? (allow || []) : [], visLocked: true };
+                                                try {
+                                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeDocId), { vis: next.vis, visAllowed: next.visAllowed, visSetAt: Date.now() });
+                                                    if (invDocId) { try { await updateDoc(doc(db, 'artifacts', appId, 'users', invOwnerUid, 'inventory', invDocId), { ...next, visSetAt: Date.now() }); } catch (e) {} }
+                                                    setVisLocal(next);
+                                                } catch (e) { alert('Could not update: ' + e.message); }
+                                            }}
+                                        />
+                                        <p className="text-[9px] text-lime-300 leading-snug">{RK_VIS_LABEL[visNow] || visNow} · saved to the listing</p>
+                                    </div>
+                                ) : (<>
                                 <RkVisibilityPicker
                                     compact
                                     value={visNow}
@@ -6063,8 +6100,9 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                                     ownerUid={invOwnerUid}
                                     onChange={async (m, allow) => {
                                         const next = { vis: m, visAllowed: m === 'selected' ? (allow || []) : [], visLocked: true };
+                                        const target = invDocId || item.id;
                                         try {
-                                            await updateDoc(doc(db, 'artifacts', appId, 'users', invOwnerUid, 'inventory', item.id), { ...next, visSetAt: Date.now() });
+                                            await updateDoc(doc(db, 'artifacts', appId, 'users', invOwnerUid, 'inventory', target), { ...next, visSetAt: Date.now() });
                                             setVisLocal(next);
                                         } catch (e) { alert('Could not update: ' + e.message); }
                                     }}
@@ -6072,10 +6110,11 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                                 <p className="text-[9px] text-lime-300 mt-1.5">{RK_VIS_LABEL[visNow] || visNow}{visLockedNow ? ' · set for this item' : ' · following your account default'}</p>
                                 {visLockedNow && <button onClick={async () => {
                                     try {
-                                        await updateDoc(doc(db, 'artifacts', appId, 'users', invOwnerUid, 'inventory', item.id), { visLocked: false });
+                                        await updateDoc(doc(db, 'artifacts', appId, 'users', invOwnerUid, 'inventory', invDocId || item.id), { visLocked: false });
                                         setVisLocal({ vis: visNow, visAllowed: visAllowNow, visLocked: false });
                                     } catch (e) { alert('Could not update: ' + e.message); }
                                 }} className="w-full mt-1.5 text-[10px] text-cyan-300 underline py-1">Follow my account default instead</button>}
+                                </>)}
                             </>)}
                         </div>
                         )}
@@ -6129,15 +6168,36 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
         // so collections reliably show items now. (The old inventory-subcollection read was
         // returning empty.) The owner's own view still reads their full inventory.
         if (readOnly) {
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', targetUid));
-            return onSnapshot(q, s => {
-                let arr = s.docs.map(d => ({ ...d.data(), id: d.id }));
-                arr = arr.filter(i => !i.isCraftingStock);
+            // V65.39: was one unconstrained query on ownerId, which returned that raver's private
+            // listings too. Under visibility rules that fails the WHOLE query rather than skipping
+            // the private ones, so their collection would show nothing at all. Split into buckets
+            // that can each only return documents this viewer is entitled to read.
+            const col = collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems');
+            const me = auth?.currentUser?.uid || null;
+            const roBuckets = {};
+            const roUnsubs = [];
+            const roPublish = () => {
+                const merged = {};
+                Object.values(roBuckets).forEach(rows => rows.forEach(r => { merged[r.id] = r; }));
+                let arr = Object.values(merged).filter(i => !i.isCraftingStock);
                 // V63: respect the owner's "hide my DIY/AI projects from others" preference.
                 if (hideDIY) arr = arr.filter(i => !i.isDIYRequest && !i.isAICreation && !i.isDesignConcept && !i.isRequest && i.status !== 'request');
                 arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
                 setItems(filterBroken(arr));
-            }, e => { console.log('collection(readOnly) load:', e); setItems([]); });
+            };
+            const roAttach = (key, q) => {
+                roUnsubs.push(onSnapshot(q, s => {
+                    roBuckets[key] = s.docs.map(d => ({ ...d.data(), id: d.id }));
+                    roPublish();
+                }, e => { console.log('collection(readOnly) bucket ' + key + ':', e); roBuckets[key] = []; roPublish(); }));
+            };
+            roAttach('public', query(col, where('ownerId', '==', targetUid), where('vis', '==', 'public')));
+            if (me) {
+                // Items this raver shared specifically with the viewer, or with their friends.
+                roAttach('named', query(col, where('ownerId', '==', targetUid), where('visAllowed', 'array-contains', me)));
+                roAttach('friends', query(col, where('ownerId', '==', targetUid), where('vis', '==', 'friends')));
+            }
+            return () => { roUnsubs.forEach(u => { try { u(); } catch (e) {} }); };
         }
         // V65.38.01: the owner's collection now UNIONS their inventory with their own public
         // listings. A post writes two documents in one batch — tradeItems plus an inventory
@@ -6200,7 +6260,16 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                     ))}
                 </div>
             </Modal>
-            <ItemDetailModal item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)} onViewFeed={onViewFeed} zClass={readOnly ? 'z-[110]' : 'z-50'} invOwnerUid={readOnly ? null : targetUid}/>
+            <ItemDetailModal
+                item={selectedItem} user={user} isOpen={!!selectedItem} onClose={() => setSelectedItem(null)}
+                onViewFeed={onViewFeed} zClass={readOnly ? 'z-[110]' : 'z-50'}
+                invOwnerUid={readOnly ? null : targetUid}
+                // V65.38.02: after the union, item.id means different things depending on which
+                // snapshot produced the row. __src tells us which, so the modal writes to the
+                // right document instead of guessing and silently missing.
+                invDocId={readOnly ? null : (selectedItem?.__src === 'inv' ? selectedItem.id : null)}
+                tradeDocId={readOnly ? null : (selectedItem?.__src === 'pub' ? selectedItem.id : (selectedItem?.refId || null))}
+            />
         </>
     );
 };
@@ -6890,7 +6959,11 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const item = { ...form, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null }; 
+            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const item = { ...form, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
+                // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
+                // field does not match an equality query — a post without this would be invisible
+                // to everyone except its author.
+                vis: 'public', visAllowed: [], visSetAt: Date.now() }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -7975,6 +8048,27 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             if (!dryRun && n > 0) await batch.commit();
             bfSay('DIY stock: ' + diy.size + ' items.');
 
+            // --- V65.39: public listings ---
+            // Every tradeItems doc needs a vis field before the feed can be constrained to
+            // where('vis','==','public'). A missing field does not match an equality query, so
+            // without this pass every legacy post would vanish from the feed the moment the new
+            // query goes live. Existing listings are public today, so 'public' preserves reality.
+            bfSay('Scanning public listings...');
+            const pub = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
+            let pb = writeBatch(db), pn = 0;
+            for (const d of pub.docs) {
+                scanned++;
+                const data = d.data();
+                if (data.vis) { skipped++; continue; }
+                // isHidden already means "unlisted", so respect it rather than re-publishing.
+                const v = data.isHidden ? 'private' : 'public';
+                if (!dryRun) { pb.update(d.ref, { vis: v, visAllowed: [], visSetAt: Date.now() }); pn++; }
+                written++;
+                if (pn >= 450) { await pb.commit(); pb = writeBatch(db); pn = 0; bfSay('  committed 450...'); }
+            }
+            if (!dryRun && pn > 0) await pb.commit();
+            bfSay('Public listings: ' + pub.size + ' scanned.');
+
             // --- per-user private inventories ---
             const uSnap = await getDocs(collection(db, 'artifacts', appId, 'users'));
             bfSay('Scanning ' + uSnap.size + ' users...');
@@ -8539,6 +8633,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             <div className="space-y-3">
                 <div className="bg-orange-900/25 border border-orange-400/50 rounded-lg p-2.5">
                     <p className="text-[11px] font-black text-orange-200 mb-1">Run this BEFORE deploying the new rules.</p>
+                    <p className="text-[10px] text-lime-200 leading-snug mb-1">V65.39: now also stamps every <strong>public listing</strong>, which the feed needs before it can filter by visibility.</p>
                     <p className="text-[10px] text-white leading-snug">Older inventory items have no visibility field. Tightened rules read a missing field as "not allowed", so legacy items would disappear from profiles and the DIY builder. This writes the field while the current permissive rule is still live — nothing breaks at any point.</p>
                 </div>
                 <div className="text-[10px] text-white/80 leading-snug space-y-0.5">
@@ -12457,25 +12552,58 @@ const App = () => {
     // installs; if Firestore rejected the unauthenticated read, the listener died silently
     // and old posts (including official merch) never loaded. Includes auto-retry on errors.
     const [feedRetry, setFeedRetry] = useState(0);
-    useEffect(() => { 
+    // V65.39: the feed used to read the whole tradeItems collection in one unconstrained query.
+    // That cannot survive visibility rules — rules are not filters, so a single unreadable
+    // document fails the ENTIRE query rather than being skipped. The feed is now assembled from
+    // four constrained queries, each of which can only return documents you may read:
+    //   1. everything public
+    //   2. your own posts, whatever their visibility
+    //   3. posts that name you specifically (visAllowed contains your uid)
+    //   4. friends-only posts from people you are actually friends with
+    // Results merge by document id, so an item matching two queries still renders once.
+    //
+    // NOTE: query 4 needs a composite index on (vis, ownerId). Firestore prints a one-click
+    // creation link the first time it runs — expected once, not a bug.
+    useEffect(() => {
         if (!user) return;
-        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems')), s => {
-            setItems(s.docs.map(d => ({...d.data(), id: d.id})));
-            setIsSyncing(false);
-        }, err => {
-            console.error('Feed listener error, retrying in 4s...', err);
-            setTimeout(() => setFeedRetry(r => r + 1), 4000);
-        });
+        const col = collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems');
+        const buckets = {};
+        const unsubs = [];
+        let settled = 0;
+        const publish = () => {
+            const merged = {};
+            Object.values(buckets).forEach(rows => rows.forEach(r => { merged[r.id] = r; }));
+            setItems(Object.values(merged));
+            if (settled > 0) setIsSyncing(false);
+        };
+        const attach = (key, q) => {
+            unsubs.push(onSnapshot(q, s => {
+                buckets[key] = s.docs.map(d => ({ ...d.data(), id: d.id }));
+                settled++; publish();
+            }, err => {
+                // One failing bucket must not blank the feed — the others still populate.
+                console.error('Feed bucket "' + key + '" failed:', err);
+                buckets[key] = []; settled++; publish();
+                if (key === 'public') setTimeout(() => setFeedRetry(r => r + 1), 4000);
+            }));
+        };
+        attach('public', query(col, where('vis', '==', 'public')));
+        attach('mine', query(col, where('ownerId', '==', user.uid)));
+        attach('named', query(col, where('visAllowed', 'array-contains', user.uid)));
+        // Firestore caps an 'in' clause at 30 values, so this covers your 30 most recent friends.
+        const friendIds = (profile?.friends || []).slice(0, 30);
+        if (friendIds.length) attach('friends', query(col, where('vis', '==', 'friends'), where('ownerId', 'in', friendIds)));
+
         const timeout = setTimeout(() => setIsSyncing(false), 10000);
-        return () => { unsub(); clearTimeout(timeout); };
-    }, [user, feedRetry]);
+        return () => { unsubs.forEach(u => { try { u(); } catch (e) {} }); clearTimeout(timeout); };
+    }, [user, feedRetry, profile?.friends]);
 
     // V37.12: User Directory for the feed "User Profiles" mode
     const [usersDir, setUsersDir] = useState([]);
     useEffect(() => {
         // Load the directory for User Profiles mode OR whenever there's a search term
         // (so user cards can appear under "All" search too). V42.16 Phase 2.
-        const hasSearch = (filters.searchUid || '').trim().length >= 2;
+        const hasSearch = rkCleanSearch(filters.searchUid).length >= 2;
         if (page !== 'feed' || !user || (filters.view !== 'users' && !hasSearch)) return;
         getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
             .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
@@ -12484,7 +12612,7 @@ const App = () => {
     useEffect(() => {
         // Exact UID/username lookup so a searched raver who isn't in the recent-50
         // directory still surfaces. Runs for any post type when searching.
-        const term = (filters.searchUid || '').trim();
+        const term = rkCleanSearch(filters.searchUid);
         if (page !== 'feed' || term.length < 3) return;
         const t = setTimeout(async () => {
             try {
@@ -12848,7 +12976,11 @@ const App = () => {
     
     const officialItems = items.filter(i => i.isAppProduct && i.status === 'approved').sort((a,b)=>b.timestamp - a.timestamp);
 
-    const uTerm = (filters.searchUid || '').toLowerCase();
+    // V65.38.02: was the raw box value, so "@king" never matched the stored name "King" and a
+    // trailing space from keyboard autocomplete failed the includes() test. Posts still matched
+    // because that path already cleaned the term — which is why posts appeared but the profile
+    // card did not.
+    const uTerm = rkCleanSearch(filters.searchUid).toLowerCase();
     const visibleUsers = usersDir.filter(u => !uTerm || (u.displayName || '').toLowerCase().includes(uTerm) || (u.publicUid || u.id || '').toLowerCase().includes(uTerm));
 
     // V37.14: marquee data — entries are {t, uid} so user references are tappable links
@@ -13361,7 +13493,7 @@ cat << 'EOF' >> src/App.js
                         </div>
                     ) : (
                     <div className="space-y-6">
-                        {(filters.searchUid || '').trim().length >= 2 && visibleUsers.length > 0 && (
+                        {rkCleanSearch(filters.searchUid).length >= 2 && visibleUsers.length > 0 && (
                             <div className="space-y-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-purple-300">Ravers matching "{filters.searchUid}"</p>
                                 {visibleUsers.slice(0, 10).map(u => (
