@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=39
-RK_PATCH=0
-RK_BUILD=221
+RK_PATCH=1
+RK_BUILD=222
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -6191,6 +6191,22 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                     roPublish();
                 }, e => { console.log('collection(readOnly) bucket ' + key + ':', e); roBuckets[key] = []; roPublish(); }));
             };
+            // V65.39.01: unconstrained + JS visibility filter, for the same reason as the feed.
+            // Listings that were never stamped are treated as public, so a collection cannot go
+            // blank because a backfill was incomplete. Fails closed once rules enforce visibility.
+            const meRo = auth?.currentUser?.uid || null;
+            const roCanSee = (i) => {
+                const v = i.vis || 'public';
+                if (v === 'public') return true;
+                if (meRo && i.ownerId === meRo) return true;
+                if (meRo && (i.visAllowed || []).includes(meRo)) return true;
+                return false;   // friends-only handled by its own query below
+            };
+            roUnsubs.push(onSnapshot(query(col, where('ownerId', '==', targetUid)), s => {
+                roBuckets.legacy = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(roCanSee);
+                roPublish();
+            }, e => { roBuckets.legacy = []; roPublish(); }));
+
             roAttach('public', query(col, where('ownerId', '==', targetUid), where('vis', '==', 'public')));
             if (me) {
                 // Items this raver shared specifically with the viewer, or with their friends.
@@ -6211,12 +6227,32 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
         const publish = () => {
             if (!invReady && !pubReady) return;
             const seen = {};
+            // V65.39.01: an inventory row keys on refId (the listing id) while a public row keys on
+            // its own id. When a listing was deleted, or the mirror pointed at a refId that no
+            // longer exists, the two keys disagreed — the first snapshot showed the item and the
+            // second dropped it, which looked like an item silently vanishing a second after the
+            // collection opened. Rows now register under BOTH keys so neither pass can lose one.
             [...invRows, ...pubRows].forEach(r => {
-                const k = r.refId || r.id;
-                // Prefer the inventory copy: it carries cost/margin fields the public doc lacks.
-                if (!seen[k] || (r.__src === 'inv' && seen[k].__src !== 'inv')) seen[k] = r;
+                const keys = Array.from(new Set([r.refId, r.id].filter(Boolean)));
+                keys.forEach(k => {
+                    // Prefer the inventory copy: it carries cost/margin fields the public doc lacks.
+                    if (!seen[k] || (r.__src === 'inv' && seen[k].__src !== 'inv')) seen[k] = r;
+                });
             });
-            let all = Object.values(seen);
+            // Registering under two keys can list the same row twice — collapse on identity.
+            const uniq = [];
+            const takenIds = {};
+            Object.values(seen).forEach(r => {
+                const idk = (r.__src || '') + ':' + r.id;
+                if (!takenIds[idk]) { takenIds[idk] = true; uniq.push(r); }
+            });
+            // A listing and its mirror are the same item — keep the inventory copy of each pair.
+            const byTrade = {};
+            uniq.forEach(r => {
+                const k = r.refId || r.id;
+                if (!byTrade[k] || (r.__src === 'inv' && byTrade[k].__src !== 'inv')) byTrade[k] = r;
+            });
+            let all = Object.values(byTrade);
             all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             const usable = filterBroken(all, showHidden);
             if (type === 'posts') setItems(usable.filter(i => !i.isCraftingStock));
@@ -12587,6 +12623,36 @@ const App = () => {
                 if (key === 'public') setTimeout(() => setFeedRetry(r => r + 1), 4000);
             }));
         };
+        // V65.39.01: SELF-HEALING BUCKET.
+        // 221 assumed every listing carried `vis`. It could not: the backfill ran as one user and
+        // the tradeItems update rule only lets the OWNER change arbitrary fields, so writes to
+        // other people's posts were denied inside the batch and the feed collapsed to your own
+        // items. Depending on a backfill completing perfectly was the design error.
+        //
+        // This bucket reads the collection unconstrained and filters visibility in JS. While
+        // rules are permissive it returns everything, so a missing `vis` is simply treated as
+        // public and nothing disappears. Once visibility rules are live it fails, empties itself
+        // and the constrained buckets below carry the feed. Correct on both sides of the
+        // transition, with no ordering requirement.
+        const meUidFeed = user.uid;
+        const meFriends = profile?.friends || [];
+        const canSee = (i) => {
+            const v = i.vis || 'public';                        // unstamped = public, as it is today
+            if (v === 'public') return true;
+            if (i.ownerId === meUidFeed) return true;
+            if ((i.visAllowed || []).includes(meUidFeed)) return true;
+            if (v === 'friends' && meFriends.includes(i.ownerId)) return true;
+            return false;
+        };
+        unsubs.push(onSnapshot(query(col), s => {
+            buckets.legacy = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(canSee);
+            settled++; publish();
+        }, err => {
+            // Expected once visibility rules are enforced — not an error worth retrying.
+            console.log('Feed legacy bucket closed (rules enforcing visibility):', err.code || err);
+            buckets.legacy = []; settled++; publish();
+        }));
+
         attach('public', query(col, where('vis', '==', 'public')));
         attach('mine', query(col, where('ownerId', '==', user.uid)));
         attach('named', query(col, where('visAllowed', 'array-contains', user.uid)));
@@ -12605,9 +12671,23 @@ const App = () => {
         // (so user cards can appear under "All" search too). V42.16 Phase 2.
         const hasSearch = rkCleanSearch(filters.searchUid).length >= 2;
         if (page !== 'feed' || !user || (filters.view !== 'users' && !hasSearch)) return;
+        // V65.39.01: orderBy('joined') silently EXCLUDES every user document without that field —
+        // Firestore drops docs missing the sort key rather than sorting them last. Older accounts
+        // never had it, so they were invisible to search no matter what you typed. Ordered load
+        // first for a sensible recent-ravers list, then an unordered top-up so nobody is missing.
         getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
             .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
-            .catch(e => console.log('User dir load failed', e));
+            .catch(e => console.log('User dir ordered load failed', e))
+            .finally(() => {
+                getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100)))
+                    .then(s2 => setUsersDir(prev => {
+                        const seen = {};
+                        prev.forEach(u => { seen[u.id] = u; });
+                        s2.docs.forEach(d => { if (!seen[d.id]) seen[d.id] = { ...d.data(), id: d.id }; });
+                        return Object.values(seen);
+                    }))
+                    .catch(e2 => console.log('User dir fallback load failed', e2));
+            });
     }, [page, filters.view, filters.searchUid, user]);
     useEffect(() => {
         // Exact UID/username lookup so a searched raver who isn't in the recent-50
