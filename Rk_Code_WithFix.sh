@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=42
-RK_PATCH=0
-RK_BUILD=225
+RK_PATCH=1
+RK_BUILD=226
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1394,7 +1394,8 @@ export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeOb
     const encT = await rkEncTribe(text.trim().slice(0, 1000), tribeId);   // AES-GCM (group key)
     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), {
         sender: fromUid, senderName: fromName || 'Raver', text: encT, at: Date.now(), badge: badgeObj || null,
-        style: (extra && extra.style) || null, photoURL: (extra && extra.photoURL) || '', publicUid: (extra && extra.publicUid) || fromUid
+        style: (extra && extra.style) || null, ns: (extra && extra.ns) || null,
+        photoURL: (extra && extra.photoURL) || '', publicUid: (extra && extra.publicUid) || fromUid
     });
     // track for achievements (best-effort)
     try { await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { tribeMessages: increment(1) }, { merge: true }); } catch (e) {}
@@ -1411,12 +1412,14 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
     try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); } catch (e) {}
 };
 
-export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null) => {
+export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null, nameStyleObj = null) => {
     const tid = [fromUid, toUid].sort().join('_');
     const enc = await rkEncMsg(text, fromUid, toUid);   // AES-GCM
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid, unread: { [toUid]: increment(1) } }, { merge: true });
-    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null, badge: badgeObj || null });
+    // V65.43: ns = the SENDER NAME's style; ts = the MESSAGE BODY's style. Kept apart on purpose —
+    // sharing one field would mean picking a chat font silently restyled your name everywhere.
+    await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null, badge: badgeObj || null, ns: nameStyleObj || null });
     // V47: respect recipient's message-notification preference
     try { const rSnap = await getDoc(doc(db, 'artifacts', appId, 'users', toUid)); if (!rSnap.exists() || rSnap.data().msgNotifs !== false) pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid); }
     catch (e) { pushNotif(toUid, 'message', (fromName || 'Someone') + ' sent you a message', tid); }
@@ -3433,6 +3436,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                 uid: myUid, name: profile?.displayName || 'Raver', publicUid: profile?.publicUid || myUid,
                 photoURL: profile?.photoURL || '', badge: profile?.featuredBadge || null,
                 style: profile?.[RADIO_CHAT_FONT_FIELD] || profile?.msgTextStyle || null,
+                ns: profile?.[RK_NAME_STYLE_FIELD] || null,
                 text, at: Date.now(), kind: 'text'
             });
             setInput('');
@@ -3502,7 +3506,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                                 <img src={m.photoURL || 'https://placehold.co/32?text=U'} onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="w-8 h-8 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1 flex-wrap">
-                                        <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className={`text-[11px] font-black ${mine ? 'text-lime-300' : 'text-cyan-300'} hover:underline`}>@{m.name}</button>
+                                        <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className={`text-[11px] font-black hover:underline ${m.ns ? '' : (mine ? 'text-lime-300' : 'text-cyan-300')}`}><RkName name={m.name} style={m.ns}/></button>
                                         {m.badge && <BadgeChip badge={m.badge} />}
                                     </div>
                                     {m.kind === 'collection' && m.item ? (
@@ -4746,7 +4750,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         setSending(true);
         try {
             if (!activeOtherUid) { alert('Could not resolve the recipient — reopen the conversation and try again.'); setSending(false); return; }
-            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim(), profile?.msgTextStyle || profile?.textStyle || null, profile?.featuredBadge || null);
+            await sendDirectMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName, input.trim(), profile?.msgTextStyle || profile?.textStyle || null, profile?.featuredBadge || null, profile?.[RK_NAME_STYLE_FIELD] || null);
             setInput('');
         } catch (e) { alert('Send failed: ' + e.message); } finally { setSending(false); }
     };
@@ -4901,7 +4905,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                 const mine = m.sender === myUid;
                                 return (
                                     <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
-                                        {!mine && m.badge && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className="text-[10px] font-bold text-pink-300">@{activeName}</span><BadgeChip badge={m.badge} /></div>}
+                                        {!mine && (m.badge || m.ns) && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className={'text-[10px] font-bold ' + (m.ns ? '' : 'text-pink-300')}><RkName name={activeName} style={m.ns}/></span>{m.badge && <BadgeChip badge={m.badge} />}</div>}
                                         <div className={`px-4 py-2.5 rounded-2xl text-sm relative group leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}>
                                             <p className={"whitespace-pre-wrap break-words " + getUserTextStyle(m.ts).className} style={getUserTextStyle(m.ts).style}>{m._plain != null ? m._plain : '…'}</p>
                                             {mine && <button onClick={() => delMsg(m)} className="absolute -left-6 top-2 text-red-400 opacity-40 hover:opacity-100"><Trash size={14}/></button>}
@@ -11453,7 +11457,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const sendTMsg = async () => {
         if (!tribeInput.trim() || !activeTribe) return;
         const txt = tribeInput; setTribeInput('');
-        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null, { style: profile?.msgTextStyle || profile?.textStyle || null, photoURL: profile?.photoURL || '', publicUid: profile?.publicUid || myUid }); } catch (e) {}
+        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null, { style: profile?.msgTextStyle || profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null, photoURL: profile?.photoURL || '', publicUid: profile?.publicUid || myUid }); } catch (e) {}
     };
     // Delete your OWN tribe message (members can only remove their own; admins can remove any).
     const delTribeMsg = async (m) => {
@@ -11605,7 +11609,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     <img src={m.photoURL || ('https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((m.senderName || 'R').charAt(0).toUpperCase()))} onClick={() => { onViewProfile(m.publicUid || m.sender); }} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((m.senderName||'R').charAt(0).toUpperCase()); }} className="w-7 h-7 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
                                     <div className={mine ? 'items-end flex flex-col' : ''}>
                                         <div className="flex items-center gap-1 mb-0.5">
-                                            <button onClick={() => { onViewProfile(m.publicUid || m.sender); }} className={`text-[10px] font-bold ${mine ? 'text-lime-300' : 'text-pink-300'} hover:underline`}>@{m.senderName}</button>{m.badge && <BadgeChip badge={m.badge} />}
+                                            <button onClick={() => { onViewProfile(m.publicUid || m.sender); }} className={`text-[10px] font-bold hover:underline ${m.ns ? '' : (mine ? 'text-lime-300' : 'text-pink-300')}`}><RkName name={m.senderName} style={m.ns}/></button>{m.badge && <BadgeChip badge={m.badge} />}
                                         </div>
                                         <div className="group flex items-center gap-1">
                                             <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}><p className={'whitespace-pre-wrap break-words ' + ts.className} style={ts.style}>{m._plain != null ? m._plain : '…'}</p></div>
@@ -13760,7 +13764,7 @@ cat << 'EOF' >> src/App.js
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                     <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
+                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                         <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                         <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
@@ -13789,7 +13793,7 @@ cat << 'EOF' >> src/App.js
                                     <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                         <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate">@{u.displayName || 'Raver'}</p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
+                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                             <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
                                             <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
                                         </div>
