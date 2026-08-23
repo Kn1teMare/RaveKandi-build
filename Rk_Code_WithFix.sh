@@ -15,9 +15,9 @@
 # three separate times. Everything below now derives from these four numbers.
 # ============================================================================
 RK_MAJOR=65
-RK_MINOR=39
-RK_PATCH=1
-RK_BUILD=222
+RK_MINOR=42
+RK_PATCH=0
+RK_BUILD=225
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -989,6 +989,24 @@ const getUserTextStyle = (ts) => {
     const className = (ts.fx && ts.fx !== 'none' && ts.fx !== 'solid') ? ('rkfx-' + ts.fx) : '';
     return { style, className };
 };
+// V65.42: USERNAME STYLE.
+// Reuses the existing font/effect system rather than inventing a second one — the same
+// FontSelectorModal, the same stored shape, the same getUserTextStyle() renderer. It is stored
+// under its own field so a raver's chat font and their name style stay independent.
+const RK_NAME_STYLE_FIELD = 'nameStyle';
+
+// Every place a username appears goes through this. Styling each site by hand is how a name ends
+// up looking right on a profile and plain on a comment — the styling has to travel WITH the name,
+// and denormalised copies on posts and messages carry `ns` for exactly that reason.
+const RkName = ({ name, style, className = '', prefix = '@', title }) => {
+    const s = getUserTextStyle(style);
+    return (
+        <span className={(s.className ? s.className + ' ' : '') + className} style={s.style} title={title || undefined}>
+            {prefix}{name || 'Raver'}
+        </span>
+    );
+};
+
 const getBoxGlowStyle = (color = 'accentGlow') => ({ boxShadow: `0 0 8px ${NEON_COLORS[color]}, 0 0 15px ${NEON_COLORS[color]} inset`, borderColor: NEON_COLORS[color] });
 const getBulkDiscount = (qty) => { if (qty >= 100) return 0.20; if (qty >= 50) return 0.15; if (qty >= 25) return 0.10; if (qty >= 10) return 0.05; return 0; };
 // V37.12: fairness window — higher price/complexity gives the requested Creator more time
@@ -1640,6 +1658,58 @@ const RK_POST_TYPE_KEY = Object.keys(RK_POST_TYPE_LABEL).reduce((m, k) => { m[RK
 // no indication why — the term looked identical on screen. Leading/trailing whitespace is
 // stripped and internal runs collapsed, so "  Rave  Kandi " matches "Rave Kandi". A leading @
 // goes too, since people type it out of habit.
+// V65.40: ONE matcher for every search surface, so the feed, the profile list and the
+// selected-ravers picker cannot disagree about whether a name matches.
+//
+// rkNormName strips the things people get wrong without meaning anything by it: case, the
+// leading @, and the separators that vary between platforms (space, underscore, hyphen, dot).
+// "Rave_Kandi", "rave kandi" and "@RaveKandi" all normalise to the same key.
+const rkNormName = (s) => String(s == null ? '' : s).toLowerCase().replace(/^@+/, '').replace(/[\s_\-.]/g, '');
+
+// Edit distance capped at 2. Anything further apart is a different name, not a typo, and the
+// early exit keeps this cheap enough to run over the whole directory on every keystroke.
+const rkEditDist = (a, b) => {
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const m = a.length, n = b.length;
+    let prev = Array.from({ length: n + 1 }, (_, i) => i);
+    for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        let best = i;
+        for (let j = 1; j <= n; j++) {
+            cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            if (cur[j] < best) best = cur[j];
+        }
+        if (best > 2) return 99;   // whole row already too far — no later row can recover
+        prev = cur;
+    }
+    return prev[n];
+};
+
+// Higher is better; 0 means no match. Ordering: exact, prefix, contains, then near-miss.
+const rkNameScore = (name, uid, term) => {
+    const t = rkNormName(term);
+    if (!t) return 0;
+    const n = rkNormName(name);
+    const u = String(uid || '').toLowerCase();
+    if (!n && !u) return 0;
+    if (n === t || u === t) return 100;
+    if (n.startsWith(t) || u.startsWith(t)) return 80;
+    if (n.includes(t) || u.includes(t)) return 60;
+    if (t.length >= 3) {
+        const d = rkEditDist(n, t);
+        if (d <= 2) return 40 - d * 5;   // typo territory
+    }
+    return 0;
+};
+
+// Ranked near-matches for "did you mean". Excludes anything that already matched outright.
+const rkSuggestRavers = (dir, term, max) => (dir || [])
+    .map(u => ({ u, s: rkNameScore(u.displayName, u.publicUid || u.id, term) }))
+    .filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s || String(a.u.displayName || '').localeCompare(String(b.u.displayName || '')))
+    .slice(0, max || 6)
+    .map(x => x.u);
+
 const rkCleanSearch = (s) => String(s == null ? '' : s).replace(/^[\s@]+/, '').replace(/\s+$/, '').replace(/\s{2,}/g, ' ');
 
 const MultiSelectDropdown = ({ options, selected, onChange, label = 'Item Type' }) => {
@@ -1846,7 +1916,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
     
     const postComment = async () => { 
         if (!comment.trim() || !user?.uid) return; 
-        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now(), ts: profile?.textStyle || null }; 
+        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now(), ts: profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null }; 
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayUnion(newComment) }); 
         if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
         setComments([...comments, newComment]); 
@@ -2723,20 +2793,32 @@ const RkVisibilityPicker = ({ value, allowed, onChange, ownerUid, compact }) => 
         const next = list.includes(uid) ? list.filter(u => u !== uid) : [...list, uid];
         onChange(mode, next);
     };
-    const addByName = async () => {
-        const t = rkCleanSearch(term);
-        if (!t) return;
-        try {
-            let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
-            if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
-            if (snap.empty) return alert('No raver found matching "' + t + '".');
-            const d = snap.docs[0];
-            if (d.id === ownerUid) return alert("You always see your own items.");
-            if (list.includes(d.id)) return alert('Already on the list.');
-            onChange(mode, [...list, d.id]);
-            setPeople(p => p.some(x => x.uid === d.id) ? p : [...p, { uid: d.id, name: d.data().displayName || 'Raver', isFriend: false }]);
-            setTerm('');
-        } catch (e) { alert('Search failed: ' + e.message); }
+    // V65.40: was an exact-match lookup behind an Add button — you had to type someone's name
+    // perfectly and got an alert if you didn't. Now the directory loads once and filters as you
+    // type, with the same ranked matcher the feed uses.
+    const [dir, setDir] = useState([]);
+    const [dirLoaded, setDirLoaded] = useState(false);
+    useEffect(() => {
+        if (mode !== 'selected' || dirLoaded) return;
+        let dead = false;
+        getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100)))
+            .then(s => { if (!dead) { setDir(s.docs.map(d => ({ uid: d.id, name: d.data().displayName || 'Raver', publicUid: d.data().publicUid || d.id }))); setDirLoaded(true); } })
+            .catch(() => { if (!dead) setDirLoaded(true); });
+        return () => { dead = true; };
+    }, [mode, dirLoaded]);
+
+    const typed = rkCleanSearch(term);
+    const matches = typed.length >= 1
+        ? rkSuggestRavers(dir.map(d => ({ ...d, displayName: d.name, id: d.uid })), typed, 8)
+            .filter(u => u.uid !== ownerUid && !list.includes(u.uid))
+        : [];
+
+    const addUid = (uid, name) => {
+        if (uid === ownerUid) return;
+        if (list.includes(uid)) return;
+        onChange(mode, [...list, uid]);
+        setPeople(p => p.some(x => x.uid === uid) ? p : [...p, { uid, name: name || 'Raver', isFriend: false }]);
+        setTerm('');
     };
 
     return (
@@ -2763,9 +2845,16 @@ const RkVisibilityPicker = ({ value, allowed, onChange, ownerUid, compact }) => 
                             </button>
                         ))}
                     </div>
-                    <div className="flex gap-1.5">
-                        <Input value={term} onChange={setTerm} placeholder="Add by @name" className="mb-0 flex-1"/>
-                        <Button onClick={addByName} color="cyan" className="text-[10px] shrink-0">Add</Button>
+                    <div className="space-y-1">
+                        <Input value={term} onChange={setTerm} placeholder="Search ravers by name" className="mb-0"/>
+                        {typed.length >= 1 && !dirLoaded && <p className="text-[10px] text-white/40">Loading ravers…</p>}
+                        {typed.length >= 1 && dirLoaded && matches.length === 0 && <p className="text-[10px] text-white/40">No raver matches "{typed}".</p>}
+                        {matches.map(u => (
+                            <button key={u.uid} onClick={() => addUid(u.uid, u.name)} className="w-full flex items-center justify-between gap-2 bg-cyan-500/10 border border-cyan-400/40 rounded px-2 py-1.5 active:scale-95">
+                                <span className="text-[10px] text-white truncate">{u.name}</span>
+                                <span className="text-[10px] font-bold text-cyan-200 shrink-0">+ Add</span>
+                            </button>
+                        ))}
                     </div>
                 </div>
             )}
@@ -3965,7 +4054,30 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
     };
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="My Badges">
-            <p className="text-xs text-gray-100 mb-3">Tap an unlocked badge to feature it next to your name on comments, feed posts, and your profile. Tap it again to remove it.</p>
+            {/* V65.42: people asked what badges actually are and where they show up. The old line
+                assumed you already knew — it explained the tap, not the thing. */}
+            <div className="bg-black/40 border border-yellow-400/30 rounded-lg p-2.5 mb-3 space-y-2">
+                <div>
+                    <p className="text-[11px] font-black text-yellow-300">What badges are</p>
+                    <p className="text-[10px] text-white leading-snug pl-2">Milestones you've actually hit — sales, trades, friends, referrals, tribe activity, radio listens. They unlock on their own as you use the app. Nothing here can be bought.</p>
+                </div>
+                <div>
+                    <p className="text-[11px] font-black text-yellow-300">Your featured badge</p>
+                    <p className="text-[10px] text-white leading-snug pl-2">You own every badge you unlock, but only <strong>one</strong> is shown to other ravers. Tap an unlocked badge to feature it; tap it again to show none.</p>
+                </div>
+                <div>
+                    <p className="text-[11px] font-black text-yellow-300">Where it shows</p>
+                    <p className="text-[10px] text-white leading-snug pl-2">Beside your name on your profile, on every feed post you make, on comments, in direct messages and tribe chat, and on your user card in search.</p>
+                </div>
+                <div>
+                    <p className="text-[11px] font-black text-yellow-300">Locked ones</p>
+                    <p className="text-[10px] text-white leading-snug pl-2">Greyed-out badges show the exact requirement, so you can see what's close. They stay visible on purpose — knowing what's next is half the point.</p>
+                </div>
+            </div>
+            <div className="flex items-center justify-between mb-2 px-0.5">
+                <p className="text-[10px] font-bold text-white/60 uppercase tracking-wide">{getDisplayAchievements(profile).filter(a => a.unlocked).length} of {getDisplayAchievements(profile).length} unlocked</p>
+                {profile?.featuredBadge && <p className="text-[10px] text-yellow-300 font-bold">Featured: {profile.featuredBadge.name}</p>}
+            </div>
             <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
                 {all.map((ach, i) => {
                     const isFeatured = profile?.featuredBadge?.id === ach.id;
@@ -6866,7 +6978,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                             padding, so the tap target was a few pixels tall and wedged between two other
                             controls — easy to miss, easy to hit the wrong thing. Now 14px, badge moved to
                             the RIGHT on the same line, and py-1.5 gives clear space above and below. */}
-                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm text-pink-400 font-bold underline decoration-pink-500/40 underline-offset-2 hover:text-pink-300"><User size={12}/>@{item.ownerName}</span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
@@ -6995,7 +7107,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const item = { ...form, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
+            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const item = { ...form, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
                 // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
                 // field does not match an equality query — a post without this would be invisible
                 // to everyone except its author.
@@ -7374,7 +7486,17 @@ const DurationPicker = ({ label, valueMs, onSet }) => {
 // Each targeted step auto-scrolls its element to the middle of the screen before spotlighting it.
 const TUTORIAL_STEPS = [
     { tut: null, center: true, title: 'Hi! Welcome to RaveKandi 🌈', body: "Let's look around together. It takes about 2 minutes. Tap NEXT to start." },
-    { tut: null, center: true, title: 'Pick your name first ✨', body: "Go to Profile and tap your name. Choose a name and a Friend UID. Your Friend UID is your own special code. When a friend joins using it, you earn rewards forever. Do this one first!" },
+    // V65.41: was a centre-screen instruction saying "go to Profile and tap your name", which
+    // people read and then carried on tapping NEXT — arriving at the end never having set a name
+    // or a Friend UID. These two steps have no NEXT button: the only way forward is to tap the
+    // real control, so the thing actually gets done.
+    { tut: null, center: true, title: 'Pick your name first ✨', body: "Your Friend UID is your own special code. When a raver joins with it, you earn rewards forever — so this is worth two taps right now. I'll show you exactly where." },
+    { tut: 'profile', requireTap: true, title: 'Tap Profile 👤', body: "Go on — tap the glowing Profile button. I'll wait." },
+    { tut: 'uid', requireTap: true, unlockSkip: true, title: 'Now tap Change UID ✨', body: "Tap the glowing Change UID button to pick your name and your own Friend UID." },
+    // The tour sits at z-2000 and the UID dialog at z-50, so without a pass-through step the
+    // overlay would cover the very box it just told you to open. Here the backdrop is dropped
+    // entirely and the note moves to the bottom of the screen, out of the dialog's way.
+    { tut: null, passthrough: true, title: 'Fill it in ✍️', body: "Pick your name and your Friend UID, then Save. I'll wait down here — tap NEXT when you're done." },
     { tut: 'feed', title: 'The Feed 🛍️', body: "This is where ravers show and sell their stuff. Tap a post to look at it. Tap a @name to see that raver." },
     { tut: 'shop', title: 'The Custom Lab 🧪', body: "Want something made just for you? Ask a Creator here. You can also sell your own things." },
     { tut: 'profile', title: 'Your Profile 👤', body: "This page is all yours. Add photos, pin your best pieces, and earn badges." },
@@ -7387,9 +7509,35 @@ const TUTORIAL_STEPS = [
 const TutorialOverlay = ({ active, onFinish }) => {
     const [step, setStep] = useState(0);
     const [rect, setRect] = useState(null);
+    // V65.41: once a step marked unlockSkip has been completed, Skip appears for the rest of the
+    // run. The tour stops being mandatory the moment the one thing that matters is done.
+    const [skipUnlocked, setSkipUnlocked] = useState(false);
     // Always begin at step 1 each time the tutorial opens (fresh launch or replay from Settings).
-    useEffect(() => { if (active) setStep(0); }, [active]);
+    useEffect(() => { if (active) { setStep(0); setSkipUnlocked(false); } }, [active]);
     const cur = TUTORIAL_STEPS[step];
+
+    // A requireTap step advances only when the spotlighted control is actually used. The cutout
+    // already lets taps through — the four dark panels surround the hole rather than covering it —
+    // so this listens on the real element instead of drawing a fake one.
+    useEffect(() => {
+        if (!active || !cur || !cur.requireTap || !cur.tut) return;
+        let done = false;
+        const advance = () => {
+            if (done) return;
+            done = true;
+            if (cur.unlockSkip) setSkipUnlocked(true);
+            // Let the app's own handler run and the screen settle before moving on.
+            setTimeout(() => setStep(s => s + 1), 420);
+        };
+        const el = document.querySelector('[data-tut="' + cur.tut + '"]');
+        if (el) { el.addEventListener('click', advance); return () => el.removeEventListener('click', advance); }
+        // Target not on screen yet (the Profile page still loading, say) — poll briefly for it.
+        const iv = setInterval(() => {
+            const e2 = document.querySelector('[data-tut="' + cur.tut + '"]');
+            if (e2) { clearInterval(iv); e2.addEventListener('click', advance); }
+        }, 300);
+        return () => clearInterval(iv);
+    }, [active, step, cur]);
     useEffect(() => {
         if (!active) return;
         const measure = () => {
@@ -7417,13 +7565,33 @@ const TutorialOverlay = ({ active, onFinish }) => {
     }, [active, step]);
     if (!active || !cur) return null;
     const last = step === TUTORIAL_STEPS.length - 1;
+    // Declared here, above the pass-through early return that uses them. `const` is not hoisted,
+    // so leaving these further down threw a ReferenceError the instant that step rendered.
+    const finish = () => { setStep(0); onFinish(); };
+    const next = () => { if (last) finish(); else setStep(step + 1); };
+    const back = () => { if (step > 0) setStep(step - 1); };
+    // V65.41: a pass-through step draws no backdrop at all, so whatever the app just opened stays
+    // fully usable underneath. Only the note itself accepts taps.
+    if (cur.passthrough) {
+        return createPortal(
+            <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
+                <div className="absolute left-1/2 -translate-x-1/2 w-[92%] max-w-sm" style={{ bottom: 'calc(12px + env(safe-area-inset-bottom))', pointerEvents: 'auto' }}>
+                    <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-pink-200 mb-1">Step {step + 1} of {TUTORIAL_STEPS.length}</p>
+                        <h3 className="text-lg font-black text-white mb-1">{cur.title}</h3>
+                        <p className="text-xs text-white/90 leading-relaxed mb-3">{cur.body}</p>
+                        <div className="flex items-center justify-between gap-2">
+                            <button onClick={finish} className="text-white/70 hover:text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>
+                            <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full active:scale-95 transition">Next →</button>
+                        </div>
+                    </div>
+                </div>
+            </div>, document.body);
+    }
     const pad = 8;
     const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
     const noteTop = hole ? (hole.top < window.innerHeight / 2 ? hole.top + hole.height + 16 : null) : null;
     const noteBottom = hole ? (hole.top >= window.innerHeight / 2 ? (window.innerHeight - hole.top) + 16 : null) : null;
-    const finish = () => { setStep(0); onFinish(); };
-    const next = () => { if (last) finish(); else setStep(step + 1); };
-    const back = () => { if (step > 0) setStep(step - 1); };
     const pct = Math.round(((step + 1) / TUTORIAL_STEPS.length) * 100);
     return createPortal(
         <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
@@ -7444,10 +7612,14 @@ const TutorialOverlay = ({ active, onFinish }) => {
                     <div className="h-1.5 w-full rounded-full bg-black/40 overflow-hidden mb-2.5"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-pink-300 transition-all duration-300" style={{ width: pct + '%' }}/></div>
                     <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
                     <p className="text-sm text-white/90 leading-relaxed mb-4">{cur.body}</p>
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                        {/* Skip stays hidden until the UID step is done, then remains available. */}
+                        <div>{skipUnlocked && !last && <button onClick={finish} className="text-white/70 hover:text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>}</div>
                         <div className="flex items-center gap-2">
                             {step > 0 && <button onClick={back} className="bg-white/15 text-white font-bold text-sm px-4 py-2 rounded-full hover:bg-white/25 active:scale-95 transition flex items-center gap-1"><ChevronLeft size={16}/> Back</button>}
-                            <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>
+                            {cur.requireTap
+                                ? <span className="text-[11px] font-black uppercase tracking-wider text-pink-200 px-2 py-2 animate-pulse">👆 Tap it to continue</span>
+                                : <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>}
                         </div>
                     </div>
                 </div>
@@ -11566,6 +11738,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     
     const [pinnedItems, setPinnedItems] = useState([]);
     const [showBadges, setShowBadges] = useState(false);
+    const [nameFontOpen, setNameFontOpen] = useState(false);
     const [statDetail, setStatDetail] = useState(null);
     const [showRevShare, setShowRevShare] = useState(false);
     const [reviewsOpen, setReviewsOpen] = useState(false);
@@ -11627,6 +11800,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} onClose={() => setModals({...modals, vibeTribe: false})} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
                 <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" zClass="z-[200]" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
+                <FontSelectorModal user={user} profile={profile} isOpen={nameFontOpen} onClose={() => setNameFontOpen(false)} field={RK_NAME_STYLE_FIELD} titleLabel="Your Name Style" />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
                 <UserReviewsModal targetUid={user?.uid} targetName={profile?.displayName} ratingSum={profile?.ratingSum} ratingCount={profile?.ratingCount} isOpen={reviewsOpen} onClose={() => setReviewsOpen(false)} />
@@ -11650,7 +11824,14 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         )}
                     </div>
                     <div className="text-center md:text-left flex-1 w-full">
-                        <div className="mb-1"><UserRating sum={profile.ratingSum} count={profile.ratingCount} size="lg" /><div className="flex items-center justify-center md:justify-start gap-2"><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{profile.displayName || 'Raver'}</h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button></div>{profile.featuredBadge && <div className="flex justify-center md:justify-start mt-1"><BadgeChip badge={profile.featuredBadge} /></div>}</div>
+                        <div className="mb-1"><UserRating sum={profile.ratingSum} count={profile.ratingCount} size="lg" /><div className="flex items-center justify-center md:justify-start gap-2"><h2 className="text-3xl font-black" style={profile?.[RK_NAME_STYLE_FIELD] ? undefined : getTextGlowStyle('primaryGlow')}><RkName name={profile.displayName} style={profile?.[RK_NAME_STYLE_FIELD]}/></h2><button onClick={() => setModals({...modals, username:true})}><Pencil size={16}/></button><button onClick={() => setNameFontOpen(true)} title="Style your name" className="text-pink-300 hover:text-pink-200"><Sparkles size={15}/></button></div>{/* V65.42: the badge was decoration with no affordance — the only route to the badge
+    screen was a stats tile most people never tap. Now the badge itself opens it, and when
+    nothing is featured there is a prompt in its place rather than empty space. */}
+<div className="flex justify-center md:justify-start mt-1">
+    {profile.featuredBadge
+        ? <button onClick={() => setShowBadges(true)} className="active:scale-95 transition" title="View and change your badges"><BadgeChip badge={profile.featuredBadge} /></button>
+        : <button onClick={() => setShowBadges(true)} className="text-[10px] font-bold text-yellow-300/80 hover:text-yellow-200 border border-yellow-400/40 bg-yellow-500/10 rounded-full px-2 py-0.5 active:scale-95 transition">🏅 Pick a badge</button>}
+</div></div>
                         {!user?.isAnonymous && (() => {
                     // V55.1: unified pin box, available to ALL users. FREE tier = up to 3 pins.
                     // VIP tier = up to 6 pins (the 2nd row of 3). Non-VIP users see a VIP upsell
@@ -11756,7 +11937,12 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                             </div>
                             <div className="flex items-center justify-center md:justify-start gap-3 mt-1.5">
                                 <p className="text-[10px] text-cyan-300/70">Tap the block to open the referral program 🎁</p>
-                                {!profile.publicUidChanged && <button onClick={() => setUidModalOpen(true)} className="text-[10px] font-bold text-pink-300 hover:text-pink-200 flex items-center gap-1"><Edit size={11}/> Change UID</button>}
+                                {/* V65.41: data-tut lets the tutorial spotlight this. Rendered even once the UID has been
+    changed — as a disabled-looking marker — so the tour's tap step always has a target and
+    cannot dead-end for a returning raver replaying it from Settings. */}
+{!profile.publicUidChanged
+    ? <button data-tut="uid" onClick={() => setUidModalOpen(true)} className="text-[10px] font-bold text-pink-300 hover:text-pink-200 flex items-center gap-1"><Edit size={11}/> Change UID</button>
+    : <button data-tut="uid" onClick={() => setModals({...modals, settings:true})} className="text-[10px] font-bold text-white/40 hover:text-white/60 flex items-center gap-1" title="Your Friend UID is already set"><Edit size={11}/> UID set ✓</button>}
                             </div>
                         </div>
                         
@@ -13061,7 +13247,13 @@ const App = () => {
     // because that path already cleaned the term — which is why posts appeared but the profile
     // card did not.
     const uTerm = rkCleanSearch(filters.searchUid).toLowerCase();
-    const visibleUsers = usersDir.filter(u => !uTerm || (u.displayName || '').toLowerCase().includes(uTerm) || (u.publicUid || u.id || '').toLowerCase().includes(uTerm));
+    // V65.40: ranked matching rather than a raw includes(). "rave kandi", "Rave_Kandi" and
+    // "@RaveKandi" all find the same raver, exact matches sort above partials, and a one or two
+    // character typo still surfaces the person instead of an empty list.
+    const visibleUsers = !uTerm ? usersDir : rkSuggestRavers(usersDir, uTerm, 40);
+    // Only counts as a typo save if nothing matched cleanly — that is when we offer "did you mean".
+    const strongHit = usersDir.some(u => rkNameScore(u.displayName, u.publicUid || u.id, uTerm) >= 60);
+    const didYouMean = uTerm && !strongHit ? rkSuggestRavers(usersDir, uTerm, 5) : [];
 
     // V37.14: marquee data — entries are {t, uid} so user references are tappable links
     const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
@@ -13546,7 +13738,24 @@ cat << 'EOF' >> src/App.js
                     )}
                     {filters.view === 'music' ? (<FeedMusicSection user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId}/>) : filters.view === 'users' ? (
                         <div className="grid grid-cols-1 gap-3">
-                            {visibleUsers.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No ravers match that search.</p>}
+                            {visibleUsers.length === 0 && (
+                                <div className="text-center py-6">
+                                    <p className="opacity-50 text-xs">No ravers match "{rkCleanSearch(filters.searchUid)}".</p>
+                                    <p className="opacity-40 text-[10px] mt-1">Names ignore spaces, dashes and @ — try just the letters.</p>
+                                </div>
+                            )}
+                            {/* V65.40: a near-miss is far more useful than an empty screen — most
+                                failed searches are one wrong character, not a raver who isn't here. */}
+                            {didYouMean.length > 0 && visibleUsers.length > 0 && (
+                                <div className="mb-2 bg-cyan-900/20 border border-cyan-400/40 rounded-lg p-2">
+                                    <p className="text-[10px] text-cyan-200 font-bold mb-1">Did you mean…</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {didYouMean.map(u => (
+                                            <button key={u.id} onClick={() => setFilters({ ...filters, searchUid: u.displayName || u.publicUid || u.id })} className="text-[10px] bg-black/40 border border-cyan-400/40 rounded-full px-2 py-1 text-white active:scale-95">{u.displayName || 'Raver'}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {visibleUsers.map(u => (
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                     <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
