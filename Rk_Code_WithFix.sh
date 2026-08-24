@@ -16,8 +16,8 @@
 # ============================================================================
 RK_MAJOR=65
 RK_MINOR=42
-RK_PATCH=1
-RK_BUILD=226
+RK_PATCH=3
+RK_BUILD=228
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1417,7 +1417,7 @@ export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, 
     const enc = await rkEncMsg(text, fromUid, toUid);   // AES-GCM
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid, unread: { [toUid]: increment(1) } }, { merge: true });
-    // V65.43: ns = the SENDER NAME's style; ts = the MESSAGE BODY's style. Kept apart on purpose —
+    // V65.42.01: ns = the SENDER NAME's style; ts = the MESSAGE BODY's style. Kept apart on purpose —
     // sharing one field would mean picking a chat font silently restyled your name everywhere.
     await addDoc(collection(tRef, 'messages'), { sender: fromUid, text: enc, at: Date.now(), ts: styleObj || null, badge: badgeObj || null, ns: nameStyleObj || null });
     // V47: respect recipient's message-notification preference
@@ -1932,7 +1932,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
             <div className="max-h-60 overflow-y-auto mb-4 space-y-2">
                 {comments.map((c, i) => (
                     <div key={i} className="bg-white/5 p-2 rounded text-sm flex items-start justify-between gap-2">
-                        <div className="flex-1"><span className="font-bold text-pink-400 cursor-pointer hover:underline" onClick={() => { onClose(); onViewProfile(c.uid); }}>{c.user}</span><BadgeChip badge={c.badge} />: <span className={getUserTextStyle(c.ts).className} style={getUserTextStyle(c.ts).style}>{c.text}</span></div>
+                        <div className="flex-1"><span className={'font-bold cursor-pointer hover:underline ' + (c.ns ? '' : 'text-pink-400')} onClick={() => { onClose(); onViewProfile(c.uid); }}><RkName name={c.user} style={c.ns} prefix=""/></span><BadgeChip badge={c.badge} />: <span className={getUserTextStyle(c.ts).className} style={getUserTextStyle(c.ts).style}>{c.text}</span></div>
                         {profile?.isAdmin && (
                             <div className="flex gap-1 shrink-0">
                                 <button onClick={() => adminDeleteComment(item, c)} className="text-red-400 hover:text-red-300 p-0.5" title="Admin: delete comment"><Trash size={12}/></button>
@@ -2184,7 +2184,7 @@ const PublicProfileModal = ({ uid, onClose }) => {
                     <img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
                     <div>
                         <UserRating sum={targ.ratingSum} count={targ.ratingCount} center />
-                        <p className="font-black text-lg flex items-center justify-center" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}</p>
+                        <p className="font-black text-lg flex items-center justify-center" style={targ?.nameStyle ? undefined : getTextGlowStyle('primaryGlow')}><RkName name={targ.displayName} style={targ?.nameStyle}/></p>
                         {targ.featuredBadge && <div className="flex justify-center mt-0.5"><BadgeChip badge={targ.featuredBadge} /></div>}
                         <p className="text-[10px] font-mono opacity-50">Friend UID: {targ.publicUid || targ.id}</p>
                     </div>
@@ -3444,6 +3444,36 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
         } catch (e) { setNotice('Couldn\u2019t send: ' + e.message); setTimeout(() => setNotice(''), 4000); }
     };
 
+    // V65.42.03: EDIT / DELETE YOUR OWN CHAT MESSAGES.
+    // Chat was write-only: a typo or a message sent to the wrong station stayed forever, and the
+    // only recourse was asking an admin. Ownership is checked against m.uid, which is written on
+    // every message, and enforced again in the rules — the client check only decides what to draw.
+    //
+    // Edits keep the original text in `origText` and stamp `editedAt`, so an edit is visible as an
+    // edit rather than a silent rewrite. Deletes tombstone the document instead of removing it:
+    // pulling a doc out from under a live onSnapshot makes the list jump under the reader's
+    // thumb, and it lets a conversation stay readable when one line is withdrawn.
+    const editChatMsg = async (m) => {
+        if (!m || m.uid !== myUid || m.kind === 'collection') return;
+        const next = window.prompt('Edit your message:', m.text || '');
+        if (next === null) return;
+        const trimmed = next.trim().slice(0, 500);
+        if (!trimmed) return alert('Message cannot be empty. Use Delete instead.');
+        if (trimmed === (m.text || '')) return;
+        const mod = chatModerate(trimmed, { isVIP: vip });
+        if (!mod.ok) { setNotice('🚫 That edit contains blocked language and was not saved.'); setTimeout(() => setNotice(''), 4000); return; }
+        try {
+            await updateDoc(doc(db, ...chatPath, m.id), { text: trimmed, origText: m.origText || m.text || '', editedAt: Date.now() });
+        } catch (e) { setNotice('Couldn\u2019t edit: ' + e.message); setTimeout(() => setNotice(''), 4000); }
+    };
+    const deleteChatMsg = async (m) => {
+        if (!m || m.uid !== myUid) return;
+        if (!window.confirm('Delete this message?\n\nIt will show as removed for everyone in the room.')) return;
+        try {
+            await updateDoc(doc(db, ...chatPath, m.id), { text: '', deleted: true, deletedAt: Date.now(), item: null });
+        } catch (e) { setNotice('Couldn\u2019t delete: ' + e.message); setTimeout(() => setNotice(''), 4000); }
+    };
+
     // VIP: share one social link per message, capped per day.
     const shareSocialLink = async () => {
         if (!vip) return;
@@ -3508,6 +3538,14 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                                     <div className="flex items-center gap-1 flex-wrap">
                                         <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className={`text-[11px] font-black hover:underline ${m.ns ? '' : (mine ? 'text-lime-300' : 'text-cyan-300')}`}><RkName name={m.name} style={m.ns}/></button>
                                         {m.badge && <BadgeChip badge={m.badge} />}
+                                        {/* Owner-only controls. m.uid is written on every message; the
+                                            rules check it again, so this only decides what is drawn. */}
+                                        {mine && !m.deleted && (
+                                            <span className="flex items-center gap-1 ml-auto shrink-0">
+                                                {m.kind !== 'collection' && <button onClick={() => editChatMsg(m)} title="Edit" className="text-white/35 hover:text-cyan-300 p-0.5"><Edit size={11}/></button>}
+                                                <button onClick={() => deleteChatMsg(m)} title="Delete" className="text-white/35 hover:text-red-400 p-0.5"><Trash2 size={11}/></button>
+                                            </span>
+                                        )}
                                     </div>
                                     {m.kind === 'collection' && m.item ? (
                                         <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="mt-1 flex items-center gap-2 bg-black/50 border border-pink-500/30 rounded-lg p-2 w-full text-left hover:bg-white/5">
@@ -3517,7 +3555,9 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                                     ) : m.kind === 'link' ? (
                                         <a href={m.text} target="_blank" rel="noreferrer" className="text-[12px] text-cyan-400 underline break-all">{m.text}</a>
                                     ) : (
-                                        <p className={'text-[13px] break-words ' + (ts.className ? ts.className : 'text-white/90')} style={ts.style && Object.keys(ts.style).length ? ts.style : { color: undefined }}>{m.text}</p>
+                                        m.deleted
+                                            ? <p className="text-[12px] italic text-white/35">message removed</p>
+                                            : <p className={'text-[13px] break-words ' + (ts.className ? ts.className : 'text-white/90')} style={ts.style && Object.keys(ts.style).length ? ts.style : { color: undefined }}>{m.text}{m.editedAt ? <span className="text-[9px] text-white/35 not-italic ml-1">(edited)</span> : null}</p>
                                     )}
                                 </div>
                             </div>
@@ -4683,28 +4723,53 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         }
     }, [isOpen, initialTarget]);
 
-    // user search — fuzzy: exact UID/name first, then PARTIAL match on name/UID/nickname.
+    // V65.42.02: MESSENGER SEARCH.
+    // Two faults, both visible as "the raver appeared and then vanished".
+    //
+    // 1. RACE. Every keystroke fired a debounced async search that began by clearing the result.
+    //    Firestore does not answer in the order it was asked, so a slower earlier query could
+    //    resolve after the newer one and overwrite (or blank) a good result. A sequence token now
+    //    means only the most recent search may write.
+    //
+    // 2. orderBy('joined','desc') EXCLUDES every user document without that field — Firestore
+    //    drops docs missing the sort key rather than sorting them last. Accounts created before
+    //    join tracking were unreachable by the fuzzy path, so only an exact, correctly-cased name
+    //    could find them. Same trap fixed in the feed directory in 222.
+    const searchSeq = useRef(0);
     const runSearch = async (tv, loud) => {
-        const t = (tv || '').trim();
-        setSearchHit(null);
-        if (t.length < 2) { if (loud) alert('Type part of a Friend UID or username first.'); return; }
-        const norm = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const nt = norm(t);
+        const seq = ++searchSeq.current;
+        const t = rkCleanSearch(tv);
+        if (t.length < 2) { setSearchHit(null); if (loud) alert('Type part of a Friend UID or username first.'); return; }
         try {
-            // exact first (fast path)
+            // Exact fast path (unchanged) — a full UID or an exact name resolves in one read.
             let snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
             if (snap.empty) snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
+            if (seq !== searchSeq.current) return;   // a newer search has started — discard
             if (!snap.empty && snap.docs[0].id !== myUid) { setSearchHit({ ...snap.docs[0].data(), id: snap.docs[0].id }); return; }
-            // fuzzy fallback — scan recent users
-            const dir = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(200)));
-            const hits = dir.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => u.id !== myUid && (norm(u.displayName).includes(nt) || norm(u.publicUid).includes(nt) || norm(u.nickname).includes(nt))).slice(0, 8);
+
+            // Fuzzy fallback. Ordered read for recency, then an unordered top-up so accounts with
+            // no `joined` field are still reachable.
+            const [ordered, plain] = await Promise.all([
+                getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(200))).catch(() => null),
+                getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(200))).catch(() => null)
+            ]);
+            if (seq !== searchSeq.current) return;
+            const seen = {};
+            [ordered, plain].forEach(s => { if (s) s.docs.forEach(d => { if (!seen[d.id]) seen[d.id] = { ...d.data(), id: d.id }; }); });
+            // Same ranked matcher the feed uses, so the two searches agree on what matches.
+            const hits = rkSuggestRavers(
+                Object.values(seen).filter(u => u.id !== myUid).map(u => ({ ...u, displayName: u.displayName, publicUid: u.publicUid || u.id })),
+                t, 8
+            );
+            if (seq !== searchSeq.current) return;
             if (hits.length > 0) setSearchHit(hits.length === 1 ? hits[0] : hits);
-            else if (loud) alert('No raver found matching "' + t + '".');
-        } catch (e) { if (loud) alert('Search failed: ' + e.message); }
+            else { setSearchHit(null); if (loud) alert('No raver found matching "' + t + '".'); }
+        } catch (e) { if (seq === searchSeq.current && loud) alert('Search failed: ' + e.message); }
     };
     useEffect(() => {
-        if (!isOpen || tab !== 'msgs' || term.trim().length < 3) { setSearchHit(null); return; }
-        const h = setTimeout(() => runSearch(term, false), 600);
+        if (!isOpen || tab !== 'msgs' || rkCleanSearch(term).length < 3) { searchSeq.current++; setSearchHit(null); return; }
+        // 600ms was long enough that the result often landed after you had already typed more.
+        const h = setTimeout(() => runSearch(term, false), 320);
         return () => clearTimeout(h);
     }, [term, isOpen, tab]);
 
@@ -11123,7 +11188,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                         </div>
                         <div className="text-center md:text-left flex-1 w-full">
                             <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                                <UserRating sum={targ.ratingSum} count={targ.ratingCount} size="lg" /><h2 className="text-3xl font-black" style={getTextGlowStyle('primaryGlow')}>@{targ.displayName || 'Raver'}</h2>{targ.featuredBadge && <div className="flex mt-1"><BadgeChip badge={targ.featuredBadge} /></div>}
+                                <UserRating sum={targ.ratingSum} count={targ.ratingCount} size="lg" /><h2 className="text-3xl font-black" style={targ?.nameStyle ? undefined : getTextGlowStyle('primaryGlow')}><RkName name={targ.displayName} style={targ?.nameStyle}/></h2>{targ.featuredBadge && <div className="flex mt-1"><BadgeChip badge={targ.featuredBadge} /></div>}
                                 {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
                             </div>
 
