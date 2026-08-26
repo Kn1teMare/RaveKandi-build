@@ -14,12 +14,42 @@
 # B196 for nine builds without anyone noticing, and the replace count was miscounted
 # three separate times. Everything below now derives from these four numbers.
 # ============================================================================
-RK_MAJOR=65
+# V66.42.121.229 — CUMULATIVE COUNTERS. None of these ever reset.
+#
+# Each number is a running total of releases of that kind, so the version doubles as a record:
+#   MAJOR  66  new systems shipped
+#   MINOR  42  features and additions shipped
+#   PATCH 121  fixes and corrections shipped
+#   BUILD 229  total releases
+#
+# Resetting MINOR and PATCH on a MAJOR bump destroyed exactly the history this is for — "65.42"
+# said nothing about how many minors preceded it once the major moved.
+#
+# Because every build is exactly one of the three, MAJOR + MINOR + PATCH must equal BUILD. That
+# is checked below, so a mis-bump fails the build instead of quietly desynchronising. It is also
+# how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
+#
+# To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
+RK_MAJOR=66
 RK_MINOR=42
-RK_PATCH=3
-RK_BUILD=228
-RK_SEMVER="$RK_MAJOR.$RK_MINOR.$(printf '%02d' $RK_PATCH)"
+RK_PATCH=121
+RK_BUILD=229
+RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
+
+# Self-check: the three release counters must account for every build.
+RK_SUM=$(( RK_MAJOR + RK_MINOR + RK_PATCH ))
+if [ "$RK_SUM" -ne "$RK_BUILD" ]; then
+    echo "============================================"
+    echo " VERSION MISMATCH — build stopped."
+    echo "   MAJOR($RK_MAJOR) + MINOR($RK_MINOR) + PATCH($RK_PATCH) = $RK_SUM"
+    echo "   BUILD is $RK_BUILD"
+    echo ""
+    echo " Every release increments BUILD and exactly one of the three."
+    echo " Fix the numbers at the top of this script and re-run."
+    echo "============================================"
+    exit 1
+fi
 
 echo "============================================"
 echo " RaveKandi $RK_VER Build Script Starting"
@@ -1820,7 +1850,10 @@ const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false
     // React would throw on the second render.
     useRkBackClose(isOpen, onClose);
     if (!isOpen) return null;
-    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-center justify-center p-4"><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
+    // V66.0.0: the app header and ticker are fixed at the top, so a vertically centred modal on a
+    // short screen had its title clipped underneath them. Top padding clears both, and
+    // items-start keeps a tall modal scrolling from its own top rather than the middle.
+    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center p-4" style={{ paddingTop: 'calc(96px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
 };
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
@@ -3459,7 +3492,9 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
         if (next === null) return;
         const trimmed = next.trim().slice(0, 500);
         if (!trimmed) return alert('Message cannot be empty. Use Delete instead.');
-        if (trimmed === (m.text || '')) return;
+        // V66.0.0: compared against the raw stored text, so re-submitting an unchanged message
+        // whose stored copy had stray whitespace still counted as a change and stamped (edited).
+        if (trimmed === String(m.text || '').trim()) return;
         const mod = chatModerate(trimmed, { isVIP: vip });
         if (!mod.ok) { setNotice('🚫 That edit contains blocked language and was not saved.'); setTimeout(() => setNotice(''), 4000); return; }
         try {
@@ -4920,6 +4955,32 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                 <span className="text-[10px] text-lime-400 font-black uppercase">Start Chat →</span>
                             </button>
                         )}
+                        {/* V66.0.0: `list` was referenced here but never declared — the messenger search
+                            rewrite in 227 replaced the region that computed it. A ReferenceError during
+                            render meant the Messages tab produced nothing at all, so conversations looked
+                            locked and taps did nothing. Declared inline so it cannot be orphaned again. */}
+                        {(() => {
+                        const list = [...(threads || [])]
+                            .filter(t => {
+                                const q = rkCleanSearch(term).toLowerCase();
+                                if (!q) return true;
+                                const o = otherOf(t);
+                                return String(t.names?.[o] || '').toLowerCase().includes(q);
+                            })
+                            .sort((a, b) => {
+                                // Favourites pinned, then by whichever order the raver picked.
+                                const fa = a.favorites?.[myUid] ? 1 : 0, fb = b.favorites?.[myUid] ? 1 : 0;
+                                if (fa !== fb) return fb - fa;
+                                if (sortMode === 'unread') {
+                                    const ua = a.unread?.[myUid] || 0, ub = b.unread?.[myUid] || 0;
+                                    if (ua !== ub) return ub - ua;
+                                }
+                                if (sortMode === 'name') {
+                                    return String(a.names?.[otherOf(a)] || '').localeCompare(String(b.names?.[otherOf(b)] || ''));
+                                }
+                                return (b.lastAt || 0) - (a.lastAt || 0);
+                            });
+                        return (
                         <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
                             {list.length === 0 && <p className="text-center opacity-50 text-xs py-6">No conversations yet. Search a raver above to start one!</p>}
                             {list.map(t => {
@@ -4937,6 +4998,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                 );
                             })}
                         </div>
+                        ); })()}
                         <p className="text-[10px] text-center text-lime-400/70 mt-3">🔒 Messages are encrypted with AES-GCM. Tap the lock above for Secure Mode & what it protects.</p>
                     </>)}
 
@@ -12566,6 +12628,25 @@ const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCente
 const selectStyle = "w-full bg-white/10 border border-white/25 rounded-lg px-2 py-2 text-xs h-10 focus:outline-none focus:border-cyan-500/50 text-white";
 const App = () => {
     const [page, setPage] = useState('home');
+    // V66.0.0: STALE WEB BUILD DETECTOR.
+    // Web has repeatedly sat on an old build with no signal — the version in the footer is baked
+    // into the bundle, so a stale bundle also reports a stale version and looks self-consistent.
+    // This fetches the deployed stamp (uncacheable) and compares. Native is skipped: an APK is
+    // meant to lag until the user installs a new one.
+    const [staleBuild, setStaleBuild] = useState(null);
+    useEffect(() => {
+        if (rkIsNative()) return;
+        let dead = false;
+        const check = () => {
+            fetch('/version.json?t=' + Date.now(), { cache: 'no-store' })
+                .then(r => r.ok ? r.json() : null)
+                .then(v => { if (!dead && v && Number(v.build) > Number(APP_BUILD)) setStaleBuild(v); })
+                .catch(() => {});
+        };
+        check();
+        const iv = setInterval(check, 5 * 60 * 1000);
+        return () => { dead = true; clearInterval(iv); };
+    }, []);
     // V65.37: page history for back navigation. Kept in a ref because the popstate handler is
     // registered once and would otherwise close over a stale copy of state on every press.
     const pageHistRef = useRef(['home']);
@@ -13459,6 +13540,18 @@ cat << 'EOF' >> src/App.js
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
             <WalletModal user={user} profile={profile} isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
             {user && <OrdersModal user={user} profile={profile} isOpen={ordersOpen} onClose={() => setOrdersOpen(false)} />}
+            {staleBuild && (
+                <div className="fixed left-1/2 -translate-x-1/2 z-[1500] w-[92%] max-w-sm" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom))' }}>
+                    <div className="bg-lime-900/90 border-2 border-lime-400 rounded-xl p-3 shadow-[0_0_24px_rgba(163,230,53,0.4)] flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-black text-lime-200">Update available — build {staleBuild.build}</p>
+                            <p className="text-[10px] text-white/80 leading-snug">You're running build {APP_BUILD}. Reload to get the newest version.</p>
+                        </div>
+                        <button onClick={() => { try { window.location.reload(true); } catch (e) { window.location.reload(); } }} className="shrink-0 bg-lime-400 text-black font-black text-xs px-3 py-2 rounded-lg active:scale-95">Reload</button>
+                        <button onClick={() => setStaleBuild(null)} className="shrink-0 text-white/50 text-lg leading-none px-1">×</button>
+                    </div>
+                </div>
+            )}
             <LegalModal user={user} profile={profile} isOpen={legalOpen} onClose={() => setLegalOpen(false)} />
             {user && <VipGiftModal user={user} profile={profile} isOpen={vipGiftOpen} onClose={() => setVipGiftOpen(false)} />}
             <QuickLaunchModal dockMode={qlDockMode} onDockMode={setQlDockModeP} isOpen={quickLaunchOpen} onClose={() => setQuickLaunchOpen(false)} isAdmin={!!profile?.isAdmin} go={(key) => {
@@ -14005,6 +14098,17 @@ if grep -rq "__RK_VER__\|__RK_SEMVER__\|__RK_BUILD__" src/ public/ 2>/dev/null; 
     exit 1
 fi
 echo "  Version injected everywhere: $RK_VER"
+
+# V66.0.0: write the build stamp somewhere the RUNNING app can read.
+# Cache headers stopped index.html being held forever, but a tab already open (or a proxy) can
+# still serve an old bundle for a long time, and the only symptom is a version number that never
+# moves. version.json is tiny and explicitly uncacheable, so the app can compare what is deployed
+# against what it is running and say so.
+mkdir -p public
+cat > public/version.json << VERJSON
+{ "build": ${RK_BUILD}, "version": "${RK_SEMVER}", "full": "${RK_VER}", "at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" }
+VERJSON
+echo "  public/version.json written: $RK_VER"
 
 # Inject the Web Client ID into capacitor.config.json (replaces the RK_WEB_CLIENT_ID placeholder).
 if [ -f capacitor.config.json ]; then
@@ -15303,6 +15407,7 @@ if [ "$RK_NO_WEB" != "1" ]; then
                     { source: "/index.html", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
                     { source: "/", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
                     { source: "/manifest.json", headers: [{ key: "Cache-Control", value: "no-cache" }] },
+            { source: "/version.json", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
                     { source: "**/*.@(js|css|woff|woff2|png|jpg|jpeg|svg|webp)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] }
                 ]
             };
@@ -15322,6 +15427,7 @@ if [ "$RK_NO_WEB" != "1" ]; then
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [ { "source": "**", "destination": "/index.html" } ],
     "headers": [
+      { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
