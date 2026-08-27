@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=67
-RK_MINOR=43
+RK_MINOR=44
 RK_PATCH=124
-RK_BUILD=234
+RK_BUILD=235
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -238,10 +238,16 @@ class ErrorBoundary extends React.Component {
   // this event. ErrorBoundary sits outside <App/> so a prop cannot reach it — a window
   // event is the only bridge across that boundary.
   openDiagnostics = () => this.setState({ minimized: false });
+  handleReport = (e) => { try { this.logError((e && e.detail) || 'Unknown failure'); } catch (_) {} };
   componentDidMount() {
     window.addEventListener('error', this.handleGlobalError, true);
     window.addEventListener('unhandledrejection', this.handlePromiseRejection, true);
     window.addEventListener('rk-open-diagnostics', this.openDiagnostics);
+    // V67: app code can report a caught failure here. Previously the only way into this log was
+    // an UNCAUGHT error — so every `catch (e) {}` around a Firestore write was invisible, and a
+    // permission denial looked exactly like a feature that never ran. Three separate bugs this
+    // week were diagnosed only by reading the source, because nothing surfaced anywhere.
+    window.addEventListener('rk-report', this.handleReport);
     try {
       localStorage.removeItem('rk_error_logs');
       this.setState({ errorLogs: [] });
@@ -256,6 +262,7 @@ class ErrorBoundary extends React.Component {
     window.removeEventListener('error', this.handleGlobalError, true);
     window.removeEventListener('unhandledrejection', this.handlePromiseRejection, true);
     window.removeEventListener('rk-open-diagnostics', this.openDiagnostics);
+    window.removeEventListener('rk-report', this.handleReport);
   }
   logError = (msg) => {
     try {
@@ -625,6 +632,23 @@ const BIO_CHAR_LIMIT = 200;
 // Admins are seeded once via the Firebase Console — see LAUNCH_INSTRUCTIONS.md.
 // V52.2: unique-visitor analytics. Counts each device once (ever) on first app open, plus
 // daily-active pings — so the admin can gauge traffic vs. signups. Stored on global/stats.
+// V67: report a caught failure to the Diagnostic Log (and the bug counter).
+//
+// Use this instead of a bare `catch (e) {}` wherever the failure means something the raver
+// expected did not happen. Permission denials are the important case: they are silent, they look
+// identical to nothing running at all, and they are the single most common cause of "the button
+// worked but nothing changed".
+//
+// Deliberately never throws and never blocks — reporting a problem must not become one.
+const rkReport = (where, e) => {
+    try {
+        const code = (e && (e.code || e.name)) || '';
+        const msg = (e && e.message) || String(e || 'unknown');
+        window.dispatchEvent(new CustomEvent('rk-report', { detail: where + ': ' + (code ? '[' + code + '] ' : '') + msg }));
+    } catch (_) {}
+    try { console.log('[rk]', where, e); } catch (_) {}
+};
+
 const trackUniqueVisit = async () => {
     try {
         const VKEY = 'rk_visitor_id';
@@ -652,7 +676,7 @@ const trackUniqueVisit = async () => {
         // single `count` field that may only go up by one.
         const upd = {};
         if (isNew) upd.uniqueVisitors = increment(1);
-        if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) {} }
+        if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) { rkReport('visitor stats write', e); } }
         if (!countedToday) {
             // Flag set only AFTER the write lands. 233 set it first, so a write refused by rules
             // (or offline) marked the day as counted and never retried — one failure meant that
@@ -660,7 +684,7 @@ const trackUniqueVisit = async () => {
             try {
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyStats', today), { count: increment(1), day: today }, { merge: true });
                 localStorage.setItem(dKey, '1');
-            } catch (e) { console.log('dailyStats write failed, will retry next open:', e.code || e); }
+            } catch (e) { rkReport('dailyStats write (retries next open)', e); }
         }
     } catch (e) { /* storage blocked — skip */ }
 };
@@ -2018,7 +2042,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
         if (!isOpen || !item?.id) return;
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments'), orderBy('time', 'asc'));
         return onSnapshot(q, s => setLiveComments(s.docs.map(d => ({ ...d.data(), cid: d.id }))),
-            e => { console.log('comments load:', e); setLiveComments([]); });
+            e => { rkReport('comments load', e); setLiveComments([]); });
     }, [isOpen, item?.id]);
 
     // Legacy first, then live — both are already in time order and legacy always predates live.
@@ -2036,7 +2060,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments'), newComment);
             // Best-effort counter. If this fails the comment still stands — a wrong count is a
             // cosmetic problem, a lost comment is not.
-            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(1) }); } catch (e2) {}
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(1) }); } catch (e2) { rkReport('comment count +1', e2); }
         } catch (e) { alert('Could not post: ' + e.message); return; }
         if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
         setComment('');
@@ -2055,7 +2079,7 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
         if (!window.confirm('Delete your comment?')) return;
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments', c.cid));
-            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(-1) }); } catch (e2) {}
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(-1) }); } catch (e2) { rkReport('comment count -1', e2); }
         }
         catch (e) { alert('Could not delete: ' + e.message); }
     };
@@ -6212,7 +6236,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', tradeId), hidden ? { isHidden: true, hiddenAt: Date.now(), soldOut: true, stockQty: 0 } : { isHidden: false, hiddenAt: null }, { merge: true });
             publicOk = true;
-        } catch (e) { console.log('hide tradeItems', e); }
+        } catch (e) { rkReport('hide/unhide listing (public doc)', e); }
         for (const invId of [item.refId, item.id].filter(Boolean)) {
             try { await setDoc(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', invId), { isHidden: hidden }, { merge: true }); } catch (e) {}
         }
@@ -6555,7 +6579,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                 roUnsubs.push(onSnapshot(q, s => {
                     roBuckets[key] = s.docs.map(d => ({ ...d.data(), id: d.id }));
                     roPublish();
-                }, e => { console.log('collection(readOnly) bucket ' + key + ':', e); roBuckets[key] = []; roPublish(); }));
+                }, e => { rkReport('collection bucket ' + key, e); roBuckets[key] = []; roPublish(); }));
             };
             // V65.39.01: unconstrained + JS visibility filter, for the same reason as the feed.
             // Listings that were never stamped are treated as public, so a collection cannot go
@@ -6627,12 +6651,12 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
         const unsubInv = onSnapshot(query(collection(db, 'artifacts', appId, 'users', targetUid, 'inventory')), s => {
             invRows = s.docs.map(d => ({ ...d.data(), id: d.id, __src: 'inv' }));
             invReady = true; publish();
-        }, e => { console.log('collection load (inventory):', e); invReady = true; publish(); });
+        }, e => { rkReport('collection load (inventory)', e); invReady = true; publish(); });
         // Crafting stock lives only in inventory, so the public half is skipped for that tab.
         const unsubPub = type === 'stock' ? null : onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', targetUid)), s => {
             pubRows = s.docs.map(d => ({ ...d.data(), id: d.id, refId: d.id, __src: 'pub' })).filter(i => !i.isCraftingStock);
             pubReady = true; publish();
-        }, e => { console.log('collection load (public):', e); pubReady = true; publish(); });
+        }, e => { rkReport('collection load (public)', e); pubReady = true; publish(); });
         return () => { try { unsubInv(); } catch (e) {} try { if (unsubPub) unsubPub(); } catch (e) {} };
     }, [isOpen, targetUid, type, readOnly, hideDIY, showHidden]);
     
@@ -13113,7 +13137,7 @@ const App = () => {
                 settled++; publish();
             }, err => {
                 // One failing bucket must not blank the feed — the others still populate.
-                console.error('Feed bucket "' + key + '" failed:', err);
+                rkReport('feed bucket "' + key + '"', err);
                 buckets[key] = []; settled++; publish();
                 if (key === 'public') setTimeout(() => setFeedRetry(r => r + 1), 4000);
             }));
