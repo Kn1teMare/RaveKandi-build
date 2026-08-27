@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=67
 RK_MINOR=43
-RK_PATCH=123
-RK_BUILD=233
+RK_PATCH=124
+RK_BUILD=234
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -634,7 +634,12 @@ const trackUniqueVisit = async () => {
         const statsRef = doc(db, 'artifacts', appId, 'global', 'stats');
         // daily-active stamp (one per device per day)
         const today = new Date().toISOString().slice(0, 10);
-        const dKey = 'rk_da_' + today;
+        // V67.1: NEW KEY, deliberately not the old one.
+        // 233 reused 'rk_da_<date>', which the previous system had already written today on every
+        // existing device. countedToday was therefore true on upgrade day and the new write was
+        // skipped for everyone — the collection simply never appeared, with nothing in the logs to
+        // explain it. A migration must not inherit the flag belonging to the thing it replaces.
+        const dKey = 'rk_dau2_' + today;
         const countedToday = localStorage.getItem(dKey);
         // V67: daily-active counts move OUT of global/stats into one document per day.
         //
@@ -649,8 +654,13 @@ const trackUniqueVisit = async () => {
         if (isNew) upd.uniqueVisitors = increment(1);
         if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) {} }
         if (!countedToday) {
-            localStorage.setItem(dKey, '1');
-            try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyStats', today), { count: increment(1), day: today }, { merge: true }); } catch (e) {}
+            // Flag set only AFTER the write lands. 233 set it first, so a write refused by rules
+            // (or offline) marked the day as counted and never retried — one failure meant that
+            // device was invisible for the rest of the day.
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyStats', today), { count: increment(1), day: today }, { merge: true });
+                localStorage.setItem(dKey, '1');
+            } catch (e) { console.log('dailyStats write failed, will retry next open:', e.code || e); }
         }
     } catch (e) { /* storage blocked — skip */ }
 };
