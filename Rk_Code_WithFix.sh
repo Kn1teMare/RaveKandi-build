@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=66
-RK_MINOR=42
-RK_PATCH=121
-RK_BUILD=229
+RK_MAJOR=67
+RK_MINOR=43
+RK_PATCH=123
+RK_BUILD=233
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -534,9 +534,38 @@ const adminBanUser = async (uid, name, durationMs, label) => {
         alert((name || 'User') + ' banned ' + label + '.');
     } catch (e) { alert('Ban failed: ' + e.message); }
 };
+// V67: read-filter-write instead of arrayRemove.
+//
+// arrayRemove() removes elements by EXACT DEEP EQUALITY, and a value that matches nothing is a
+// silent no-op that resolves successfully. So the button appeared to work and deleted nothing —
+// no error, no change. Any drift between the object in hand and the stored element was enough:
+// a denormalised copy from the feed, a field added in a later build, or (as of 231) the display
+// fields the comment list attaches for rendering.
+//
+// Matching on time + author + text is stable across all of that, and the result is verified
+// against the array length so a miss reports honestly instead of pretending.
+// V67: total comments on an item = legacy array + subcollection.
+// commentCount is maintained on the item at write time. A per-card read would mean one extra
+// query per card on every feed render; one extra write per comment is far cheaper, and the
+// fallback keeps posts that predate the counter showing the right number.
+const rkCommentCount = (i) => {
+    if (!i) return 0;
+    const legacy = (i.comments || []).length;
+    const live = typeof i.commentCount === 'number' ? i.commentCount : 0;
+    return legacy + live;
+};
+
 const adminDeleteComment = async (item, c) => {
     if (!window.confirm('ADMIN: delete this comment by ' + (c.user || 'user') + '?')) return;
-    try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayRemove(c) }); }
+    try {
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) return alert('That post no longer exists.');
+        const arr = snap.data().comments || [];
+        const next = arr.filter(x => !(x && x.time === c.time && String(x.uid || '') === String(c.uid || '') && String(x.text || '') === String(c.text || '')));
+        if (next.length === arr.length) return alert('Could not find that comment to remove — it may already be gone. Reopen the post to refresh.');
+        await updateDoc(ref, { comments: next });
+    }
     catch (e) { alert('Failed: ' + e.message); }
 };
 const adminDeleteBanner = async (slotId) => {
@@ -607,10 +636,22 @@ const trackUniqueVisit = async () => {
         const today = new Date().toISOString().slice(0, 10);
         const dKey = 'rk_da_' + today;
         const countedToday = localStorage.getItem(dKey);
+        // V67: daily-active counts move OUT of global/stats into one document per day.
+        //
+        // They were dynamic keys — dau_2026-08-23 and so on — and Firestore rules cannot enumerate
+        // key names, so the only rule that permitted them was "any signed-in user may update this
+        // document with anything". That single line is why userCount, uniqueVisitors and every
+        // other figure on the growth panel were writable by anyone to any value.
+        //
+        // One document per day makes the write target enumerable, so the rule can be narrow: a
+        // single `count` field that may only go up by one.
         const upd = {};
         if (isNew) upd.uniqueVisitors = increment(1);
-        if (!countedToday) { upd['dau_' + today] = increment(1); localStorage.setItem(dKey, '1'); }
         if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) {} }
+        if (!countedToday) {
+            localStorage.setItem(dKey, '1');
+            try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyStats', today), { count: increment(1), day: today }, { merge: true }); } catch (e) {}
+        }
     } catch (e) { /* storage blocked — skip */ }
 };
 
@@ -1850,10 +1891,11 @@ const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false
     // React would throw on the second render.
     useRkBackClose(isOpen, onClose);
     if (!isOpen) return null;
-    // V66.0.0: the app header and ticker are fixed at the top, so a vertically centred modal on a
-    // short screen had its title clipped underneath them. Top padding clears both, and
-    // items-start keeps a tall modal scrolling from its own top rather than the middle.
-    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center p-4" style={{ paddingTop: 'calc(96px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
+    // V66: clear the header by its MEASURED height (--rk-topbar-h, published by <App/>), not by a
+    // guessed constant. The 96px used in 229 was under the real value, so the modal's top edge
+    // still sat behind the ticker. The fallback only applies before the first measurement lands.
+    // items-start keeps a tall modal scrolling from its own top rather than from the middle.
+    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center px-4 pb-4" style={{ paddingTop: 'calc(var(--rk-topbar-h, 140px) + 14px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
 };
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
@@ -1947,33 +1989,104 @@ EOF
 cat << 'EOF' >> src/App.js
 const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) => {
     const [comment, setComment] = useState('');
-    const [comments, setComments] = useState(item?.comments || []);
-    useEffect(() => { setComments(item?.comments || []); }, [item]);
-    
-    const postComment = async () => { 
-        if (!comment.trim() || !user?.uid) return; 
-        const newComment = { text: comment, user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, badge: profile?.featuredBadge || null, time: Date.now(), ts: profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null }; 
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { comments: arrayUnion(newComment) }); 
+    // V66: comments moved from an ARRAY on the item to a SUBCOLLECTION.
+    //
+    // The array could not be secured. Firestore rules cannot inspect array contents, so the only
+    // expressible rule was "any signed-in raver may replace the comments field" — meaning anyone
+    // could already edit or delete anyone else's comment by rewriting the array. Adding author
+    // controls on top of that would have been decoration over an open door.
+    //
+    // As documents, each comment carries its author and the rules check it per write. Legacy
+    // array comments are still READ (merged below, flagged) so nothing existing disappears; they
+    // cannot be edited, because there is no safe way to allow it.
+    const [liveComments, setLiveComments] = useState([]);
+    const [editingId, setEditingId] = useState(null);
+    const [editText, setEditText] = useState('');
+    const meUid = user?.uid || null;
+
+    useEffect(() => {
+        if (!isOpen || !item?.id) return;
+        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments'), orderBy('time', 'asc'));
+        return onSnapshot(q, s => setLiveComments(s.docs.map(d => ({ ...d.data(), cid: d.id }))),
+            e => { console.log('comments load:', e); setLiveComments([]); });
+    }, [isOpen, item?.id]);
+
+    // Legacy first, then live — both are already in time order and legacy always predates live.
+    const comments = [
+        ...((item?.comments || []).map((c, i) => ({ ...c, cid: null, legacy: true, _k: 'L' + i }))),
+        ...liveComments.map(c => ({ ...c, _k: c.cid }))
+    ];
+
+    const postComment = async () => {
+        if (!comment.trim() || !user?.uid) return;
+        // authorUid is the REAL uid. publicUid is a display handle a raver can change, so it is
+        // useless as an ownership check — but it stays as `uid` because the render links by it.
+        const newComment = { text: comment.trim().slice(0, 500), user: profile?.displayName || user.displayName || 'Raver', uid: profile?.publicUid || user.uid, authorUid: user.uid, badge: profile?.featuredBadge || null, time: Date.now(), ts: profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null };
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments'), newComment);
+            // Best-effort counter. If this fails the comment still stands — a wrong count is a
+            // cosmetic problem, a lost comment is not.
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(1) }); } catch (e2) {}
+        } catch (e) { alert('Could not post: ' + e.message); return; }
         if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
-        setComments([...comments, newComment]); 
-        setComment(''); 
+        setComment('');
+    };
+
+    const saveEdit = async (c) => {
+        const next = editText.trim().slice(0, 500);
+        if (!next) return alert('Comment cannot be empty. Use delete instead.');
+        if (next === String(c.text || '').trim()) { setEditingId(null); return; }
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments', c.cid), { text: next, origText: c.origText || c.text || '', editedAt: Date.now() });
+            setEditingId(null);
+        } catch (e) { alert('Could not save: ' + e.message); }
+    };
+    const removeComment = async (c) => {
+        if (!window.confirm('Delete your comment?')) return;
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id, 'comments', c.cid));
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(-1) }); } catch (e2) {}
+        }
+        catch (e) { alert('Could not delete: ' + e.message); }
     };
     
     if (!isOpen || !item) return null;
     return ( 
         <Modal isOpen={isOpen} onClose={onClose} title="Comments">
             <div className="max-h-60 overflow-y-auto mb-4 space-y-2">
-                {comments.map((c, i) => (
-                    <div key={i} className="bg-white/5 p-2 rounded text-sm flex items-start justify-between gap-2">
-                        <div className="flex-1"><span className={'font-bold cursor-pointer hover:underline ' + (c.ns ? '' : 'text-pink-400')} onClick={() => { onClose(); onViewProfile(c.uid); }}><RkName name={c.user} style={c.ns} prefix=""/></span><BadgeChip badge={c.badge} />: <span className={getUserTextStyle(c.ts).className} style={getUserTextStyle(c.ts).style}>{c.text}</span></div>
-                        {profile?.isAdmin && (
-                            <div className="flex gap-1 shrink-0">
-                                <button onClick={() => adminDeleteComment(item, c)} className="text-red-400 hover:text-red-300 p-0.5" title="Admin: delete comment"><Trash size={12}/></button>
+                {comments.length === 0 && <p className="text-center opacity-40 text-xs py-4">No comments yet — say something nice.</p>}
+                {comments.map(c => {
+                    // Ownership by authorUid (the real uid). Legacy array comments have none, so
+                    // they render read-only rather than pretending to be editable.
+                    const isMine = !c.legacy && !!meUid && c.authorUid === meUid;
+                    const editing = editingId && editingId === c.cid;
+                    return (
+                    <div key={c._k} className="bg-white/5 p-2 rounded text-sm flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                            <span className={'font-bold cursor-pointer hover:underline ' + (c.ns ? '' : 'text-pink-400')} onClick={() => { onClose(); onViewProfile(c.uid); }}><RkName name={c.user} style={c.ns} prefix=""/></span><BadgeChip badge={c.badge} />:{' '}
+                            {editing ? (
+                                <div className="mt-1 flex gap-1">
+                                    <Input value={editText} onChange={setEditText} className="mb-0 flex-1"/>
+                                    <Button onClick={() => saveEdit(c)} color="lime" className="text-[10px] px-2">Save</Button>
+                                    <Button onClick={() => setEditingId(null)} color="accent" className="text-[10px] px-2">Cancel</Button>
+                                </div>
+                            ) : (
+                                <span className={getUserTextStyle(c.ts).className} style={getUserTextStyle(c.ts).style}>{c.text}{c.editedAt ? <span className="text-[9px] text-white/35 ml-1">(edited)</span> : null}</span>
+                            )}
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                            {isMine && !editing && (<>
+                                <button onClick={() => { setEditingId(c.cid); setEditText(c.text || ''); }} className="text-cyan-400 hover:text-cyan-300 p-0.5" title="Edit your comment"><Edit size={12}/></button>
+                                <button onClick={() => removeComment(c)} className="text-red-400 hover:text-red-300 p-0.5" title="Delete your comment"><Trash2 size={12}/></button>
+                            </>)}
+                            {profile?.isAdmin && !isMine && (<>
+                                <button onClick={() => c.legacy ? adminDeleteComment(item, c) : removeComment(c)} className="text-red-400 hover:text-red-300 p-0.5" title="Admin: delete comment"><Trash2 size={12}/></button>
                                 <button onClick={() => adminBanUser(c.uid, c.user, 604800000, '7 days')} className="text-orange-400 hover:text-orange-300 p-0.5" title="Admin: ban commenter 7d"><Ban size={12}/></button>
-                            </div>
-                        )}
+                            </>)}
+                        </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
             <div className="flex gap-2">
                 <Input value={comment} onChange={setComment} placeholder="Spread PLUR..." className="mb-0 flex-1"/>
@@ -3978,14 +4091,14 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
                 let rows = snap.docs.map(d => ({ ...d.data(), id: d.id }));
                 if (statKey === 'sold' || statKey === 'salesVal') rows = rows.filter(i => (i.purchaseCount || 0) > 0);
                 if (statKey === 'likes') rows = rows.filter(i => (i.likes?.length || 0) > 0).sort((a,b)=>(b.likes?.length||0)-(a.likes?.length||0));
-                if (statKey === 'comments') rows = rows.filter(i => (i.comments?.length || 0) > 0).sort((a,b)=>(b.comments?.length||0)-(a.comments?.length||0));
+                if (statKey === 'comments') rows = rows.filter(i => rkCommentCount(i) > 0).sort((a,b)=>rkCommentCount(b)-rkCommentCount(a));
                 setItems(rows);
             } catch (e) { console.log('stat detail load', e); setItems([]); } finally { setLoading(false); }
         })();
     }, [isOpen, uid, statKey]);
     if (!isOpen) return null;
     const meta = META[statKey] || { title: 'Details', empty: 'Nothing here.' };
-    const badge = (i) => statKey === 'likes' ? `❤️ ${i.likes?.length||0}` : statKey === 'comments' ? `💬 ${i.comments?.length||0}` : `$${Number(i.price||0).toFixed(2)}`;
+    const badge = (i) => statKey === 'likes' ? `❤️ ${i.likes?.length||0}` : statKey === 'comments' ? `💬 ${rkCommentCount(i)}` : `$${Number(i.price||0).toFixed(2)}`;
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={meta.title}>
             {loading ? <p className="text-center opacity-50 py-10 text-xs animate-pulse">Loading…</p> : (
@@ -6183,7 +6296,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                     <div className="grid grid-cols-3 gap-2 text-[10px] text-center">
                         <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-white">{item.viewCount || 0}</div><div className="opacity-50">Views</div></div>
                         <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-pink-400">{item.likes?.length || 0}</div><div className="opacity-50">Likes</div></div>
-                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-cyan-400">{item.comments?.length || 0}</div><div className="opacity-50">Comments</div></div>
+                        <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-cyan-400">{rkCommentCount(item)}</div><div className="opacity-50">Comments</div></div>
                         <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-lime-400">{item.purchaseCount || 0}</div><div className="opacity-50">Sold</div></div>
                         <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-yellow-400">{item.shareCount || 0}</div><div className="opacity-50">Shares</div></div>
                         <div className="bg-black/40 p-1.5 rounded"><div className="font-bold text-white">{Math.max(0, item.stockQty ?? 1)}</div><div className="opacity-50">In Stock</div></div>
@@ -6373,7 +6486,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                         {showMore && (
                             <div className="bg-white/5 p-3 rounded text-[10px] space-y-2 animate-fade-in-pulse">
                                 <p><span className="opacity-50">Prompt:</span> {item.prompt || "Manual Upload"}</p>
-                                <div className="grid grid-cols-5 gap-2 mt-2"><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-pink-400">{item.likes?.length || 0}</div><div className="opacity-50">Likes</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-cyan-400">{item.comments?.length || 0}</div><div className="opacity-50">Comms</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-lime-400">{item.purchaseCount || 0}</div><div className="opacity-50">Sold</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-yellow-400">{item.shareCount || 0}</div><div className="opacity-50">Shares</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-white">{item.viewCount || 0}</div><div className="opacity-50">Views</div></div></div>
+                                <div className="grid grid-cols-5 gap-2 mt-2"><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-pink-400">{item.likes?.length || 0}</div><div className="opacity-50">Likes</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-cyan-400">{rkCommentCount(item)}</div><div className="opacity-50">Comms</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-lime-400">{item.purchaseCount || 0}</div><div className="opacity-50">Sold</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-yellow-400">{item.shareCount || 0}</div><div className="opacity-50">Shares</div></div><div className="bg-black/40 p-1 rounded text-center"><div className="font-bold text-white">{item.viewCount || 0}</div><div className="opacity-50">Views</div></div></div>
                             </div>
                         )}
                     </div>
@@ -7138,7 +7251,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
             <div className="mt-auto flex justify-between items-center pt-3 border-t border-white/10">
                 <div className="flex gap-2 items-center">
                     <button onClick={toggleLike} className={'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition ' + (liked ? 'text-pink-400 border-pink-500/50 bg-pink-500/10' : 'text-white/60 border-white/15 hover:border-white/30')}><Heart size={20} fill={liked?"currentColor":"none"}/><span className="text-xs font-bold">{(item.likes?.length || 0)}</span></button>
-                    <button onClick={() => setShowComments(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30 hover:text-white transition"><MessageSquare size={20}/><span className="text-xs font-bold">{(item.comments?.length || 0)}</span></button>
+                    <button onClick={() => setShowComments(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30 hover:text-white transition"><MessageSquare size={20}/><span className="text-xs font-bold">{rkCommentCount(item)}</span></button>
                     <button onClick={handleShare} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-cyan-400/50 hover:text-cyan-400 transition"><Share2 size={20}/>{(item.shareCount || 0) > 0 && <span className="text-xs font-bold">{item.shareCount}</span>}</button>
                 </div>
                 {item.isShowingOff ? ( <Button onClick={() => onViewItem(item)} color="purple" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> View</Button> ) : item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
@@ -7831,14 +7944,23 @@ const DiscoveryTip = ({ cfg }) => {
 
 const AdminAnalyticsBlock = () => {
     const [stats, setStats] = useState(null);
+    const [daily, setDaily] = useState({});
     useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => setStats(s.exists() ? s.data() : {}), e => {}), []);
+    // V67: DAU now lives in per-day documents. Legacy dau_* keys on the stats doc are still read
+    // below, so the chart keeps its history rather than starting from zero on the day this ships.
+    useEffect(() => {
+        const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'dailyStats'), where('day', '>=', since)),
+            s => { const m = {}; s.docs.forEach(d => { m[d.id] = d.data().count || 0; }); setDaily(m); },
+            e => console.log('dailyStats', e));
+    }, []);
     if (!stats) return null;
     const visitors = stats.uniqueVisitors || 0;
     const accounts = stats.userCount || 0;
     const conv = visitors > 0 ? ((accounts / visitors) * 100).toFixed(1) : '0';
     // last 7 days of DAU keys
     const days = [];
-    for (let i = 6; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); days.push({ d, n: stats['dau_' + d] || 0 }); }
+    for (let i = 6; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10); days.push({ d, n: (daily[d] || 0) + (stats['dau_' + d] || 0) }); }
     const todayKey = new Date().toISOString().slice(0, 10);
     return (
         <div className="bg-gradient-to-br from-purple-900/30 to-cyan-900/20 border border-purple-500/40 rounded-lg p-3 my-2">
@@ -12769,6 +12891,33 @@ const App = () => {
         } catch (e) { /* user cancelled share — fine */ }
     };
     const topBarRef = useRef(null);
+    // V66: publish the REAL header height so modals can clear it.
+    // 229 padded modals by a hard-coded 96px, which was simply too small — the header and the
+    // ticker together run past 140px on this device, and neither is a fixed size: the ticker can
+    // wrap, the logo scales, and a notch adds more. Measuring the element that actually exists is
+    // the only version of this that stays correct on a screen I have not seen.
+    useEffect(() => {
+        const publish = () => {
+            const h = topBarRef.current ? topBarRef.current.getBoundingClientRect().height : 0;
+            document.documentElement.style.setProperty('--rk-topbar-h', Math.round(h || 96) + 'px');
+        };
+        publish();
+        // The ticker changes height when its content rewraps, so watch the node rather than
+        // relying on window resize alone.
+        let ro = null;
+        try {
+            if (window.ResizeObserver && topBarRef.current) { ro = new ResizeObserver(publish); ro.observe(topBarRef.current); }
+        } catch (e) {}
+        window.addEventListener('resize', publish);
+        window.addEventListener('orientationchange', publish);
+        const t = setTimeout(publish, 800);   // after fonts settle and the ticker has content
+        return () => {
+            window.removeEventListener('resize', publish);
+            window.removeEventListener('orientationchange', publish);
+            clearTimeout(t);
+            try { if (ro) ro.disconnect(); } catch (e) {}
+        };
+    }, []);
     const [ticketOpen, setTicketOpen] = useState(false);
     // V65.28: live bug counter for the footer BUG REPORT button. This replaces the old
     // floating red pill's badge, which was the only place errors ever surfaced. Seeded from
