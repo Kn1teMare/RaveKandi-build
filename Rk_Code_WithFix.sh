@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=69
 RK_MINOR=47
-RK_PATCH=125
-RK_BUILD=241
+RK_PATCH=126
+RK_BUILD=242
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -294,7 +294,21 @@ class ErrorBoundary extends React.Component {
   handleGlobalError = (event) => {
     const m = event.message || (event.target && event.target.tagName ? event.target.tagName.toLowerCase() + ' failed to load: ' + (event.target.src || event.target.href || 'unknown source') : null);
     if (!m || m === 'undefined') return; // V37.14: skip contextless resource events (was logging "Global: undefined")
-    this.logError(`Global: ${m}`);
+    // V69.2: record WHERE, not just what. "TypeError: b is not a function" from a minified bundle
+    // is unlocatable on its own; file:line:col narrows it to a chunk and a position, which is the
+    // difference between a fixable report and a guess.
+    let where = '';
+    try {
+        if (event.filename) {
+            const f = String(event.filename).split('/').pop();
+            where = ' @ ' + f + (event.lineno ? ':' + event.lineno : '') + (event.colno ? ':' + event.colno : '');
+        }
+        // A stack is far more useful than a position when one exists — first frame only, since the
+        // log panel is a phone-width column.
+        const st = event.error && event.error.stack;
+        if (st) { const f1 = String(st).split('\n')[1]; if (f1) where = ' @ ' + f1.trim().slice(0, 90); }
+    } catch (e) {}
+    this.logError(`Global: ${m}${where}`);
   }
   handlePromiseRejection = (event) => { const r = event.reason; const m = (r && (r.message || (r.toString && r.toString()))) || 'Unhandled rejection (no detail)'; this.logError(`Promise: ${m}`); }
   
@@ -803,7 +817,7 @@ const SHIPPING_CARRIERS = [
 const validateTracking = (raw, carrierId) => {
     const t = (raw || '').replace(/\s+/g, '').toUpperCase();
     if (!t) return { valid: false, reason: 'empty' };
-    if (t.length < 8 || t.length > 35) return { valid: false, reason: 'A real tracking number is usually 8\u201335 characters.' };
+    if (t.length < 8 || t.length > 35) return { valid: false, reason: 'A real tracking number is usually 8-35 characters.' };
     if (!/^[A-Z0-9-]+$/.test(t)) return { valid: false, reason: 'Tracking numbers contain only letters, numbers, and dashes.' };
     // If a carrier was chosen, prefer its matcher + URL; else auto-detect.
     let carrier = SHIPPING_CARRIERS.find(c => c.id === carrierId);
@@ -4476,6 +4490,34 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={meta.title}>
             {loading ? <p className="text-center opacity-50 py-10 text-xs animate-pulse">Loading…</p> : (
+                {/* V69.2: pinned above the grid, not inside it.
+                    241 put this row inside the item grid container, so the two selects became grid
+                    cells — full-height black columns sitting where item cards should be. Sticky so
+                    the controls stay reachable while the list scrolls under them. */}
+                <div className="sticky top-0 z-20 -mx-1 px-1 pb-2 mb-1 bg-[#12060f]/95 backdrop-blur-sm border-b border-white/10">
+                    <div className="flex gap-1.5">
+                        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                            <option value="recent">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="name">Name A-Z</option>
+                            <option value="brand">Brand</option>
+                            <option value="type">Item type</option>
+                            <option value="priceHigh">Value: high-low</option>
+                            <option value="priceLow">Value: low-high</option>
+                            <option value="qty">Quantity</option>
+                        </select>
+                        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSubFilter(''); }} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                            <option value="">All item types</option>
+                            {Object.keys(ITEM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        {typeFilter && (ITEM_CATEGORIES[typeFilter] || []).length > 0 && (
+                            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                                <option value="">All {typeFilter}</option>
+                                {(ITEM_CATEGORIES[typeFilter] || []).map(st => <option key={st} value={st}>{st}</option>)}
+                            </select>
+                        )}
+                    </div>
+                </div>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10 text-xs">{meta.empty}</p>}
                     {items.map(i => (
@@ -7055,30 +7097,6 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                 )}
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
-                    {/* V69.1: filter then sort. Sub-type only appears once a type is chosen, since
-                        the sub-type list is meaningless without its parent. */}
-                    <div className="grid grid-cols-2 gap-1.5 mb-2">
-                        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-black border border-white/20 text-[11px] p-1.5 rounded">
-                            <option value="recent">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                            <option value="name">Name A–Z</option>
-                            <option value="brand">Brand</option>
-                            <option value="type">Item type</option>
-                            <option value="priceHigh">Value: high–low</option>
-                            <option value="priceLow">Value: low–high</option>
-                            <option value="qty">Quantity</option>
-                        </select>
-                        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSubFilter(''); }} className="bg-black border border-white/20 text-[11px] p-1.5 rounded">
-                            <option value="">All item types</option>
-                            {Object.keys(ITEM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                        {typeFilter && (ITEM_CATEGORIES[typeFilter] || []).length > 0 && (
-                            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} className="col-span-2 bg-black border border-white/20 text-[11px] p-1.5 rounded">
-                                <option value="">All {typeFilter} sub-types</option>
-                                {(ITEM_CATEGORIES[typeFilter] || []).map(st => <option key={st} value={st}>{st}</option>)}
-                            </select>
-                        )}
-                    </div>
                     {items
                       .filter(i => !typeFilter || (i.type || '') === typeFilter)
                       .filter(i => !subFilter || (i.subType || '') === subFilter)
