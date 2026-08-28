@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=68
+RK_MAJOR=69
 RK_MINOR=46
 RK_PATCH=125
-RK_BUILD=239
+RK_BUILD=240
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -2959,6 +2959,23 @@ const rkDefaultVis = (isDiy) => isDiy ? 'public' : 'private';
 // The boolean version forced a false choice between "touch nothing" and "touch everything". With
 // items tagged by who added them, an owner can say "fix my prices, but only bin your own
 // mistakes" — and can still hand over genuine full control if that is what they mean.
+// V69 — ACCOUNT TYPES.
+// Personal and Business are not tiers and neither costs anything. Business exists because running
+// two labels out of one inventory is genuinely different work, not because it is worth more money.
+// Everything a Personal account can do, a Business account can do.
+const RK_ACCOUNT_TYPES = [
+    {
+        k: 'personal', label: 'Personal', emoji: '🎒',
+        blurb: 'One raver, one collection.',
+        does: ['Buy, sell and trade', 'Your own inventory and collection', 'Pin your best pieces', 'Apply as a Creator', 'Everything Business can do, minus brand separation']
+    },
+    {
+        k: 'business', label: 'Business', emoji: '🏪',
+        blurb: 'Run one or more labels from a single login.',
+        does: ['Everything Personal does', 'Multiple brands under one account', 'Inventory split by brand', 'A storefront per brand', 'Hand a helper access to one brand without the others']
+    }
+];
+
 const RK_SCOPES = [
     { k: 'none', label: 'Off',   short: 'Off' },
     { k: 'own',  label: 'Their items only', short: 'Theirs' },
@@ -2985,6 +3002,62 @@ const RK_GRANT_SCOPED = [
 // V68.3: asModal renders this as its own window instead of a collapsible strip buried in
 // Settings. Bouncing someone from the inventory block to Settings and asking them to find the
 // right section again is three taps and a hunt for a job they already started.
+// V69: brand manager. Business accounts only — a Personal account with brands would just be a
+// Business account that never said so.
+const RkBrandManager = ({ user, profile, isOpen, onClose }) => {
+    const [brands, setBrands] = useState([]);
+    const [name, setName] = useState('');
+    const [tagline, setTagline] = useState('');
+
+    useEffect(() => {
+        if (!isOpen || !user?.uid) return;
+        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+            s => setBrands(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+            e => rkReport('brands load', e));
+    }, [isOpen, user?.uid]);
+
+    const addBrand = async () => {
+        const n = name.trim().slice(0, 40);
+        if (!n) return alert('Give the brand a name first.');
+        if (brands.some(b => (b.name || '').toLowerCase() === n.toLowerCase())) return alert('You already have a brand with that name.');
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+                { name: n, tagline: tagline.trim().slice(0, 80), createdAt: Date.now(), ownerId: user.uid });
+            setName(''); setTagline('');
+        } catch (e) { rkReport('brand create', e); alert('Could not create: ' + e.message); }
+    };
+    const removeBrand = async (b) => {
+        // Items keep their brandId rather than being deleted with the brand — losing stock because
+        // a label was renamed out of existence would be indefensible. They fall back to unbranded.
+        if (!window.confirm('Delete the brand "' + (b.name || '') + '"?\n\nItems tagged with it stay in your inventory and become unbranded. Nothing is deleted.')) return;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'brands', b.id)); }
+        catch (e) { rkReport('brand delete', e); alert('Could not delete: ' + e.message); }
+    };
+
+    return (
+        <Modal isOpen={!!isOpen} onClose={onClose} title="🏪 My Brands">
+            <div className="space-y-2">
+                <p className="text-[10px] text-white/70 leading-snug">Each brand gets its own section in your inventory and its own storefront. One login, separate shops — useful when you make two different things and do not want them mixed.</p>
+                {brands.map(b => (
+                    <div key={b.id} className="bg-white/5 border border-white/10 rounded-lg p-2.5 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                            <p className="text-[12px] font-black text-white truncate">{b.name}</p>
+                            {b.tagline && <p className="text-[10px] text-white/60 truncate">{b.tagline}</p>}
+                        </div>
+                        <button onClick={() => removeBrand(b)} className="shrink-0 text-[10px] font-bold text-red-300 border border-red-400/40 rounded px-2 py-1 active:scale-95">Delete</button>
+                    </div>
+                ))}
+                {brands.length === 0 && <p className="text-[10px] text-white/40">No brands yet. Add your first below.</p>}
+                <div className="border-t border-white/10 pt-2 space-y-1.5">
+                    <Input label="Brand name" value={name} onChange={setName} placeholder="e.g. Neon Alley" className="mb-0"/>
+                    <Input label="Tagline (optional)" value={tagline} onChange={setTagline} placeholder="What this brand makes" className="mb-0"/>
+                    <Button onClick={addBrand} color="lime" className="w-full text-xs">+ Add brand</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 const RkInvGrants = ({ user, profile, asModal, isOpen, onClose }) => {
     const [rows, setRows] = useState([]);
     const [term, setTerm] = useState('');
@@ -5738,6 +5811,8 @@ EOF
 # Block 9
 cat << 'EOF' >> src/App.js
 const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial }) => {
+    // V69: brand manager lives here because the button that opens it does.
+    const [brandsOpen, setBrandsOpen] = useState(false);
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
     const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
     const [showTicket, setShowTicket] = useState(false);
@@ -5913,6 +5988,35 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
                         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { invVisibility: m, invAllowed: allow || [] }, { merge: true });
                     }}
                 />
+                {/* V69: account type. Shown as a choice with both function sets spelled out, because
+                    the difference is about how you work rather than what you are worth — neither
+                    costs anything and Business is a superset. */}
+                <div className="mt-4 bg-black/40 border border-purple-500/30 rounded-lg p-3">
+                    <h5 className="text-[11px] font-black text-purple-300 mb-1">🎫 Account type</h5>
+                    <p className="text-[10px] text-white/70 leading-snug mb-2">Both are free and you can switch whenever you like. Nothing is lost either way — switching back leaves your brands intact but hidden.</p>
+                    <div className="space-y-1.5">
+                        {RK_ACCOUNT_TYPES.map(t => {
+                            const on = (profile?.accountType || 'personal') === t.k;
+                            return (
+                                <button key={t.k} onClick={async () => {
+                                    try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { accountType: t.k }, { merge: true }); }
+                                    catch (e) { rkReport('accountType save', e); alert('Could not save: ' + e.message); }
+                                }} className={'w-full text-left rounded-lg border p-2.5 transition active:scale-95 ' + (on ? 'bg-purple-500/20 border-purple-400' : 'bg-white/5 border-white/15')}>
+                                    <p className={'text-[12px] font-black ' + (on ? 'text-purple-200' : 'text-white')}>{t.emoji} {t.label}{on ? ' ✓' : ''}</p>
+                                    <p className="text-[10px] text-white/60 mb-1">{t.blurb}</p>
+                                    <ul className="space-y-0.5">
+                                        {t.does.map((d, i) => <li key={i} className="text-[9px] text-white/70 leading-snug">• {d}</li>)}
+                                    </ul>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {(profile?.accountType === 'business') && (
+                        <Button onClick={() => setBrandsOpen(true)} color="purple" className="w-full text-xs mt-2">🏪 Manage my brands</Button>
+                    )}
+                    <RkBrandManager user={user} profile={profile} isOpen={brandsOpen} onClose={() => setBrandsOpen(false)} />
+                    <p className="text-[9px] text-lime-300 leading-snug mt-2">💜 VIP is free for everyone during launch — neither account type changes that, and neither one costs money at any point.</p>
+                </div>
                 <RkInvGrants user={user} profile={profile} />
                 <button onClick={async () => {
                     const m = profile?.invVisibility || 'private';
@@ -9770,6 +9874,16 @@ const rkScanInventoryImage = async (file, onProgress) => {
 
 const InventoryManager = ({ user, profile }) => {
     const [target, setTarget] = useState('user');
+    // V69: brand segmentation. Loaded only for Business accounts — a Personal account has no
+    // brands, and querying for them on every hub open would be a read spent to learn nothing.
+    const [brands, setBrands] = useState([]);
+    const [activeBrand, setActiveBrand] = useState('');
+    useEffect(() => {
+        if (profile?.accountType !== 'business' || !user?.uid) { setBrands([]); return; }
+        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+            s => setBrands(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+            e => rkReport('hub brands', e));
+    }, [profile?.accountType, user?.uid]);
     // V65.30: no longer state, and no longer editable. Derived straight from the session so the
     // hub can only ever write to your own inventory.
     const targetUid = user?.uid || '';
@@ -9831,6 +9945,9 @@ const InventoryManager = ({ user, profile }) => {
         // being able to erase the owner's work.
         payload.addedBy = user?.uid || '';
         payload.addedByName = profile?.displayName || '';
+        // V69: which brand this belongs to. Empty means unbranded, which is what every Personal
+        // account writes and what a Business account's general stock uses.
+        payload.brandId = activeBrand || '';
         await addDoc(dest, payload);
         alert("Inventory Saved!");
         setNewItem({ type: 'Bead', subType: 'Pony', size: 'M', cost: '', sell: '', quantity: '', description: '', image: null, imageUrl: '' });
@@ -9854,6 +9971,16 @@ const InventoryManager = ({ user, profile }) => {
                 )}
             </div>
             <HubHelpModal isOpen={hubHelp} onClose={() => setHubHelp(false)} />
+            {brands.length > 0 && (
+                <div className="mb-3">
+                    <label className="text-[10px] font-bold opacity-50 uppercase ml-1">Add to brand</label>
+                    <select value={activeBrand} onChange={e => setActiveBrand(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
+                        <option value="">General stock (no brand)</option>
+                        {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    <p className="text-[9px] text-white/50 mt-1">New items are filed under this brand. Change it any time — it only affects what you add next.</p>
+                </div>
+            )}
             {profile.isAdmin && <div className="mb-4"><select value={target} onChange={e=>setTarget(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded"><option value="diy">DIY Stock</option><option value="user">My Stock</option></select>
                 <p className="text-[10px] text-cyan-100 bg-cyan-900/20 border border-cyan-500/40 rounded p-2 leading-relaxed mt-2">ℹ️ <strong>DIY Stock</strong> = the shared materials catalog customers pick from in the DIY builder. <strong>My Stock</strong> = your own private inventory. Pick the right one before saving — items land in different collections. Put one in the wrong stock? Re-add it to the correct stock and delete the mistake; a one-tap mover is on the roadmap.</p></div>}
             <div className="grid grid-cols-3 gap-2"><Input label="Type" type="select" options={Object.keys(ITEM_CATEGORIES)} value={newItem.type} onChange={v => setNewItem({...newItem, type: v, subType: ITEM_CATEGORIES[v][0]})}/><Input label="Sub-Type" type="select" options={ITEM_CATEGORIES[newItem.type]||['Custom']} value={newItem.subType} onChange={v => setNewItem({...newItem, subType: v})}/><Input label="Size" type="select" options={ITEM_SIZES} value={newItem.size} onChange={v => setNewItem({...newItem, size: v})}/></div>
