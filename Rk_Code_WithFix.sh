@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=71
-RK_MINOR=49
+RK_MINOR=50
 RK_PATCH=127
-RK_BUILD=247
+RK_BUILD=248
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1734,19 +1734,35 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         onProgress(15);
         let rawText = '';
         let lastErr = '';
-        for (let tAttempt = 0; tAttempt < 6; tAttempt++) {
-            onProgress(15 + tAttempt * 4);
+        // V71.1: NOT every failure is worth retrying.
+        //
+        // The logs from 247 showed 402 and 429, which changes the diagnosis entirely. 402 is
+        // Payment Required — the free tier no longer serves this endpoint, and no amount of
+        // retrying will change that. 429 is rate limiting, which my six-attempt backoff was
+        // actively making worse by hammering a service that had just asked us to stop.
+        //
+        // So: retry only what can succeed on a retry (429, 5xx, timeouts), give up immediately on
+        // anything that says "this will never work as configured", and report which it was.
+        let hardFail = '';
+        for (let tAttempt = 0; tAttempt < 4; tAttempt++) {
+            onProgress(15 + tAttempt * 6);
             try {
                 const ctl = new AbortController();
                 const to = setTimeout(() => ctl.abort(), 25000);
                 const response = await fetch(textUrl, { cache: 'no-store', signal: ctl.signal });
                 clearTimeout(to);
                 if (response.ok) { rawText = await response.text(); if (rawText && rawText.length > 5) break; }
-                else lastErr = 'HTTP ' + response.status;
+                else {
+                    lastErr = 'HTTP ' + response.status;
+                    // 401/402/403 = credentials or billing. Retrying is just noise.
+                    if ([401, 402, 403].includes(response.status)) { hardFail = 'AI_KEY_REQUIRED'; break; }
+                    if (response.status === 429) lastErr = 'rate limited (429)';
+                }
             } catch (tErr) { lastErr = (tErr && tErr.name === 'AbortError') ? 'timeout' : String(tErr && tErr.message || tErr); }
-            // 2s, 4s, 8s, 16s, 24s — capped so the wait stays tolerable.
-            if (tAttempt < 5) await new Promise(r => setTimeout(r, Math.min(24000, 2000 * Math.pow(2, tAttempt))));
+            // Longer waits when rate limited — backing off is the whole point of a 429.
+            if (tAttempt < 3) await new Promise(r => setTimeout(r, (lastErr.indexOf('429') >= 0 ? 8000 : 3000) * (tAttempt + 1)));
         }
+        if (hardFail) { try { rkReport('AI service unavailable (' + lastErr + ')', new Error(lastErr)); } catch (e) {} throw new Error(hardFail); }
         if (!rawText) { try { rkReport('AI analysis (' + lastErr + ')', new Error(lastErr || 'no response')); } catch (e) {} throw new Error("ANALYSIS_FAILED"); }
 
         let analysis;
@@ -7407,6 +7423,74 @@ const RkStatRowDetail = ({ item, statKey, comments, onClose, onViewProfile, onVi
     );
 };
 
+// V71.1: recent AI jobs with their outcome. Reads the same documents the generator writes, so a
+// run that finished while you were elsewhere is listed here rather than lost.
+const RkAiQueue = ({ user, onOpen }) => {
+    const [jobs, setJobs] = useState([]);
+    const [view, setView] = useState(null);
+    useEffect(() => {
+        if (!user?.uid) return;
+        return onSnapshot(
+            query(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'), orderBy('at', 'desc'), limit(10)),
+            s => setJobs(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+            e => rkReport('ai queue', e));
+    }, [user?.uid]);
+
+    if (!jobs.length) return null;
+    const dot = (st) => st === 'done' ? 'bg-lime-400' : st === 'failed' ? 'bg-red-400' : 'bg-amber-400 animate-pulse';
+    const word = (j) => j.status === 'done' ? 'Ready'
+        : j.status === 'failed' ? (j.error === 'AI_KEY_REQUIRED' ? 'Service unavailable' : 'Failed')
+        : 'Working…';
+
+    return (
+        <div className="mt-4 border-t border-white/10 pt-3">
+            <p className="text-[11px] font-black text-cyan-300 mb-2">🧾 Your recent generations</p>
+            <div className="space-y-1.5">
+                {jobs.map(j => (
+                    <div key={j.id} className="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
+                        <span className={'w-2 h-2 rounded-full shrink-0 ' + dot(j.status)}/>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-white truncate">{j.prompt || 'Untitled'}</p>
+                            <p className="text-[9px] text-white/45">{word(j)} · {new Date(j.at || Date.now()).toLocaleTimeString()}</p>
+                        </div>
+                        {j.status === 'done' && j.result && (
+                            <button onClick={() => setView(j)} className="shrink-0 text-[10px] font-bold text-cyan-200 border border-cyan-400/50 rounded px-2 py-1 active:scale-95">View</button>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            <Modal isOpen={!!view} onClose={() => setView(null)} title="Generated design" zClass="z-[130]">
+                {view && (
+                    <div className="space-y-2">
+                        {(view.result?.displayUrl || view.result?.imageUrl) && (
+                            <img src={view.result.displayUrl || view.result.imageUrl} alt="" className="w-full rounded-lg border border-white/15"/>
+                        )}
+                        <div className="bg-black/40 border border-white/10 rounded-lg p-2">
+                            <p className="text-[10px] font-bold text-cyan-300 mb-0.5">Prompt used</p>
+                            <p className="text-[11px] text-white leading-snug break-words">{view.prompt}</p>
+                        </div>
+                        {view.result?.visual_description && (
+                            <div className="bg-black/40 border border-white/10 rounded-lg p-2">
+                                <p className="text-[10px] font-bold text-cyan-300 mb-0.5">Image script</p>
+                                <p className="text-[11px] text-white leading-snug break-words">{view.result.visual_description}</p>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                            {/* Opens in a new tab rather than forcing a download: the image is served
+                                cross-origin, so a download attribute is ignored and long-press to save
+                                is the reliable path on a phone anyway. */}
+                            <Button onClick={() => { const u = view.result?.displayUrl || view.result?.imageUrl; if (u) window.open(u, '_blank'); }} color="cyan" className="text-xs">Open / Save image</Button>
+                            <Button onClick={() => { try { navigator.clipboard.writeText(view.prompt || ''); alert('Prompt copied.'); } catch (e) {} }} color="accent" className="text-xs">Copy prompt</Button>
+                        </div>
+                        <Button onClick={() => { onOpen && onOpen(view); setView(null); }} color="lime" className="w-full text-xs">Load into the lab</Button>
+                    </div>
+                )}
+            </Modal>
+        </div>
+    );
+};
+
 const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [prompt, setPromptRaw] = useState(() => { try { return localStorage.getItem('rk_ailab_draft') || ''; } catch (e) { return ''; } });
     const setPrompt = (v) => { setPromptRaw(v); try { localStorage.setItem('rk_ailab_draft', v); } catch (e) {} };   // V65.19.01: every keystroke saved
@@ -7484,6 +7568,9 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             setGenPct(98);
             // Persist BEFORE touching state, so an unmounted component still banks the result.
             try { await setDoc(jobRef, { status: 'done', result: r, doneAt: Date.now() }, { merge: true }); } catch (e) { rkReport('ai job save', e); }
+            // V71.1: notify on completion. The whole point of a background job is that you left the
+            // screen — being told nothing is barely better than losing the work.
+            try { pushNotif(user.uid, 'diy', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"'); } catch (e) {}
             setRes(r);
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
@@ -7495,7 +7582,9 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // optionally submit; we don't auto-write an image-less item to the collection.
         } catch(e){ 
             try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) {}
-            if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
+            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'diy', '😔 Your AI design could not be generated. No credit was used.'); } catch (e2) {}
+            if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.'); } catch (e3) {} }
+            else if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
             else alert(e.message); 
         } finally { setLoading(false); } 
     };
@@ -7591,6 +7680,10 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                     <div className="flex gap-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Save Design Plan"}</Button></div>
                 </div>
             )}
+        {/* V71.1: the queue. A generation takes about a minute and you are meant to walk away,
+            so there has to be somewhere that says what happened while you were gone. Each row
+            keeps the prompt that produced it, which is the thing people actually want back. */}
+        <RkAiQueue user={user} onOpen={(j) => { setRes(j.result); setImageReady(!!(j.result && (j.result.displayUrl || j.result.imageUrl))); setGenPct(100); }} />
         </Card> 
     );
 };
@@ -7898,8 +7991,32 @@ const ItemShareModal = ({ item, profile, isOpen, onClose }) => {
     );
 };
 
+// V71.1: a feed card showed no brand because the listing stores only brandId, and the card had
+// no way to turn that into a name. Resolved per card and cached on window so a feed full of one
+// seller's items costs a single read rather than one per card.
+const rkBrandNameCache = {};
+const useBrandName = (ownerId, brandId) => {
+    const key = ownerId + '/' + brandId;
+    const [name, setName] = useState(brandId ? (rkBrandNameCache[key] || '') : '');
+    useEffect(() => {
+        if (!ownerId || !brandId) { setName(''); return; }
+        if (rkBrandNameCache[key] !== undefined) { setName(rkBrandNameCache[key]); return; }
+        let dead = false;
+        getDoc(doc(db, 'artifacts', appId, 'users', ownerId, 'brands', brandId))
+            .then(s => {
+                const n = s.exists() ? (s.data().name || '') : '';
+                rkBrandNameCache[key] = n;           // cache misses too, so a deleted brand is not re-fetched
+                if (!dead) setName(n);
+            })
+            .catch(() => { rkBrandNameCache[key] = ''; });
+        return () => { dead = true; };
+    }, [ownerId, brandId, key]);
+    return name;
+};
+
 const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem }) => {
     const [liked, setLiked] = useState(item.likes?.includes(user?.uid));
+    const cardBrand = useBrandName(item.ownerId, item.brandId);
     const [showComments, setShowComments] = useState(false);
     const [showShare, setShowShare] = useState(false);
     const [descExpanded, setDescExpanded] = useState(false);
@@ -7944,7 +8061,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                             padding, so the tap target was a few pixels tall and wedged between two other
                             controls — easy to miss, easy to hit the wrong thing. Now 14px, badge moved to
                             the RIGHT on the same line, and py-1.5 gives clear space above and below. */}
-                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{cardBrand && <span className="text-[9px] font-bold uppercase tracking-wide text-purple-300 whitespace-nowrap">Brand: {cardBrand}</span>}{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
