@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=70
+RK_MAJOR=71
 RK_MINOR=49
-RK_PATCH=126
-RK_BUILD=245
+RK_PATCH=127
+RK_BUILD=247
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1726,17 +1726,28 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         );
         const textUrl = `https://text.pollinations.ai/prompt/${instruction}.%20The%20user%20wants:%20${safePrompt}`;
 
+        // V70.4: 3 attempts at a flat 2.5s apart is barely 8 seconds of patience against a free
+        // service that is routinely busy for longer than that — which is why "the AI design service
+        // was busy" was the normal outcome rather than the rare one. Six attempts with exponential
+        // backoff spans about a minute, and each request now has its own timeout so a hung socket
+        // cannot eat the whole budget.
         onProgress(15);
         let rawText = '';
-        for (let tAttempt = 0; tAttempt < 3; tAttempt++) {
-            onProgress(15 + tAttempt * 6);
+        let lastErr = '';
+        for (let tAttempt = 0; tAttempt < 6; tAttempt++) {
+            onProgress(15 + tAttempt * 4);
             try {
-                const response = await fetch(textUrl, { cache: 'no-store' });
+                const ctl = new AbortController();
+                const to = setTimeout(() => ctl.abort(), 25000);
+                const response = await fetch(textUrl, { cache: 'no-store', signal: ctl.signal });
+                clearTimeout(to);
                 if (response.ok) { rawText = await response.text(); if (rawText && rawText.length > 5) break; }
-            } catch (tErr) { console.log('AI analysis attempt ' + (tAttempt + 1) + ' failed.'); }
-            if (tAttempt < 2) await new Promise(r => setTimeout(r, 2500));
+                else lastErr = 'HTTP ' + response.status;
+            } catch (tErr) { lastErr = (tErr && tErr.name === 'AbortError') ? 'timeout' : String(tErr && tErr.message || tErr); }
+            // 2s, 4s, 8s, 16s, 24s — capped so the wait stays tolerable.
+            if (tAttempt < 5) await new Promise(r => setTimeout(r, Math.min(24000, 2000 * Math.pow(2, tAttempt))));
         }
-        if (!rawText) throw new Error("ANALYSIS_FAILED");
+        if (!rawText) { try { rkReport('AI analysis (' + lastErr + ')', new Error(lastErr || 'no response')); } catch (e) {} throw new Error("ANALYSIS_FAILED"); }
 
         let analysis;
         try {
@@ -4550,7 +4561,20 @@ const BadgeChip = ({ badge }) => {
     );
 };
 
-const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile }) => {
+const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile, onViewPost }) => {
+    // V70.4: the rows were inert. Tapping one now opens who liked it, what was said, or who bought
+    // it — the question the stat itself raises. Everything here is already on the item document,
+    // so this costs no extra reads.
+    const [openRow, setOpenRow] = useState(null);
+    const [rowComments, setRowComments] = useState([]);
+    useEffect(() => {
+        if (!openRow?.id) { setRowComments([]); return; }
+        let dead = false;
+        getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems', openRow.id, 'comments'), orderBy('time', 'desc'), limit(20)))
+            .then(s => { if (!dead) setRowComments(s.docs.map(d => ({ ...d.data(), id: d.id }))); })
+            .catch(e => rkReport('stat comments', e));
+        return () => { dead = true; };
+    }, [openRow?.id]);
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const META = {
@@ -4592,7 +4616,7 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10 text-xs">{meta.empty}</p>}
                     {items.map(i => (
-                        <div key={i.id} className="bg-white/5 p-2 rounded-lg border border-white/10 flex flex-col">
+                        <div key={i.id} onClick={() => setOpenRow(i)} className="bg-white/5 p-2 rounded-lg border border-white/10 flex flex-col cursor-pointer hover:bg-white/10 active:scale-95 transition">
                             <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || 'https://placehold.co/100?text=Kandi'} className="w-full h-24 object-cover rounded mb-2"/>
                             <p className="font-bold text-[10px] truncate">{i.name || 'Item'}</p>
                             <div className="flex justify-between items-center mt-1 border-t border-white/10 pt-1">
@@ -4603,6 +4627,8 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
                     ))}
                 </div>
             )}
+            <RkStatRowDetail item={openRow} statKey={statKey} comments={rowComments}
+                onClose={() => setOpenRow(null)} onViewProfile={onViewProfile} onViewPost={onViewPost}/>
         </Modal>
     );
 };
@@ -7336,12 +7362,75 @@ const AIConceptImage = ({ res, onReady }) => {
     );
 };
 
+// V70.4: shown when a stat row is tapped. Answers the question the stat raises — who liked it,
+// what was said, who bought it — and offers a jump to the post itself.
+const RkStatRowDetail = ({ item, statKey, comments, onClose, onViewProfile, onViewPost }) => {
+    if (!item) return null;
+    const likers = item.likes || [];
+    const buyers = item.buyers || [];
+    const title = statKey === 'likes' ? 'Who liked this'
+        : statKey === 'comments' ? 'Comments'
+        : (statKey === 'sold' || statKey === 'salesVal') ? 'Who bought this'
+        : 'Details';
+    return (
+        <Modal isOpen={!!item} onClose={onClose} title={title} zClass="z-[130]">
+            <div className="space-y-2">
+                <p className="text-[12px] font-black text-white truncate">{item.name || 'Item'}</p>
+
+                {statKey === 'likes' && (likers.length === 0
+                    ? <p className="text-[11px] text-white/50">No likes yet.</p>
+                    : likers.slice(0, 50).map(u => (
+                        <button key={u} onClick={() => { onClose(); onViewProfile && onViewProfile(u); }} className="w-full text-left bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white active:scale-95">❤️ {String(u).slice(0, 10)}…</button>
+                    )))}
+
+                {statKey === 'comments' && (comments.length === 0
+                    ? <p className="text-[11px] text-white/50">No comments loaded.</p>
+                    : comments.map(c => (
+                        <div key={c.id} className="bg-white/5 border border-white/10 rounded px-2 py-1.5">
+                            <button onClick={() => { onClose(); onViewProfile && onViewProfile(c.uid); }} className="text-[11px] font-bold text-pink-300">{c.user || 'Raver'}</button>
+                            <p className="text-[11px] text-white leading-snug">{c.text}</p>
+                        </div>
+                    )))}
+
+                {(statKey === 'sold' || statKey === 'salesVal') && (buyers.length === 0
+                    ? <p className="text-[11px] text-white/50">Buyer details are not recorded on this item.</p>
+                    : buyers.slice(0, 50).map((b, k) => (
+                        <button key={k} onClick={() => { onClose(); onViewProfile && onViewProfile(b); }} className="w-full text-left bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white active:scale-95">🛒 {String(b).slice(0, 10)}…</button>
+                    )))}
+
+                {/* V70.4: a window event rather than a prop threaded through two profile components
+                    that do not otherwise care about feed navigation. Same bridge the diagnostic log
+                    uses, and App is the only listener. */}
+                <Button onClick={() => { onClose(); try { window.dispatchEvent(new CustomEvent('rk-view-post', { detail: item.id })); } catch (e) {} }} color="cyan" className="w-full text-xs mt-1">View this post in the feed</Button>
+            </div>
+        </Modal>
+    );
+};
+
 const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [prompt, setPromptRaw] = useState(() => { try { return localStorage.getItem('rk_ailab_draft') || ''; } catch (e) { return ''; } });
     const setPrompt = (v) => { setPromptRaw(v); try { localStorage.setItem('rk_ailab_draft', v); } catch (e) {} };   // V65.19.01: every keystroke saved
     const [allowBuy, setAllowBuy] = useState(false); const [itemName, setItemName] = useState('');
     const [res, setRes] = useState(null); const [loading, setLoading] = useState(false);
     const [imageReady, setImageReady] = useState(false);
+    // V70.4: pick up the most recent finished job on mount, so a generation you walked away
+    // from is waiting for you rather than silently discarded.
+    useEffect(() => {
+        if (!user?.uid) return;
+        let dead = false;
+        getDocs(query(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'), orderBy('at', 'desc'), limit(1)))
+            .then(s => {
+                if (dead || s.empty) return;
+                const j = s.docs[0].data();
+                if (j.status === 'done' && j.result) {
+                    setRes(j.result);
+                    setImageReady(!!(j.result.displayUrl || j.result.imageUrl));
+                    setGenPct(100);
+                }
+            })
+            .catch(e => rkReport('ai job recover', e));
+        return () => { dead = true; };
+    }, [user?.uid]);
     const [remaining, setRemaining] = useState(DAILY_AI_LIMIT);
     
     useEffect(() => {
@@ -7374,6 +7463,17 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // perfectly successful generation rendered nothing. Retry ONLY when the text service
             // itself failed — retrying a working call just doubled the wait for no reason.
             let r;
+            // V70.4: the run is recorded in Firestore, not only in component state.
+            //
+            // A fetch keeps going after its component unmounts - what was lost was the RESULT, because
+            // every setState landed on a component that no longer existed. So navigating away during a
+            // 60-second generation threw the work away even though it had finished.
+            //
+            // Writing the outcome to a job document means the result is waiting when you come back,
+            // whatever you did in between.
+            const jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
+            try { await setDoc(jobRef, { prompt, status: 'running', at: Date.now() }); } catch (e) { rkReport('ai job create', e); }
+
             try {
                 r = await generateCustomKandi(prompt, setGenPct);
             } catch (e1) {
@@ -7382,6 +7482,8 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                 r = await generateCustomKandi(prompt, setGenPct);
             }
             setGenPct(98);
+            // Persist BEFORE touching state, so an unmounted component still banks the result.
+            try { await setDoc(jobRef, { status: 'done', result: r, doneAt: Date.now() }, { merge: true }); } catch (e) { rkReport('ai job save', e); }
             setRes(r);
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
@@ -7392,6 +7494,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // V50: text-only analysis — the result is shown for the user to review and
             // optionally submit; we don't auto-write an image-less item to the collection.
         } catch(e){ 
+            try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) {}
             if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
             else alert(e.message); 
         } finally { setLoading(false); } 
@@ -7920,6 +8023,16 @@ const PostHelpModal = ({ isOpen, onClose }) => {
 
 const SellKandiForm = ({ user, profile }) => {
     const [isOpen, setIsOpen] = useState(false);
+    // V70.4: brand selector for Business accounts. Personal accounts have no brands, so this
+    // loads nothing and renders nothing rather than showing an empty control.
+    const [postBrand, setPostBrand] = useState('');
+    const [postBrands, setPostBrands] = useState([]);
+    useEffect(() => {
+        if (profile?.accountType !== 'business' || !user?.uid) { setPostBrands([]); return; }
+        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+            s => setPostBrands(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+            e => rkReport('post brands', e));
+    }, [profile?.accountType, user?.uid]);
     const [postHelp, setPostHelp] = useState(false);
     // V65.06: remote open — the pinned-items pop-in (and future entry points) can pop this form.
     useEffect(() => {
@@ -7974,7 +8087,11 @@ const SellKandiForm = ({ user, profile }) => {
                 // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
                 // field does not match an equality query — a post without this would be invisible
                 // to everyone except its author.
-                vis: 'public', visAllowed: [], visSetAt: Date.now() }; 
+                vis: 'public', visAllowed: [], visSetAt: Date.now(),
+                // V70.4: posts never carried a brand, only Inventory Hub items did — which is why a
+                // posted item showed no brand in its detail window. Business accounts pick one; a
+                // Personal account has none and writes empty, same as general stock.
+                brandId: postBrand || '', addedBy: user?.uid || '' }; 
             
             const batch = writeBatch(db);
             const publicRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'));
@@ -8021,6 +8138,14 @@ const SellKandiForm = ({ user, profile }) => {
                 <p className="text-xs font-bold text-cyan-200 leading-relaxed">⭐ Heads up: after every completed sale or trade, <span className="text-white underline">both the buyer AND the seller MUST rate the transaction</span>. Ratings power the trust system that keeps every raver here as safe as possible — for you and for them.</p>
             </div>
             <Input label="Name" value={form.name} onChange={v => setForm({...form, name: v})} />
+            {/* V70.4: only rendered when the account actually has brands - an empty selector on a
+                Personal account is a question with no answers. */}
+            {postBrands.length > 0 && (
+                <Input label="Brand" type="select"
+                    options={['General (no brand)'].concat(postBrands.map(b => b.name))}
+                    value={postBrand ? (postBrands.find(b => b.id === postBrand)?.name || 'General (no brand)') : 'General (no brand)'}
+                    onChange={v => { const hit = postBrands.find(b => b.name === v); setPostBrand(hit ? hit.id : ''); }} />
+            )}
             <div className="mb-4 bg-gradient-to-r from-fuchsia-900/30 to-pink-900/30 p-3 rounded-lg border border-fuchsia-500/40">
                 <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.isShowingOff} onChange={e=>setForm({...form, isShowingOff: e.target.checked})} className="accent-fuchsia-500 w-4 h-4"/><span className="text-xs font-black text-fuchsia-300 uppercase">✨ Just Showing Off (not for sale)</span></label>
                 <p className="text-[10px] opacity-60 mt-1">Share your piece with the community without selling it — no price, no stock, no checkout. Pure flex. 🌈</p>
@@ -13473,8 +13598,11 @@ const App = () => {
     // Split in two: `view` picks WHICH SECTION renders (items / music / profiles — genuinely
     // exclusive, they are different components), and `postTypes` is a multi-select filter within
     // the items view. `showSold` defaults false so out-of-stock listings stop cluttering the feed.
-    const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' });
-    const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '' };
+    // V70.3: focusItem pins the feed to ONE listing. "View in Feed" used to pass a uid into
+    // handleViewFeed, which filters by SELLER — so you arrived at everything that raver had ever
+    // posted and still had to hunt for the one you came from.
+    const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' });
+    const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' };
     const [forceSettings, setForceSettings] = useState(false);
     const [cartOpen, setCartOpen] = useState(false);
     const [viewingProfileId, setViewingProfileId] = useState(null);
@@ -14162,7 +14290,21 @@ const App = () => {
     
     const handleViewFeed = (targetUid) => {
         if (items.length === 0 || isSyncing) { alert("Posts are currently syncing. Please wait a moment."); return; }
-        setFilters({...filters, searchUid: targetUid});
+        setFilters({...filters, searchUid: targetUid, focusItem: ''});
+        setPage('feed');
+    };
+    // V70.4: stat-row "view this post" arrives as an event, since the profile components between
+    // here and there have no reason to carry a feed-navigation prop.
+    useEffect(() => {
+        const onViewPostEvt = (e) => { const id = e && e.detail; if (id) handleViewPost(id); };
+        window.addEventListener('rk-view-post', onViewPostEvt);
+        return () => window.removeEventListener('rk-view-post', onViewPostEvt);
+    });
+
+    // V70.3: jump to ONE post rather than to its seller's whole catalogue.
+    const handleViewPost = (itemId) => {
+        if (!itemId) return;
+        setFilters({ ...rkClearFilters, focusItem: itemId });
         setPage('feed');
     };
 
@@ -14213,6 +14355,9 @@ const App = () => {
         // nothing because a trailing space was stripped before React re-rendered (which is also
         // why double-tapping space produced a period: Android's shortcut fired on a field that
         // never accepted the first space).
+        // V70.3: a focused post overrides every other filter. You asked for this one listing, so a
+        // stale type or sort filter must not hide it and leave the feed looking empty.
+        if (filters.focusItem) return i.id === filters.focusItem;
         if(rkCleanSearch(filters.searchUid)) {
             const q = rkCleanSearch(filters.searchUid).toLowerCase();
             const hit = String(i.ownerPublicUid || '').toLowerCase() === q
@@ -14455,7 +14600,7 @@ cat << 'EOF' >> src/App.js
                 <ItemDetailModal
                     item={notifItem} user={user} isOpen={!!notifItem}
                     onClose={() => { setNotifItemId(null); setNotifItem(null); }}
-                    onViewFeed={(uid) => { setNotifItemId(null); setNotifItem(null); setMsgOpen(false); handleViewFeed(uid); }}
+                    onViewFeed={() => { const id = notifItem?.id; setNotifItemId(null); setNotifItem(null); setMsgOpen(false); handleViewPost(id); }}
                     zClass="z-[120]"
                 />
             )}
@@ -14816,7 +14961,13 @@ cat << 'EOF' >> src/App.js
                         </div>
                     ) : (
                     <div className="space-y-6">
-                        {rkCleanSearch(filters.searchUid).length >= 2 && visibleUsers.length > 0 && (
+                        {filters.focusItem && (
+                        <div className="mb-3 bg-cyan-900/25 border border-cyan-400/50 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-cyan-100 leading-snug">Showing one post. This is the listing your notification was about.</p>
+                            <button onClick={() => setFilters(rkClearFilters)} className="shrink-0 text-[10px] font-black text-black bg-cyan-300 rounded-full px-3 py-1.5 active:scale-95">Full feed</button>
+                        </div>
+                    )}
+                    {rkCleanSearch(filters.searchUid).length >= 2 && visibleUsers.length > 0 && (
                             <div className="space-y-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-purple-300">Ravers matching "{filters.searchUid}"</p>
                                 {visibleUsers.slice(0, 10).map(u => (
