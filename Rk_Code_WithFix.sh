@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=70
-RK_MINOR=47
+RK_MINOR=48
 RK_PATCH=126
-RK_BUILD=243
+RK_BUILD=244
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1560,7 +1560,12 @@ export const removeFriend = async (myUid, otherUid) => {
 
 export const pushNotif = async (toUid, type, text, refId = null) => {
     if (!toUid || toUid === 'guest') return;
-    try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); } catch (e) {}
+    // V70.1: this catch was empty, so a refused notification write left no trace anywhere — the
+    // sender saw success, the recipient got nothing, and there was no way to tell a rules denial
+    // from a feature that never fired. Every notification type flows through here, so one silent
+    // catch could hide all of them at once.
+    try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); }
+    catch (e) { try { rkReport('notify ' + type + ' -> ' + String(toUid).slice(0, 6), e); } catch (_) {} }
 };
 
 export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null, nameStyleObj = null) => {
@@ -2987,6 +2992,7 @@ const ReferralModal = ({ user, profile, isOpen, onClose, onOpenWallet, onViewPro
                                 : ('Standard limit: ' + RK_REF_CAPS.standard + ' per day. VIP raises it to ' + RK_REF_CAPS.vip + '.')}
                         </p>
                         {used >= cap && <p className="text-[10px] text-amber-300 leading-snug mt-1">You have hit today's limit. New signups with your code still work and still count as your referral — the reward credits again after the reset.</p>}
+                        <p className="text-[9px] text-white/45 leading-snug mt-1">Limits stop fake-account farming from draining the reward pool everyone shares. Full details under Help &rarr; Referrals.</p>
                     </div>
                 );
             })()}
@@ -5027,6 +5033,12 @@ const ReferredUsersPanel = ({ user, onViewProfile }) => {
         <div>
             <p className="text-[10px] text-white/60 mb-2">👥 {rows.length} raver{rows.length === 1 ? '' : 's'} referred · <span className="text-lime-300 font-bold">${total.toFixed(2)} earned from them</span></p>
             {rows.length === 0 && <p className="text-center text-xs text-white/40 py-5">No referrals yet — share your link and start earning!</p>}
+            {/* V70.1: state the limit where the sharing happens, not only where it is enforced.
+                Someone about to post their link in three servers should know the ceiling first. */}
+            <div className="mt-2 bg-black/30 border border-white/10 rounded-lg p-2">
+                <p className="text-[10px] font-bold text-white/70">Daily limit: {rkReferralCap(profile)} referrals</p>
+                <p className="text-[9px] text-white/50 leading-snug">Resets midnight UTC. Over the limit, people can still join with your code and still count as yours — the reward just credits after the reset. Standard {RK_REF_CAPS.standard} · VIP {RK_REF_CAPS.vip} · Creator {RK_REF_CAPS.creator}+.</p>
+            </div>
             <div className="space-y-2">
                 {rows.map(r => (
                     <button key={r.id} onClick={() => onViewProfile && onViewProfile(r.publicUid || r.id)} className="w-full flex items-center gap-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg p-2 text-left">
@@ -5474,7 +5486,16 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     list = list.sort((a, b) => ((b.favorites?.[myUid] ? 1 : 0) - (a.favorites?.[myUid] ? 1 : 0)) || ((b.lastAt || 0) - (a.lastAt || 0)));
 
 
-    const visNotifs = notifs.filter(n => (profile?.inAppNotifs?.[n.type] !== false) && (notifFilter === 'all' || n.type === notifFilter));
+    // V70.1: an unknown type must default to VISIBLE. `!== false` already does that, but a type
+    // absent from NOTIF_INAPP_TYPES would have no toggle to turn it back on, so anything new would
+    // vanish the moment someone saved preferences. Listed explicitly so that cannot happen quietly.
+    const visNotifs = notifs.filter(n => {
+        const pref = profile?.inAppNotifs ? profile.inAppNotifs[n.type] : undefined;
+        const known = NOTIF_INAPP_TYPES.some(t => t.id === n.type);
+        const shown = pref === false ? false : true;
+        if (!known && pref === undefined) return notifFilter === 'all' || n.type === notifFilter;
+        return shown && (notifFilter === 'all' || n.type === notifFilter);
+    });
     const unreadAlertCount = notifs.filter(n => !n.read).length;
     const threadKey = activeOtherUid ? rkKey(myUid, activeOtherUid) : null;
 
@@ -10476,6 +10497,10 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
 // V65.26: 'Reporting' is its own category and sits FIRST — when something is broken, hunting
 // through nine categories to find help is the last thing anyone wants to do.
 const HELP_TOPICS = [
+    // V70.1: written for someone who has just been told "you hit your limit" and wants to know
+    // why. Numbers first, reasoning second, and no jargon — a raver reading this is annoyed, not
+    // curious about anti-fraud design.
+    { cat: 'Referrals', title: '🔢 Daily Referral Limits', content: "There is a limit on how many referrals you can earn credit for in one day:\n\n\u2022 Standard account \u2014 60 per day\n\u2022 VIP \u2014 150 per day\n\u2022 Creator \u2014 500 per day, plus 1 more for every 200 verified followers, up to 5,000\n\nThe count resets at midnight UTC every night. You can see how many you have used today at the top of your Referrals screen.\n\nIf you reach the limit, nothing breaks. Anyone signing up with your code still joins normally and is still linked to you as their referrer \u2014 you just do not earn the reward for that one until the reset. You will get a notification telling you so.\n\nWhy limits exist: referral rewards are permanent, so without a ceiling someone could make hundreds of fake accounts overnight and drain the reward pool that everyone else shares. The limits are set high enough that normal use never touches them.\n\nIf you legitimately go over \u2014 a big set, a festival weekend, a post that took off \u2014 it raises a review for us to look at, not a ban. Message us and we will sort it." },
     // V68.1: sharing hands another raver write access to your stock, which is the most consequential
     // permission in the app. It gets a proper entry rather than a line buried in Settings.
     { cat: 'Selling', title: '🤝 Sharing Your Inventory', content: "You can let a friend, partner, or employee help run your stock. Go to Settings and open \"Let someone help with my inventory\", search for the raver, then choose what they can do: View only, Add only, Edit only, Add + Edit, or Full control. You can change or remove access at any time, and it takes effect immediately.\n\nTwo protections always apply, whatever you grant. They can never change who your items are visible to — visibility stays yours alone, so nobody can accidentally publish your private stash. And they can only delete items THEY added; every item records who created it, so your own work cannot be removed by a helper.\n\nOnly share with people you trust. Someone with Edit can change prices and stock on anything, and there is no history to restore from." },
@@ -13896,9 +13921,9 @@ const App = () => {
     useEffect(() => {
         if (!user?.uid) return;
         const tq = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads'), where('participants', 'array-contains', user.uid));
-        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('threads', e));
+        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('threads listener', e));
         const nq = query(collection(db, 'artifacts', appId, 'users', user.uid, 'notifications'), orderBy('at', 'desc'), limit(60));
-        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => console.log('notifs', e));
+        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('notifications listener', e));
         return () => { u1(); u2(); };
     }, [user]);
 
