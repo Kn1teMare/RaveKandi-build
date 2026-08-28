@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=68
-RK_MINOR=45
+RK_MINOR=46
 RK_PATCH=124
-RK_BUILD=237
+RK_BUILD=238
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -2952,19 +2952,34 @@ const rkDefaultVis = (isDiy) => isDiy ? 'public' : 'private';
 // V68.1: presets, because four independent switches is a lot to reason about when the
 // consequence of getting it wrong is someone deleting your stock. The presets cover what people
 // actually mean; the switches stay for anything else.
+// V68.2: edit and delete are SCOPED rather than on/off.
+//   none — not allowed
+//   own  — only items this helper added
+//   all  — anything in your inventory
+// The boolean version forced a false choice between "touch nothing" and "touch everything". With
+// items tagged by who added them, an owner can say "fix my prices, but only bin your own
+// mistakes" — and can still hand over genuine full control if that is what they mean.
+const RK_SCOPES = [
+    { k: 'none', label: 'Off',   short: 'Off' },
+    { k: 'own',  label: 'Their items only', short: 'Theirs' },
+    { k: 'all',  label: 'All my items',     short: 'All' }
+];
+
 const RK_GRANT_PRESETS = [
-    { k: 'view',  label: 'View only',   caps: { canView: true, canAdd: false, canEdit: false, canDelete: false }, desc: 'Can look, cannot touch.' },
-    { k: 'add',   label: 'Add only',    caps: { canView: true, canAdd: true,  canEdit: false, canDelete: false }, desc: 'Can log new stock, cannot change yours.' },
-    { k: 'edit',  label: 'Edit only',   caps: { canView: true, canAdd: false, canEdit: true,  canDelete: false }, desc: 'Can correct details, cannot add or remove.' },
-    { k: 'both',  label: 'Add + Edit',  caps: { canView: true, canAdd: true,  canEdit: true,  canDelete: false }, desc: 'The usual choice for a helper.' },
-    { k: 'full',  label: 'Full control',caps: { canView: true, canAdd: true,  canEdit: true,  canDelete: true  }, desc: 'Includes deleting items they added.' }
+    { k: 'view',  label: 'View only',    caps: { canView: true, canAdd: false, editScope: 'none', deleteScope: 'none' }, desc: 'Can look, cannot touch.' },
+    { k: 'add',   label: 'Add only',     caps: { canView: true, canAdd: true,  editScope: 'none', deleteScope: 'none' }, desc: 'Can log new stock, nothing else.' },
+    { k: 'helper',label: 'Helper',       caps: { canView: true, canAdd: true,  editScope: 'own',  deleteScope: 'own'  }, desc: 'Manages only what they add. Safest useful option.' },
+    { k: 'editor',label: 'Editor',       caps: { canView: true, canAdd: true,  editScope: 'all',  deleteScope: 'own'  }, desc: 'Can fix any of your items, deletes only their own.' },
+    { k: 'full',  label: 'Full control', caps: { canView: true, canAdd: true,  editScope: 'all',  deleteScope: 'all'  }, desc: 'Can change or delete anything you own.' }
 ];
 
 const RK_GRANT_CAPS = [
-    { k: 'canView',   label: 'View',   desc: 'See every item, including private ones.', danger: false },
-    { k: 'canAdd',    label: 'Add',    desc: 'Create new items in your inventory.',     danger: false },
-    { k: 'canEdit',   label: 'Edit',   desc: 'Change names, costs, prices and stock.',  danger: false },
-    { k: 'canDelete', label: 'Delete', desc: 'Remove items THEY added. Never yours.', danger: true }
+    { k: 'canView', label: 'View', desc: 'See every item, including private ones.' },
+    { k: 'canAdd',  label: 'Add',  desc: 'Create new items in your inventory.' }
+];
+const RK_GRANT_SCOPED = [
+    { k: 'editScope',   label: 'Edit',   desc: 'Change names, costs, prices and stock.' },
+    { k: 'deleteScope', label: 'Delete', desc: 'Remove items permanently. No undo, no history.' }
 ];
 
 const RkInvGrants = ({ user, profile }) => {
@@ -2998,7 +3013,28 @@ const RkInvGrants = ({ user, profile }) => {
                 { [key]: val, name: name || '', updatedAt: Date.now() }, { merge: true });
         } catch (e) { rkReport('invGrants save', e); alert('Could not save: ' + e.message); }
     };
-    const applyPreset = async (uid, preset, name) => {
+    // V68.2: a confirmation the owner can silence, shown the first time they hand over the power
+    // to delete items they created. Warnings that appear every time get dismissed unread — this
+    // one appears when the decision is actually being made, and then trusts them.
+    const [pendingAll, setPendingAll] = useState(null);
+    const ackKey = 'rk_ack_delete_all';
+    const setScope = async (uid, key, val, name, skipWarn) => {
+        const needsWarn = key === 'deleteScope' && val === 'all' && !skipWarn
+            && (() => { try { return localStorage.getItem(ackKey) !== '1'; } catch (e) { return true; } })();
+        if (needsWarn) { setPendingAll({ uid, key, val, name }); return; }
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', uid),
+                { [key]: val, name: name || '', updatedAt: Date.now() }, { merge: true });
+        } catch (e) { rkReport('invGrants scope', e); alert('Could not save: ' + e.message); }
+    };
+
+    const applyPreset = async (uid, preset, name, skipWarn) => {
+        // Full control reaches the same warning as toggling delete-all by hand — the risk is the
+        // preset's content, not the control used to pick it.
+        if (preset.caps.deleteScope === 'all' && !skipWarn
+            && (() => { try { return localStorage.getItem(ackKey) !== '1'; } catch (e) { return true; } })()) {
+            setPendingAll({ uid, preset, name }); return;
+        }
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', uid),
                 { ...preset.caps, preset: preset.k, name: name || '', updatedAt: Date.now() }, { merge: true });
@@ -3033,17 +3069,36 @@ const RkInvGrants = ({ user, profile }) => {
                                 return <button key={p.k} onClick={() => applyPreset(r.uid, p, r.name)} title={p.desc} className={'text-[9px] font-bold rounded-full px-2 py-1 border ' + (on ? 'bg-amber-400 text-black border-amber-300' : 'bg-black/40 text-white/70 border-white/20')}>{p.label}</button>;
                             })}
                         </div>
-                        <div className="grid grid-cols-2 gap-1">
+                        <div className="grid grid-cols-2 gap-1 mb-1.5">
                             {RK_GRANT_CAPS.map(c => (
-                                <button key={c.k} onClick={() => setCap(r.uid, c.k, !r[c.k], r.name)} className={'flex items-center gap-1.5 rounded px-2 py-1.5 border text-left ' + (r[c.k] ? (c.danger ? 'bg-red-500/20 border-red-400' : 'bg-lime-500/15 border-lime-400/60') : 'bg-black/40 border-white/15')}>
-                                    {r[c.k] ? <CheckSquare size={12} className={c.danger ? 'text-red-300' : 'text-lime-300'}/> : <Square size={12} className="text-white/30"/>}
+                                <button key={c.k} onClick={() => setCap(r.uid, c.k, !r[c.k], r.name)} className={'flex items-center gap-1.5 rounded px-2 py-1.5 border text-left ' + (r[c.k] ? 'bg-lime-500/15 border-lime-400/60' : 'bg-black/40 border-white/15')}>
+                                    {r[c.k] ? <CheckSquare size={12} className="text-lime-300"/> : <Square size={12} className="text-white/30"/>}
                                     <span className="min-w-0">
-                                        <span className={'block text-[10px] font-bold ' + (r[c.k] ? 'text-white' : 'text-white/60')}>{c.label}{c.danger ? ' ⚠️' : ''}</span>
+                                        <span className={'block text-[10px] font-bold ' + (r[c.k] ? 'text-white' : 'text-white/60')}>{c.label}</span>
                                         <span className="block text-[8px] text-white/45 leading-tight">{c.desc}</span>
                                     </span>
                                 </button>
                             ))}
                         </div>
+                        {RK_GRANT_SCOPED.map(sc => {
+                            const cur = r[sc.k] || 'none';
+                            return (
+                                <div key={sc.k} className="mb-1.5">
+                                    <p className="text-[9px] font-bold text-white/60 mb-0.5">{sc.label} — <span className="font-normal text-white/40">{sc.desc}</span></p>
+                                    <div className="grid grid-cols-3 gap-1">
+                                        {RK_SCOPES.map(s => {
+                                            const on = cur === s.k;
+                                            const risky = sc.k === 'deleteScope' && s.k === 'all';
+                                            return (
+                                                <button key={s.k} onClick={() => setScope(r.uid, sc.k, s.k, r.name)} className={'rounded px-1 py-1.5 border text-center ' + (on ? (risky ? 'bg-red-500/25 border-red-400' : 'bg-lime-500/15 border-lime-400/60') : 'bg-black/40 border-white/15')}>
+                                                    <span className={'block text-[9px] font-bold ' + (on ? 'text-white' : 'text-white/55')}>{s.short}{risky ? ' ⚠️' : ''}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 ))}
                 <Input value={term} onChange={setTerm} placeholder="Search a raver to add" className="mb-0"/>
@@ -3054,6 +3109,29 @@ const RkInvGrants = ({ user, profile }) => {
                     </button>
                 ))}
                 {rows.length === 0 && matches.length === 0 && <p className="text-[10px] text-white/40">Nobody has access to your inventory.</p>}
+                {pendingAll && (
+                    <div className="fixed inset-0 z-[1600] bg-black/85 flex items-center justify-center p-4" onClick={() => setPendingAll(null)}>
+                        <div className="bg-[#160a12] border-2 border-red-400 rounded-2xl p-4 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+                            <p className="text-sm font-black text-red-300 mb-2">⚠️ Let {pendingAll.name || 'this raver'} delete YOUR items?</p>
+                            <p className="text-[11px] text-white leading-snug mb-2">Right now they can only remove items they added themselves. Turning this on lets them permanently delete anything in your inventory — including pieces you logged, photographed and priced.</p>
+                            <p className="text-[11px] text-white leading-snug mb-3">There is <strong>no undo and no history</strong>. If they delete it, it is gone.</p>
+                            <p className="text-[10px] text-white/60 leading-snug mb-3">This is a real option and sometimes the right one — a business partner, a second account of your own. Just make it on purpose.</p>
+                            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                                <input type="checkbox" id="rk-ack-del" className="w-4 h-4 accent-red-500"/>
+                                <span className="text-[10px] text-white/70">Don't ask me again</span>
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button onClick={() => setPendingAll(null)} color="accent" className="text-xs">Cancel</Button>
+                                <Button onClick={() => {
+                                    try { if (document.getElementById('rk-ack-del')?.checked) localStorage.setItem(ackKey, '1'); } catch (e) {}
+                                    const p = pendingAll; setPendingAll(null);
+                                    if (p.preset) applyPreset(p.uid, p.preset, p.name, true);
+                                    else setScope(p.uid, p.key, p.val, p.name, true);
+                                }} color="primary" className="text-xs">I understand</Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>)}
         </div>
     );
