@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=70
-RK_MINOR=48
+RK_MINOR=49
 RK_PATCH=126
-RK_BUILD=244
+RK_BUILD=245
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1565,7 +1565,13 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
     // from a feature that never fired. Every notification type flows through here, so one silent
     // catch could hide all of them at once.
     try { await addDoc(collection(db, 'artifacts', appId, 'users', toUid, 'notifications'), { type, text, refId, read: false, at: Date.now() }); }
-    catch (e) { try { rkReport('notify ' + type + ' -> ' + String(toUid).slice(0, 6), e); } catch (_) {} }
+    catch (e) {
+        // V70.2: `already-exists` means the notification IS there — the SDK retried a write that
+        // had in fact landed (offline queue replay, or a flaky connection acking late). Reporting
+        // it trains you to ignore the log, which is the one thing this channel cannot afford.
+        if (e && e.code === 'already-exists') return;
+        try { rkReport('notify ' + type + ' -> ' + String(toUid).slice(0, 6), e); } catch (_) {}
+    }
 };
 
 export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null, nameStyleObj = null) => {
@@ -5014,7 +5020,10 @@ const RevLedgerPanel = ({ user, profile, onOpenWallet }) => {
     );
 };
 // Everyone you referred — with exactly what each of them has earned you.
-const ReferredUsersPanel = ({ user, onViewProfile }) => {
+// V70.2: `profile` added. 244 put a referral-cap note in here without checking the signature —
+// this panel only ever took { user, onViewProfile }, so the first render threw
+// "profile is not defined" and took the whole screen down. Props are not ambient.
+const ReferredUsersPanel = ({ user, profile, onViewProfile }) => {
     const [rows, setRows] = useState([]);
     useEffect(() => {
         if (!user?.uid) return;
@@ -5036,7 +5045,7 @@ const ReferredUsersPanel = ({ user, onViewProfile }) => {
             {/* V70.1: state the limit where the sharing happens, not only where it is enforced.
                 Someone about to post their link in three servers should know the ceiling first. */}
             <div className="mt-2 bg-black/30 border border-white/10 rounded-lg p-2">
-                <p className="text-[10px] font-bold text-white/70">Daily limit: {rkReferralCap(profile)} referrals</p>
+                <p className="text-[10px] font-bold text-white/70">Daily limit: {rkReferralCap(profile || {})} referrals</p>
                 <p className="text-[9px] text-white/50 leading-snug">Resets midnight UTC. Over the limit, people can still join with your code and still count as yours — the reward just credits after the reset. Standard {RK_REF_CAPS.standard} · VIP {RK_REF_CAPS.vip} · Creator {RK_REF_CAPS.creator}+.</p>
             </div>
             <div className="space-y-2">
@@ -5129,7 +5138,7 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet }) =>
                 <p className="text-[10px] text-center opacity-50">Share opens your phone's share sheet — send to any app, DM, or post straight to your Story.</p>
             </div>
             <Modal isOpen={showRefUsers} onClose={() => setShowRefUsers(false)} zClass="z-[120]" title="👥 My Referred Users">
-                <ReferredUsersPanel user={user} onViewProfile={(u) => { setShowRefUsers(false); onViewProfile && onViewProfile(u); }}/>
+                <ReferredUsersPanel user={user} profile={profile} onViewProfile={(u) => { setShowRefUsers(false); onViewProfile && onViewProfile(u); }}/>
             </Modal>
             <Modal isOpen={showTiers} onClose={() => setShowTiers(false)} zClass="z-[120]" title="RevShare Tiers & Benefits">
                 <div className="space-y-3">
@@ -13932,6 +13941,22 @@ const App = () => {
     const [boostSlots, setBoostSlots] = useState([]);
     const [nowTick, setNowTick] = useState(Date.now());
     const [merchPopup, setMerchPopup] = useState(false);
+    // V70.2: the listing a notification points at, fetched on demand. Held here rather than in the
+    // messenger because the item detail window must sit above it.
+    const [notifItemId, setNotifItemId] = useState(null);
+    const [notifItem, setNotifItem] = useState(null);
+    useEffect(() => {
+        if (!notifItemId) { setNotifItem(null); return; }
+        let dead = false;
+        getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', notifItemId))
+            .then(s => {
+                if (dead) return;
+                if (s.exists()) setNotifItem({ ...s.data(), id: s.id });
+                else { setNotifItemId(null); alert('That post is no longer available — it may have been removed or sold.'); }
+            })
+            .catch(e => { if (!dead) { rkReport('notification item fetch', e); setNotifItemId(null); } });
+        return () => { dead = true; };
+    }, [notifItemId]);
     const [videoSubmitOpen, setVideoSubmitOpen] = useState(false);
     const [videoSlotsForSubmit, setVideoSlotsForSubmit] = useState([]);
     useEffect(() => {
@@ -14417,9 +14442,23 @@ cat << 'EOF' >> src/App.js
                 // Route a tapped notification to the right place. Profile hosts achievements,
                 // Vibe Tribe & referrals; feed hosts comments/likes/sales/DIY.
                 const t = n.type;
+                // V70.2: open the ITEM, not the feed. The old branch called setPage('feed') and
+                // discarded n.refId, so every comment and like notification landed at the top of the
+                // feed and left you to hunt for the post. Opening it in place also keeps you in the
+                // notification list you were working through — the detail window still offers
+                // "View in Feed" for when you actually want to go there.
+                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart') && n.refId) { setNotifItemId(n.refId); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
                 else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
             }} />}
+            {notifItem && (
+                <ItemDetailModal
+                    item={notifItem} user={user} isOpen={!!notifItem}
+                    onClose={() => { setNotifItemId(null); setNotifItem(null); }}
+                    onViewFeed={(uid) => { setNotifItemId(null); setNotifItem(null); setMsgOpen(false); handleViewFeed(uid); }}
+                    zClass="z-[120]"
+                />
+            )}
             <Modal isOpen={merchPopup} onClose={() => setMerchPopup(false)} title="Official Merch">
                 <div className="text-center space-y-4">
                     {['OFFICIAL', 'DROPS', 'SOON'].map((word, i) => (<h1 key={i} className="text-4xl font-black animate-text-shimmer opacity-90" style={{ backgroundImage: 'linear-gradient(45deg, #00ffff, #ffffff, #00ffff)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>{word}.</h1>))}
