@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=69
-RK_MINOR=46
+RK_MINOR=47
 RK_PATCH=125
-RK_BUILD=240
+RK_BUILD=241
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -3052,6 +3052,64 @@ const RkBrandManager = ({ user, profile, isOpen, onClose }) => {
                     <Input label="Brand name" value={name} onChange={setName} placeholder="e.g. Neon Alley" className="mb-0"/>
                     <Input label="Tagline (optional)" value={tagline} onChange={setTagline} placeholder="What this brand makes" className="mb-0"/>
                     <Button onClick={addBrand} color="lime" className="w-full text-xs">+ Add brand</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+// V69.1: pick / create / manage brands without leaving whatever you were doing.
+const RkBrandPicker = ({ user, profile, isOpen, onClose, brands, value, onPick }) => {
+    const [name, setName] = useState('');
+    const [busy, setBusy] = useState(false);
+    const create = async () => {
+        const n = name.trim().slice(0, 40);
+        if (!n) return;
+        if ((brands || []).some(b => (b.name || '').toLowerCase() === n.toLowerCase())) return alert('You already have a brand with that name.');
+        setBusy(true);
+        try {
+            const ref = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+                { name: n, tagline: '', createdAt: Date.now(), ownerId: user.uid });
+            setName('');
+            onPick(ref.id);   // select it immediately — you made it to use it
+        } catch (e) { rkReport('brand quick-create', e); alert('Could not create: ' + e.message); }
+        finally { setBusy(false); }
+    };
+    const rename = async (b) => {
+        const n = (window.prompt('Rename brand:', b.name || '') || '').trim().slice(0, 40);
+        if (!n || n === b.name) return;
+        try { await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'brands', b.id), { name: n }); }
+        catch (e) { rkReport('brand rename', e); alert('Could not rename: ' + e.message); }
+    };
+    const remove = async (b) => {
+        if (!window.confirm('Delete "' + (b.name || '') + '"?\n\nItems tagged with it stay in your inventory and become unbranded. Nothing is deleted.')) return;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'brands', b.id)); if (value === b.id) onPick(''); }
+        catch (e) { rkReport('brand remove', e); alert('Could not delete: ' + e.message); }
+    };
+    return (
+        <Modal isOpen={!!isOpen} onClose={onClose} title="🏪 Choose a brand">
+            <div className="space-y-2">
+                <button onClick={() => onPick('')} className={'w-full text-left rounded-lg border px-2.5 py-2 ' + (!value ? 'bg-cyan-500/20 border-cyan-400' : 'bg-white/5 border-white/15')}>
+                    <p className="text-[11px] font-black text-white">General stock {!value ? '✓' : ''}</p>
+                    <p className="text-[9px] text-white/55">Not tied to any brand.</p>
+                </button>
+                {(brands || []).map(b => (
+                    <div key={b.id} className={'rounded-lg border px-2.5 py-2 flex items-center gap-2 ' + (value === b.id ? 'bg-cyan-500/20 border-cyan-400' : 'bg-white/5 border-white/15')}>
+                        <button onClick={() => onPick(b.id)} className="flex-1 min-w-0 text-left">
+                            <p className="text-[11px] font-black text-white truncate">{b.name} {value === b.id ? '✓' : ''}</p>
+                            {b.tagline && <p className="text-[9px] text-white/55 truncate">{b.tagline}</p>}
+                        </button>
+                        <button onClick={() => rename(b)} className="shrink-0 text-cyan-300 p-1" title="Rename"><Edit size={12}/></button>
+                        <button onClick={() => remove(b)} className="shrink-0 text-red-400 p-1" title="Delete brand"><Trash2 size={12}/></button>
+                    </div>
+                ))}
+                <div className="border-t border-white/10 pt-2">
+                    <p className="text-[10px] font-bold text-white/60 mb-1">Add a new brand</p>
+                    <div className="flex gap-1.5">
+                        <Input value={name} onChange={setName} placeholder="Brand name" className="mb-0 flex-1"/>
+                        <Button onClick={create} disabled={busy} color="lime" className="text-xs shrink-0">{busy ? '…' : 'Create'}</Button>
+                    </div>
+                    <p className="text-[9px] text-white/45 mt-1">New brands are selected straight away so you can carry on adding stock.</p>
                 </div>
             </div>
         </Modal>
@@ -6850,6 +6908,18 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
     // open this with user={{ uid: targ.id }}. Comparing against the signed-in account is the only
     // reliable way to know whose stash is on screen, including when you open your own profile.
     const rkIsMine = !!auth?.currentUser?.uid && user?.uid === auth.currentUser.uid;
+    // V69.1: sorting and brand labels. An inventory of any size is unusable without a way to
+    // group it, and once items carry a brand the obvious grouping is the one you already made.
+    const [sortBy, setSortBy] = useState('recent');
+    const [typeFilter, setTypeFilter] = useState('');
+    const [subFilter, setSubFilter] = useState('');
+    const [brandMap, setBrandMap] = useState({});
+    useEffect(() => {
+        if (!user?.uid) return;
+        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
+            s => { const m = {}; s.docs.forEach(d => { m[d.id] = d.data().name || 'Brand'; }); setBrandMap(m); },
+            e => { /* a Personal account has none — not worth reporting */ });
+    }, [user?.uid]);
     const [items, setItems] = useState([]);
     const [selectedItem, setSelectedItem] = useState(null);
     // V65.38: owners now see their WHOLE collection by default and opt to filter sold/hidden
@@ -6985,13 +7055,60 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                 )}
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
-                    {items.map(item => (
+                    {/* V69.1: filter then sort. Sub-type only appears once a type is chosen, since
+                        the sub-type list is meaningless without its parent. */}
+                    <div className="grid grid-cols-2 gap-1.5 mb-2">
+                        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-black border border-white/20 text-[11px] p-1.5 rounded">
+                            <option value="recent">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="name">Name A–Z</option>
+                            <option value="brand">Brand</option>
+                            <option value="type">Item type</option>
+                            <option value="priceHigh">Value: high–low</option>
+                            <option value="priceLow">Value: low–high</option>
+                            <option value="qty">Quantity</option>
+                        </select>
+                        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSubFilter(''); }} className="bg-black border border-white/20 text-[11px] p-1.5 rounded">
+                            <option value="">All item types</option>
+                            {Object.keys(ITEM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        {typeFilter && (ITEM_CATEGORIES[typeFilter] || []).length > 0 && (
+                            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} className="col-span-2 bg-black border border-white/20 text-[11px] p-1.5 rounded">
+                                <option value="">All {typeFilter} sub-types</option>
+                                {(ITEM_CATEGORIES[typeFilter] || []).map(st => <option key={st} value={st}>{st}</option>)}
+                            </select>
+                        )}
+                    </div>
+                    {items
+                      .filter(i => !typeFilter || (i.type || '') === typeFilter)
+                      .filter(i => !subFilter || (i.subType || '') === subFilter)
+                      .slice()
+                      .sort((a, b) => {
+                        const num = (v) => Number(v) || 0;
+                        switch (sortBy) {
+                            case 'oldest':    return (a.timestamp || 0) - (b.timestamp || 0);
+                            case 'name':      return String(a.name || a.subType || '').localeCompare(String(b.name || b.subType || ''));
+                            // Unbranded sorts last rather than first — an empty string would win
+                            // every comparison and bury the brands the grouping exists to surface.
+                            case 'brand':     return (brandMap[a.brandId] || '\uffff').localeCompare(brandMap[b.brandId] || '\uffff');
+                            case 'type':      return (String(a.type || '') + String(a.subType || '')).localeCompare(String(b.type || '') + String(b.subType || ''));
+                            case 'priceHigh': return num(b.sellPrice || b.price) - num(a.sellPrice || a.price);
+                            case 'priceLow':  return num(a.sellPrice || a.price) - num(b.sellPrice || b.price);
+                            case 'qty':       return num(b.quantity || b.stockQty) - num(a.quantity || a.stockQty);
+                            default:          return (b.timestamp || 0) - (a.timestamp || 0);
+                        }
+                      })
+                      .map(item => (
                         <div key={item.id} onClick={() => setSelectedItem(item)} className={`bg-white/5 p-2 rounded-lg border flex flex-col relative group cursor-pointer hover:bg-white/10 ${item.isHidden ? 'border-yellow-500/40 opacity-60' : item.status === 'generating' ? 'border-yellow-500/50' : 'border-white/10'}`}>
                             {item.isHidden && <span className="absolute top-1 left-1 z-10 text-[9px] font-black uppercase bg-yellow-500/80 text-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><EyeOff size={8}/> Hidden</span>}
                             {item.status === 'generating' ? (
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[10px] text-yellow-400">Processing...</span></div>
                             ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
+                            {/* V69.1: which brand this belongs to. Without it, a split inventory is
+                                only split in the filter — the cards themselves all look the same. */}
+                            {item.brandId && brandMap[item.brandId] && <p className="text-[8px] font-bold uppercase tracking-wide text-purple-300 truncate">🏪 {brandMap[item.brandId]}</p>}
+                            {(item.type || item.subType) && <p className="text-[8px] text-white/40 truncate">{[item.type, item.subType].filter(Boolean).join(' · ')}</p>}
                             {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
                                 <div className={`mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
                             )}
@@ -9878,6 +9995,7 @@ const InventoryManager = ({ user, profile }) => {
     // brands, and querying for them on every hub open would be a read spent to learn nothing.
     const [brands, setBrands] = useState([]);
     const [activeBrand, setActiveBrand] = useState('');
+    const [brandPick, setBrandPick] = useState(false);
     useEffect(() => {
         if (profile?.accountType !== 'business' || !user?.uid) { setBrands([]); return; }
         return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'brands'),
@@ -9971,16 +10089,23 @@ const InventoryManager = ({ user, profile }) => {
                 )}
             </div>
             <HubHelpModal isOpen={hubHelp} onClose={() => setHubHelp(false)} />
-            {brands.length > 0 && (
+            {/* V69.1: a select forced you into Settings to create a brand you needed right now,
+                mid-task. This opens a window that can pick, create and manage without leaving the
+                hub — the point at which you realise you need a new brand is while adding stock to it. */}
+            {profile?.accountType === 'business' && (
                 <div className="mb-3">
                     <label className="text-[10px] font-bold opacity-50 uppercase ml-1">Add to brand</label>
-                    <select value={activeBrand} onChange={e => setActiveBrand(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded">
-                        <option value="">General stock (no brand)</option>
-                        {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    <button onClick={() => setBrandPick(true)} className="w-full bg-black border border-white/20 text-xs p-2 rounded flex items-center justify-between active:scale-95">
+                        <span className="truncate">{activeBrand ? (brands.find(b => b.id === activeBrand)?.name || 'Brand') : 'General stock (no brand)'}</span>
+                        <span className="text-white/40 shrink-0">Change ▾</span>
+                    </button>
                     <p className="text-[9px] text-white/50 mt-1">New items are filed under this brand. Change it any time — it only affects what you add next.</p>
                 </div>
             )}
+            <RkBrandPicker
+                user={user} profile={profile} isOpen={brandPick} onClose={() => setBrandPick(false)}
+                brands={brands} value={activeBrand} onPick={(id) => { setActiveBrand(id); setBrandPick(false); }}
+            />
             {profile.isAdmin && <div className="mb-4"><select value={target} onChange={e=>setTarget(e.target.value)} className="w-full bg-black border border-white/20 text-xs p-2 rounded"><option value="diy">DIY Stock</option><option value="user">My Stock</option></select>
                 <p className="text-[10px] text-cyan-100 bg-cyan-900/20 border border-cyan-500/40 rounded p-2 leading-relaxed mt-2">ℹ️ <strong>DIY Stock</strong> = the shared materials catalog customers pick from in the DIY builder. <strong>My Stock</strong> = your own private inventory. Pick the right one before saving — items land in different collections. Put one in the wrong stock? Re-add it to the correct stock and delete the mistake; a one-tap mover is on the roadmap.</p></div>}
             <div className="grid grid-cols-3 gap-2"><Input label="Type" type="select" options={Object.keys(ITEM_CATEGORIES)} value={newItem.type} onChange={v => setNewItem({...newItem, type: v, subType: ITEM_CATEGORIES[v][0]})}/><Input label="Sub-Type" type="select" options={ITEM_CATEGORIES[newItem.type]||['Custom']} value={newItem.subType} onChange={v => setNewItem({...newItem, subType: v})}/><Input label="Size" type="select" options={ITEM_SIZES} value={newItem.size} onChange={v => setNewItem({...newItem, size: v})}/></div>
