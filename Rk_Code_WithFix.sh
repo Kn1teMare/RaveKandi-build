@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=68
 RK_MINOR=46
-RK_PATCH=124
-RK_BUILD=238
+RK_PATCH=125
+RK_BUILD=239
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -2982,25 +2982,29 @@ const RK_GRANT_SCOPED = [
     { k: 'deleteScope', label: 'Delete', desc: 'Remove items permanently. No undo, no history.' }
 ];
 
-const RkInvGrants = ({ user, profile }) => {
+// V68.3: asModal renders this as its own window instead of a collapsible strip buried in
+// Settings. Bouncing someone from the inventory block to Settings and asking them to find the
+// right section again is three taps and a hunt for a job they already started.
+const RkInvGrants = ({ user, profile, asModal, isOpen, onClose }) => {
     const [rows, setRows] = useState([]);
     const [term, setTerm] = useState('');
     const [dir, setDir] = useState([]);
     const [open, setOpen] = useState(false);
 
+    const shown = asModal ? !!isOpen : open;
     useEffect(() => {
-        if (!open || !user?.uid) return;
+        if (!shown || !user?.uid) return;
         return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'invGrants'),
             s => setRows(s.docs.map(d => ({ uid: d.id, ...d.data() }))),
             e => rkReport('invGrants load', e));
-    }, [open, user?.uid]);
+    }, [shown, user?.uid]);
 
     useEffect(() => {
-        if (!open || dir.length) return;
+        if (!shown || dir.length) return;
         getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100)))
             .then(s => setDir(s.docs.map(d => ({ id: d.id, displayName: d.data().displayName || 'Raver', publicUid: d.data().publicUid || d.id }))))
             .catch(e => rkReport('invGrants directory', e));
-    }, [open, dir.length]);
+    }, [shown, dir.length]);
 
     const typed = rkCleanSearch(term);
     const matches = typed.length >= 1
@@ -3046,13 +3050,7 @@ const RkInvGrants = ({ user, profile }) => {
         catch (e) { rkReport('invGrants revoke', e); alert('Could not remove: ' + e.message); }
     };
 
-    return (
-        <div className="mt-4 bg-black/40 border border-amber-500/30 rounded-lg p-3">
-            <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between">
-                <h5 className="text-[11px] font-black text-amber-300">🤝 Let someone help with my inventory</h5>
-                <span className="text-[10px] text-white/50">{open ? 'Hide' : (rows.length ? rows.length + ' shared' : 'Set up')}</span>
-            </button>
-            {open && (<div className="mt-2 space-y-2">
+    const inner = (<div className="space-y-2">
                 <div className="bg-red-900/20 border border-red-400/40 rounded p-2">
                     <p className="text-[10px] text-red-200 leading-snug"><strong>Only share with people you trust.</strong> Anyone you add can act on your stock as if it were theirs. Delete cannot be undone, and there is no history to restore from.</p>
                     <p className="text-[10px] text-white/70 leading-snug mt-1">They can never change who your items are visible to, and they can never grant access to anyone else.</p>
@@ -3110,7 +3108,7 @@ const RkInvGrants = ({ user, profile }) => {
                 ))}
                 {rows.length === 0 && matches.length === 0 && <p className="text-[10px] text-white/40">Nobody has access to your inventory.</p>}
                 {pendingAll && (
-                    <div className="fixed inset-0 z-[1600] bg-black/85 flex items-center justify-center p-4" onClick={() => setPendingAll(null)}>
+                    <div className="fixed inset-0 z-[1700] bg-black/85 flex items-center justify-center p-4" onClick={() => setPendingAll(null)}>
                         <div className="bg-[#160a12] border-2 border-red-400 rounded-2xl p-4 max-w-sm w-full" onClick={e => e.stopPropagation()}>
                             <p className="text-sm font-black text-red-300 mb-2">⚠️ Let {pendingAll.name || 'this raver'} delete YOUR items?</p>
                             <p className="text-[11px] text-white leading-snug mb-2">Right now they can only remove items they added themselves. Turning this on lets them permanently delete anything in your inventory — including pieces you logged, photographed and priced.</p>
@@ -3132,7 +3130,22 @@ const RkInvGrants = ({ user, profile }) => {
                         </div>
                     </div>
                 )}
-            </div>)}
+    </div>);
+
+    if (asModal) {
+        return (
+            <Modal isOpen={!!isOpen} onClose={onClose} title="🤝 Share My Inventory">
+                {inner}
+            </Modal>
+        );
+    }
+    return (
+        <div className="mt-4 bg-black/40 border border-amber-500/30 rounded-lg p-3">
+            <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between">
+                <h5 className="text-[11px] font-black text-amber-300">🤝 Let someone help with my inventory</h5>
+                <span className="text-[10px] text-white/50">{open ? 'Hide' : (rows.length ? rows.length + ' shared' : 'Set up')}</span>
+            </button>
+            {open && <div className="mt-2">{inner}</div>}
         </div>
     );
 };
@@ -12235,6 +12248,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const [pinnedItems, setPinnedItems] = useState([]);
     const [showBadges, setShowBadges] = useState(false);
     const [nameFontOpen, setNameFontOpen] = useState(false);
+    const [shareOpen, setShareOpen] = useState(false);
     const [statDetail, setStatDetail] = useState(null);
     const [showRevShare, setShowRevShare] = useState(false);
     const [reviewsOpen, setReviewsOpen] = useState(false);
@@ -12297,6 +12311,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" zClass="z-[200]" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <FontSelectorModal user={user} profile={profile} isOpen={nameFontOpen} onClose={() => setNameFontOpen(false)} field={RK_NAME_STYLE_FIELD} titleLabel="Your Name Style" />
+                <RkInvGrants user={user} profile={profile} asModal isOpen={shareOpen} onClose={() => setShareOpen(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                 <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
                 <UserReviewsModal targetUid={user?.uid} targetName={profile?.displayName} ratingSum={profile?.ratingSum} ratingCount={profile?.ratingCount} isOpen={reviewsOpen} onClose={() => setReviewsOpen(false)} />
@@ -12472,6 +12487,26 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         <div className="mt-3 p-5 bg-gradient-to-r from-purple-500/10 to-transparent border border-purple-500/40 rounded-2xl">
                             <p className="text-lg font-black text-purple-300 tracking-widest uppercase mb-4 flex items-center gap-2"><Crown size={20} className="text-yellow-400"/> Subscriber Tools</p>
                             <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vipgift' })); } catch (e) {} }} className="w-full mb-2 py-2 rounded-lg text-xs font-black text-yellow-200 bg-yellow-500/10 border border-yellow-400/50">🎁 VIP Gifting — send free permanent VIP</button>
+                            {/* V68.3: state the status plainly and always. The old copy only spoke up
+                                for an active MONTHLY plan, so a lifetime holder, a yearly subscriber or
+                                someone who was never VIP saw nothing at all and had to infer their own
+                                status from which buttons happened to work. */}
+                            <div className={'mb-3 rounded-lg border p-2.5 ' + (profile?.isVIP ? 'bg-yellow-500/10 border-yellow-400/50' : 'bg-white/5 border-white/20')}>
+                                <p className={'text-[11px] font-black ' + (profile?.isVIP ? 'text-yellow-300' : 'text-white/70')}>
+                                    {!profile?.isVIP ? '\u2606 Not a VIP subscriber'
+                                        : profile?.lifetimeVipGranted ? '\ud83d\udc51 Lifetime VIP'
+                                        : profile?.vipPlan === 'yearly' ? '\ud83d\udc51 VIP \u2014 Yearly'
+                                        : profile?.vipPlan === 'monthly' ? '\ud83d\udc51 VIP \u2014 Monthly'
+                                        : '\ud83d\udc51 VIP Active'}
+                                </p>
+                                <p className="text-[10px] text-white/70 leading-snug mt-0.5">
+                                    {!profile?.isVIP ? 'Banner messages, post boosts, 6 pins and more are VIP features.'
+                                        : profile?.lifetimeVipGranted ? 'Never expires. Every VIP perk, permanently.'
+                                        : profile?.vipExpires ? ('Renews / expires ' + new Date(profile.vipExpires).toLocaleDateString() + ' \u00b7 ' + Math.max(0, Math.ceil((profile.vipExpires - Date.now()) / 86400000)) + ' days left.')
+                                        : 'Active. No expiry date on file.'}
+                                </p>
+                                {profile?.isVIP && profile?.vipSince && <p className="text-[9px] text-white/40 mt-0.5">VIP since {new Date(profile.vipSince).toLocaleDateString()}</p>}
+                            </div>
                             {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
                                 <p className="text-[10px] text-yellow-300 mb-3">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
                             )}
@@ -12496,7 +12531,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                     <button onClick={() => setColInvInfo(true)} className="text-[11px] font-bold text-cyan-300 hover:text-cyan-100 flex items-center gap-1"><HelpCircle size={13}/> What are these blocks?</button>
                     {/* V68.1: sharing was buried in Settings, several taps from the thing it acts on.
                         It belongs next to the inventory block itself. */}
-                    <button onClick={() => onOpenSettings && onOpenSettings()} className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1" title="Let a friend or partner help with your inventory"><UserPlus size={13}/> Share inventory</button>
+                    <button onClick={() => setShareOpen(true)} className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1" title="Let a friend or partner help with your inventory"><UserPlus size={13}/> Share inventory</button>
                 </div>
                 <ColInvInfoModal isOpen={colInvInfo} onClose={() => setColInvInfo(false)} onOpenCollection={() => { setColInvInfo(false); setModals(m => ({ ...m, collection: true })); }} onOpenInventory={() => { setColInvInfo(false); setModals(m => ({ ...m, inventory: true })); }}/>
 
