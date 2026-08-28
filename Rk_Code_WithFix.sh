@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=67
+RK_MAJOR=68
 RK_MINOR=44
 RK_PATCH=124
-RK_BUILD=235
+RK_BUILD=236
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -2941,6 +2941,101 @@ const rkDefaultVis = (isDiy) => isDiy ? 'public' : 'private';
 // V65.35: shared visibility picker. Used for the account-wide default in Settings and for
 // per-item overrides in the item detail view, so the two can never drift apart in wording or
 // behaviour. onChange receives (mode, allowedUids).
+// V68: SHARED INVENTORY ACCESS.
+// Lets a raver hand a friend or business partner specific powers over their stock. Capabilities
+// are separate booleans because "help me add stock" and "you may delete anything" are wildly
+// different asks, and a single "can edit" switch would bundle them.
+//
+// The grant lives in the OWNER's tree and is writable only by the owner, so a helper can never
+// widen their own access. Visibility fields are excluded from what a helper may change — that is
+// enforced in the rules, not just hidden here.
+const RK_GRANT_CAPS = [
+    { k: 'canView',   label: 'View',   desc: 'See every item, including private ones.', danger: false },
+    { k: 'canAdd',    label: 'Add',    desc: 'Create new items in your inventory.',     danger: false },
+    { k: 'canEdit',   label: 'Edit',   desc: 'Change names, costs, prices and stock.',  danger: false },
+    { k: 'canDelete', label: 'Delete', desc: 'Permanently remove items. Cannot be undone.', danger: true }
+];
+
+const RkInvGrants = ({ user, profile }) => {
+    const [rows, setRows] = useState([]);
+    const [term, setTerm] = useState('');
+    const [dir, setDir] = useState([]);
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        if (!open || !user?.uid) return;
+        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'invGrants'),
+            s => setRows(s.docs.map(d => ({ uid: d.id, ...d.data() }))),
+            e => rkReport('invGrants load', e));
+    }, [open, user?.uid]);
+
+    useEffect(() => {
+        if (!open || dir.length) return;
+        getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100)))
+            .then(s => setDir(s.docs.map(d => ({ id: d.id, displayName: d.data().displayName || 'Raver', publicUid: d.data().publicUid || d.id }))))
+            .catch(e => rkReport('invGrants directory', e));
+    }, [open, dir.length]);
+
+    const typed = rkCleanSearch(term);
+    const matches = typed.length >= 1
+        ? rkSuggestRavers(dir, typed, 6).filter(u => u.id !== user?.uid && !rows.some(r => r.uid === u.id))
+        : [];
+
+    const setCap = async (uid, key, val, name) => {
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', uid),
+                { [key]: val, name: name || '', updatedAt: Date.now() }, { merge: true });
+        } catch (e) { rkReport('invGrants save', e); alert('Could not save: ' + e.message); }
+    };
+    const revoke = async (r) => {
+        if (!window.confirm('Remove all access for ' + (r.name || 'this raver') + '?')) return;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', r.uid)); }
+        catch (e) { rkReport('invGrants revoke', e); alert('Could not remove: ' + e.message); }
+    };
+
+    return (
+        <div className="mt-4 bg-black/40 border border-amber-500/30 rounded-lg p-3">
+            <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between">
+                <h5 className="text-[11px] font-black text-amber-300">🤝 Let someone help with my inventory</h5>
+                <span className="text-[10px] text-white/50">{open ? 'Hide' : (rows.length ? rows.length + ' shared' : 'Set up')}</span>
+            </button>
+            {open && (<div className="mt-2 space-y-2">
+                <div className="bg-red-900/20 border border-red-400/40 rounded p-2">
+                    <p className="text-[10px] text-red-200 leading-snug"><strong>Only share with people you trust.</strong> Anyone you add can act on your stock as if it were theirs. Delete cannot be undone, and there is no history to restore from.</p>
+                    <p className="text-[10px] text-white/70 leading-snug mt-1">They can never change who your items are visible to, and they can never grant access to anyone else.</p>
+                </div>
+                {rows.map(r => (
+                    <div key={r.uid} className="bg-white/5 border border-white/10 rounded-lg p-2">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <p className="text-[11px] font-bold text-white truncate">{r.name || 'Raver'}</p>
+                            <button onClick={() => revoke(r)} className="text-[10px] font-bold text-red-300 border border-red-400/40 rounded px-2 py-0.5 active:scale-95">Remove</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                            {RK_GRANT_CAPS.map(c => (
+                                <button key={c.k} onClick={() => setCap(r.uid, c.k, !r[c.k], r.name)} className={'flex items-center gap-1.5 rounded px-2 py-1.5 border text-left ' + (r[c.k] ? (c.danger ? 'bg-red-500/20 border-red-400' : 'bg-lime-500/15 border-lime-400/60') : 'bg-black/40 border-white/15')}>
+                                    {r[c.k] ? <CheckSquare size={12} className={c.danger ? 'text-red-300' : 'text-lime-300'}/> : <Square size={12} className="text-white/30"/>}
+                                    <span className="min-w-0">
+                                        <span className={'block text-[10px] font-bold ' + (r[c.k] ? 'text-white' : 'text-white/60')}>{c.label}{c.danger ? ' ⚠️' : ''}</span>
+                                        <span className="block text-[8px] text-white/45 leading-tight">{c.desc}</span>
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+                <Input value={term} onChange={setTerm} placeholder="Search a raver to add" className="mb-0"/>
+                {matches.map(u => (
+                    <button key={u.id} onClick={() => { setCap(u.id, 'canView', true, u.displayName); setTerm(''); }} className="w-full flex items-center justify-between bg-amber-500/10 border border-amber-400/40 rounded px-2 py-1.5 active:scale-95">
+                        <span className="text-[10px] text-white truncate">{u.displayName}</span>
+                        <span className="text-[10px] font-bold text-amber-200 shrink-0">+ Give view access</span>
+                    </button>
+                ))}
+                {rows.length === 0 && matches.length === 0 && <p className="text-[10px] text-white/40">Nobody has access to your inventory.</p>}
+            </div>)}
+        </div>
+    );
+};
+
 const RkVisibilityPicker = ({ value, allowed, onChange, ownerUid, compact }) => {
     const mode = value || 'private';
     const list = allowed || [];
@@ -5704,6 +5799,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
                         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { invVisibility: m, invAllowed: allow || [] }, { merge: true });
                     }}
                 />
+                <RkInvGrants user={user} profile={profile} />
                 <button onClick={async () => {
                     const m = profile?.invVisibility || 'private';
                     const allow = profile?.invAllowed || [];
