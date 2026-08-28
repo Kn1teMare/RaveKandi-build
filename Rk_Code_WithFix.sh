@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=68
-RK_MINOR=44
+RK_MINOR=45
 RK_PATCH=124
-RK_BUILD=236
+RK_BUILD=237
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -2949,11 +2949,22 @@ const rkDefaultVis = (isDiy) => isDiy ? 'public' : 'private';
 // The grant lives in the OWNER's tree and is writable only by the owner, so a helper can never
 // widen their own access. Visibility fields are excluded from what a helper may change — that is
 // enforced in the rules, not just hidden here.
+// V68.1: presets, because four independent switches is a lot to reason about when the
+// consequence of getting it wrong is someone deleting your stock. The presets cover what people
+// actually mean; the switches stay for anything else.
+const RK_GRANT_PRESETS = [
+    { k: 'view',  label: 'View only',   caps: { canView: true, canAdd: false, canEdit: false, canDelete: false }, desc: 'Can look, cannot touch.' },
+    { k: 'add',   label: 'Add only',    caps: { canView: true, canAdd: true,  canEdit: false, canDelete: false }, desc: 'Can log new stock, cannot change yours.' },
+    { k: 'edit',  label: 'Edit only',   caps: { canView: true, canAdd: false, canEdit: true,  canDelete: false }, desc: 'Can correct details, cannot add or remove.' },
+    { k: 'both',  label: 'Add + Edit',  caps: { canView: true, canAdd: true,  canEdit: true,  canDelete: false }, desc: 'The usual choice for a helper.' },
+    { k: 'full',  label: 'Full control',caps: { canView: true, canAdd: true,  canEdit: true,  canDelete: true  }, desc: 'Includes deleting items they added.' }
+];
+
 const RK_GRANT_CAPS = [
     { k: 'canView',   label: 'View',   desc: 'See every item, including private ones.', danger: false },
     { k: 'canAdd',    label: 'Add',    desc: 'Create new items in your inventory.',     danger: false },
     { k: 'canEdit',   label: 'Edit',   desc: 'Change names, costs, prices and stock.',  danger: false },
-    { k: 'canDelete', label: 'Delete', desc: 'Permanently remove items. Cannot be undone.', danger: true }
+    { k: 'canDelete', label: 'Delete', desc: 'Remove items THEY added. Never yours.', danger: true }
 ];
 
 const RkInvGrants = ({ user, profile }) => {
@@ -2987,6 +2998,12 @@ const RkInvGrants = ({ user, profile }) => {
                 { [key]: val, name: name || '', updatedAt: Date.now() }, { merge: true });
         } catch (e) { rkReport('invGrants save', e); alert('Could not save: ' + e.message); }
     };
+    const applyPreset = async (uid, preset, name) => {
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', uid),
+                { ...preset.caps, preset: preset.k, name: name || '', updatedAt: Date.now() }, { merge: true });
+        } catch (e) { rkReport('invGrants preset', e); alert('Could not save: ' + e.message); }
+    };
     const revoke = async (r) => {
         if (!window.confirm('Remove all access for ' + (r.name || 'this raver') + '?')) return;
         try { await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'invGrants', r.uid)); }
@@ -3009,6 +3026,12 @@ const RkInvGrants = ({ user, profile }) => {
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                             <p className="text-[11px] font-bold text-white truncate">{r.name || 'Raver'}</p>
                             <button onClick={() => revoke(r)} className="text-[10px] font-bold text-red-300 border border-red-400/40 rounded px-2 py-0.5 active:scale-95">Remove</button>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mb-1.5">
+                            {RK_GRANT_PRESETS.map(p => {
+                                const on = RK_GRANT_CAPS.every(c => !!r[c.k] === !!p.caps[c.k]);
+                                return <button key={p.k} onClick={() => applyPreset(r.uid, p, r.name)} title={p.desc} className={'text-[9px] font-bold rounded-full px-2 py-1 border ' + (on ? 'bg-amber-400 text-black border-amber-300' : 'bg-black/40 text-white/70 border-white/20')}>{p.label}</button>;
+                            })}
                         </div>
                         <div className="grid grid-cols-2 gap-1">
                             {RK_GRANT_CAPS.map(c => (
@@ -9712,6 +9735,11 @@ const InventoryManager = ({ user, profile }) => {
         payload.vis = isDiy ? 'public' : (profile?.invVisibility || rkDefaultVis(false));
         payload.visAllowed = payload.vis === 'selected' ? (profile?.invAllowed || []) : [];
         payload.visSetAt = Date.now();
+        // V68.1: who created this item. Owner's uid for their own additions, the helper's uid when
+        // added under a shared grant — it is what lets a helper delete their own mistakes without
+        // being able to erase the owner's work.
+        payload.addedBy = user?.uid || '';
+        payload.addedByName = profile?.displayName || '';
         await addDoc(dest, payload);
         alert("Inventory Saved!");
         setNewItem({ type: 'Bead', subType: 'Pony', size: 'M', cost: '', sell: '', quantity: '', description: '', image: null, imageUrl: '' });
@@ -9981,6 +10009,9 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
 // V65.26: 'Reporting' is its own category and sits FIRST — when something is broken, hunting
 // through nine categories to find help is the last thing anyone wants to do.
 const HELP_TOPICS = [
+    // V68.1: sharing hands another raver write access to your stock, which is the most consequential
+    // permission in the app. It gets a proper entry rather than a line buried in Settings.
+    { cat: 'Selling', title: '🤝 Sharing Your Inventory', content: "You can let a friend, partner, or employee help run your stock. Go to Settings and open \"Let someone help with my inventory\", search for the raver, then choose what they can do: View only, Add only, Edit only, Add + Edit, or Full control. You can change or remove access at any time, and it takes effect immediately.\n\nTwo protections always apply, whatever you grant. They can never change who your items are visible to — visibility stays yours alone, so nobody can accidentally publish your private stash. And they can only delete items THEY added; every item records who created it, so your own work cannot be removed by a helper.\n\nOnly share with people you trust. Someone with Edit can change prices and stock on anything, and there is no history to restore from." },
     { cat: 'Reporting', title: '🐞 Report a Bug or Get Help', content: "Something broken, confusing, or just wrong? Tap the BUG REPORT button at the very bottom of any screen — it's next to LEGAL. Pick a category (bug, crash, help, idea, payment, account), describe what happened, and send. Replies arrive in your Inbox. The more detail the better: what you tapped, what you expected, and what actually happened." },
     { cat: 'Reporting', title: '🚩 Reporting Content or Users', content: "Found a listing or raver breaking the rules? Report it from the item or profile. Admins can take down content and moderate the community. Scams, counterfeits, harassment, and anything unsafe get removed — repeat offenders lose their accounts." },
     { cat: 'Getting Started', title: '🌈 What is RaveKandi?', content: "RaveKandi is a marketplace and community for ravers to buy, sell, and trade kandi (beaded bracelets, cuffs, perler art), festival fashion, and handmade gear. Create a profile, list items, follow creators, chat, listen to rave radio, and earn rewards for spreading the PLUR." },
@@ -10358,6 +10389,10 @@ const ColInvInfoModal = ({ isOpen, onClose, onOpenCollection, onOpenInventory })
                         <div>
                             <p className="font-black text-lime-200">Privacy</p>
                             <p className="pl-3">If you're not a Creator, it's fully private — unsearchable and never shown anywhere. Approved Creators' stocked materials also feed the DIY builder for customers.</p>
+                        </div>
+                        <div>
+                            <p className="font-black text-lime-200">Sharing</p>
+                            <p className="pl-3">You can let a friend or business partner help run your stock — Settings → "Let someone help with my inventory". Give them view, add, edit, or all three. Two things are always true no matter what you grant: they can never change who your items are visible to, and they can only delete items <strong>they</strong> added. Yours are safe.</p>
                         </div>
                     </div>
                     <button onClick={onOpenInventory} className="w-full mt-2 py-2 rounded-lg text-xs font-black text-lime-200 bg-lime-500/10 border border-lime-400/50">Open My Inventory →</button>
@@ -12379,7 +12414,12 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4"><button onClick={() => setModals({...modals, collection:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Package className="text-pink-500 mb-1"/> Collection</button> <button onClick={() => setModals({...modals, inventory:true})} className="rk-shimmer-border p-4 rounded-xl font-bold flex flex-col items-center transition active:scale-95"><Box className="text-lime-400 mb-1"/> My Inventory</button> </div>
-                <button onClick={() => setColInvInfo(true)} className="w-full -mt-2 mb-2 text-[11px] font-bold text-cyan-300 hover:text-cyan-100 flex items-center justify-center gap-1"><HelpCircle size={13}/> What are these blocks?</button>
+                <div className="w-full -mt-2 mb-2 flex items-center justify-center gap-3">
+                    <button onClick={() => setColInvInfo(true)} className="text-[11px] font-bold text-cyan-300 hover:text-cyan-100 flex items-center gap-1"><HelpCircle size={13}/> What are these blocks?</button>
+                    {/* V68.1: sharing was buried in Settings, several taps from the thing it acts on.
+                        It belongs next to the inventory block itself. */}
+                    <button onClick={() => onOpenSettings && onOpenSettings()} className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1" title="Let a friend or partner help with your inventory"><UserPlus size={13}/> Share inventory</button>
+                </div>
                 <ColInvInfoModal isOpen={colInvInfo} onClose={() => setColInvInfo(false)} onOpenCollection={() => { setColInvInfo(false); setModals(m => ({ ...m, collection: true })); }} onOpenInventory={() => { setColInvInfo(false); setModals(m => ({ ...m, inventory: true })); }}/>
 
                 <AchievementsCard profile={profile} editable={true} userUid={user.uid} />
