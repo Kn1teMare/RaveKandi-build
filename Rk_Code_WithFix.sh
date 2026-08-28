@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=69
+RK_MAJOR=70
 RK_MINOR=47
 RK_PATCH=126
-RK_BUILD=242
+RK_BUILD=243
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -575,6 +575,38 @@ const rkCommentCount = (i) => {
     const live = typeof i.commentCount === 'number' ? i.commentCount : 0;
     return legacy + live;
 };
+
+// V70 — REFERRAL CAPS.
+//
+// Daily ceilings on how many referrals one account can bank, because the rewards are permanent
+// and an uncapped referral system is an invitation to farm it with throwaway accounts.
+//
+// The window is fixed 24h UTC rather than rolling — a rolling window means the limit resets a
+// little at a time and someone patient can trickle past it all day. A hard midnight reset is also
+// something a user can understand and predict, which a rolling one is not.
+//
+// Creators scale with their VERIFIED following (the admin-approved figure from Build 208, never
+// the self-reported one): a raver with a real audience legitimately brings more people.
+const RK_REF_CAPS = { creator: 500, vip: 150, standard: 60 };
+const RK_REF_CREATOR_CEILING = 5000;
+const RK_REF_PER_FOLLOWERS = 200;   // +1 daily referral per this many approved followers
+
+const rkUtcDay = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
+
+const rkReferralCap = (p) => {
+    if (!p) return RK_REF_CAPS.standard;
+    const isCreator = !!(p.isKandiCreator || p.isMusicCreator || p.isContentCreator);
+    if (isCreator) {
+        const bonus = Math.floor((Number(p.approvedFollowers) || 0) / RK_REF_PER_FOLLOWERS);
+        return Math.min(RK_REF_CREATOR_CEILING, RK_REF_CAPS.creator + bonus);
+    }
+    if (p.isVIP) return RK_REF_CAPS.vip;
+    return RK_REF_CAPS.standard;
+};
+
+// Today's count, reset lazily. Storing the day alongside the counter means no scheduled job is
+// needed — a stale day simply reads as zero.
+const rkReferralsToday = (p) => (p && p.refDay === rkUtcDay()) ? (Number(p.refCountToday) || 0) : 0;
 
 const adminDeleteComment = async (item, c) => {
     if (!window.confirm('ADMIN: delete this comment by ' + (c.user || 'user') + '?')) return;
@@ -1577,9 +1609,37 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                 const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
                 const refDoc = await getDoc(refRef);
                 if (refDoc.exists()) {
-                    await updateDoc(refRef, { referrals: (refDoc.data().referrals || 0) + 1 });
+                    // V70: cap check before crediting. Over the limit the signup still completes and
+                    // the link is still recorded — the new raver did nothing wrong and must not lose
+                    // their account over the referrer's behaviour. Only the CREDIT is withheld.
+                    const rp = refDoc.data();
+                    const cap = rkReferralCap(rp);
+                    const today = rkUtcDay();
+                    const usedToday = (rp.refDay === today) ? (Number(rp.refCountToday) || 0) : 0;
+                    const over = usedToday >= cap;
+
+                    if (over) {
+                        // A flag, not a ban. Legitimate spikes happen — a set, a festival, a viral
+                        // post — so this raises a ticket for a human rather than punishing silently.
+                        try {
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+                                category: 'Referral Review', subject: 'Daily referral cap reached',
+                                message: 'Account ' + (rp.displayName || referrerUid) + ' hit its daily cap of ' + cap +
+                                         ' referrals. Referral from new account ' + newUsername + ' was recorded but not credited.',
+                                uid: referrerUid, status: 'open', createdAt: Date.now(), appVersion: APP_VERSION_FULL, autoFlag: true
+                            });
+                        } catch (e) { rkReport('referral flag ticket', e); }
+                        await updateDoc(refRef, { refFlaggedAt: Date.now(), refDay: today, refCountToday: usedToday + 1 });
+                    } else {
+                        await updateDoc(refRef, {
+                            referrals: (rp.referrals || 0) + 1,
+                            refDay: today,
+                            refCountToday: usedToday + 1
+                        });
+                    }
                     try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
-                    pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral');
+                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral');
+                    else pushNotif(referrerUid, 'referral', '⏳ ' + newUsername + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.');
                 }
             } catch (e) { console.log('referral credit skipped', e); }
         }
@@ -2903,6 +2963,33 @@ const ReferralModal = ({ user, profile, isOpen, onClose, onOpenWallet, onViewPro
     
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="My Referrals">
+            {/* V70: show the cap before someone hits it. A limit discovered only by being blocked
+                feels arbitrary; one you can see is just a rule. Creators see how their verified
+                following raised it, since that connection is the whole reason it scales. */}
+            {(() => {
+                const cap = rkReferralCap(profile);
+                const used = rkReferralsToday(profile);
+                const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
+                const isCreator = !!(profile?.isKandiCreator || profile?.isMusicCreator || profile?.isContentCreator);
+                return (
+                    <div className="bg-black/40 border border-cyan-500/30 rounded-lg p-2.5 mb-3">
+                        <div className="flex items-baseline justify-between">
+                            <p className="text-[11px] font-black text-cyan-300">Today: {used} of {cap}</p>
+                            <p className="text-[9px] text-white/50">resets midnight UTC</p>
+                        </div>
+                        <div className="h-1.5 bg-black/60 rounded-full overflow-hidden border border-white/10 my-1">
+                            <div className={'h-full ' + (pct >= 100 ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-cyan-400')} style={{ width: pct + '%' }}/>
+                        </div>
+                        <p className="text-[9px] text-white/60 leading-snug">
+                            {isCreator
+                                ? ('Creator limit: ' + RK_REF_CAPS.creator + ' base, +1 per ' + RK_REF_PER_FOLLOWERS + ' verified followers' + (profile?.approvedFollowers ? ' (you have ' + Number(profile.approvedFollowers).toLocaleString() + ')' : '') + '.')
+                                : profile?.isVIP ? ('VIP limit: ' + RK_REF_CAPS.vip + ' per day.')
+                                : ('Standard limit: ' + RK_REF_CAPS.standard + ' per day. VIP raises it to ' + RK_REF_CAPS.vip + '.')}
+                        </p>
+                        {used >= cap && <p className="text-[10px] text-amber-300 leading-snug mt-1">You have hit today's limit. New signups with your code still work and still count as your referral — the reward credits again after the reset.</p>}
+                    </div>
+                );
+            })()}
             <div className="mb-3"><RevLedgerPanel user={user} profile={profile} onOpenWallet={onOpenWallet}/></div>
             <Button onClick={() => onOpenWallet && onOpenWallet()} color="cyan" className="w-full mb-3 text-xs flex items-center justify-center gap-2"><Wallet size={15}/> Crypto Wallet — add, view &amp; how it all works</Button>
             <p className="text-sm text-white mb-3">👥 {refs.length} referred · <span className="text-lime-300 font-bold">${totalEarnedFromRefs.toFixed(2)} earned from them all-time</span> — tap any raver to view their profile.</p>
@@ -6473,6 +6560,20 @@ EOF
 # Block 11
 cat << 'EOF' >> src/App.js
 const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invOwnerUid, invDocId, tradeDocId }) => {
+    // V69.3: the card showed the brand but this window did not, so opening an item lost the one
+    // piece of context a multi-brand seller most needs. Resolved here rather than passed in,
+    // because this modal also opens from the feed and profiles, where no brand map exists.
+    const [brandName, setBrandName] = useState('');
+    useEffect(() => {
+        setBrandName('');
+        const owner = invOwnerUid || item?.ownerId;
+        if (!item?.brandId || !owner) return;
+        let dead = false;
+        getDoc(doc(db, 'artifacts', appId, 'users', owner, 'brands', item.brandId))
+            .then(s => { if (!dead && s.exists()) setBrandName(s.data().name || ''); })
+            .catch(() => {});
+        return () => { dead = true; };
+    }, [item?.brandId, item?.ownerId, invOwnerUid, isOpen]);
     // V65.36: `item` is a PROP, not state — the previous build called setSelectedItem() here,
     // which belongs to the parent and does not exist in this scope. The updateDoc succeeded and
     // then the refresh line threw, so the value saved but the UI showed an error and never
@@ -6822,6 +6923,11 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                     </div>
                 )}
 
+                {brandName && (
+                    <div className="bg-purple-900/25 border border-purple-400/40 rounded-lg p-2 mb-3">
+                        <p className="text-[11px] font-black text-purple-200">Brand: {brandName}</p>
+                    </div>
+                )}
                 {isOwner && (
                     <div className="border-t border-white/10 pt-4">
                         {/* V65.35: per-item override. Setting this marks visLocked so a later
@@ -7125,7 +7231,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
                             {/* V69.1: which brand this belongs to. Without it, a split inventory is
                                 only split in the filter — the cards themselves all look the same. */}
-                            {item.brandId && brandMap[item.brandId] && <p className="text-[8px] font-bold uppercase tracking-wide text-purple-300 truncate">🏪 {brandMap[item.brandId]}</p>}
+                            {item.brandId && brandMap[item.brandId] && <p className="text-[8px] font-bold uppercase tracking-wide text-purple-300 truncate">Brand: {brandMap[item.brandId]}</p>}
                             {(item.type || item.subType) && <p className="text-[8px] text-white/40 truncate">{[item.type, item.subType].filter(Boolean).join(' · ')}</p>}
                             {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
                                 <div className={`mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
