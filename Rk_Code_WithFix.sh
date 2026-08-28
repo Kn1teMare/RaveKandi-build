@@ -4490,34 +4490,6 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={meta.title}>
             {loading ? <p className="text-center opacity-50 py-10 text-xs animate-pulse">Loading…</p> : (
-                {/* V69.2: pinned above the grid, not inside it.
-                    241 put this row inside the item grid container, so the two selects became grid
-                    cells — full-height black columns sitting where item cards should be. Sticky so
-                    the controls stay reachable while the list scrolls under them. */}
-                <div className="sticky top-0 z-20 -mx-1 px-1 pb-2 mb-1 bg-[#12060f]/95 backdrop-blur-sm border-b border-white/10">
-                    <div className="flex gap-1.5">
-                        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
-                            <option value="recent">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                            <option value="name">Name A-Z</option>
-                            <option value="brand">Brand</option>
-                            <option value="type">Item type</option>
-                            <option value="priceHigh">Value: high-low</option>
-                            <option value="priceLow">Value: low-high</option>
-                            <option value="qty">Quantity</option>
-                        </select>
-                        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSubFilter(''); }} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
-                            <option value="">All item types</option>
-                            {Object.keys(ITEM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                        {typeFilter && (ITEM_CATEGORIES[typeFilter] || []).length > 0 && (
-                            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
-                                <option value="">All {typeFilter}</option>
-                                {(ITEM_CATEGORIES[typeFilter] || []).map(st => <option key={st} value={st}>{st}</option>)}
-                            </select>
-                        )}
-                    </div>
-                </div>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10 text-xs">{meta.empty}</p>}
                     {items.map(i => (
@@ -7095,6 +7067,34 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                         {showHidden ? <Eye size={14}/> : <EyeOff size={14}/>} {showHidden ? 'Showing everything — tap to hide sold items' : 'Sold items hidden — tap to show all'}
                     </button>
                 )}
+                {/* V69.2: pinned above the grid, not inside it.
+                    241 put this row inside the item grid container, so the two selects became grid
+                    cells — full-height black columns sitting where item cards should be. Sticky so
+                    the controls stay reachable while the list scrolls under them. */}
+                <div className="sticky top-0 z-20 -mx-1 px-1 pb-2 mb-1 bg-[#12060f]/95 backdrop-blur-sm border-b border-white/10">
+                    <div className="flex gap-1.5">
+                        <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                            <option value="recent">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                            <option value="name">Name A-Z</option>
+                            <option value="brand">Brand</option>
+                            <option value="type">Item type</option>
+                            <option value="priceHigh">Value: high-low</option>
+                            <option value="priceLow">Value: low-high</option>
+                            <option value="qty">Quantity</option>
+                        </select>
+                        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSubFilter(''); }} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                            <option value="">All item types</option>
+                            {Object.keys(ITEM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        {typeFilter && (ITEM_CATEGORIES[typeFilter] || []).length > 0 && (
+                            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] px-2 py-1.5 rounded">
+                                <option value="">All {typeFilter}</option>
+                                {(ITEM_CATEGORIES[typeFilter] || []).map(st => <option key={st} value={st}>{st}</option>)}
+                            </select>
+                        )}
+                    </div>
+                </div>
                 <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto p-1">
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10">{readOnly ? "This raver hasn't added any items to their collection yet." : "Empty here."}</p>}
                     {items
