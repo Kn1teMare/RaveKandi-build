@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=72
 RK_MINOR=50
-RK_PATCH=129
-RK_BUILD=251
+RK_PATCH=130
+RK_BUILD=252
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -16527,17 +16527,39 @@ exports.generateDesignImage = onCall(
       throw new HttpsError('unavailable', 'Image service unreachable: ' + e.message);
     }
 
-    const b64 = out.result && (out.result.image || out.result.images && out.result.images[0]);
-    if (!b64) throw new HttpsError('internal', 'Image service returned no image.');
+    // Model output shapes vary between Workers AI models, and a shape change would otherwise
+    // surface as a null-dereference INTERNAL rather than something readable.
+    const b64 = out.result && (out.result.image
+              || (Array.isArray(out.result.images) && out.result.images[0])
+              || (typeof out.result === 'string' ? out.result : null));
+    if (!b64) throw new HttpsError('internal', 'Image service returned no image field. Keys: ' + Object.keys(out.result || {}).join(','));
 
     // Stored rather than returned inline: a 200KB+ base64 string through a callable response is
     // slow on mobile data and cannot be cached. A Storage URL is small and reusable.
+    //
+    // V72.3: makePublic() was the wrong mechanism and threw a bare INTERNAL. Buckets created in
+    // recent years have uniform bucket-level access on by default, which forbids per-object ACLs
+    // outright — so the save succeeded and the very next line killed the request.
+    //
+    // A Firebase download token works regardless of that setting: the object stays private at the
+    // bucket level and the token in the URL is what grants access. It is also the same mechanism
+    // the Firebase SDK uses for every other upload in the app, so it behaves consistently.
     const buf = Buffer.from(b64, 'base64');
     const path = 'aiDesigns/' + uid + '/' + Date.now() + '.png';
-    const file = admin.storage().bucket().file(path);
-    await file.save(buf, { metadata: { contentType: 'image/png' }, resumable: false });
-    await file.makePublic();
-    const publicUrl = 'https://storage.googleapis.com/' + file.bucket.name + '/' + path;
+    let publicUrl = '';
+    try {
+      const token = require('crypto').randomUUID();
+      const file = admin.storage().bucket().file(path);
+      await file.save(buf, {
+        resumable: false,
+        metadata: { contentType: 'image/png', metadata: { firebaseStorageDownloadTokens: token } }
+      });
+      publicUrl = 'https://firebasestorage.googleapis.com/v0/b/' + file.bucket.name +
+                  '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
+    } catch (e) {
+      // Named, not swallowed. A bare INTERNAL tells the user nothing and tells me less.
+      throw new HttpsError('internal', 'Could not store the generated image: ' + (e && e.message || e));
+    }
 
     // Counted only AFTER the image exists. Charging someone for a failed generation is the
     // kind of small unfairness that makes people stop trusting a feature.
