@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=71
+RK_MAJOR=72
 RK_MINOR=50
 RK_PATCH=127
-RK_BUILD=248
+RK_BUILD=249
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -412,6 +412,8 @@ import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
+// V72: callable functions, for server-side image generation.
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -1713,6 +1715,22 @@ const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
 // breakdown including materials with fabric detection, a creation fee scaled by difficulty,
 // and a suggested sale price with a healthy profit margin. Text-only (image generation is
 // disabled for now — see UI note).
+// V72: image generation runs in a Cloud Function now. The provider token stays server-side,
+// where build 248 proved it needs to be — a key in the bundle is a key in public.
+const rkGenerateImage = async (visualPrompt) => {
+    try {
+        const fn = httpsCallable(getFunctions(app), 'generateDesignImage');
+        const r = await fn({ prompt: visualPrompt, appId });
+        return (r && r.data && r.data.url) || '';
+    } catch (e) {
+        // Surfaced by name so the Design Lab can tell "you are out of designs today" apart from
+        // "the service is down" — they need different messages.
+        if (e && e.code === 'functions/resource-exhausted') throw new Error('IMG_DAILY_CAP');
+        rkReport('image generation', e);
+        return '';
+    }
+};
+
 const generateCustomKandi = async (prompt, onProgress = () => {}) => {
     try {
         const safePrompt = encodeURIComponent(prompt.substring(0, 300));
@@ -1795,9 +1813,24 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         //     An <img> retries naturally on error; a one-shot fetch just gives up.
         // The URL is returned instantly now and the browser loads it. `referrer` identifies the
         // app to Pollinations, which is their documented route to better limits for web apps.
-        const imageUrl = 'https://image.pollinations.ai/prompt/'
-            + encodeURIComponent((prompt || '').substring(0, 220) + ', vibrant rave kandi product render, neon festival aesthetic, studio lighting')
-            + '?width=512&height=512&nologo=true&referrer=ravekandi.web.app&seed=' + Math.floor(Math.random() * 999999);
+        // V72: generated server-side and stored, replacing the Pollinations URL that started
+        // returning 402 (payment required) in build 248. The returned URL points at Firebase
+        // Storage, so it is permanent — the old one was regenerated on every page load and could
+        // silently change or vanish.
+        onProgress(80);
+        let imageUrl = '';
+        try {
+            imageUrl = await rkGenerateImage(
+                (analysis.visual_description || prompt || '').substring(0, 400)
+                + ', vibrant rave kandi product render, neon festival aesthetic, studio lighting'
+            );
+        } catch (imgErr) {
+            // The analysis is the expensive half and it already succeeded. Losing it because the
+            // picture failed would be the wrong trade — the breakdown is what people came for.
+            if (imgErr && imgErr.message === 'IMG_DAILY_CAP') analysis.imageNote = 'Daily design limit reached — the breakdown below is still yours.';
+            else analysis.imageNote = 'The image could not be generated this time. The breakdown below is still accurate.';
+        }
+        if (!imageUrl && !analysis.imageNote) analysis.imageNote = 'No image was returned. The breakdown below is still accurate.';
         analysis.imageUrl = imageUrl;
         const displayUrl = imageUrl;
         const permanentData = '';
@@ -16398,6 +16431,92 @@ exports.sendPushOnNotification = onDocumentCreated(
 FNEOF
 echo "  functions/rk_push.js written (script-owned, regenerated every build)."
 
+# V72: image generation moves SERVER-SIDE.
+#
+# The provider key cannot live in the React bundle. That is not a style preference — build 248
+# found an old Gemini key compiled into the deployed web app, publicly readable by anyone who
+# opened the site. Cloudflare's token would leak exactly the same way.
+#
+# Script-owned like rk_push.js: regenerated every build, never edited by hand.
+cat << 'CFEOF' > "$RK_FN_DIR/rk_image.js"
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+
+// Secrets, not constants. Set once with:
+//   firebase functions:secrets:set CF_ACCOUNT_ID
+//   firebase functions:secrets:set CF_API_TOKEN
+const CF_ACCOUNT_ID = defineSecret('CF_ACCOUNT_ID');
+const CF_API_TOKEN  = defineSecret('CF_API_TOKEN');
+
+const DAILY_CAP = 5;
+const MODEL = '@cf/black-forest-labs/flux-1-schnell';
+
+exports.generateDesignImage = onCall(
+  { secrets: [CF_ACCOUNT_ID, CF_API_TOKEN], timeoutSeconds: 120, memory: '512MiB' },
+  async (req) => {
+    const uid = req.auth && req.auth.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 500);
+    if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
+
+    const db = admin.firestore();
+    const appId = String((req.data && req.data.appId) || 'ravekandi-core-prod');
+    const userRef = db.doc('artifacts/' + appId + '/users/' + uid);
+
+    // The cap is enforced HERE, not in the client. A limit that lives in the app is a
+    // suggestion — anyone can edit their own JavaScript. This one costs real compute.
+    const today = new Date().toISOString().slice(0, 10);
+    const snap = await userRef.get();
+    const d = snap.exists ? snap.data() : {};
+    const used = (d.imgDay === today) ? (Number(d.imgCountToday) || 0) : 0;
+    if (used >= DAILY_CAP) {
+      throw new HttpsError('resource-exhausted', 'Daily limit of ' + DAILY_CAP + ' designs reached. Resets at midnight UTC.');
+    }
+
+    const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
+                '/ai/run/' + MODEL;
+    let out;
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      out = await r.json();
+      if (!r.ok || out.success === false) {
+        const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
+        throw new HttpsError('unavailable', 'Image service: ' + msg);
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('unavailable', 'Image service unreachable: ' + e.message);
+    }
+
+    const b64 = out.result && (out.result.image || out.result.images && out.result.images[0]);
+    if (!b64) throw new HttpsError('internal', 'Image service returned no image.');
+
+    // Stored rather than returned inline: a 200KB+ base64 string through a callable response is
+    // slow on mobile data and cannot be cached. A Storage URL is small and reusable.
+    const buf = Buffer.from(b64, 'base64');
+    const path = 'aiDesigns/' + uid + '/' + Date.now() + '.png';
+    const file = admin.storage().bucket().file(path);
+    await file.save(buf, { metadata: { contentType: 'image/png' }, resumable: false });
+    await file.makePublic();
+    const publicUrl = 'https://storage.googleapis.com/' + file.bucket.name + '/' + path;
+
+    // Counted only AFTER the image exists. Charging someone for a failed generation is the
+    // kind of small unfairness that makes people stop trusting a feature.
+    await userRef.set({ imgDay: today, imgCountToday: used + 1 }, { merge: true });
+
+    return { url: publicUrl, remaining: DAILY_CAP - (used + 1) };
+  }
+);
+CFEOF
+echo "  functions/rk_image.js written (script-owned)."
+
 # index.js: created if absent, otherwise appended to. Never overwritten.
 if [ ! -f "$RK_FN_DIR/index.js" ]; then
 cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
@@ -16409,10 +16528,18 @@ cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
 // Push delivery is generated by the build script into ./rk_push.js and re-exported
 // below. Do not edit rk_push.js — every build replaces it.
 module.exports = Object.assign(module.exports, require('./rk_push'));
+module.exports = Object.assign(module.exports, require('./rk_image'));
 IDXEOF
     echo "  functions/index.js created (new)."
 elif grep -q "require('./rk_push')" "$RK_FN_DIR/index.js"; then
     echo "  functions/index.js already re-exports rk_push — untouched."
+    # V72: an EXISTING index.js already had the push line, so the branch above left it alone and
+    # rk_image would never have been loaded. Append it separately rather than assume the two
+    # arrived together.
+    if ! grep -q "rk_image" "$RK_FN_DIR/index.js"; then
+        printf '\n// V72: image generation, generated by the build script into rk_image.js.\nmodule.exports = Object.assign(module.exports, require("./rk_image"));\n' >> "$RK_FN_DIR/index.js"
+        echo "  functions/index.js: rk_image re-export appended."
+    fi
 else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
     echo "  functions/index.js: rk_push re-export appended, your existing code preserved."
@@ -16492,10 +16619,18 @@ echo "  ---- DEPLOYING FUNCTIONS ----"
 echo "     cd ~/RaveKandi-Build/functions && npm install"
 echo "     cd ~/RaveKandi-Build && firebase deploy --only functions"
 echo ""
+echo "  ---- ONE-TIME: image generation secrets (V72) ----"
+echo "     The Cloudflare token must never sit in the app bundle. Set it as a secret:"
+echo "        cd ~/RaveKandi-Build"
+echo "        firebase functions:secrets:set CF_ACCOUNT_ID"
+echo "        firebase functions:secrets:set CF_API_TOKEN"
+echo "     Paste each value when prompted, then deploy functions again."
+echo "     Verify with:  firebase functions:secrets:access CF_ACCOUNT_ID"
+echo ""
 echo "     Deploy pushes EVERY export in index.js, payments included. Confirm"
 echo "     all four survive:"
 echo "       firebase functions:list"
-echo "     Expect: sendPushOnNotification, createStripePaymentIntent,"
+echo "     Expect: sendPushOnNotification, generateDesignImage, createStripePaymentIntent,"
 echo "             stripeWebhook, verifySolanaPayment"
 echo ""
 echo "=================================================================="
