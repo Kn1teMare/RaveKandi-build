@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=72
 RK_MINOR=50
-RK_PATCH=127
-RK_BUILD=249
+RK_PATCH=129
+RK_BUILD=251
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1742,46 +1742,28 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             "the difficulty (1-10), the estimated hands-on creation time, and a fair total material cost. " +
             'Format exactly: {"item_category":"e.g. Clothing/Kandi/Jewelry/Accessory/Equipment/Sticker","visual_description":"vivid 1-2 sentence description","materials":[{"name":"material or fabric","qty":"amount","unit_cost_usd":2.5}],"primary_fabric":"main fabric if applicable or N/A","difficulty_1_to_10":6,"estimated_time_hours":2.5,"total_material_cost_usd":18.0,"skill_notes":"short note on what makes it easy/hard"}'
         );
-        const textUrl = `https://text.pollinations.ai/prompt/${instruction}.%20The%20user%20wants:%20${safePrompt}`;
-
-        // V70.4: 3 attempts at a flat 2.5s apart is barely 8 seconds of patience against a free
-        // service that is routinely busy for longer than that — which is why "the AI design service
-        // was busy" was the normal outcome rather than the rare one. Six attempts with exponential
-        // backoff spans about a minute, and each request now has its own timeout so a hung socket
-        // cannot eat the whole budget.
-        onProgress(15);
+        // V72.2: the analysis runs in a Cloud Function now, on the same Cloudflare token as the
+        // image. It used to fetch text.pollinations.ai directly from the browser, which started
+        // returning 402 — and because this is the FIRST step, the Lab died at 15% and never got
+        // as far as the image fix shipped in 249.
+        //
+        // The retry ladder that lived here is gone: a callable either reaches the function or it
+        // does not, and the function itself is what should decide how hard to try upstream.
+        onProgress(20);
         let rawText = '';
-        let lastErr = '';
-        // V71.1: NOT every failure is worth retrying.
-        //
-        // The logs from 247 showed 402 and 429, which changes the diagnosis entirely. 402 is
-        // Payment Required — the free tier no longer serves this endpoint, and no amount of
-        // retrying will change that. 429 is rate limiting, which my six-attempt backoff was
-        // actively making worse by hammering a service that had just asked us to stop.
-        //
-        // So: retry only what can succeed on a retry (429, 5xx, timeouts), give up immediately on
-        // anything that says "this will never work as configured", and report which it was.
-        let hardFail = '';
-        for (let tAttempt = 0; tAttempt < 4; tAttempt++) {
-            onProgress(15 + tAttempt * 6);
-            try {
-                const ctl = new AbortController();
-                const to = setTimeout(() => ctl.abort(), 25000);
-                const response = await fetch(textUrl, { cache: 'no-store', signal: ctl.signal });
-                clearTimeout(to);
-                if (response.ok) { rawText = await response.text(); if (rawText && rawText.length > 5) break; }
-                else {
-                    lastErr = 'HTTP ' + response.status;
-                    // 401/402/403 = credentials or billing. Retrying is just noise.
-                    if ([401, 402, 403].includes(response.status)) { hardFail = 'AI_KEY_REQUIRED'; break; }
-                    if (response.status === 429) lastErr = 'rate limited (429)';
-                }
-            } catch (tErr) { lastErr = (tErr && tErr.name === 'AbortError') ? 'timeout' : String(tErr && tErr.message || tErr); }
-            // Longer waits when rate limited — backing off is the whole point of a 429.
-            if (tAttempt < 3) await new Promise(r => setTimeout(r, (lastErr.indexOf('429') >= 0 ? 8000 : 3000) * (tAttempt + 1)));
+        try {
+            const fn = httpsCallable(getFunctions(app), 'generateDesignAnalysis');
+            const r = await fn({ prompt: instruction + '. The user wants: ' + (prompt || '') });
+            rawText = (r && r.data && r.data.text) || '';
+        } catch (e) {
+            const code = (e && e.code) || '';
+            rkReport('AI analysis (' + code + ')', e);
+            // Distinguish "not signed in" from "service down" — they need different messages and
+            // only one of them is worth retrying.
+            if (code === 'functions/unauthenticated') throw new Error('AI_SIGNIN_REQUIRED');
+            throw new Error('ANALYSIS_FAILED');
         }
-        if (hardFail) { try { rkReport('AI service unavailable (' + lastErr + ')', new Error(lastErr)); } catch (e) {} throw new Error(hardFail); }
-        if (!rawText) { try { rkReport('AI analysis (' + lastErr + ')', new Error(lastErr || 'no response')); } catch (e) {} throw new Error("ANALYSIS_FAILED"); }
+        if (!rawText) throw new Error("ANALYSIS_FAILED");
 
         let analysis;
         try {
@@ -7616,7 +7598,8 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         } catch(e){ 
             try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) {}
             try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'diy', '😔 Your AI design could not be generated. No credit was used.'); } catch (e2) {}
-            if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.'); } catch (e3) {} }
+            if (e.message === 'AI_SIGNIN_REQUIRED') alert("Please sign in again — the design service needs a valid session.");
+            else if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.'); } catch (e3) {} }
             else if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
             else alert(e.message); 
         } finally { setLoading(false); } 
@@ -10392,6 +10375,11 @@ const rkScanInventoryImage = async (file, onProgress) => {
     // Staged progress while the model thinks (typical 10-25s).
     let pct = 15; const tick = setInterval(() => { pct = Math.min(88, pct + 3); prog(pct, 'AI is studying your item… (~' + Math.max(2, Math.round((88 - pct) / 3)) + 's left)'); }, 1000);
     try {
+        // V72.2: STILL ON POLLINATIONS, and will fail with 402 like the Design Lab did.
+        // This is the photo scanner — a VISION call with an image input, so it needs a different
+        // model and payload than the text analysis moved server-side in this build. Moving it is
+        // the next job; doing it hurriedly alongside two other changes is how working features
+        // break.
         const resp = await fetch('https://text.pollinations.ai/openai', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model: 'openai', messages: [{ role: 'user', content: [ { type: 'text', text: promptText }, { type: 'image_url', image_url: { url: dataUrl } } ] }] })
@@ -16453,6 +16441,50 @@ const CF_API_TOKEN  = defineSecret('CF_API_TOKEN');
 const DAILY_CAP = 5;
 const MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
+// V72.2: the TEXT analysis moves server-side too.
+//
+// Build 249 replaced the image provider and left the analysis calling Pollinations, which returns
+// the same 402. The Lab failed at 15% — the analysis step — so the image fix was never even
+// reached. Both halves now run through Cloudflare on the same token.
+exports.generateDesignAnalysis = onCall(
+  { secrets: [CF_ACCOUNT_ID, CF_API_TOKEN], timeoutSeconds: 120, memory: '512MiB' },
+  async (req) => {
+    const uid = req.auth && req.auth.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 2000);
+    if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
+
+    const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
+                '/ai/run/@cf/meta/llama-3.1-8b-instruct';
+    let out;
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are a rave-craft costing expert. Reply with ONLY valid JSON, no markdown fences, no commentary.' },
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: 1400
+        })
+      });
+      out = await r.json();
+      if (!r.ok || out.success === false) {
+        const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
+        throw new HttpsError('unavailable', 'Analysis service: ' + msg);
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('unavailable', 'Analysis service unreachable: ' + e.message);
+    }
+
+    const text = (out.result && (out.result.response || out.result.text)) || '';
+    if (!text) throw new HttpsError('internal', 'Analysis service returned nothing.');
+    return { text };
+  }
+);
+
 exports.generateDesignImage = onCall(
   { secrets: [CF_ACCOUNT_ID, CF_API_TOKEN], timeoutSeconds: 120, memory: '512MiB' },
   async (req) => {
@@ -16531,7 +16563,12 @@ module.exports = Object.assign(module.exports, require('./rk_push'));
 module.exports = Object.assign(module.exports, require('./rk_image'));
 IDXEOF
     echo "  functions/index.js created (new)."
-elif grep -q "require('./rk_push')" "$RK_FN_DIR/index.js"; then
+# V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
+# never recognised its own work and re-appended on every single build. index.js accumulated 39
+# identical require lines between builds 205 and 249. Harmless at runtime, but it meant the file
+# grew forever and the rk_image append below was unreachable. Match on the module name only —
+# quote style is not the thing that matters.
+elif grep -q "rk_push" "$RK_FN_DIR/index.js"; then
     echo "  functions/index.js already re-exports rk_push — untouched."
     # V72: an EXISTING index.js already had the push line, so the branch above left it alone and
     # rk_image would never have been loaded. Append it separately rather than assume the two
