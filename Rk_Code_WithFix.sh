@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=72
+RK_MAJOR=73
 RK_MINOR=50
 RK_PATCH=131
-RK_BUILD=253
+RK_BUILD=254
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -10389,19 +10389,17 @@ const rkScanInventoryImage = async (file, onProgress) => {
     // Staged progress while the model thinks (typical 10-25s).
     let pct = 15; const tick = setInterval(() => { pct = Math.min(88, pct + 3); prog(pct, 'AI is studying your item… (~' + Math.max(2, Math.round((88 - pct) / 3)) + 's left)'); }, 1000);
     try {
-        // V72.2: STILL ON POLLINATIONS, and will fail with 402 like the Design Lab did.
-        // This is the photo scanner — a VISION call with an image input, so it needs a different
-        // model and payload than the text analysis moved server-side in this build. Moving it is
-        // the next job; doing it hurriedly alongside two other changes is how working features
-        // break.
-        const resp = await fetch('https://text.pollinations.ai/openai', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'openai', messages: [{ role: 'user', content: [ { type: 'text', text: promptText }, { type: 'image_url', image_url: { url: dataUrl } } ] }] })
-        });
+        // V72.5: the scanner runs in a Cloud Function now, on the same Cloudflare token as the
+        // Design Lab. It was the last thing still calling Pollinations, so it was still returning
+        // 402 while everything around it had been moved.
+        //
+        // The on-device fallback below is untouched and still catches a failure here, so a scan that
+        // cannot reach the service degrades to a category hint rather than nothing at all.
+        const fn = httpsCallable(getFunctions(app), 'scanInventoryPhoto');
+        const resp = await fn({ imageBase64: dataUrl, prompt: promptText });
         clearInterval(tick);
         prog(92, 'Reading the results…');
-        const j = await resp.json();
-        const raw = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+        const raw = (resp && resp.data && resp.data.text) || '';
         const clean = String(raw).replace(/```json/g, '').replace(/```/g, '').trim();
         const m = clean.match(/\{[\s\S]*\}/);
         if (!m) throw new Error('no json');
@@ -16460,7 +16458,16 @@ const MODEL = '@cf/black-forest-labs/flux-1-schnell';
 // convention. Projects created since the change use "<project>.firebasestorage.app", so the
 // default resolved to a bucket that has never existed and the save failed with "The specified
 // bucket does not exist". The app's own firebaseConfig has said .firebasestorage.app all along.
-const BUCKET = process.env.RK_STORAGE_BUCKET || 'ravekandi.firebasestorage.app';
+// V72.5: try both naming conventions rather than betting on one.
+// Firebase renamed default buckets from <project>.appspot.com to
+// <project>.firebasestorage.app, and which one a project has depends on when Storage was first
+// enabled. Guessing wrong costs a full round trip and an opaque error, so the function now tries
+// each and reports what it actually found.
+const BUCKET_CANDIDATES = [
+  process.env.RK_STORAGE_BUCKET,
+  'ravekandi.firebasestorage.app',
+  'ravekandi.appspot.com'
+].filter(Boolean);
 
 // V72.2: the TEXT analysis moves server-side too.
 //
@@ -16502,6 +16509,47 @@ exports.generateDesignAnalysis = onCall(
 
     const text = (out.result && (out.result.response || out.result.text)) || '';
     if (!text) throw new HttpsError('internal', 'Analysis service returned nothing.');
+    return { text };
+  }
+);
+
+// V72.5: the inventory photo scanner, moved off Pollinations.
+//
+// This is a VISION call — it reads an uploaded photo — so it needs a different model and a
+// different payload from the text analysis. Workers AI takes the image as a byte array rather
+// than a data URL, which is why the base64 is decoded here rather than passed straight through.
+exports.scanInventoryPhoto = onCall(
+  { secrets: [CF_ACCOUNT_ID, CF_API_TOKEN], timeoutSeconds: 120, memory: '512MiB' },
+  async (req) => {
+    const uid = req.auth && req.auth.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+    const b64in = String((req.data && req.data.imageBase64) || '').replace(/^data:[^,]+,/, '');
+    if (!b64in) throw new HttpsError('invalid-argument', 'No image supplied.');
+    const prompt = String((req.data && req.data.prompt) || 'Identify this item for a rave marketplace inventory.').slice(0, 1200);
+
+    const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
+                '/ai/run/@cf/llava-hf/llava-1.5-7b-hf';
+    let out;
+    try {
+      const bytes = Array.from(Buffer.from(b64in, 'base64'));
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: bytes, prompt, max_tokens: 700 })
+      });
+      out = await r.json();
+      if (!r.ok || out.success === false) {
+        const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
+        throw new HttpsError('unavailable', 'Scan service: ' + msg);
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('unavailable', 'Scan service unreachable: ' + e.message);
+    }
+
+    const text = (out.result && (out.result.description || out.result.response || out.result.text)) || '';
+    if (!text) throw new HttpsError('internal', 'Scan returned nothing. Keys: ' + Object.keys(out.result || {}).join(','));
     return { text };
   }
 );
@@ -16568,20 +16616,25 @@ exports.generateDesignImage = onCall(
     const buf = Buffer.from(b64, 'base64');
     const path = 'aiDesigns/' + uid + '/' + Date.now() + '.png';
     let publicUrl = '';
-    try {
-      const token = require('crypto').randomUUID();
-      const file = admin.storage().bucket(BUCKET).file(path);
-      await file.save(buf, {
-        resumable: false,
-        metadata: { contentType: 'image/png', metadata: { firebaseStorageDownloadTokens: token } }
-      });
-      publicUrl = 'https://firebasestorage.googleapis.com/v0/b/' + file.bucket.name +
-                  '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
-    } catch (e) {
-      // Named, not swallowed. A bare INTERNAL tells the user nothing and tells me less.
-      // The bucket name is included because "does not exist" is meaningless without knowing
-      // which bucket was tried.
-      throw new HttpsError('internal', 'Could not store the generated image (bucket ' + BUCKET + '): ' + (e && e.message || e));
+    const tried = [];
+    for (const name of BUCKET_CANDIDATES) {
+      try {
+        const token = require('crypto').randomUUID();
+        const file = admin.storage().bucket(name).file(path);
+        await file.save(buf, {
+          resumable: false,
+          metadata: { contentType: 'image/png', metadata: { firebaseStorageDownloadTokens: token } }
+        });
+        publicUrl = 'https://firebasestorage.googleapis.com/v0/b/' + file.bucket.name +
+                    '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
+        break;
+      } catch (e) { tried.push(name + ' (' + (e && e.message || e) + ')'); }
+    }
+    if (!publicUrl) {
+      // Every candidate failed, which almost always means Storage was never enabled on the
+      // project rather than that the name is wrong. Say so, instead of leaving it as a riddle.
+      throw new HttpsError('internal',
+        'No usable Storage bucket. Enable Storage in the Firebase Console (Build > Storage > Get started). Tried: ' + tried.join(' | '));
     }
 
     // Counted only AFTER the image exists. Charging someone for a failed generation is the
