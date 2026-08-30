@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=50
-RK_PATCH=131
-RK_BUILD=254
+RK_PATCH=132
+RK_BUILD=255
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1741,7 +1741,11 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         // came back vague ("Assorted materials (as needed)") against a specific total.
         const instruction = (
             "You are a master maker for the rave and festival scene - you make kandi, clothing, jewelry, accessories, equipment, stickers and more. " +
-            "Analyze the user's requested creation and return ONLY a JSON object with NO MARKDOWN. " +
+            "Analyze the user\'s requested creation and return ONLY a JSON object with NO MARKDOWN. " +
+            // V73: Llama needs the shape stated far more explicitly than Pollinations did. It was
+            // returning prose, or JSON wrapped in commentary, and every response fell through to
+            // the fallback.
+            "Your entire reply must start with { and end with }. No preamble, no explanation, no code fences. " +
             // Spelled out because the model will otherwise answer with one vague catch-all line.
             "List EVERY material separately - never a single catch-all entry like 'assorted materials'. " +
             "Each material needs a specific name, a real quantity with units (e.g. '50 beads', '2 yards'), and its own unit cost in USD. " +
@@ -1780,10 +1784,19 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             analysis = JSON.parse(jsonMatch ? jsonMatch[0] : cleanText);
             analysis.imageUrl = '';
         } catch (parseError) {
-            console.warn("AI returned malformed JSON. Using structural fallback.", rawText);
+            // V73: this fallback has been firing on EVERY generation and nobody could tell.
+            //
+            // "Assorted materials ~$1.50", difficulty 5, ~2h are the hardcoded defaults below —
+            // identical for a t-shirt, a necklace and a bracelet, which is what gave it away. The
+            // analysis was failing silently and the screen showed placeholder numbers as if they
+            // were real. A console.warn on a phone is not a report.
+            rkReport('AI analysis JSON unparseable (fallback used)', new Error(String(rawText).slice(0, 200)));
             analysis = {
                 item_category: "Custom",
                 visual_description: prompt.substring(0, 150),
+                // Flagged so the UI can say these are estimates rather than presenting them as
+                // a real costing. Silently plausible numbers are worse than visibly missing ones.
+                _fallback: true,
                 materials: [{ name: "Assorted materials", qty: "as needed", unit_cost_usd: 1.5 }],
                 primary_fabric: "N/A",
                 difficulty_1_to_10: 5,
@@ -16491,9 +16504,15 @@ exports.generateDesignAnalysis = onCall(
         headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            { role: 'system', content: 'You are a rave-craft costing expert. Reply with ONLY valid JSON, no markdown fences, no commentary.' },
+            { role: 'system', content: 'You are a rave-craft costing expert. Reply with ONLY valid JSON. Your entire response must begin with { and end with }. Never use markdown fences. Never add commentary.' },
             { role: 'user', content: prompt }
           ],
+          // V73: ask the MODEL to guarantee valid JSON rather than hoping the prompt is obeyed.
+          // Workers AI supports a response_format schema; when the model honours it the client
+          // parse cannot fail, which is what has been silently falling back to placeholder costs
+          // on every generation.
+          response_format: { type: 'json_object' },
+          temperature: 0.3,
           max_tokens: 1400
         })
       });
@@ -16637,8 +16656,11 @@ exports.generateDesignImage = onCall(
         'No usable Storage bucket. Enable Storage in the Firebase Console (Build > Storage > Get started). Tried: ' + tried.join(' | '));
     }
 
-    // Counted only AFTER the image exists. Charging someone for a failed generation is the
-    // kind of small unfairness that makes people stop trusting a feature.
+    // Counted only AFTER the image exists AND has been stored. Charging someone for a
+    // generation they never received is the kind of small unfairness that makes people stop
+    // trusting a feature — and it happened: a run that produced no visible image still consumed
+    // one of the five.
+    if (!publicUrl) throw new HttpsError('internal', 'Image was generated but could not be stored. No design was used.');
     await userRef.set({ imgDay: today, imgCountToday: used + 1 }, { merge: true });
 
     return { url: publicUrl, remaining: DAILY_CAP - (used + 1) };
