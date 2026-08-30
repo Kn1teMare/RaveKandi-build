@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=52
-RK_PATCH=133
-RK_BUILD=258
+RK_PATCH=134
+RK_BUILD=259
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1748,7 +1748,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             "Your entire reply must start with { and end with }. No preamble, no explanation, no code fences. " +
             // Spelled out because the model will otherwise answer with one vague catch-all line.
             "List EVERY material separately - never a single catch-all entry like 'assorted materials'. " +
-            "Each material needs a specific name, a real quantity with units (e.g. '50 beads', '2 yards'), and its own unit cost in USD. " +
+            "Each material needs a specific name, a real quantity with units, and unit_cost_usd = the TOTAL cost to buy that whole quantity (NOT a per-bead or per-yard price). " +
             "total_material_cost_usd MUST equal the sum of the individual material costs - do not invent a separate figure. " +
             "Aim for 3-8 materials for a typical item. " +
             "Determine the item category, the difficulty (1-10), and the estimated hands-on creation time. " +
@@ -1831,6 +1831,10 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
                 + ', vibrant rave kandi product render, neon festival aesthetic, studio lighting'
             );
         } catch (imgErr) {
+            // V73.4: report it. This catch set a note on screen and told the log nothing, so an
+            // image failing after a successful analysis left no trace at all — which is exactly
+            // the state that produced "no image, no log, token still used".
+            rkReport('image generation', imgErr);
             // The analysis is the expensive half and it already succeeded. Losing it because the
             // picture failed would be the wrong trade — the breakdown is what people came for.
             if (imgErr && imgErr.message === 'IMG_DAILY_CAP') analysis.imageNote = 'Daily design limit reached — the breakdown below is still yours.';
@@ -1849,8 +1853,14 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         // V72.4: prefer the SUM of the itemised materials over the model's stated total. The two
         // disagreed in testing ("assorted materials ~$1.50" against a $12.00 total), and the
         // itemised list is the one a maker can actually check against a shopping trip.
+        // V73.4: do NOT multiply by qty.
+        //
+        // unit_cost_usd is the cost FOR THAT QUANTITY, not per unit — "Green seed beads (100)
+        // ~$2.50" means $2.50 buys the hundred. Multiplying turned $2.50 into $250 and a $32
+        // bracelet into $435. The line reads "unit cost", which is what misled me; it is really a
+        // line-item cost.
         const itemisedSum = Array.isArray(analysis.materials)
-            ? analysis.materials.reduce((a, m) => a + ((parseFloat(m && m.unit_cost_usd) || 0) * (parseFloat(String(m && m.qty || '1').replace(/[^0-9.]/g, '')) || 1)), 0)
+            ? analysis.materials.reduce((a, m) => a + (parseFloat(m && m.unit_cost_usd) || 0), 0)
             : 0;
         let materialCost = itemisedSum > 0 ? itemisedSum : (parseFloat(analysis.total_material_cost_usd) || 0);
         if (!materialCost && Array.isArray(analysis.materials)) {
@@ -7550,6 +7560,8 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [allowBuy, setAllowBuy] = useState(false); const [itemName, setItemName] = useState('');
     const [res, setRes] = useState(null); const [loading, setLoading] = useState(false);
     const [imageReady, setImageReady] = useState(false);
+    // V73.4: one submission per generated design, so the DIY queue cannot be spammed from one run.
+    const [sentToCreators, setSentToCreators] = useState(false);
     // V70.4: pick up the most recent finished job on mount, so a generation you walked away
     // from is waiting for you rather than silently discarded.
     useEffect(() => {
@@ -7608,7 +7620,9 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             //
             // Writing the outcome to a job document means the result is waiting when you come back,
             // whatever you did in between.
-            const jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
+            // Each run is a new design, so the one-submission rule resets with it.
+        setSentToCreators(false);
+        const jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
             try { await setDoc(jobRef, { prompt, status: 'running', at: Date.now() }); } catch (e) { rkReport('ai job create', e); }
 
             try {
@@ -7738,7 +7752,8 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                     {(res.displayUrl || res.imageUrl) && <AIConceptImage res={res} onReady={setImageReady} />}
                     <p className="text-sm mb-4 leading-relaxed text-white">{res.visual_description}</p>
 
-                    {allowBuy && ( <div className="mb-4"><label className="block text-[10px] font-bold text-pink-400 mb-1">Item Name (Required to Sell)</label><Input value={itemName} onChange={setItemName} placeholder="Name your creation..."/></div> )}
+                    {/* V73.4: not a sale. You are naming a design so it can be found in your collection and recognised in the DIY queue - nothing here is for sale by you. */}
+                    <div className="mb-4"><label className="block text-[10px] font-bold text-pink-400 mb-1">Name this design</label><Input value={itemName} onChange={setItemName} placeholder="Name your creation..."/><p className="text-[9px] text-white/45 mt-1">Used in your collection and shown to makers if you send it for creation.</p></div>
 
                     {res.primary_fabric && res.primary_fabric !== 'N/A' && (
                         <div className="bg-white/5 p-2 rounded mb-3 flex justify-between text-[11px]"><span className="opacity-60">Primary Fabric</span><span className="font-bold text-cyan-300">{res.primary_fabric}</span></div>
@@ -7762,7 +7777,37 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
 
                     {res.skill_notes && <p className="text-[10px] italic opacity-70 mb-3">🛠️ {res.skill_notes}</p>}
 
-                    <div className="flex gap-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Save Design Plan"}</Button></div>
+                    {/* V73.4: two distinct actions. Saving keeps it for you; sending puts it in front of
+                        makers. The old single "Save Design Plan" hid the second entirely, which is why
+                        there was no route from a generated design to a creator. */}
+                    <div className="flex gap-2 mb-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Save to my collection"}</Button></div>
+                    <Button onClick={async () => {
+                        if (!itemName.trim()) return alert('Give the design a name first — makers need something to call it.');
+                        // One request per design, same rule as requesting someone else's concept.
+                        if (sentToCreators) return alert('This design has already been sent to the DIY queue.');
+                        if (!window.confirm('Send this design to the DIY queue?\n\nMakers will see the image, your materials list, the time and difficulty estimate, and can offer to build it.\n\nEstimated cost to make: $' + Number(res.estimated_cost || 0).toFixed(2) + ' — an estimate, not a quote.')) return;
+                        try {
+                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {
+                                name: 'Request: ' + itemName.trim(),
+                                description: res.visual_description || '',
+                                imageUrl: res.displayUrl || res.imageUrl || '',
+                                isDIYRequest: true, status: 'request', requestStatus: 'open',
+                                estValue: parseFloat(res.estimated_cost) || 0,
+                                estMaterialCost: parseFloat(res.material_cost) || 0,
+                                estCreationFee: parseFloat(res.creation_fee) || 0,
+                                estTimeHours: parseFloat(res.estimated_time_hours) || 0,
+                                estDifficulty: parseInt(res.difficulty) || 0,
+                                estMaterials: Array.isArray(res.materials) ? res.materials : [],
+                                type: res.item_category || 'Other',
+                                requesterId: user.uid, requesterName: profile?.displayName || 'Raver',
+                                ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid,
+                                price: 0, stockQty: 0, notForSale: true,
+                                vis: 'public', visAllowed: [], timestamp: Date.now()
+                            });
+                            setSentToCreators(true);
+                            alert('Sent to the DIY queue. Makers can pick it up from there.');
+                        } catch (e) { rkReport('send to creators', e); alert('Could not send: ' + e.message); }
+                    }} color="cyan" className="w-full text-xs">{sentToCreators ? '✓ Sent to creators' : '🛠️ Submit to creators'}</Button>
                 </div>
             )}
         {/* V71.1: the queue. A generation takes about a minute and you are meant to walk away,
