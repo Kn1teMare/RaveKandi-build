@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
-RK_MINOR=50
-RK_PATCH=132
-RK_BUILD=255
+RK_MINOR=52
+RK_PATCH=133
+RK_BUILD=258
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1766,7 +1766,10 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         try {
             const fn = httpsCallable(getFunctions(app), 'generateDesignAnalysis');
             const r = await fn({ prompt: instruction + '. The user wants: ' + (prompt || '') });
-            rawText = (r && r.data && r.data.text) || '';
+            const t = r && r.data && r.data.text;
+            // Accept an object too — if the function ever returns one again, this parses rather
+            // than silently falling back to placeholder costs.
+            rawText = (t && typeof t === 'object') ? JSON.stringify(t) : String(t || '');
         } catch (e) {
             const code = (e && e.code) || '';
             rkReport('AI analysis (' + code + ')', e);
@@ -7117,7 +7120,12 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                         <div className="flex justify-between items-center mb-2">
                             <button onClick={() => setShowMore(!showMore)} className="flex items-center gap-2 text-xs text-lime-400 font-bold">{showMore ? "Hide" : "Show"} Stats <MoreHorizontal size={12}/></button>
                             <div className="flex gap-2">
-                                {!item.isHidden && <button onClick={handleHidePost} title="Mark sold & hide" className="text-yellow-300 bg-yellow-900/30 p-1 rounded flex items-center gap-1"><EyeOff size={14}/><span className="text-[10px] font-bold">Sold &amp; Hide</span></button>}
+                                {/* V73.1: a concept that was never offered for sale cannot be "sold". Same control,
+                                    honest label — hiding is still useful, claiming a sale is not. */}
+                                {!item.isHidden && (() => {
+                                    const sellable = !((item.isAICreation || item.isDesignConcept) && !item.allowBuy) && !item.isShowingOff;
+                                    return <button onClick={handleHidePost} title={sellable ? 'Mark sold & hide' : 'Hide from your collection'} className="text-yellow-300 bg-yellow-900/30 p-1 rounded flex items-center gap-1"><EyeOff size={14}/><span className="text-[10px] font-bold">{sellable ? 'Sold & Hide' : 'Hide'}</span></button>;
+                                })()}
                                 {item.isHidden && <button onClick={handleUnhide} title="Unhide / re-list this post" className="text-lime-300 bg-lime-900/30 p-1 rounded flex items-center gap-1"><Eye size={14}/><span className="text-[10px] font-bold">Unhide</span></button>}
                                 <button onClick={() => setIsEditing(true)} className="text-cyan-400 bg-cyan-900/30 p-1 rounded"><Edit size={14}/></button>
                                 <button onClick={handleDelete} className="text-red-400 bg-red-900/30 p-1 rounded"><Trash2 size={14}/></button>
@@ -7347,6 +7355,9 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                                 only split in the filter — the cards themselves all look the same. */}
                             {item.brandId && brandMap[item.brandId] && <p className="text-[8px] font-bold uppercase tracking-wide text-purple-300 truncate">Brand: {brandMap[item.brandId]}</p>}
                             {(item.type || item.subType) && <p className="text-[8px] text-white/40 truncate">{[item.type, item.subType].filter(Boolean).join(' · ')}</p>}
+                            {/* V73.1: an AI concept that is not offered for sale gets Hide, not
+                                Sold & Hide — there is nothing to sell, so "sold" is a state it can
+                                never legitimately reach. */}
                             {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
                                 <div className={`mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
                             )}
@@ -7643,7 +7654,34 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // V65.25: was hardcoded imageUrl:'' — the concept render never reached the collection.
             // Stores the Pollinations URL, not a 700KB base64 blob. The seed is baked into the
             // URL, so it regenerates the identical image forever and costs zero Firestore space.
-            const inventoryData = { status: 'completed', imageUrl: res.permanentImage || res.displayUrl || res.imageUrl || '', visual_description: res.visual_description, item_category: res.item_category || 'Custom', primary_fabric: res.primary_fabric || 'N/A', estimated_materials: res.materials || [], material_cost: res.material_cost, creation_fee: res.creation_fee, estimated_time_hours: res.estimated_time_hours, estimated_cost: res.estimated_cost, difficulty: res.difficulty, skill_notes: res.skill_notes || '', name: itemName || ("AI " + (res.item_category || 'Design')), timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, isDesignConcept: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: res.item_category || "Other", viewCount: 0 };
+            const inventoryData = { status: 'completed', imageUrl: res.permanentImage || res.displayUrl || res.imageUrl || '', visual_description: res.visual_description, item_category: res.item_category || 'Custom', primary_fabric: res.primary_fabric || 'N/A', estimated_materials: res.materials || [], material_cost: res.material_cost, creation_fee: res.creation_fee, estimated_time_hours: res.estimated_time_hours, estimated_cost: res.estimated_cost, difficulty: res.difficulty, skill_notes: res.skill_notes || '', name: itemName || ("AI " + (res.item_category || 'Design')), timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, isDesignConcept: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: res.item_category || "Other", viewCount: 0,
+                // V73.2: an AI concept is NEVER for sale by the person who generated it.
+                //
+                // 256 tied price to allowBuy, which made the generator a seller of a picture they
+                // produced by typing a sentence. That is not what the toggle is for: it lets other
+                // ravers REQUEST the design from a maker, which is a DIY commission, not a
+                // purchase from the prompter.
+                //
+                // Hard zeros rather than a flag, so no future code path can price it by accident.
+                // The ESTIMATE is kept separately: it is information, not an offer. Three people
+                // need it — the raver deciding whether to request one, the maker quoting the work,
+                // and the generator understanding what they have designed. None of that requires a
+                // price field, and using one would put it into cart and checkout logic.
+                price: 0,
+                stockQty: 0,
+                isShowingOff: true,
+                notForSale: true,
+                estValue: parseFloat(res.estimated_cost) || 0,
+                estMaterialCost: parseFloat(res.material_cost) || 0,
+                estCreationFee: parseFloat(res.creation_fee) || 0,
+                estTimeHours: parseFloat(res.estimated_time_hours) || 0,
+                estDifficulty: parseInt(res.difficulty) || 0,
+                estMaterials: Array.isArray(res.materials) ? res.materials : [],
+                // Renamed in meaning, kept in name: true = other ravers may request this be made.
+                allowRequest: !!allowBuy,
+                ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null,
+                ownerBadge: profile?.featuredBadge || null,
+                brandId: '' };
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
             if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
@@ -7683,7 +7721,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             <p className="text-[10px] opacity-60 mb-3">Kandi · Clothing · Jewelry · Accessories · Equipment · Stickers & more</p>
             <div className="flex justify-center gap-2 mb-4"><span className={`text-[10px] font-bold px-2 py-1 rounded ${remaining > 0 ? 'bg-lime-500/20 text-lime-400' : 'bg-red-500/20 text-red-400'}`}>Daily Limit: {remaining}/{DAILY_AI_LIMIT}</span></div>
             <div className="bg-cyan-900/20 border border-cyan-500/40 rounded p-2 mb-4 text-left"><p className="text-[10px] text-cyan-200 leading-relaxed"><strong>🎨 Note:</strong> the Design Lab generates a full <strong>cost, material & time breakdown</strong> for any rave creation, plus a free <strong>AI concept image</strong>. If the image service is busy the breakdown still comes through — you keep the analysis either way.</p></div>
-            {!res && ( <div className="mb-4 flex items-center justify-center gap-2 bg-white/5 p-2 rounded"><input type="checkbox" checked={allowBuy} onChange={e => setAllowBuy(e.target.checked)} className="accent-pink-500"/><label className="text-xs">Allow others to buy / request this design?</label></div> )}
+            {!res && ( <div className="mb-4 flex items-center justify-center gap-2 bg-white/5 p-2 rounded"><input type="checkbox" checked={allowBuy} onChange={e => setAllowBuy(e.target.checked)} className="accent-pink-500"/><label className="text-xs">Let other ravers request this design from a maker?</label></div> )}
+            {/* V73.2: says plainly what the toggle does and what it does not. "Buy" was in the old
+                label and it was never true — you cannot sell a concept you generated, only invite
+                someone to have it made. */}
+            {!res && <p className="text-[10px] text-white/50 text-center -mt-3 mb-4 leading-snug">Designs you generate are never for sale by you. Ravers can request one be made, and makers pick it up from the DIY queue.</p>}
             <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="Describe ANY rave creation — e.g. 'holographic pleated festival skirt with LED trim' or 'neon cuff with alien charms'..." disabled={!!res}/>
                 <button onClick={() => setPrompt('')} className="text-[10px] font-bold text-red-300 bg-red-500/10 border border-red-400/40 rounded px-2 py-1 mt-1">🧹 Wipe text — start fresh</button>
             {!res && ( loading ? ( <div className="mt-4 space-y-2 text-center"><LoadingBar progress={genPct} className="h-2"/><p className="text-lime-400 font-mono text-lg font-bold">{genPct}%</p><p className="text-[10px] text-pink-300 animate-pulse">{genPct < 32 ? 'Analyzing your design…' : genPct < 92 ? 'Rendering your concept image…' : 'Finalizing your build plan…'}</p></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Analyze Design" : "Limit Reached"}</Button> ) )}
@@ -8108,7 +8150,16 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
-                        {item.isShowingOff ? <span className="text-[10px] text-fuchsia-200 bg-fuchsia-900/40 border border-fuchsia-500/40 px-2 py-1 rounded font-black uppercase">✨ Showing Off</span> : canSeePrice ? `$${item.price?.toFixed(2)}` : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
+                        {/* V73.3: a concept shows what it would COST TO MAKE, clearly labelled. A bare
+                            "$91.30" reads as a price tag; "Est. to make" reads as the guide it is.
+                            Checked BEFORE isShowingOff, since concepts now set that too.
+                            The old branch also did item.price?.toFixed() with no fallback, which is
+                            where "$undefined" came from. */}
+                        {(item.isAICreation || item.isDesignConcept || item.notForSale)
+                            ? <span className="text-right leading-tight"><span className="block text-[9px] text-white/50 uppercase tracking-wide">Est. to make</span><span className="block text-sm font-black text-cyan-300">${Number(item.estValue || 0).toFixed(2)}</span></span>
+                            : item.isShowingOff ? <span className="text-[10px] text-fuchsia-200 bg-fuchsia-900/40 border border-fuchsia-500/40 px-2 py-1 rounded font-black uppercase">✨ Showing Off</span>
+                            : canSeePrice ? `$${Number(item.price || 0).toFixed(2)}`
+                            : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
                 </div>
                 {item.description && (
@@ -8136,7 +8187,46 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     <button onClick={() => setShowComments(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30 hover:text-white transition"><MessageSquare size={20}/><span className="text-xs font-bold">{rkCommentCount(item)}</span></button>
                     <button onClick={handleShare} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-cyan-400/50 hover:text-cyan-400 transition"><Share2 size={20}/>{(item.shareCount || 0) > 0 && <span className="text-xs font-bold">{item.shareCount}</span>}</button>
                 </div>
-                {item.isShowingOff ? ( <Button onClick={() => onViewItem(item)} color="purple" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> View</Button> ) : item.isAICreation && !item.allowBuy ? ( <Button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} color="purple" className="text-xs py-1 px-3">View Collection</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
+                {/* V73.2: a concept can be viewed or requested, never added to a cart. The prompter is
+                    not selling anything, so an Add button would be offering a transaction that does
+                    not exist. */}
+                {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
+                    item.allowRequest
+                        ? <Button onClick={async () => {
+                            // V73.3: one request per raver per design. Without a cap, a single
+                            // popular concept could flood the DIY queue from one account and bury
+                            // every other maker's work.
+                            const me = auth?.currentUser?.uid;
+                            if (!me) return alert('Sign in to request a design.');
+                            if ((item.requestedBy || []).includes(me)) return alert('You have already requested this design. A maker will pick it up from the DIY queue.');
+                            if (item.ownerId === me) return alert('This is your own design — share it and let others request it.');
+                            if (!window.confirm('Send this design to the DIY queue for a maker to build?\n\nEstimated cost to make: $' + Number(item.estValue || 0).toFixed(2) + '\n\nThis is an estimate, not a quote. The maker who picks it up will confirm the real price with you.')) return;
+                            try {
+                                // The whole brief travels with the request. A maker opening this
+                                // needs the materials, time and difficulty, not just a picture.
+                                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {
+                                    name: 'Request: ' + (item.name || 'AI design'),
+                                    description: item.visual_description || item.description || '',
+                                    imageUrl: item.imageUrl || '', mediaUrls: item.mediaUrls || [],
+                                    isDIYRequest: true, status: 'request', requestStatus: 'open',
+                                    sourceDesignId: item.id,
+                                    estValue: item.estValue || 0, estMaterialCost: item.estMaterialCost || 0,
+                                    estCreationFee: item.estCreationFee || 0, estTimeHours: item.estTimeHours || 0,
+                                    estDifficulty: item.estDifficulty || 0, estMaterials: item.estMaterials || [],
+                                    type: item.type || 'Other',
+                                    requesterId: me, requesterName: profile?.displayName || 'Raver',
+                                    designerId: item.ownerId || '', designerName: item.ownerName || '',
+                                    ownerId: me, ownerPublicUid: profile?.publicUid || me,
+                                    price: 0, stockQty: 0, vis: 'public', visAllowed: [],
+                                    timestamp: Date.now()
+                                });
+                                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestedBy: arrayUnion(me) });
+                                if (item.ownerId && item.ownerId !== me) pushNotif(item.ownerId, 'diy', '🎨 ' + (profile?.displayName || 'A raver') + ' sent your design "' + (item.name || 'AI design') + '" to the DIY queue.');
+                                alert('Sent to the DIY queue. Makers can now pick it up.');
+                            } catch (e) { rkReport('design request', e); alert('Could not send: ' + e.message); }
+                          }} color="lime" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> {(item.requestedBy || []).includes(auth?.currentUser?.uid) ? 'Requested' : 'Request'}</Button>
+                        : <Button onClick={() => onViewItem(item)} color="purple" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> View</Button>
+                ) : item.isShowingOff ? ( <Button onClick={() => onViewItem(item)} color="purple" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> View</Button> ) : ( <Button disabled={(item.stockQty !== undefined && item.stockQty !== null) ? item.stockQty <= 0 : item.purchaseCount > 0} onClick={() => onAddToCart(item)} color="accent" className="text-xs py-1 px-3 flex items-center gap-1"><ShoppingCart size={12}/> Add</Button> )}
             </div>
         </Card> 
     );
@@ -16526,7 +16616,13 @@ exports.generateDesignAnalysis = onCall(
       throw new HttpsError('unavailable', 'Analysis service unreachable: ' + e.message);
     }
 
-    const text = (out.result && (out.result.response || out.result.text)) || '';
+    // V73.1: with response_format json_object, Workers AI returns the PARSED OBJECT, not a JSON
+    // string. The client then did String(obj) -> "[object Object]" and the parse failed on every
+    // run — the fix in 255 caused the exact failure it was meant to surface. Stringify here so
+    // the client always receives text, whichever shape the model returns.
+    let text = (out.result && (out.result.response !== undefined ? out.result.response : out.result.text));
+    if (text && typeof text === 'object') text = JSON.stringify(text);
+    text = String(text || '');
     if (!text) throw new HttpsError('internal', 'Analysis service returned nothing.');
     return { text };
   }
