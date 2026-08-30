@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=52
-RK_PATCH=134
-RK_BUILD=259
+RK_PATCH=135
+RK_BUILD=260
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -669,7 +669,14 @@ EOF
 cat << 'EOF' >> src/App.js
 
 const GEMINI_API_KEY = "AIzaSyBVM6ot4YUYk4RpD4AgAymh4PuDczwJSh0";
-const PROFIT_MARGIN = 2.2;
+// V73.5: was 2.2, applied on top of a labour rate that ALREADY scales for margin and a
+// surcharge described in its own comment as "extra profit room". Profit was being taken three
+// times over: a $36 bracelet came out at $276, which nobody in the scene would pay and which
+// makes the whole estimate look invented.
+//
+// The maker's time is now the profit. 1.15 covers consumables, breakage and listing fees —
+// the things a flat materials figure misses — rather than a second markup.
+const PROFIT_MARGIN = 1.15;
 const COMMISSION_RATE = 0.20;
 const KANDI_TYPES = [
     'Anklet', 'Arm Sleeves', 'Bag / Purse', 'Bead Supplies', 'Beaded Ring', 'Beaded Watch', 'Beanie', 'Belt', 'Bodysuit', 'Boot Covers', 'Bra / Top', 'Bucket Hat', 'Charm Bracelet', 'Charms (loose)', 'Choker', 'Cuff', 'Custom Commission', 'Earrings', 'Full Outfit / Set', 'Gloves / Fluffies', 'Goggles', 'Hair Clip / Accessory', 'Harness', 'Hat / Cap', 'Hood', 'Keychain', 'Leg Warmers', 'Mask', 'Multi-Bead Set', 'Necklace', 'Pacifier / Bottle', 'Pashmina', 'Pasties', 'Patch', 'Perler / Fuse Art', 'Pin / Button', 'Shorts / Bottoms', 'Single (Bracelet)', 'String / Cord', 'Sunglasses / Shades', 'Tutu / Skirt', 'Wings', 'Other'
@@ -1867,12 +1874,14 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             materialCost = analysis.materials.reduce((sum, m) => sum + (parseFloat(m.unit_cost_usd) || 0), 0);
         }
         if (!materialCost) materialCost = 8;
-        // Creation/labor fee: a base hourly that scales UP with difficulty (harder = more per hour),
-        // so complex builds earn heavy margins. ~$12/hr at diff 1 up to ~$30/hr at diff 10.
-        const hourlyRate = 12 + (diff - 1) * 2;
+        // V73.5: the maker's hourly rate IS the earnings. $15/hr at difficulty 1 rising to $24/hr
+        // at 10 — a real range for skilled handmade work, not a lever for inflating the total.
+        // Previously this scaled to $30/hr and was then multiplied by 2.2 again.
+        const hourlyRate = 15 + (diff - 1);
         const creationFee = timeHrs * hourlyRate;
-        // Difficulty surcharge for very complex pieces (extra profit room).
-        const complexitySurcharge = diff >= 7 ? materialCost * (diff - 6) * 0.15 : 0;
+        // Complexity surcharge is now scaled off the LABOUR, not the materials. Difficulty costs
+        // time and skill; it does not make beads more expensive.
+        const complexitySurcharge = diff >= 7 ? creationFee * (diff - 6) * 0.05 : 0;
         const subtotal = materialCost + creationFee + complexitySurcharge;
         // Healthy profit margin on top.
         let suggestedPrice = subtotal * PROFIT_MARGIN;
@@ -7361,6 +7370,9 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[10px] text-yellow-400">Processing...</span></div>
                             ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
+                            {/* V73.5: a generated design is not worth $0.00 — it has a costed
+                                breakdown. Showing zero made the collection look broken. */}
+                            {(item.isAICreation || item.isDesignConcept || item.notForSale || item.isDIYRequest) && (item.estValue > 0) && <p className="text-[8px] font-bold text-cyan-300">Est. cost ${Number(item.estValue).toFixed(2)}</p>}
                             {/* V69.1: which brand this belongs to. Without it, a split inventory is
                                 only split in the filter — the cards themselves all look the same. */}
                             {item.brandId && brandMap[item.brandId] && <p className="text-[8px] font-bold uppercase tracking-wide text-purple-300 truncate">Brand: {brandMap[item.brandId]}</p>}
@@ -7562,6 +7574,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [imageReady, setImageReady] = useState(false);
     // V73.4: one submission per generated design, so the DIY queue cannot be spammed from one run.
     const [sentToCreators, setSentToCreators] = useState(false);
+    const [savedToCollection, setSavedToCollection] = useState(false);
     // V70.4: pick up the most recent finished job on mount, so a generation you walked away
     // from is waiting for you rather than silently discarded.
     useEffect(() => {
@@ -7620,8 +7633,8 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             //
             // Writing the outcome to a job document means the result is waiting when you come back,
             // whatever you did in between.
-            // Each run is a new design, so the one-submission rule resets with it.
-        setSentToCreators(false);
+            // Each run is a new design, so both one-shot rules reset with it.
+        setSentToCreators(false); setSavedToCollection(false);
         const jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
             try { await setDoc(jobRef, { prompt, status: 'running', at: Date.now() }); } catch (e) { rkReport('ai job create', e); }
 
@@ -7699,7 +7712,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
             if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
-            setPrompt(''); setRes(null); setAllowBuy(false); setItemName('');
+            // V73.5: keep the design on screen after saving. Clearing it meant saving to your
+            // collection destroyed the preview and every other action with it — you could not then
+            // submit the same design to creators, which is the pairing people actually want.
+            // Discard is right there for when you are finished with it.
+            setSavedToCollection(true);
         } catch (e) { alert("Error saving: " + e.message); } finally { setLoading(false); }
     };
 
@@ -7772,7 +7789,10 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             {parseFloat(res.complexity_surcharge) > 0 && <div className="flex justify-between"><span className="opacity-70">Complexity Surcharge</span><span>${res.complexity_surcharge}</span></div>}
                             <div className="flex justify-between font-black text-sm pt-2 mt-1 border-t border-white/15"><span className="text-lime-300">Suggested Sale Price</span><span className="text-lime-300">${res.estimated_cost}</span></div>
                         </div>
-                        <p className="text-[10px] opacity-50 mt-2">Includes materials, a creation fee scaled by difficulty & time, and a healthy profit margin. Adjust to your market.</p>
+                        {/* V73.5: say where the number comes from. "A healthy profit margin" explained nothing and,
+                            at 2.2x, was quietly doing most of the work — which is what made the figure
+                            feel invented. */}
+                        <p className="text-[10px] opacity-50 mt-2">Materials at cost, plus your time at ${(15 + ((parseInt(res.difficulty) || 5) - 1)).toFixed(0)}/hr for difficulty {res.difficulty || 5}/10, plus 15% for consumables and fees. A floor, not a ceiling — price for your market.</p>
                     </div>
 
                     {res.skill_notes && <p className="text-[10px] italic opacity-70 mb-3">🛠️ {res.skill_notes}</p>}
@@ -7780,7 +7800,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                     {/* V73.4: two distinct actions. Saving keeps it for you; sending puts it in front of
                         makers. The old single "Save Design Plan" hid the second entirely, which is why
                         there was no route from a generated design to a creator. */}
-                    <div className="flex gap-2 mb-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : "Save to my collection"}</Button></div>
+                    <div className="flex gap-2 mb-2"><Button onClick={() => setRes(null)} color="accent" className="flex-1 text-xs">Discard</Button><Button onClick={submit} disabled={loading || savedToCollection} color="lime" className="flex-1 text-xs">{loading ? "Saving..." : savedToCollection ? "✓ Saved" : "Save to my collection"}</Button></div>
                     <Button onClick={async () => {
                         if (!itemName.trim()) return alert('Give the design a name first — makers need something to call it.');
                         // One request per design, same rule as requesting someone else's concept.
