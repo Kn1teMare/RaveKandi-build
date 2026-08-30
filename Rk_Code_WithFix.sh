@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=72
 RK_MINOR=50
-RK_PATCH=130
-RK_BUILD=252
+RK_PATCH=131
+RK_BUILD=253
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1735,11 +1735,19 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
     try {
         const safePrompt = encodeURIComponent(prompt.substring(0, 300));
         // A detailed instruction so the model classifies the item and returns rich structured data.
-        const instruction = encodeURIComponent(
-            "You are a master maker for the rave and festival scene — you make kandi, clothing, jewelry, accessories, equipment, stickers and more. " +
+        // V72.4: no longer URL-encoded. This was built for text.pollinations.ai, where the prompt
+        // travelled IN THE URL PATH. It now goes in a JSON body, so encodeURIComponent was feeding
+        // the model percent-escapes instead of words — which is a large part of why the breakdown
+        // came back vague ("Assorted materials (as needed)") against a specific total.
+        const instruction = (
+            "You are a master maker for the rave and festival scene - you make kandi, clothing, jewelry, accessories, equipment, stickers and more. " +
             "Analyze the user's requested creation and return ONLY a JSON object with NO MARKDOWN. " +
-            "Determine the item category, the materials and fabrics needed (with realistic quantities and a rough per-unit material cost in USD), " +
-            "the difficulty (1-10), the estimated hands-on creation time, and a fair total material cost. " +
+            // Spelled out because the model will otherwise answer with one vague catch-all line.
+            "List EVERY material separately - never a single catch-all entry like 'assorted materials'. " +
+            "Each material needs a specific name, a real quantity with units (e.g. '50 beads', '2 yards'), and its own unit cost in USD. " +
+            "total_material_cost_usd MUST equal the sum of the individual material costs - do not invent a separate figure. " +
+            "Aim for 3-8 materials for a typical item. " +
+            "Determine the item category, the difficulty (1-10), and the estimated hands-on creation time. " +
             'Format exactly: {"item_category":"e.g. Clothing/Kandi/Jewelry/Accessory/Equipment/Sticker","visual_description":"vivid 1-2 sentence description","materials":[{"name":"material or fabric","qty":"amount","unit_cost_usd":2.5}],"primary_fabric":"main fabric if applicable or N/A","difficulty_1_to_10":6,"estimated_time_hours":2.5,"total_material_cost_usd":18.0,"skill_notes":"short note on what makes it easy/hard"}'
         );
         // V72.2: the analysis runs in a Cloud Function now, on the same Cloudflare token as the
@@ -1822,7 +1830,13 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         const diff = Math.max(1, Math.min(10, parseInt(analysis.difficulty_1_to_10) || 5));
         const timeHrs = Math.max(0.25, parseFloat(analysis.estimated_time_hours) || 1.5);
         // Material cost: prefer the model's total; otherwise sum the per-material unit costs.
-        let materialCost = parseFloat(analysis.total_material_cost_usd) || 0;
+        // V72.4: prefer the SUM of the itemised materials over the model's stated total. The two
+        // disagreed in testing ("assorted materials ~$1.50" against a $12.00 total), and the
+        // itemised list is the one a maker can actually check against a shopping trip.
+        const itemisedSum = Array.isArray(analysis.materials)
+            ? analysis.materials.reduce((a, m) => a + ((parseFloat(m && m.unit_cost_usd) || 0) * (parseFloat(String(m && m.qty || '1').replace(/[^0-9.]/g, '')) || 1)), 0)
+            : 0;
+        let materialCost = itemisedSum > 0 ? itemisedSum : (parseFloat(analysis.total_material_cost_usd) || 0);
         if (!materialCost && Array.isArray(analysis.materials)) {
             materialCost = analysis.materials.reduce((sum, m) => sum + (parseFloat(m.unit_cost_usd) || 0), 0);
         }
@@ -16441,6 +16455,13 @@ const CF_API_TOKEN  = defineSecret('CF_API_TOKEN');
 const DAILY_CAP = 5;
 const MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
+// V72.4: name the bucket explicitly.
+// admin.storage().bucket() with no argument guesses "<project>.appspot.com" — the old Firebase
+// convention. Projects created since the change use "<project>.firebasestorage.app", so the
+// default resolved to a bucket that has never existed and the save failed with "The specified
+// bucket does not exist". The app's own firebaseConfig has said .firebasestorage.app all along.
+const BUCKET = process.env.RK_STORAGE_BUCKET || 'ravekandi.firebasestorage.app';
+
 // V72.2: the TEXT analysis moves server-side too.
 //
 // Build 249 replaced the image provider and left the analysis calling Pollinations, which returns
@@ -16549,7 +16570,7 @@ exports.generateDesignImage = onCall(
     let publicUrl = '';
     try {
       const token = require('crypto').randomUUID();
-      const file = admin.storage().bucket().file(path);
+      const file = admin.storage().bucket(BUCKET).file(path);
       await file.save(buf, {
         resumable: false,
         metadata: { contentType: 'image/png', metadata: { firebaseStorageDownloadTokens: token } }
@@ -16558,7 +16579,9 @@ exports.generateDesignImage = onCall(
                   '/o/' + encodeURIComponent(path) + '?alt=media&token=' + token;
     } catch (e) {
       // Named, not swallowed. A bare INTERNAL tells the user nothing and tells me less.
-      throw new HttpsError('internal', 'Could not store the generated image: ' + (e && e.message || e));
+      // The bucket name is included because "does not exist" is meaningless without knowing
+      // which bucket was tried.
+      throw new HttpsError('internal', 'Could not store the generated image (bucket ' + BUCKET + '): ' + (e && e.message || e));
     }
 
     // Counted only AFTER the image exists. Charging someone for a failed generation is the
