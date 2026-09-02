@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=52
-RK_PATCH=135
-RK_BUILD=260
+RK_PATCH=136
+RK_BUILD=261
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -7048,7 +7048,12 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                 {item.isDIYRequest ? (
                     <div className="bg-white/10 p-3 rounded border border-lime-400/50">
                         <h4 className="text-xs font-bold text-lime-400 uppercase mb-2">Project Status: {item.status}</h4>
-                        <p className="text-[10px] opacity-70 mb-2">Cost: ${item.price?.toFixed(2)}</p>
+                        {/* V73.6: two figures, deliberately distinct. The estimate is what the
+                            generator was told it would cost; the agreed cost is what the maker and
+                            requester settle on. Showing only "Cost: $0.00" before anything is
+                            agreed reads as broken rather than as pending. */}
+                        {item.estValue > 0 && <p className="text-[10px] text-cyan-300 mb-1">Est. cost: ${Number(item.estValue).toFixed(2)} <span className="opacity-50">(guide, before quoting)</span></p>}
+                        <p className="text-[10px] opacity-70 mb-2">Agreed cost: {Number(item.price) > 0 ? '$' + Number(item.price).toFixed(2) : <span className="opacity-60 italic">not yet agreed</span>}</p>
                         <p className="text-[10px] opacity-70">Created: {new Date(item.timestamp).toLocaleDateString()}</p>
                         {item.dismissReason && ( <div className="mt-2 pt-2 border-t border-white/10"><span className="text-red-400 text-[10px] font-bold">Dismissed:</span><p className="text-[10px] italic">{item.dismissReason}</p></div> )}
                     </div>
@@ -7142,7 +7147,11 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                                 {/* V73.1: a concept that was never offered for sale cannot be "sold". Same control,
                                     honest label — hiding is still useful, claiming a sale is not. */}
                                 {!item.isHidden && (() => {
-                                    const sellable = !((item.isAICreation || item.isDesignConcept) && !item.allowBuy) && !item.isShowingOff;
+                                    // V73.6: does NOT consult allowBuy any more. That flag was
+                                    // repurposed to mean "others may REQUEST this design" — so
+                                    // ticking the request toggle was switching the sell control
+                                    // back on for the very items that can never be sold.
+                                    const sellable = !item.notForSale && !item.isAICreation && !item.isDesignConcept && !item.isDIYRequest && !item.isShowingOff;
                                     return <button onClick={handleHidePost} title={sellable ? 'Mark sold & hide' : 'Hide from your collection'} className="text-yellow-300 bg-yellow-900/30 p-1 rounded flex items-center gap-1"><EyeOff size={14}/><span className="text-[10px] font-bold">{sellable ? 'Sold & Hide' : 'Hide'}</span></button>;
                                 })()}
                                 {item.isHidden && <button onClick={handleUnhide} title="Unhide / re-list this post" className="text-lime-300 bg-lime-900/30 p-1 rounded flex items-center gap-1"><Eye size={14}/><span className="text-[10px] font-bold">Unhide</span></button>}
@@ -7811,7 +7820,14 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                                 name: 'Request: ' + itemName.trim(),
                                 description: res.visual_description || '',
                                 imageUrl: res.displayUrl || res.imageUrl || '',
-                                isDIYRequest: true, status: 'request', requestStatus: 'open',
+                                isDIYRequest: true, status: 'request',
+                                // V73.6: 'awaiting_assignment', not 'open'. The creator portal's
+                                // open tab queries ['pending','awaiting_assignment'] and the other
+                                // tabs match requestStatus exactly — so 'open' belonged to no tab
+                                // and the request flickered between them as you switched. It also
+                                // meant no creator could claim it, because it never appeared in the
+                                // queue they actually work from.
+                                requestStatus: 'awaiting_assignment', openRequest: true, isRequest: true,
                                 estValue: parseFloat(res.estimated_cost) || 0,
                                 estMaterialCost: parseFloat(res.material_cost) || 0,
                                 estCreationFee: parseFloat(res.creation_fee) || 0,
@@ -8273,7 +8289,14 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                                     name: 'Request: ' + (item.name || 'AI design'),
                                     description: item.visual_description || item.description || '',
                                     imageUrl: item.imageUrl || '', mediaUrls: item.mediaUrls || [],
-                                    isDIYRequest: true, status: 'request', requestStatus: 'open',
+                                    isDIYRequest: true, status: 'request',
+                                // V73.6: 'awaiting_assignment', not 'open'. The creator portal's
+                                // open tab queries ['pending','awaiting_assignment'] and the other
+                                // tabs match requestStatus exactly — so 'open' belonged to no tab
+                                // and the request flickered between them as you switched. It also
+                                // meant no creator could claim it, because it never appeared in the
+                                // queue they actually work from.
+                                requestStatus: 'awaiting_assignment', openRequest: true, isRequest: true,
                                     sourceDesignId: item.id,
                                     estValue: item.estValue || 0, estMaterialCost: item.estMaterialCost || 0,
                                     estCreationFee: item.estCreationFee || 0, estTimeHours: item.estTimeHours || 0,
