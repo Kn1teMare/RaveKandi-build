@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=52
-RK_PATCH=136
-RK_BUILD=261
+RK_PATCH=137
+RK_BUILD=262
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -6074,7 +6074,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                             <button key={i.id} onClick={() => setPick(i)} className={`w-full flex items-center gap-2 p-2 rounded border text-left ${pick?.id === i.id ? 'border-pink-400 bg-pink-900/30' : 'border-white/10 bg-white/5'}`}>
                                 <img src={i.mediaUrls?.[0]?.url || i.imageUrl || 'https://placehold.co/40'} className="w-8 h-8 rounded object-cover"/>
                                 <span className="text-[10px] font-bold flex-1 truncate">{i.name}</span>
-                                <span className="text-[10px] text-lime-400">${i.price?.toFixed(2)}</span>
+                                <span className="text-[10px] text-lime-400">${Number(i.price || 0).toFixed(2)}</span>
                             </button>
                         ))}
                     </div>
@@ -10816,12 +10816,26 @@ const CreatorProjectHub = ({ user, onClose }) => {
 
     const list = hubTab === 'open' ? [...requests, ...legacyPending.filter(l => !requests.some(r => r.id === l.id))] : requests;
 
+    // V73.7: this had no catch anywhere in the chain, and the three handlers below call it
+    // from an async onClick. A rules denial therefore threw into an unhandled rejection: the
+    // creator tapped Accept, confirmed the dialog, and NOTHING happened — no error, no change,
+    // no log. That is how 261 shipped believing creators could claim requests when every claim
+    // was being refused. Report and tell the user; a silent failure is the expensive kind.
     const setStage = async (item, requestStatus, extra = {}) => {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestStatus, ...extra });
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestStatus, ...extra });
+            return true;
+        } catch (e) {
+            rkReport('creator hub setStage -> ' + requestStatus, e);
+            alert(e && e.code === 'permission-denied'
+                ? 'You do not have permission to change this request. If you are a Creator, the rules may be out of date — please report this.'
+                : 'Could not update this request: ' + (e && e.message ? e.message : 'unknown error'));
+            return false;
+        }
     };
-    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
-    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; await setStage(item, 'completed', { completedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
-    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() }); pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
+    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; if (!await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
+    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
+    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; if (!await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
 
     return (
         <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4">
@@ -10851,7 +10865,23 @@ const CreatorProjectHub = ({ user, onClose }) => {
                                     {req.assigneeName && <span className="bg-lime-500/20 text-lime-400 text-[10px] px-1.5 rounded">Assigned: {req.assigneeName}</span>}
                                 </div>
                             </div>
-                            <span className="text-lime-400 font-bold">${req.price?.toFixed(2)}</span>
+                            {/* V73.7: 261 hard-zeroed `price` on every AI concept and DIY request and
+                                moved the real number to `estValue`. This card kept reading `price`, so
+                                the one screen a maker uses to decide whether to take a job showed
+                                $0.00 on every new submission. The bare `?.toFixed(2)` also had no
+                                fallback, which rendered "$undefined" for legacy docs with no price at
+                                all — the same bug the item card fixed at V73.3 and this site missed. */}
+                            {(() => {
+                                // Same vocabulary as the item detail sheet (V73.6): `price` IS the
+                                // agreed cost and 0 means "not yet agreed"; `estValue` is the guide
+                                // figure from the generator. There is no separate agreed-cost field
+                                // and this card must not invent one.
+                                const agreed = Number(req.price || 0);
+                                const est = Number(req.estValue || 0);
+                                if (agreed > 0) return <span className="text-right leading-tight"><span className="block text-[9px] text-white/50 uppercase tracking-wide">Agreed</span><span className="block text-sm font-black text-lime-400">${agreed.toFixed(2)}</span></span>;
+                                if (est > 0) return <span className="text-right leading-tight"><span className="block text-[9px] text-white/50 uppercase tracking-wide">Est. to make</span><span className="block text-sm font-black text-cyan-300">${est.toFixed(2)}</span></span>;
+                                return <span className="text-[10px] text-white/50 italic">not yet agreed</span>;
+                            })()}
                         </div>
                         <div className="bg-white/5 p-2 rounded mt-2 text-xs"><p className="font-bold mb-1">Vision:</p><p>{req.description || req.visual_description || 'No description provided.'}</p></div>
                         {req.dismissReason && <p className="text-[10px] text-red-400 mt-2">Denial reason: {req.dismissReason}</p>}
