@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=52
-RK_PATCH=137
-RK_BUILD=262
+RK_PATCH=138
+RK_BUILD=263
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -10305,8 +10305,14 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             ))}
             </AdminSection>
 
+            {/* V73.8: zClass MUST clear the Admin Portal. That portal is a full-screen
+                `fixed inset-0 bg-black z-[100]` panel, and this Modal portals to document.body
+                at the z-50 default — so it rendered BEHIND an opaque black surface. Tapping
+                Review appeared to do nothing: the pop-in was open the whole time, underneath.
+                Nothing was wrong with the data, the query or the rules. Any Modal opened from
+                inside a full-screen surface must be raised above that surface's z-index. */}
             {reviewApp && (
-                <Modal isOpen={!!reviewApp} onClose={() => setReviewApp(null)} title="📋 Creator Application Review">
+                <Modal isOpen={!!reviewApp} onClose={() => setReviewApp(null)} zClass="z-[200]" title="📋 Creator Application Review">
                     <div className="space-y-3">
                         <div className="bg-black/50 border border-white/10 rounded-lg p-3 space-y-2">
                             {[['Name / DJ Name', reviewApp.name], ['Contact Email', reviewApp.email], ['Portfolio', reviewApp.portfolio], ['Years in Scene', reviewApp.yearsRaving], ['Years Crafting', reviewApp.yearsCreating]].map(([k, v]) => (
