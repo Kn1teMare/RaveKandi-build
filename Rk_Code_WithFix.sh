@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
-RK_MINOR=54
+RK_MINOR=55
 RK_PATCH=140
-RK_BUILD=267
+RK_BUILD=268
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1758,8 +1758,23 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             "Each material needs a specific name, a real quantity with units, and unit_cost_usd = the TOTAL cost to buy that whole quantity (NOT a per-bead or per-yard price). " +
             "total_material_cost_usd MUST equal the sum of the individual material costs - do not invent a separate figure. " +
             "Aim for 3-8 materials for a typical item. " +
-            "Determine the item category, the difficulty (1-10), and the estimated hands-on creation time. " +
-            'Format exactly: {"item_category":"e.g. Clothing/Kandi/Jewelry/Accessory/Equipment/Sticker","visual_description":"vivid 1-2 sentence description","materials":[{"name":"material or fabric","qty":"amount","unit_cost_usd":2.5}],"primary_fabric":"main fabric if applicable or N/A","difficulty_1_to_10":6,"estimated_time_hours":2.5,"total_material_cost_usd":18.0,"skill_notes":"short note on what makes it easy/hard"}'
+            // V73.13: the model is NO LONGER asked to judge difficulty or time. It anchored on
+            // whatever example numbers appeared here and returned the same 7 / 3.5h for a single-
+            // strand bracelet and a full LED garment alike. It is now asked only for things it can
+            // observe and count; rkDeriveEffort() turns those into difficulty and hours from a fixed
+            // rubric. No example VALUE is given for any numeric field, because the example value is
+            // exactly what it latches onto.
+            "QUANTITIES MUST BE WHAT ONE FINISHED PIECE CONSUMES - not a shop pack size. " +
+            "A single kandi bracelet uses roughly 30-40 pony beads, not 100. Do not pad the list: if a " +
+            "piece needs three materials, list three. Never include a material the piece does not use. " +
+            "Do NOT estimate difficulty or time - both are calculated from the fields below. " +
+            "construction MUST be exactly one of: single_strand, letter_word, multi_strand, ladder_stitch, " +
+            "peyote_3d, perler, sculptural_beadwork, wire_wrap, resin_cast, no_sew, hand_sew, machine_sew, " +
+            "embroidery, print_sticker, assembly, led_wiring. " +
+            "unit_count = how many repeated elements the maker physically places (beads, perler pegs, panels, " +
+            "stitches). strand_count = separate strands or rows. needs_curing = true only if something must dry " +
+            "or set. finish_complexity is 1 (plain), 2 (some detailing) or 3 (heavy detailing). " +
+            'Format exactly: {"item_category":"one of Kandi/Clothing/Jewelry/Accessory/Equipment/Sticker/Other","visual_description":"vivid 1-2 sentence description","materials":[{"name":"specific material","qty":"amount for ONE piece","unit_cost_usd":0}],"primary_fabric":"main fabric or N/A","construction":"one of the listed values","unit_count":0,"strand_count":0,"has_electronics":false,"needs_sewing":false,"needs_curing":false,"finish_complexity":1,"total_material_cost_usd":0,"skill_notes":"short note on what makes it easy or hard"}'
         );
         // V72.2: the analysis runs in a Cloud Function now, on the same Cloudflare token as the
         // image. It used to fetch text.pollinations.ai directly from the browser, which started
@@ -1809,8 +1824,17 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
                 _fallback: true,
                 materials: [{ name: "Assorted materials", qty: "as needed", unit_cost_usd: 1.5 }],
                 primary_fabric: "N/A",
-                difficulty_1_to_10: 5,
-                estimated_time_hours: 2,
+                // V73.13: the fallback speaks the NEW vocabulary. It used to hand back
+                // difficulty_1_to_10 and estimated_time_hours, which rkDeriveEffort no longer
+                // reads — a fallback run would have silently derived from an empty object and
+                // produced the default simple-piece numbers with no signal that it had failed.
+                construction: "assembly",
+                unit_count: 0,
+                strand_count: 1,
+                has_electronics: false,
+                needs_sewing: false,
+                needs_curing: false,
+                finish_complexity: 1,
                 total_material_cost_usd: 12,
                 skill_notes: "Estimate based on a moderate build."
             };
@@ -1854,8 +1878,10 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         onProgress(95);
 
         // ---- Cost model ----
-        const diff = Math.max(1, Math.min(10, parseInt(analysis.difficulty_1_to_10) || 5));
-        const timeHrs = Math.max(0.25, parseFloat(analysis.estimated_time_hours) || 1.5);
+        // V73.13: difficulty and hours are DERIVED, not taken from the model. See rkDeriveEffort.
+        const effort = rkDeriveEffort(analysis);
+        const diff = effort.difficulty;
+        const timeHrs = effort.hours;
         // Material cost: prefer the model's total; otherwise sum the per-material unit costs.
         // V72.4: prefer the SUM of the itemised materials over the model's stated total. The two
         // disagreed in testing ("assorted materials ~$1.50" against a $12.00 total), and the
@@ -1891,6 +1917,8 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             ...analysis,
             difficulty: diff,
             estimated_time_hours: timeHrs,
+            effort_basis: effort.basis,
+            construction: effort.construction,
             material_cost: materialCost.toFixed(2),
             creation_fee: creationFee.toFixed(2),
             complexity_surcharge: complexitySurcharge.toFixed(2),
@@ -1902,6 +1930,104 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             displayUrl: displayUrl
         };
     } catch (e) { if (e.message === 'ANALYSIS_FAILED') throw e; throw new Error("AI Analysis Failed: " + e.message); }
+};
+
+
+// ============================================================================================
+// V73.13 - EFFORT DERIVATION
+//
+// The model used to be asked for difficulty and time directly. It anchored on the example
+// values in the prompt and returned 7/10 and 3.5 hours for essentially everything - a
+// single-strand word bracelet was billed 3 hours of skilled labour at $21/hr, $63 of creation
+// fee on $4.50 of beads. The arithmetic downstream was correct; the inputs were fiction.
+//
+// So the model is now asked only for what it can observe and count - technique, how many
+// elements, how many strands, whether it needs sewing, electronics or curing - and the numbers
+// are derived here from a fixed rubric. The same input always produces the same output, and a
+// wrong answer is a wrong RULE we can find and correct rather than a model mood.
+//
+// Times are hands-on minutes for one finished piece, from how these things are actually made:
+// stringing pony beads runs about 10 a minute including picking colours; flat peyote is nearer
+// 4 a minute because every bead is stitched; 3D sculptural work is slower again. Curing and
+// drying are NOT included - resin sets for hours but the maker is not standing over it, and
+// billing elapsed time as labour is exactly how a $10 bracelet became an $81 one.
+// ============================================================================================
+const RK_CONSTRUCTION = {
+    // rate is UNITS PER MINUTE, and a "unit" means different things per technique - which is
+    // exactly the trap. For bead techniques a unit is one bead, so the rate is high. For
+    // component techniques a unit is a whole seam, panel, motif or cast piece, so the rate is a
+    // fraction. Getting this wrong once had a six-panel sewn top costing 90 seconds of labour.
+    // `typical` is the fallback when the model returns no count - a plain example of that
+    // technique, never an elaborate one.
+    single_strand:       { setup: 8,  rate: 10,    typical: 35, tier: 1, label: 'Single-strand stringing' },
+    letter_word:         { setup: 15, rate: 9,     typical: 40, tier: 1, label: 'Word / letter bracelet' },
+    multi_strand:        { setup: 10, rate: 9,     typical: 45, tier: 2, label: 'Multi-strand' },
+    perler:              { setup: 10, rate: 15,    typical: 250,tier: 2, label: 'Perler / fuse beads' },
+    print_sticker:       { setup: 10, rate: 1,     typical: 8,  tier: 1, label: 'Print / sticker' },
+    no_sew:              { setup: 15, rate: 0.33,  typical: 4,  tier: 1, label: 'No-sew / iron-on' },
+    assembly:            { setup: 15, rate: 0.1,   typical: 5,  tier: 2, label: 'Assembly' },
+    ladder_stitch:       { setup: 12, rate: 4.5,   typical: 180,tier: 3, label: 'Flat stitched cuff' },
+    wire_wrap:           { setup: 12, rate: 0.067, typical: 5,  tier: 3, label: 'Wire wrapping' },
+    resin_cast:          { setup: 20, rate: 0.125, typical: 6,  tier: 3, label: 'Resin casting' },
+    hand_sew:            { setup: 15, rate: 0.05,  typical: 5,  tier: 3, label: 'Hand sewing' },
+    machine_sew:         { setup: 20, rate: 0.125, typical: 6,  tier: 4, label: 'Machine sewing' },
+    embroidery:          { setup: 15, rate: 0.033, typical: 3,  tier: 4, label: 'Embroidery' },
+    peyote_3d:           { setup: 15, rate: 2,     typical: 250,tier: 4, label: '3D peyote' },
+    sculptural_beadwork: { setup: 20, rate: 1.5,   typical: 400,tier: 5, label: 'Sculptural beadwork' },
+    led_wiring:          { setup: 30, rate: 0.33,  typical: 10, tier: 5, label: 'LED / wiring' }
+};
+// Tier -> difficulty floor. Modifiers push up from here; nothing pushes below it, because the
+// technique itself sets a minimum skill requirement.
+const RK_TIER_DIFFICULTY = { 1: 1, 2: 2, 3: 4, 4: 6, 5: 8 };
+// Hands-on ceilings per technique. A guard against a wild unit_count, not a pricing lever.
+const RK_CONSTRUCTION_MAX_H = {
+    single_strand: 0.75, letter_word: 1, multi_strand: 2, perler: 3, print_sticker: 1,
+    no_sew: 1.5, assembly: 4, ladder_stitch: 4, wire_wrap: 4, resin_cast: 3, hand_sew: 6,
+    machine_sew: 6, embroidery: 8, peyote_3d: 10, sculptural_beadwork: 14, led_wiring: 8
+};
+
+const rkDeriveEffort = (a) => {
+    const raw = String((a && a.construction) || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    const key = RK_CONSTRUCTION[raw] ? raw : 'single_strand';
+    const c = RK_CONSTRUCTION[key];
+
+    let units = Math.max(0, parseInt(a && a.unit_count, 10) || 0);
+    const strands = Math.max(1, parseInt(a && a.strand_count, 10) || 1);
+    // No count came back: fall back to a plain single piece of that technique rather than to a
+    // number. A missing count should read as "typical", never as "elaborate".
+    if (!units) units = c.typical;
+
+    let minutes = c.setup + (units / c.rate);
+    // Extra strands repeat the work but not the setup, and get faster with repetition.
+    if (strands > 1) minutes += (strands - 1) * (units / c.rate) * 0.8;
+
+    const finish = Math.min(3, Math.max(1, parseInt(a && a.finish_complexity, 10) || 1));
+    if (finish === 2) minutes *= 1.15;
+    if (finish === 3) minutes *= 1.35;
+    // Electronics are fiddly and add real bench time regardless of technique.
+    if (a && a.has_electronics) minutes += 25;
+    // Sewing on a piece whose main technique is not sewing still costs assembly time.
+    if (a && a.needs_sewing && key.indexOf('sew') === -1) minutes += 15;
+    // Curing is deliberately NOT added. It is elapsed time, not hands-on time.
+
+    let hours = minutes / 60;
+    hours = Math.min(RK_CONSTRUCTION_MAX_H[key] || 8, Math.max(0.25, hours));
+    hours = Math.round(hours * 20) / 20;   // nearest 3 minutes
+
+    let difficulty = RK_TIER_DIFFICULTY[c.tier];
+    if (a && a.has_electronics) difficulty += 1;
+    if (finish === 3) difficulty += 1;
+    if (units > 400) difficulty += 1;
+    if (strands > 6) difficulty += 1;
+    difficulty = Math.max(1, Math.min(10, difficulty));
+
+    return {
+        difficulty, hours, construction: key,
+        basis: c.label + ' · ' + units + ' element' + (units === 1 ? '' : 's')
+            + (strands > 1 ? ' · ' + strands + ' strands' : '')
+            + (a && a.has_electronics ? ' · electronics' : '')
+            + ' · ~' + Math.round(hours * 60) + ' min hands-on'
+    };
 };
 
 const getDisplayAchievements = (profile) => {
@@ -7936,6 +8062,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             at 2.2x, was quietly doing most of the work — which is what made the figure
                             feel invented. */}
                         <p className="text-[10px] opacity-50 mt-2">Materials at cost, plus your time at ${(15 + ((parseInt(res.difficulty) || 5) - 1)).toFixed(0)}/hr for difficulty {res.difficulty || 5}/10, plus 15% for consumables and fees. A floor, not a ceiling — price for your market.</p>
+                        {/* V73.13: show the derivation. Difficulty and hours are no longer a model
+                            opinion, they are computed from the technique and the element count, so
+                            a maker who disagrees with the number can see exactly which input drove
+                            it instead of arguing with a black box. */}
+                        {res.effort_basis && <p className="text-[10px] text-cyan-300/70 mt-1">Effort basis: {res.effort_basis}</p>}
                     </div>
 
                     {res.skill_notes && <p className="text-[10px] italic opacity-70 mb-3">🛠️ {res.skill_notes}</p>}
@@ -10960,7 +11091,7 @@ const InventoryManager = ({ user, profile }) => {
         </Card> 
     );
 };
-const CreatorProjectHub = ({ user, profile, onClose, onMessageUser }) => {
+const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfile }) => {
     const [hubTab, setHubTab] = useState('open');
     // V65.06: live tick so the countdown chips update while the hub is open.
     const [hubNow, setHubNow] = useState(Date.now());
@@ -11106,8 +11237,21 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser }) => {
                                     negotiated or delivered. Name now falls back to a live lookup,
                                     and the public UID is shown so the client is always identifiable
                                     even if the account has no display name at all. */}
-                                <p className="text-xs opacity-70">Client: <span className="font-bold text-white">{rkClientName(req) || (req.ownerPublicUid ? '@' + req.ownerPublicUid : 'Resolving…')}</span></p>
-                                {req.ownerPublicUid && rkClientName(req) && <p className="text-[9px] opacity-40">@{req.ownerPublicUid}</p>}
+                                {/* V73.13: the client was 11px plain text wedged under the title. A
+                                    maker needs to check who they are dealing with BEFORE quoting, so
+                                    it is now a real tap target: larger, and padded above and below so
+                                    it cannot be caught by a stray tap meant for the title or tags. */}
+                                <button
+                                    onClick={() => { if (req.ownerId && onViewProfile) { onViewProfile(req.ownerId); if (onClose) onClose(); } }}
+                                    disabled={!req.ownerId || !onViewProfile}
+                                    className="block text-left py-2.5 -my-0.5 group">
+                                    <span className="block text-[9px] uppercase tracking-widest text-white/40">Client</span>
+                                    <span className="block text-base font-black text-cyan-300 group-active:text-cyan-100 leading-tight">
+                                        {rkClientName(req) || (req.ownerPublicUid ? '@' + req.ownerPublicUid : 'Resolving…')}
+                                        {req.ownerId && onViewProfile && <span className="text-xs font-normal text-white/40"> ›</span>}
+                                    </span>
+                                    {req.ownerPublicUid && rkClientName(req) && <span className="block text-[10px] text-white/40">@{req.ownerPublicUid}</span>}
+                                </button>
                                 <div className="flex gap-1 mt-1 flex-wrap">
                                     {req.isAICreation && <span className="bg-purple-500/20 text-purple-400 text-[10px] px-1.5 rounded">AI Generated</span>}
                                     {req.isDIYRequest && <span className="bg-cyan-500/20 text-cyan-400 text-[10px] px-1.5 rounded">DIY Build</span>}
@@ -13488,7 +13632,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     if(!user?.uid) return <div className="p-10 text-center flex flex-col items-center gap-4"><LoadingBar progress={50} className="w-32"/><p className="text-white animate-pulse font-black italic tracking-widest uppercase">Connecting to Hive...</p></div>;
     const uploadPic = async (e) => { const f = e.target.files[0]; if(f) { const img = await compressImage(f); await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { photoURL: img }, { merge: true }); } };
     const copyUid = () => { navigator.clipboard.writeText(profile.publicUid || user.uid); alert("Public Friend ID Copied!"); };
-    if(showCreatorHub) return <CreatorProjectHub user={user} profile={profile} onClose={() => setShowCreatorHub(false)} onMessageUser={onMessageUser} />;
+    if(showCreatorHub) return <CreatorProjectHub user={user} profile={profile} onClose={() => setShowCreatorHub(false)} onMessageUser={onMessageUser} onViewProfile={onViewProfile} />;
     
     if(showAdminPortal && profile.isAdmin) return (
         <div className="fixed inset-0 bg-black z-[100] overflow-y-auto p-4">
@@ -15271,7 +15415,11 @@ cat << 'EOF' >> src/App.js
                 // feed and left you to hunt for the post. Opening it in place also keeps you in the
                 // notification list you were working through — the detail window still offers
                 // "View in Feed" for when you actually want to go there.
-                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart') && n.refId) { setNotifItemId(n.refId); return; }
+                // V73.13: 'diy' joins these. A submission or stage-change notification used to
+                // drop you at the top of the feed with no idea which project it meant — the same
+                // bug V70.2 fixed for comments and likes, left in place for the one notification
+                // type where the item IS the whole message.
+                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy') && n.refId) { setNotifItemId(n.refId); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
                 else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
                 else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
