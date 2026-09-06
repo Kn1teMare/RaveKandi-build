@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
-RK_MINOR=53
-RK_PATCH=139
-RK_BUILD=265
+RK_MINOR=54
+RK_PATCH=140
+RK_BUILD=267
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -3650,7 +3650,7 @@ const RK_SOCIAL_EMOJI = {
 // feeds the referral allowance, so it must only ever come from a human who checked the profile.
 const rkApprovedFollowerTotal = (list) => (list || []).reduce((a, s) => a + (parseInt(s.approved, 10) || 0), 0);
 
-const CreatorApplicationForm = ({ user, onClose, initialType }) => {
+const CreatorApplicationForm = ({ user, onClose, initialType, onOpenCreatorHub }) => {
     // V65.03: three independent applications (Kandi / Music / Content), each with its own
     // type-specific questions, its own pending submission, and its own locally-autosaved draft —
     // nothing typed is ever lost, even if the user closes mid-application.
@@ -3678,6 +3678,11 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
         if (!rawClaim) return alert('Follower count must be entered for ' + ns.p + '. Enter 0 if the account is brand new.');
         if (!/^[0-9,.\s]+$/.test(rawClaim)) return alert('Enter the ' + ns.p + ' follower count as a number.');
         const claimed = Math.max(0, parseInt(rawClaim.replace(/[^0-9]/g, ''), 10) || 0);
+        // V73.11: 265 caught a BLANK box but let a typed 0 through in silence, which is the same
+        // outcome the blank check existed to prevent — a platform on the application carrying no
+        // claim for the reviewer to check. 0 is legitimate for a new account, so it is allowed,
+        // but it has to be deliberate rather than a slip.
+        if (claimed === 0 && !window.confirm('You entered 0 followers for ' + ns.p + '.\n\nConfirm this account is brand new with no followers yet. If you meant to enter a number, cancel and type it in.')) return;
         const next = [...(d.socials || []), { p: ns.p, g: RK_SOCIAL_GROUP_OF[ns.p] || 'Other', handle, claimed }];
         setD({ ...d, socials: next });
         // Land on the next still-free platform in the same group, or the first group that has one.
@@ -3771,7 +3776,12 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
             <h3 className="text-xl font-bold mb-2 text-lime-400">Application Sent!</h3>
             <p className="text-xs opacity-70">Our team will review your portfolio and vibe check your socials. You will be notified soon.</p>
             <p className="text-[10px] text-cyan-300 mt-3">Tip: reopen the Apply window anytime to view or edit your submitted form.</p>
-            <Button onClick={() => setS('form')} color="cyan" className="w-full text-xs mt-4">Apply for another creator type →</Button>
+            {/* V73.11: an approved creator pressing this used to be dropped back on the form with
+                their approved type selected and nothing to do. Send them where the approval
+                actually leads — the same destination the notification now opens. */}
+            {rkAppStatus === 'approved'
+                ? <Button onClick={() => { if (onOpenCreatorHub) onOpenCreatorHub(); if (onClose) onClose(); }} color="lime" className="w-full text-xs mt-4">Let's go — open your Creator Portal →</Button>
+                : <Button onClick={() => setS('form')} color="cyan" className="w-full text-xs mt-4">Apply for another creator type →</Button>}
         </Card>
     );
     return (
@@ -3783,7 +3793,21 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
             </div>
             {existingId && <div className="bg-cyan-900/20 border border-cyan-500/40 rounded p-2 mb-3"><p className="text-[10px] text-cyan-300">📋 This is your <strong>submitted application</strong> — review it or make edits anytime by reopening this Apply window.</p></div>}
             <div className="space-y-1">
-                <Input label="I'm applying as a…" type="select" options={['Kandi Maker', 'Music Creator', 'Content Creator']} value={d.creatorType} onChange={v=>hydrate(v)}/>
+                {/* V73.11: an already-approved type used to sit in the list as a normal choice,
+                    so a Kandi Maker could pick "Kandi Maker" again and only find out at submit.
+                    Disabled in place — still visible, so it reads as "you already have this"
+                    rather than the option having disappeared. */}
+                <div className="mb-4">
+                    <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>I'm applying as a…</label>
+                    <select value={d.creatorType} onChange={e => hydrate(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white">
+                        {['Kandi Maker', 'Music Creator', 'Content Creator'].map(t => {
+                            const st = (apps[t] && apps[t].data && apps[t].data.status) || null;
+                            const done = st === 'approved';
+                            return <option key={t} value={t} disabled={done} className="text-black">{t}{done ? ' — already approved ✓' : st === 'pending' ? ' — under review' : st === 'waitlist' ? ' — wait-listed' : ''}</option>;
+                        })}
+                    </select>
+                    {rkAppStatus === 'approved' && <p className="text-[10px] text-lime-300 mt-1">You are already an approved {d.creatorType}. Pick a different type to apply for another.</p>}
+                </div>
                 {existingId ? null : <p className="text-[10px] text-lime-300 -mt-1 mb-1">💾 Auto-saving your draft as you type — switch types or close anytime, nothing is lost. Each type is its own separate application.</p>}
                 <Input label="Full Name / DJ Name" value={d.name} onChange={v=>setD({...d, name:v})}/>
                 <Input label="Contact Email" type="email" value={d.email} onChange={v=>setD({...d, email:v})}/>
@@ -3876,7 +3900,7 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
     );
 };
 
-const KandiCreatorApplicationModal = ({ user, profile, isOpen, onClose, initialType }) => { 
+const KandiCreatorApplicationModal = ({ user, profile, isOpen, onClose, initialType, onOpenCreatorHub }) => { 
     if(!isOpen) return null;
     // Already an approved KANDI creator? Show the welcome view — unless they're applying for a
     // DIFFERENT creator type (V65.03), in which case go straight to the form.
@@ -3901,7 +3925,7 @@ const KandiCreatorApplicationModal = ({ user, profile, isOpen, onClose, initialT
             </Modal>
         );
     }
-    return ( <Modal isOpen={isOpen} onClose={onClose} title="Apply Now"><CreatorApplicationForm user={user} onClose={onClose} initialType={initialType} /></Modal> ); 
+    return ( <Modal isOpen={isOpen} onClose={onClose} title="Apply Now"><CreatorApplicationForm user={user} onClose={onClose} initialType={initialType} onOpenCreatorHub={onOpenCreatorHub} /></Modal> ); 
 };
 
 const EditSocialsModal = ({ user, profile, isOpen, onClose }) => {
@@ -7938,6 +7962,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                                 // meant no creator could claim it, because it never appeared in the
                                 // queue they actually work from.
                                 requestStatus: 'awaiting_assignment', openRequest: true, isRequest: true,
+                                // V73.12: this payload carried ownerId and ownerPublicUid but NOT
+                                // ownerName, so the Creator Hub — which renders req.ownerName —
+                                // showed "Client: Unknown" on every DIY request. A maker cannot
+                                // negotiate with, message or deliver to an unnamed counterparty.
+                                ownerName: profile?.displayName || 'Raver',
                                 estValue: parseFloat(res.estimated_cost) || 0,
                                 estMaterialCost: parseFloat(res.material_cost) || 0,
                                 estCreationFee: parseFloat(res.creation_fee) || 0,
@@ -9830,7 +9859,10 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                     flag.approvedFollowersAt = Date.now();
                     try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', a.id), { socialsApproved: approvedSocials, approvedFollowers: total }); } catch (e) {}
                 }
-                await setDoc(doc(db, 'artifacts', appId, 'users', a.uid), flag, { merge: true }); pushNotif(a.uid, 'admin', a.creatorType === 'Music Creator' ? '🎉 You are now a RaveKandi MUSIC CREATOR! Add tracks, samples & streams from your profile — they show in the Radio hub & feed. PLUR!' : a.creatorType === 'Content Creator' ? '🎉 You are now a RaveKandi CONTENT CREATOR! Build your showcase from your profile. PLUR!' : '🎉 Your Creator application was APPROVED! You can now post official drops, take DIY commissions & pin items. PLUR!'); }
+                // V73.11: type 'creator' (was 'admin', which routed to the profile page and left
+                // the new creator to find the portal themselves). 'creator' opens the Creator Hub
+                // directly — the notification says you are a creator, so it should take you there.
+                await setDoc(doc(db, 'artifacts', appId, 'users', a.uid), flag, { merge: true }); pushNotif(a.uid, 'creator', a.creatorType === 'Music Creator' ? '🎉 You are now a RaveKandi MUSIC CREATOR! Add tracks, samples & streams from your profile — they show in the Radio hub & feed. PLUR!' : a.creatorType === 'Content Creator' ? '🎉 You are now a RaveKandi CONTENT CREATOR! Build your showcase from your profile. PLUR!' : '🎉 Your Creator application was APPROVED! You can now post official drops, take DIY commissions & pin items. PLUR!'); }
             else if (status === 'denied') { pushNotif(a.uid, 'admin', '📋 Your Creator application was reviewed and not approved this time. You\'re welcome to refine your portfolio and reapply.'); }
             else if (status === 'waitlist') { pushNotif(a.uid, 'admin', '⏳ Your Creator application has been WAIT-LISTED. You\'re in the queue — we\'ll reach out as spots open up!'); }
             else if (status === 'pending') { pushNotif(a.uid, 'admin', '📋 Your Creator application is back under review.'); }
@@ -10928,13 +10960,26 @@ const InventoryManager = ({ user, profile }) => {
         </Card> 
     );
 };
-const CreatorProjectHub = ({ user, onClose }) => {
+const CreatorProjectHub = ({ user, profile, onClose, onMessageUser }) => {
     const [hubTab, setHubTab] = useState('open');
     // V65.06: live tick so the countdown chips update while the hub is open.
     const [hubNow, setHubNow] = useState(Date.now());
     useEffect(() => { const iv = setInterval(() => setHubNow(Date.now()), 15000); return () => clearInterval(iv); }, []);
     const [requests, setRequests] = useState([]);
     const [legacyPending, setLegacyPending] = useState([]);
+    // V73.12: progress WITHIN 'active'. requestStatus stays the lifecycle the tabs query — moving
+    // a job day to day must not make it jump tabs — so granular progress lives on its own field.
+    const RK_WORK_STAGES = [
+        { id: 'accepted',  label: 'Accepted' },
+        { id: 'sourcing',  label: 'Sourcing materials' },
+        { id: 'building',  label: 'Building' },
+        { id: 'finishing', label: 'Finishing / QC' },
+        { id: 'ready',     label: 'Ready to hand over' },
+    ];
+    const rkStageLabel = (id) => (RK_WORK_STAGES.find(x => x.id === id) || {}).label || 'Accepted';
+    // Names are resolved live for requests written before ownerName was stamped on the payload.
+    const [clientNames, setClientNames] = useState({});
+    const rkClientName = (req) => req.ownerName || clientNames[req.ownerId] || null;
 
     // V65.06: 'Open Requests' unifies the old Pending + Awaiting Creator queues — every
     // unclaimed post lands here, including ones whose priority window has expired (those are
@@ -10969,6 +11014,52 @@ const CreatorProjectHub = ({ user, onClose }) => {
     }, [requests, hubTab]);
 
     const list = hubTab === 'open' ? [...requests, ...legacyPending.filter(l => !requests.some(r => r.id === l.id))] : requests;
+    // Look up any client whose name was never stamped on the request. One read per unknown uid,
+    // cached, so an old request stays attributable instead of reading "Unknown" forever.
+    useEffect(() => {
+        const missing = [...new Set(list.filter(r => !r.ownerName && r.ownerId && !clientNames[r.ownerId]).map(r => r.ownerId))];
+        if (!missing.length) return;
+        let live = true;
+        Promise.all(missing.map(async uid => {
+            try { const d = await getDoc(doc(db, 'artifacts', appId, 'users', uid)); return [uid, d.exists() ? (d.data().displayName || null) : null]; }
+            catch (e) { return [uid, null]; }
+        })).then(pairs => { if (!live) return; setClientNames(prev => { const n = { ...prev }; pairs.forEach(([u, nm]) => { if (nm) n[u] = nm; }); return n; }); });
+        return () => { live = false; };
+    }, [list]);
+
+    const setWorkStage = async (req, stage) => {
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', req.id), { workStage: stage, workStageAt: Date.now() });
+            if (req.ownerId && req.ownerId !== user.uid) pushNotif(req.ownerId, 'diy', '🛠️ "' + req.name + '" moved to: ' + rkStageLabel(stage), req.id);
+        } catch (e) {
+            rkReport('creator hub setWorkStage -> ' + stage, e);
+            alert(e && e.code === 'permission-denied'
+                ? 'You do not have permission to update this project. If the rules are out of date, please report this.'
+                : 'Could not update the stage: ' + (e && e.message ? e.message : 'unknown error'));
+        }
+    };
+
+    // V73.12: completion used to be one tap with no preconditions — a creator could close a job
+    // that had never been priced, never progressed, and produced no evidence. RaveKandi holds no
+    // funds (settled at 266), so handover rests on things both parties can see: the work is
+    // actually finished, a price was agreed, and there is a photo of the result.
+    const rkCompletionBlockers = (item) => {
+        const b = [];
+        if ((item.workStage || 'accepted') !== 'ready') b.push('move the project to "Ready to hand over"');
+        if (!(Number(item.price) > 0)) b.push('agree a price with the client (it still reads $0.00)');
+        if (!item.completionImage) b.push('add a photo of the finished piece');
+        return b;
+    };
+    const attachCompletionPhoto = async (req, file) => {
+        if (!file) return;
+        try {
+            const img = await compressImage(file);
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', req.id), { completionImage: img, completionAt: Date.now() });
+        } catch (e) {
+            rkReport('creator hub completion photo', e);
+            alert('Could not attach the photo: ' + (e && e.message ? e.message : 'unknown error'));
+        }
+    };
 
     // V73.7: this had no catch anywhere in the chain, and the three handlers below call it
     // from an async onClick. A rules denial therefore threw into an unhandled rejection: the
@@ -10988,7 +11079,7 @@ const CreatorProjectHub = ({ user, onClose }) => {
         }
     };
     const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; if (!await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
-    const handleComplete = async (item) => { if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
+    const handleComplete = async (item) => { const blockers = rkCompletionBlockers(item); if (blockers.length) return alert('Not ready to complete yet. Still to do:\n\n\u2022 ' + blockers.join('\n\u2022 ')); if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
     const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; if (!await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
 
     return (
@@ -11009,7 +11100,14 @@ const CreatorProjectHub = ({ user, onClose }) => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="font-bold text-lg">{req.name}</h3>
-                                <p className="text-xs opacity-70">Client: {req.ownerName || 'Unknown'}</p>
+                                {/* V73.12: 'Unknown' was rendered whenever ownerName was absent —
+                                    which was every DIY request, because that payload never stamped
+                                    it. A job with no identifiable counterparty cannot be messaged,
+                                    negotiated or delivered. Name now falls back to a live lookup,
+                                    and the public UID is shown so the client is always identifiable
+                                    even if the account has no display name at all. */}
+                                <p className="text-xs opacity-70">Client: <span className="font-bold text-white">{rkClientName(req) || (req.ownerPublicUid ? '@' + req.ownerPublicUid : 'Resolving…')}</span></p>
+                                {req.ownerPublicUid && rkClientName(req) && <p className="text-[9px] opacity-40">@{req.ownerPublicUid}</p>}
                                 <div className="flex gap-1 mt-1 flex-wrap">
                                     {req.isAICreation && <span className="bg-purple-500/20 text-purple-400 text-[10px] px-1.5 rounded">AI Generated</span>}
                                     {req.isDIYRequest && <span className="bg-cyan-500/20 text-cyan-400 text-[10px] px-1.5 rounded">DIY Build</span>}
@@ -11037,7 +11135,47 @@ const CreatorProjectHub = ({ user, onClose }) => {
                                 return <span className="text-[10px] text-white/50 italic">not yet agreed</span>;
                             })()}
                         </div>
+                        {/* V73.12: the image was never rendered here. A maker was deciding whether
+                            to take a job — and quoting for it — from a text summary alone, while the
+                            picture the whole request was built around sat unused on the document. */}
+                        {(req.imageUrl || req.image) && (
+                            <img src={req.imageUrl || req.image} alt={req.name || 'Requested design'} loading="lazy"
+                                className="w-full rounded-lg mt-3 border border-white/10 bg-black/40 object-contain max-h-72"/>
+                        )}
                         <div className="bg-white/5 p-2 rounded mt-2 text-xs"><p className="font-bold mb-1">Vision:</p><p>{req.description || req.visual_description || 'No description provided.'}</p></div>
+                        {Array.isArray(req.estimated_materials) && req.estimated_materials.length > 0 && (
+                            <div className="bg-black/40 border border-white/10 rounded p-2 mt-2">
+                                <p className="text-[10px] font-black uppercase text-white/50 mb-1">Estimated materials</p>
+                                {req.estimated_materials.slice(0, 8).map((m, i) => (
+                                    <p key={i} className="text-[10px] text-white/70 flex justify-between gap-2"><span className="truncate">{m.name}{m.qty ? ' (' + m.qty + ')' : ''}</span><span className="shrink-0">${Number(m.unit_cost_usd || 0).toFixed(2)}</span></p>
+                                ))}
+                                {(req.estTimeHours || req.estDifficulty) && <p className="text-[9px] text-white/40 mt-1">~{req.estTimeHours || '?'}h · difficulty {req.estDifficulty || '?'}/10</p>}
+                            </div>
+                        )}
+                        {req.completionImage && (
+                            <div className="mt-2">
+                                <p className="text-[10px] font-black uppercase text-lime-300 mb-1">Finished piece</p>
+                                <img src={req.completionImage} alt="Finished piece" loading="lazy" className="w-full rounded-lg border border-lime-500/30 object-contain max-h-56"/>
+                            </div>
+                        )}
+                        {hubTab === 'active' && req.assigneeId === user.uid && (
+                            <div className="bg-black/40 border border-cyan-500/25 rounded-lg p-2.5 mt-3">
+                                <p className="text-[10px] font-black uppercase text-cyan-300 mb-1.5">Progress — the client sees this</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {RK_WORK_STAGES.map(st => {
+                                        const on = (req.workStage || 'accepted') === st.id;
+                                        return <button key={st.id} onClick={() => setWorkStage(req, st.id)}
+                                            className={'text-[10px] font-black px-2 py-1.5 rounded border ' + (on ? 'bg-cyan-500/25 text-cyan-100 border-cyan-400/60' : 'bg-white/5 text-white/60 border-white/15')}>{on ? '● ' : ''}{st.label}</button>;
+                                    })}
+                                </div>
+                                <label className="block mt-2">
+                                    <span className="text-[10px] text-white/50">{req.completionImage ? 'Replace the finished photo' : 'Photo of the finished piece (required to complete)'}</span>
+                                    <input type="file" accept="image/*" onChange={e => attachCompletionPhoto(req, e.target.files && e.target.files[0])}
+                                        className="block w-full text-[10px] mt-1 text-white/60 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-black file:bg-cyan-500/20 file:text-cyan-200"/>
+                                </label>
+                                {rkCompletionBlockers(req).length > 0 && <p className="text-[9px] text-yellow-300/80 mt-1.5">Before completing: {rkCompletionBlockers(req).join('; ')}.</p>}
+                            </div>
+                        )}
                         {req.dismissReason && <p className="text-[10px] text-red-400 mt-2">Denial reason: {req.dismissReason}</p>}
                         <div className="mt-4 flex gap-2">
                             {hubTab === 'open' && (<>
@@ -11049,6 +11187,15 @@ const CreatorProjectHub = ({ user, onClose }) => {
                                 <Button onClick={()=>handleDeny(req)} color="accent" className="flex-1 text-xs uppercase font-black italic">Deny</Button>
                             </>)}
                             {(hubTab === 'completed' || hubTab === 'denied') && <p className="text-[10px] opacity-40 uppercase">Archived</p>}
+                        </div>
+                        <div className="mt-2">
+                            {/* V73.12: reuses the existing messenger rather than a parallel thread
+                                store — one inbox, one set of rules, nothing new to secure. Price is
+                                agreed in conversation and written to `price`, which is already the
+                                agreed-cost field the completion gate checks. */}
+                            {req.ownerId && req.ownerId !== user.uid && onMessageUser && (
+                                <Button onClick={() => { onMessageUser(req.ownerId, rkClientName(req) || 'Client'); if (onClose) onClose(); }} color="purple" className="w-full text-xs flex items-center justify-center gap-2"><Mail size={14}/> Message {rkClientName(req) || 'the client'} about this build</Button>
+                            )}
                         </div>
                     </Card>
                 ))}
@@ -13287,10 +13434,13 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     );
 };
 
-const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial }) => {
+const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial, openCreatorHub, onConsumeCreatorHub }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
+    // V73.11: a tapped "you are now a creator" notification sets this from App. Consumed once and
+    // cleared immediately, so returning to the profile later does not reopen the hub.
+    useEffect(() => { if (openCreatorHub) { setShowCreatorHub(true); if (onConsumeCreatorHub) onConsumeCreatorHub(); } }, [openCreatorHub]);
     const [showAdminPortal, setShowAdminPortal] = useState(false);
     // ⚡ Quick Launch bus: App navigates to the profile page, then asks us to open an internal view.
     useEffect(() => {
@@ -13338,7 +13488,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     if(!user?.uid) return <div className="p-10 text-center flex flex-col items-center gap-4"><LoadingBar progress={50} className="w-32"/><p className="text-white animate-pulse font-black italic tracking-widest uppercase">Connecting to Hive...</p></div>;
     const uploadPic = async (e) => { const f = e.target.files[0]; if(f) { const img = await compressImage(f); await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { photoURL: img }, { merge: true }); } };
     const copyUid = () => { navigator.clipboard.writeText(profile.publicUid || user.uid); alert("Public Friend ID Copied!"); };
-    if(showCreatorHub) return <CreatorProjectHub user={user} onClose={() => setShowCreatorHub(false)} />;
+    if(showCreatorHub) return <CreatorProjectHub user={user} profile={profile} onClose={() => setShowCreatorHub(false)} onMessageUser={onMessageUser} />;
     
     if(showAdminPortal && profile.isAdmin) return (
         <div className="fixed inset-0 bg-black z-[100] overflow-y-auto p-4">
@@ -14129,6 +14279,10 @@ const App = () => {
     const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' });
     const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' };
     const [forceSettings, setForceSettings] = useState(false);
+    // V73.11: same pattern as forceSettings — App owns the flag, the profile page consumes it
+    // once and clears it. Lets a tapped notification open the Creator Hub, which is state that
+    // lives inside the profile page and is otherwise unreachable from here.
+    const [forceCreatorHub, setForceCreatorHub] = useState(false);
     const [cartOpen, setCartOpen] = useState(false);
     const [viewingProfileId, setViewingProfileId] = useState(null);
     useEffect(() => { viewingProfileRef.current = viewingProfileId; }, [viewingProfileId]);
@@ -15104,7 +15258,7 @@ cat << 'EOF' >> src/App.js
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)} profile={profile} onNeedWallet={() => { window.__rkWalletNudged = true; setWalletNudge({ open: true, next: null }); }}/>}
-            <KandiCreatorApplicationModal user={user} profile={profile} isOpen={!!creatorAppOpen} initialType={typeof creatorAppOpen === 'string' ? creatorAppOpen : null} onClose={() => setCreatorAppOpen(false)} />
+            <KandiCreatorApplicationModal user={user} profile={profile} isOpen={!!creatorAppOpen} onOpenCreatorHub={() => { setPage('profile'); setForceCreatorHub(true); }} initialType={typeof creatorAppOpen === 'string' ? creatorAppOpen : null} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} onOpenWallet={() => setWalletModalOpen(true)} onViewProfile={(u) => { setOpenReferrals(false); setViewingProfileId(u); }} />
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
@@ -15119,6 +15273,7 @@ cat << 'EOF' >> src/App.js
                 // "View in Feed" for when you actually want to go there.
                 if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart') && n.refId) { setNotifItemId(n.refId); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
+                else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
                 else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
             }} />}
             {notifItem && (
@@ -15526,7 +15681,7 @@ cat << 'EOF' >> src/App.js
                         )}
                    </div>
                 )}
-                {page === 'profile' && <ProfileView user={user} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
+                {page === 'profile' && <ProfileView user={user} openCreatorHub={forceCreatorHub} onConsumeCreatorHub={() => setForceCreatorHub(false)} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
             </main>
             <div className="fixed bottom-0 w-full bg-black border-t border-white/10 font-mono uppercase z-50 px-3 pt-1.5" style={{ paddingBottom: 'calc(6px + env(safe-area-inset-bottom))' }}>
                 {nowPlaying && (
