@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
 RK_MINOR=55
-RK_PATCH=140
-RK_BUILD=268
+RK_PATCH=141
+RK_BUILD=269
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1746,36 +1746,32 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         // travelled IN THE URL PATH. It now goes in a JSON body, so encodeURIComponent was feeding
         // the model percent-escapes instead of words — which is a large part of why the breakdown
         // came back vague ("Assorted materials (as needed)") against a specific total.
-        const instruction = (
-            "You are a master maker for the rave and festival scene - you make kandi, clothing, jewelry, accessories, equipment, stickers and more. " +
-            "Analyze the user\'s requested creation and return ONLY a JSON object with NO MARKDOWN. " +
-            // V73: Llama needs the shape stated far more explicitly than Pollinations did. It was
-            // returning prose, or JSON wrapped in commentary, and every response fell through to
-            // the fallback.
-            "Your entire reply must start with { and end with }. No preamble, no explanation, no code fences. " +
-            // Spelled out because the model will otherwise answer with one vague catch-all line.
-            "List EVERY material separately - never a single catch-all entry like 'assorted materials'. " +
-            "Each material needs a specific name, a real quantity with units, and unit_cost_usd = the TOTAL cost to buy that whole quantity (NOT a per-bead or per-yard price). " +
-            "total_material_cost_usd MUST equal the sum of the individual material costs - do not invent a separate figure. " +
-            "Aim for 3-8 materials for a typical item. " +
-            // V73.13: the model is NO LONGER asked to judge difficulty or time. It anchored on
-            // whatever example numbers appeared here and returned the same 7 / 3.5h for a single-
-            // strand bracelet and a full LED garment alike. It is now asked only for things it can
-            // observe and count; rkDeriveEffort() turns those into difficulty and hours from a fixed
-            // rubric. No example VALUE is given for any numeric field, because the example value is
-            // exactly what it latches onto.
-            "QUANTITIES MUST BE WHAT ONE FINISHED PIECE CONSUMES - not a shop pack size. " +
-            "A single kandi bracelet uses roughly 30-40 pony beads, not 100. Do not pad the list: if a " +
-            "piece needs three materials, list three. Never include a material the piece does not use. " +
-            "Do NOT estimate difficulty or time - both are calculated from the fields below. " +
-            "construction MUST be exactly one of: single_strand, letter_word, multi_strand, ladder_stitch, " +
-            "peyote_3d, perler, sculptural_beadwork, wire_wrap, resin_cast, no_sew, hand_sew, machine_sew, " +
-            "embroidery, print_sticker, assembly, led_wiring. " +
-            "unit_count = how many repeated elements the maker physically places (beads, perler pegs, panels, " +
-            "stitches). strand_count = separate strands or rows. needs_curing = true only if something must dry " +
-            "or set. finish_complexity is 1 (plain), 2 (some detailing) or 3 (heavy detailing). " +
-            'Format exactly: {"item_category":"one of Kandi/Clothing/Jewelry/Accessory/Equipment/Sticker/Other","visual_description":"vivid 1-2 sentence description","materials":[{"name":"specific material","qty":"amount for ONE piece","unit_cost_usd":0}],"primary_fabric":"main fabric or N/A","construction":"one of the listed values","unit_count":0,"strand_count":0,"has_electronics":false,"needs_sewing":false,"needs_curing":false,"finish_complexity":1,"total_material_cost_usd":0,"skill_notes":"short note on what makes it easy or hard"}'
-        );
+    // V73.14: THE USER REQUEST GOES FIRST. 268 grew this instruction to 2,106 characters against
+    // the Cloud Function's 2,000-character slice, so the user's actual request was cut off
+    // entirely and the model invented a generic rave item — a request for silk japanese-style
+    // trousers came back as a kandi necklace. Leading with the request means truncation can only
+    // ever cost us instruction detail, never the thing being asked for. The instruction is also
+    // trimmed back under budget. Order matters more than length here: any prompt assembled by
+    // concatenation must put the irreplaceable part where a slice cannot reach it.
+    const instruction = (
+        'MAKE THIS EXACT ITEM: "' + String(prompt || "").slice(0, 600) + '". ' +
+        "Stay faithful to it — the material, colour, garment type and style named above are the " +
+        "brief. Do not substitute a different item. " +
+        "You are a master maker for the rave and festival scene (kandi, clothing, jewelry, " +
+        "accessories, equipment, stickers). Reply ONLY with a JSON object, no markdown, starting " +
+        "with { and ending with }. " +
+        "List EVERY material separately with a specific name, a real quantity, and unit_cost_usd = " +
+        "the cost of that whole quantity. QUANTITIES ARE WHAT ONE FINISHED PIECE CONSUMES, not a " +
+        "shop pack size (a kandi bracelet uses ~35 pony beads, not 100). Never list a material the " +
+        "piece does not use. total_material_cost_usd must equal the sum of them. " +
+        "Do NOT estimate difficulty or time; they are calculated from your other fields. " +
+        "construction MUST be one of: single_strand, letter_word, multi_strand, ladder_stitch, " +
+        "peyote_3d, perler, sculptural_beadwork, wire_wrap, resin_cast, no_sew, hand_sew, " +
+        "machine_sew, embroidery, print_sticker, assembly, led_wiring. " +
+        "unit_count = repeated elements placed by hand (beads, pegs, panels, seams). " +
+        "strand_count = separate strands or rows. finish_complexity is 1, 2 or 3. " +
+        'Format: {"item_category":"Kandi/Clothing/Jewelry/Accessory/Equipment/Sticker/Other","visual_description":"vivid 1-2 sentences describing THIS item","materials":[{"name":"","qty":"","unit_cost_usd":0}],"primary_fabric":"","construction":"","unit_count":0,"strand_count":0,"has_electronics":false,"needs_sewing":false,"needs_curing":false,"finish_complexity":1,"total_material_cost_usd":0,"skill_notes":""}'
+    );
         // V72.2: the analysis runs in a Cloud Function now, on the same Cloudflare token as the
         // image. It used to fetch text.pollinations.ai directly from the browser, which started
         // returning 402 — and because this is the FIRST step, the Lab died at 15% and never got
@@ -1787,7 +1783,9 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         let rawText = '';
         try {
             const fn = httpsCallable(getFunctions(app), 'generateDesignAnalysis');
-            const r = await fn({ prompt: instruction + '. The user wants: ' + (prompt || '') });
+            // The request is already the FIRST thing in `instruction`. Appending it again here is
+            // what pushed the payload past the slice in the first place.
+            const r = await fn({ prompt: instruction });
             const t = r && r.data && r.data.text;
             // Accept an object too — if the function ever returns one again, this parses rather
             // than silently falling back to placeholder costs.
@@ -7919,7 +7917,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             try { await setDoc(jobRef, { status: 'done', result: r, doneAt: Date.now() }, { merge: true }); } catch (e) { rkReport('ai job save', e); }
             // V71.1: notify on completion. The whole point of a background job is that you left the
             // screen — being told nothing is barely better than losing the work.
-            try { pushNotif(user.uid, 'diy', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"'); } catch (e) {}
+            // V73.14: was type 'diy' with no refId, so it dropped you at the top of the feed to go
+            // and find the design yourself. It cannot link to an ITEM card — at this point the
+            // design is only an aiJob and becomes a tradeItem when the user saves it — so it gets
+            // its own type that reopens the Design Lab, where the finished result is waiting.
+            try { pushNotif(user.uid, 'ailab', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"'); } catch (e) {}
             setRes(r);
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
@@ -11242,7 +11244,11 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                                     it is now a real tap target: larger, and padded above and below so
                                     it cannot be caught by a stray tap meant for the title or tags. */}
                                 <button
-                                    onClick={() => { if (req.ownerId && onViewProfile) { onViewProfile(req.ownerId); if (onClose) onClose(); } }}
+                                    // V73.14: this used to close the hub. PublicProfilePage is z-[90] and the
+                                    // hub is z-50, so the profile already covers it — closing as well meant
+                                    // dismissing the profile dumped you back at your own page and you had to
+                                    // navigate into the hub again for every client you wanted to check.
+                                    onClick={() => { if (req.ownerId && onViewProfile) onViewProfile(req.ownerId); }}
                                     disabled={!req.ownerId || !onViewProfile}
                                     className="block text-left py-2.5 -my-0.5 group">
                                     <span className="block text-[9px] uppercase tracking-widest text-white/40">Client</span>
@@ -11338,7 +11344,7 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                                 agreed in conversation and written to `price`, which is already the
                                 agreed-cost field the completion gate checks. */}
                             {req.ownerId && req.ownerId !== user.uid && onMessageUser && (
-                                <Button onClick={() => { onMessageUser(req.ownerId, rkClientName(req) || 'Client'); if (onClose) onClose(); }} color="purple" className="w-full text-xs flex items-center justify-center gap-2"><Mail size={14}/> Message {rkClientName(req) || 'the client'} about this build</Button>
+                                <Button onClick={() => { onMessageUser(req.ownerId, rkClientName(req) || 'Client'); }} color="purple" className="w-full text-xs flex items-center justify-center gap-2"><Mail size={14}/> Message {rkClientName(req) || 'the client'} about this build</Button>
                             )}
                         </div>
                     </Card>
@@ -15421,6 +15427,7 @@ cat << 'EOF' >> src/App.js
                 // type where the item IS the whole message.
                 if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy') && n.refId) { setNotifItemId(n.refId); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
+                else if (t === 'ailab') { setMsgOpen(false); setPage('shop'); setTab('custom'); }
                 else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
                 else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
             }} />}
@@ -17157,7 +17164,11 @@ exports.generateDesignAnalysis = onCall(
   async (req) => {
     const uid = req.auth && req.auth.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
-    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 2000);
+    // V73.14: was 2000, which silently clipped the client's assembled prompt once the
+    // instruction grew past it — and a silent clip looks exactly like a model that ignored you.
+    // The client now leads with the user's request so truncation can only cost instruction
+    // detail, and this ceiling is high enough that it should not bite at all.
+    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 8000);
     if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
 
     const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
