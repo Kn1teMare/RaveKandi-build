@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
-RK_MINOR=52
-RK_PATCH=138
-RK_BUILD=263
+RK_MINOR=53
+RK_PATCH=139
+RK_BUILD=265
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -3601,6 +3601,41 @@ const RK_SOCIAL_GROUPS = [
 ];
 const RK_SOCIAL_PLATFORMS = RK_SOCIAL_GROUPS.reduce((a, s) => a.concat(s.items), []);
 const RK_SOCIAL_GROUP_OF = RK_SOCIAL_GROUPS.reduce((m, s) => { s.items.forEach(i => { m[i] = s.g; }); return m; }, {});
+// V73.10: profile URL per platform, so an admin reviewing an application can OPEN the
+// account instead of retyping a handle. Verification is the whole point of the approved-
+// follower system — if checking a platform is laborious, it stops happening and the
+// referral allowance ends up resting on unverified claims.
+// Returns '' where a platform has no addressable public profile; the UI then shows the
+// handle as plain text with a copy button rather than a dead link.
+// V73.10: shared so the form and any future sort/filter surface agree on the vocabulary.
+// 'Other' is free text on the application rather than an entry here.
+const RK_CRAFT_SPECIALTIES = ['Singles & Cuffs', 'Perler / Bead Art', '3D & Multi-Stitch',
+    'Wearables & Accessories', 'Clothing', 'Jewelry', 'Accessories', 'Stickers & Prints',
+    'Equipment & Totems', 'Masks & Headwear', 'Footwear', 'Pasties & Bodywear',
+    'LED / Light-up', 'Resin & Casting', 'Embroidery', 'Mixed / All of it'];
+
+const RK_SOCIAL_URL = (platform, handle) => {
+    const h = String(handle || '').trim().replace(/^@+/, '');
+    if (!h) return '';
+    if (/^https?:\/\//i.test(h)) return h;
+    const e = encodeURIComponent(h);
+    const M = {
+        Instagram: 'https://instagram.com/', TikTok: 'https://tiktok.com/@', X: 'https://x.com/',
+        Facebook: 'https://facebook.com/', Snapchat: 'https://snapchat.com/add/',
+        Reddit: 'https://reddit.com/user/', Threads: 'https://threads.net/@',
+        Pinterest: 'https://pinterest.com/', Tumblr: 'https://tumblr.com/',
+        BlueSky: 'https://bsky.app/profile/', YouTube: 'https://youtube.com/@',
+        Twitch: 'https://twitch.tv/', Kick: 'https://kick.com/', Rumble: 'https://rumble.com/c/',
+        SoundCloud: 'https://soundcloud.com/', Spotify: 'https://open.spotify.com/search/',
+        Bandcamp: 'https://bandcamp.com/', Mixcloud: 'https://mixcloud.com/',
+        Beatport: 'https://beatport.com/artist/', 'Apple Music': 'https://music.apple.com/search?term=',
+        Audius: 'https://audius.co/', Telegram: 'https://t.me/', Patreon: 'https://patreon.com/',
+        'Ko-fi': 'https://ko-fi.com/', 'Buy Me a Coffee': 'https://buymeacoffee.com/',
+        Etsy: 'https://etsy.com/shop/', Depop: 'https://depop.com/', eBay: 'https://ebay.com/usr/'
+    };
+    return M[platform] ? M[platform] + e : '';
+};
+
 const RK_SOCIAL_EMOJI = {
     Instagram: '📸', TikTok: '🎵', X: '✖️', Facebook: '👥', Snapchat: '👻', Reddit: '🤖', Threads: '🧵', Pinterest: '📌', Tumblr: '🌀', BlueSky: '🦋',
     YouTube: '▶️', Twitch: '🎮', Kick: '🟢', Rumble: '📺',
@@ -3620,7 +3655,11 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
     // type-specific questions, its own pending submission, and its own locally-autosaved draft —
     // nothing typed is ever lost, even if the user closes mid-application.
     const blank = (t) => ({ name: '', email: '', social: '', socials: [], portfolio: '', experience: '', yearsRaving: '< 1', yearsCreating: '< 1', creatorType: t || 'Kandi Maker',
-        specialty: 'Singles & Cuffs', shipsPhysical: 'Yes', musicPlatform: 'SoundCloud', musicLink: '', genres: '', djLive: 'Sometimes', contentPlatform: 'TikTok', followerRange: '< 1K', niche: '' });
+        // V73.10: specialty was ONE choice from five. Makers do several of these — forcing a
+        // single answer meant "Mixed / All of it" was the only honest option for most of them,
+        // which told a reviewer nothing. `specialty` stays as a comma-joined string so existing
+        // applications and anything reading it keep working; `specialties` is the real list.
+        specialty: '', specialties: [], specialtyOther: '', shipsPhysical: 'Yes', musicPlatform: 'SoundCloud', musicLink: '', genres: '', djLive: 'Sometimes', contentPlatform: 'TikTok', followerRange: '< 1K', niche: '' });
     const [s, setS] = useState('form');
     const [d, setD] = useState(blank(initialType));
     const [loading, setLoading] = useState(false);
@@ -3632,7 +3671,13 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
         const handle = String(ns.handle || '').trim().replace(/^@+/, '');
         if (!handle) return alert('Enter your ' + ns.p + ' handle first.');
         if ((d.socials || []).some(x => x.p === ns.p)) return alert(ns.p + ' is already added. Remove that row to change it.');
-        const claimed = Math.max(0, parseInt(String(ns.claimed).replace(/[^0-9]/g, ''), 10) || 0);
+        // V73.10: a blank follower box used to fall through to 0 and save silently. The approved
+        // total drives the referral allowance, so a platform submitted with no claim gave the
+        // reviewer nothing to check against and quietly counted as zero.
+        const rawClaim = String(ns.claimed == null ? '' : ns.claimed).trim();
+        if (!rawClaim) return alert('Follower count must be entered for ' + ns.p + '. Enter 0 if the account is brand new.');
+        if (!/^[0-9,.\s]+$/.test(rawClaim)) return alert('Enter the ' + ns.p + ' follower count as a number.');
+        const claimed = Math.max(0, parseInt(rawClaim.replace(/[^0-9]/g, ''), 10) || 0);
         const next = [...(d.socials || []), { p: ns.p, g: RK_SOCIAL_GROUP_OF[ns.p] || 'Other', handle, claimed }];
         setD({ ...d, socials: next });
         // Land on the next still-free platform in the same group, or the first group that has one.
@@ -3643,13 +3688,31 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
             : { g: fallbackGroup ? fallbackGroup.g : 'Other', p: fallbackGroup ? fallbackGroup.items.filter(p => !next.some(y => y.p === p))[0] : 'Other', handle: '', claimed: '' });
     };
     const removeSocial = (i) => setD({ ...d, socials: (d.socials || []).filter((_, j) => j !== i) });
-    const [apps, setApps] = useState({});   // creatorType -> { id, data } for PENDING apps only
+    const [apps, setApps] = useState({});   // creatorType -> { id, data } — newest of ANY status
     const existingId = (apps[d.creatorType] && apps[d.creatorType].id) || null;
+    // V73.10: an application under review may be EDITED but never resubmitted as a new one.
+    // 'denied' is the one status that reopens the form — the denial notification explicitly
+    // invites reapplying, so a fresh submission is correct there.
+    const rkAppStatus = (apps[d.creatorType] && apps[d.creatorType].data && apps[d.creatorType].data.status) || null;
+    const rkLocked = rkAppStatus === 'pending' || rkAppStatus === 'waitlist' || rkAppStatus === 'approved';
     const draftKey = (t) => 'rk_creator_draft_' + (user?.uid || 'anon') + '_' + String(t || '').replace(/\s+/g, '');
     const hydrate = (t, appMap) => {
         const m = appMap || apps;
         const pend = m[t];
-        if (pend) { setD({ ...blank(t), ...pend.data, creatorType: t }); return; }
+        if (pend) {
+            // V73.10: applications filed before the multi-select stored `specialty` as one
+            // string. Spreading pend.data over blank() would leave `specialties` empty and the
+            // chips would render unselected, so an existing applicant opening their own form
+            // would think their answer had been lost. Rebuild the list from the old value.
+            const merged = { ...blank(t), ...pend.data, creatorType: t };
+            if (!(merged.specialties || []).length && merged.specialty) {
+                const parts = String(merged.specialty).split(',').map(x => x.trim()).filter(Boolean);
+                merged.specialties = parts.filter(x => RK_CRAFT_SPECIALTIES.includes(x));
+                const other = parts.filter(x => !RK_CRAFT_SPECIALTIES.includes(x)).join(', ');
+                if (other && !merged.specialtyOther) merged.specialtyOther = other;
+            }
+            setD(merged); return;
+        }
         try { const raw = localStorage.getItem(draftKey(t)); if (raw) { setD(prev => ({ ...blank(t), ...JSON.parse(raw), creatorType: t, name: prev.name || JSON.parse(raw).name || '', email: prev.email || JSON.parse(raw).email || '' })); return; } } catch (e) {}
         setD(prev => ({ ...blank(t), name: prev.name, email: prev.email, social: prev.social, portfolio: prev.portfolio }));
     };
@@ -3660,7 +3723,19 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
         if(user?.uid && !user.isAnonymous) {
             getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('uid', '==', user.uid))).then(snap => {
                 const m = {};
-                snap.docs.forEach(dd => { const a = dd.data(); if (a.status === 'pending') m[a.creatorType || 'Kandi Maker'] = { id: dd.id, data: a }; });
+                // V73.10: this used to keep ONLY pending applications. Two bugs came out of that
+                // one line. A wait-listed or denied application vanished from the form, so the
+                // user could submit a SECOND application of the same type — duplicates piled up
+                // with no way for an admin to tell which was current. And because the stored doc
+                // was the only copy of what they had typed, everything they entered was gone and
+                // had to be re-keyed from scratch. Keep the newest application per type whatever
+                // its status; `rkLocked` below decides what may be edited or resubmitted.
+                snap.docs.forEach(dd => {
+                    const a = dd.data(); const t = a.creatorType || 'Kandi Maker';
+                    const cur = m[t];
+                    const stamp = a.updatedAt || a.submittedAt || 0;
+                    if (!cur || stamp > (cur.data.updatedAt || cur.data.submittedAt || 0)) m[t] = { id: dd.id, data: a };
+                });
                 setApps(m);
                 hydrate(initialType || 'Kandi Maker', m);
             }).catch(() => {});
@@ -3670,6 +3745,11 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
     const sub = async () => { 
         if(user?.isAnonymous) return alert("Please authenticate an account to apply.");
         if(!d.name || !d.email || !user?.uid) return alert("Name and Email are required.");
+        // V73.10: without this, a wait-listed or approved applicant could file a second
+        // application of the same type. Editing the existing one is always allowed.
+        if (rkLocked && !existingId) return alert('You already have a ' + d.creatorType + ' application on file. You can edit it until a decision is made.');
+        if (rkAppStatus === 'approved') return alert('You are already an approved ' + d.creatorType + '. Nothing further to submit.');
+        if (d.creatorType === 'Kandi Maker' && !(d.specialties || []).length && !String(d.specialtyOther || '').trim()) return alert('Pick at least one craft specialty, or describe your own under Other.');
         setLoading(true);
         try {
             if(existingId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', existingId), { ...d, updatedAt: Date.now() }); setApps(m => ({ ...m, [d.creatorType]: { id: existingId, data: { ...d } } })); }
@@ -3757,7 +3837,25 @@ const CreatorApplicationForm = ({ user, onClose, initialType }) => {
                     <Input label={d.creatorType === 'Music Creator' ? 'Years Making Music' : d.creatorType === 'Content Creator' ? 'Years Creating Content' : 'Years Crafting'} type="select" options={['< 1', '1-2', '3-5', '5-10', '10+']} value={d.yearsCreating} onChange={v=>setD({...d, yearsCreating:v})} />
                 </div>
                 {d.creatorType === 'Kandi Maker' && (<>
-                    <Input label="Craft Specialty" type="select" options={['Singles & Cuffs', 'Perler / Bead Art', '3D & Multi-Stitch', 'Wearables & Accessories', 'Mixed / All of it']} value={d.specialty} onChange={v=>setD({...d, specialty:v})}/>
+                    <div>
+                        <label className="text-[10px] font-black uppercase tracking-wider text-white/60 block mb-1.5">Craft Specialty — pick every one that applies</label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {RK_CRAFT_SPECIALTIES.map(opt => {
+                                const on = (d.specialties || []).includes(opt);
+                                return (
+                                    <button key={opt} type="button"
+                                        onClick={() => { const cur = d.specialties || []; const next = on ? cur.filter(x => x !== opt) : [...cur, opt]; setD({ ...d, specialties: next, specialty: [...next, ...(d.specialtyOther ? [d.specialtyOther] : [])].join(', ') }); }}
+                                        className={'text-[10px] font-black px-2.5 py-1.5 rounded border ' + (on ? 'bg-purple-500/25 text-purple-100 border-purple-400/60' : 'bg-white/5 text-white/60 border-white/15')}>
+                                        {on ? '✓ ' : ''}{opt}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <input value={d.specialtyOther || ''} placeholder="Other — describe it in your own words"
+                            onChange={e => { const v = e.target.value; setD({ ...d, specialtyOther: v, specialty: [...(d.specialties || []), ...(v ? [v] : [])].join(', ') }); }}
+                            className="mt-2 w-full bg-black border border-white/20 text-[11px] p-2 rounded"/>
+                        {(d.specialties || []).length === 0 && !d.specialtyOther && <p className="text-[9px] text-yellow-300/80 mt-1">Pick at least one, or describe your own.</p>}
+                    </div>
                     <Input label="Can you ship physical items?" type="select" options={['Yes', 'Local only', 'Digital designs only']} value={d.shipsPhysical} onChange={v=>setD({...d, shipsPhysical:v})}/>
                 </>)}
                 {d.creatorType === 'Music Creator' && (<>
@@ -6200,8 +6298,15 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
         updates.contactComplete = !!(phone && (email || user?.email));
         try { updates.notifsMaxed = NOTIFICATION_TYPES.every(t => !!(prefs?.phone?.[t.id] && prefs?.email?.[t.id])); } catch (e) {}
 
-        if(phone) { updates.phoneNumber = phone; await addDoc(collection(db, 'artifacts', appId, 'promo_logs'), { type: 'phone_update', phone, uid: user.uid, timestamp: Date.now() }); } 
+        // V73.9: this addDoc used to sit HERE, before the save, un-caught. promo_logs had no
+        // Firestore rule, so it threw, and the setDoc below never ran — every user who entered
+        // a phone number lost their whole settings save with no error shown. The audit write is
+        // now deferred until after the save succeeds and can no longer take it down.
+        if(phone) { updates.phoneNumber = phone; } 
         await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), updates, { merge: true });
+        // Audit trail, deliberately AFTER the save and deliberately swallowed: a failed log
+        // must never cost the user their settings. rkReport still records it for us.
+        if(phone) { try { await addDoc(collection(db, 'artifacts', appId, 'promo_logs'), { type: 'phone_update', phone, uid: user.uid, timestamp: Date.now() }); } catch(e) { rkReport('promo_logs phone_update', e); } }
         if(email && email !== user.email) { try { await updateEmail(user, email); alert("Email Updated!"); } catch(e) { alert("Email Error: " + e.message); } } 
         alert("Settings Saved!");
     };
@@ -7610,10 +7715,15 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             const snap = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid));
             if(snap.exists()) {
                 const data = snap.data(); const lastReset = data.lastAiReset || 0; const now = new Date();
-                const utc = now.getTime() + (now.getTimezoneOffset() * 60000); const cstDate = new Date(utc + (3600000 * -6)); 
-                const resetTarget = new Date(cstDate); resetTarget.setHours(12, 0, 0, 0);
-                if (cstDate.getHours() < 12) resetTarget.setDate(resetTarget.getDate() - 1);
-                if (lastReset < resetTarget.getTime()) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { aiUsageCount: 0, lastAiReset: Date.now() }, { merge: true }); setRemaining(DAILY_AI_LIMIT); } 
+                // V73.9: this used to build a CST wall-clock target and reset at 12:00 Central,
+                // while the Cloud Function enforces the SAME cap against midnight UTC. Two
+                // independent counters on two different schedules: for six hours a day the
+                // number on screen and the number actually enforced were different numbers.
+                // It was also comparing a timezone-shifted pseudo-date's epoch against a real
+                // epoch, so the boundary was skewed by the offset on top of that.
+                // The server is authoritative, so the display now matches it exactly.
+                const resetTarget = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+                if (lastReset < resetTarget) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { aiUsageCount: 0, lastAiReset: Date.now() }, { merge: true }); setRemaining(DAILY_AI_LIMIT); } 
                 else { setRemaining(DAILY_AI_LIMIT - (data.aiUsageCount || 0)); }
             }
         };
@@ -9476,7 +9586,9 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
 
 // Collapsible section wrapper — the Admin Console was one endless scroll; now one panel opens at a time.
 const AdminSection = ({ id, title, tint, badge, open, onToggle, children }) => (
-    <div className={'rounded-lg mb-2.5 border ' + tint.border + ' ' + (open ? tint.bg : 'bg-white/5')}>
+    // V73.10: addressable so one section can send the admin to another (application review ->
+    // User Manager). Without a DOM id the old handler could only scroll to the page bottom.
+    <div id={'rk-admin-sec-' + id} className={'rounded-lg mb-2.5 border ' + tint.border + ' ' + (open ? tint.bg : 'bg-white/5')}>
         <button onClick={() => onToggle(open ? null : id)} className="w-full flex items-center justify-between gap-2 p-3 text-left active:scale-[0.99] transition">
             <span className={'text-xs font-black uppercase tracking-wider ' + tint.text}>{title}</span>
             <span className="flex items-center gap-2 shrink-0">
@@ -9666,7 +9778,14 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
     const [batchRate, setBatchRate] = useState('');
     const [batchBusy, setBatchBusy] = useState(false);
 
-    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), where('status', '==', 'pending')), s => setApps(s.docs.map(d => ({...d.data(), id: d.id})))), []);
+    // V73.10: this filtered to status == 'pending', so the moment an application was
+    // wait-listed it disappeared from the only screen that could see it. There was no way to
+    // find it again, review it, or change the decision — a wait-list was effectively a delete.
+    // Read every application and filter in the UI, where the admin can choose.
+    useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications')), s => setApps(s.docs.map(d => ({...d.data(), id: d.id})).sort((a,b)=>(b.updatedAt||b.submittedAt||0)-(a.updatedAt||a.submittedAt||0)))), []);
+    const [appFilter, setAppFilter] = useState('pending');
+    const RK_APP_STATUSES = ['pending', 'waitlist', 'approved', 'denied', 'all'];
+    const rkAppsShown = apps.filter(a => appFilter === 'all' || (a.status || 'pending') === appFilter);
     useEffect(() => onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tickets')), s => setTickets(s.docs.map(d => ({...d.data(), id: d.id})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)))), []);
 
     const [reviewApp, setReviewApp] = useState(null); // V48: the application being reviewed in the pop-in
@@ -10292,15 +10411,32 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             </div>
             </AdminSection>
 
-            <AdminSection id="apps" title="📋 Pending Creator Applications" tint={RK_ADMIN_TINTS.apps} badge={apps.length} open={openSec === 'apps'} onToggle={setOpenSec}>
-            {apps.length === 0 && <p className="text-center text-white/60 text-xs py-4">No pending applications.</p>}
-            {apps.map(a => (
+            <AdminSection id="apps" title="📋 Creator Applications" tint={RK_ADMIN_TINTS.apps} badge={apps.filter(a => (a.status || 'pending') === 'pending').length} open={openSec === 'apps'} onToggle={setOpenSec}>
+            {/* V73.10: the badge counts PENDING (the queue that needs you); the filter reaches
+                every other status, including wait-listed applications that were previously
+                unreachable once decided. Any application can be reopened and re-decided here. */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+                {RK_APP_STATUSES.map(st => {
+                    const n = st === 'all' ? apps.length : apps.filter(a => (a.status || 'pending') === st).length;
+                    return (
+                        <button key={st} onClick={() => setAppFilter(st)}
+                            className={'text-[10px] font-black uppercase px-2.5 py-1.5 rounded border ' + (appFilter === st ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400/60' : 'bg-white/5 text-white/60 border-white/15')}>
+                            {st} ({n})
+                        </button>
+                    );
+                })}
+            </div>
+            {rkAppsShown.length === 0 && <p className="text-center text-white/60 text-xs py-4">No {appFilter === 'all' ? '' : appFilter + ' '}applications.</p>}
+            {rkAppsShown.map(a => (
                 <button key={a.id} onClick={() => setReviewApp(a)} className="w-full bg-white/5 hover:bg-white/10 p-3 rounded mb-2 flex justify-between items-center text-left border border-white/10">
                     <div className="min-w-0">
                         <p className="text-sm font-bold truncate">{a.name || 'Unnamed'} <span className="text-[10px] font-black uppercase bg-purple-500/25 text-purple-200 px-1.5 py-0.5 rounded ml-1">{a.creatorType || 'Kandi Maker'}</span></p>
                         <p className="text-[10px] opacity-50 truncate">{a.email} · {a.yearsCreating} crafting · {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : ''}</p>
                     </div>
-                    <span className="text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded shrink-0">Review →</span>
+                    <span className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={'text-[9px] font-black uppercase px-1.5 py-0.5 rounded ' + ({ approved: 'bg-lime-500/20 text-lime-300', denied: 'bg-red-500/20 text-red-300', waitlist: 'bg-yellow-500/20 text-yellow-300' }[a.status] || 'bg-white/10 text-white/70')}>{a.status || 'pending'}</span>
+                        <span className="text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded">Review →</span>
+                    </span>
                 </button>
             ))}
             </AdminSection>
@@ -10330,7 +10466,14 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                         {(reviewApp.socials || []).map(sc => (
                                             <div key={sc.p} className="bg-white/5 border border-white/10 rounded-lg p-2">
                                                 <div className="flex items-center justify-between gap-2 mb-1.5">
-                                                    <p className="text-[11px] font-bold text-white truncate">{RK_SOCIAL_EMOJI[sc.p] || '🔗'} {sc.p} — @{sc.handle}</p>
+                                                    {/* V73.10: open and copy per platform. Verifying a claim meant
+                                                        retyping a handle into another app by hand, which is exactly the
+                                                        friction that makes a reviewer approve on trust instead. */}
+                                                    <p className="text-[11px] font-bold text-white truncate flex-1 min-w-0">{RK_SOCIAL_EMOJI[sc.p] || '🔗'} {sc.p} — @{sc.handle}</p>
+                                                    <span className="flex items-center gap-1 shrink-0">
+                                                        {RK_SOCIAL_URL(sc.p, sc.handle) && <a href={RK_SOCIAL_URL(sc.p, sc.handle)} target="_blank" rel="noreferrer" className="text-[10px] font-black px-2 py-1 rounded border border-cyan-400/50 bg-cyan-500/15 text-cyan-200">Open ↗</a>}
+                                                        <button onClick={() => { const t = RK_SOCIAL_URL(sc.p, sc.handle) || sc.handle; try { navigator.clipboard.writeText(t); alert('Copied: ' + t); } catch (e) { alert(t); } }} className="text-[10px] font-black px-2 py-1 rounded border border-white/25 bg-white/5 text-white/70">Copy</button>
+                                                    </span>
                                                     <button onClick={() => setSocialVerified(v => ({ ...v, [sc.p]: !v[sc.p] }))} className={'shrink-0 text-[10px] font-black px-2 py-1 rounded border ' + (socialVerified[sc.p] ? 'text-lime-200 bg-lime-500/15 border-lime-400/60' : 'text-white/60 bg-white/5 border-white/20')}>{socialVerified[sc.p] ? '✅ Verified' : 'Mark verified'}</button>
                                                 </div>
                                                 <div className="flex items-center gap-2">
@@ -10368,7 +10511,12 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                 <Button onClick={() => setVipFor(reviewApp.uid, reviewApp.name, true)} color="gold" className="text-[10px] py-1.5">⭐ Grant VIP</Button>
                                 <Button onClick={() => setVipFor(reviewApp.uid, reviewApp.name, false)} color="accent" className="text-[10px] py-1.5">Remove VIP</Button>
                             </div>
-                            <Button onClick={async () => { const u = await getDoc(doc(db, 'artifacts', appId, 'users', reviewApp.uid)); if (u.exists()) { pickUser({ ...u.data(), id: u.id }); setReviewApp(null); setAdminTab('config'); try { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); } catch (e) {} } }} color="cyan" className="w-full text-[10px] py-2">⚙️ Open in User Manager (commission, tiers, RevShare %, badges, bans)</Button>
+                            {/* V73.10: this set adminTab to 'config'. There are only TWO tabs — 'tools' and
+                                'tickets' — and 'config' is an AdminSection id, not a tab. So neither branch
+                                matched, the entire portal body rendered nothing, and the only way out was to
+                                close the portal completely. Stay on 'tools' and open the users SECTION, which
+                                is where the User Manager actually lives. */}
+                            <Button onClick={async () => { const u = await getDoc(doc(db, 'artifacts', appId, 'users', reviewApp.uid)); if (u.exists()) { pickUser({ ...u.data(), id: u.id }); setReviewApp(null); setAdminTab('tools'); setOpenSec('users'); try { setTimeout(() => { const el = document.getElementById('rk-admin-sec-users'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); } catch (e) {} } else { alert('That user account no longer exists.'); } }} color="cyan" className="w-full text-[10px] py-2">⚙️ Open in User Manager (commission, tiers, RevShare %, badges, bans)</Button>
                             <p className="text-[10px] opacity-50">The User Manager has full control: set commission rate, RevShare % / tier, force badges, edit stats, and ban — all for this applicant.</p>
                         </div>
                     </div>
