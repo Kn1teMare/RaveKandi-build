@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=75
 RK_MINOR=57
-RK_PATCH=143
-RK_BUILD=275
+RK_PATCH=144
+RK_BUILD=276
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -5743,6 +5743,27 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     // the completion gate checks, and already in the tradeItems rules whitelist, so the whole
     // negotiation needs no rules change. A counter is just another offer travelling the other way.
     const [counterDraft, setCounterDraft] = useState('');
+    const [newOfferDraft, setNewOfferDraft] = useState('');
+    // V75.2: the ONLY way to put a figure in the chat was the creator's hub, and the only reply was
+    // a counter on a live offer. So once an offer was withdrawn or expired, nobody could restart:
+    // the client had never been able to open a negotiation at all, and the creator had to leave the
+    // conversation, find the project in the hub and come back. Either side can open one here.
+    const rkLastOfferCtx = (() => {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m && m.offerItemId && ['offer', 'offer_counter', 'offer_accept', 'offer_cancel'].includes(m.kind)) return { id: m.offerItemId, name: m.offerItemName || 'Project' };
+        }
+        return null;
+    })();
+    const rkSendFreshOffer = async () => {
+        const amt = Number(newOfferDraft);
+        if (!(amt > 0)) return alert('Enter the amount you want to propose.');
+        if (!activeOtherUid || !rkLastOfferCtx) return;
+        try {
+            await sendOfferMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName || 'Raver', rkLastOfferCtx, amt, 'offer');
+            setNewOfferDraft('');
+        } catch (e) { rkReport('new offer', e); alert('Could not send that: ' + (e && e.message ? e.message : 'unknown error')); }
+    };
     // The newest un-settled offer is the only actionable one. Walking backwards also means an
     // acceptance closes the thread's negotiation: nothing above it can be actioned again.
     const rkLatestOfferId = (() => {
@@ -5774,10 +5795,15 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     };
     const rkCancelOffer = async (m) => {
         if (!activeOtherUid) return;
-        if (!window.confirm('Withdraw this offer? They will see it was withdrawn.')) return;
+        if (!window.confirm('Withdraw this offer? The card is removed and either of you can make a fresh one.')) return;
         try {
+            // V75.2: the offer message is DELETED, not just superseded. Messages allow participant
+            // delete under the rules, and a withdrawn figure is noise rather than record — the
+            // thing worth keeping is the accepted deal, which still leaves a permanent card. The
+            // marker stays so an older superseded offer above it cannot come back to life.
             await sendOfferMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName || 'Raver',
                 { id: m.offerItemId, name: m.offerItemName }, Number(m.offerAmount || 0), 'offer_cancel');
+            try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread, 'messages', m.id)); } catch (e2) { rkReport('offer cancel delete', e2); }
         } catch (e) { rkReport('offer cancel', e); alert('Could not withdraw that: ' + (e && e.message ? e.message : 'unknown error')); }
     };
     const rkRespondOffer = async (m, amount, mode) => {
@@ -6169,6 +6195,20 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                         )}
                         <div className="h-[55vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col">
                             {msgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi! 👋</p>}
+                            {/* Appears only when the thread has an item in play and no live offer —
+                                exactly the dead end that existed before. */}
+                            {rkLastOfferCtx && !rkLatestOfferId && (
+                                <div className="self-stretch rounded-xl border border-cyan-400/40 bg-cyan-500/10 p-3 my-1">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-cyan-300">No offer on the table</p>
+                                    <p className="text-[10px] text-white/60 mb-2 truncate">{rkLastOfferCtx.name}</p>
+                                    <div className="flex gap-1.5">
+                                        <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="Propose a figure"
+                                            value={newOfferDraft} onChange={e => setNewOfferDraft(e.target.value)}
+                                            className="flex-1 min-w-0 bg-black border border-white/20 text-xs p-2 rounded"/>
+                                        <button onClick={rkSendFreshOffer} className="text-[10px] font-black px-3 rounded border border-cyan-400/50 bg-cyan-500/20 text-cyan-200">Make an offer</button>
+                                    </div>
+                                </div>
+                            )}
                             {refItem && (
                                 <Modal isOpen={!!refItem} onClose={() => setRefItem(null)} zClass="z-[200]" title={refItem.name || 'Project'}>
                                     {(refItem.imageUrl || refItem.image) && <img src={refItem.imageUrl || refItem.image} alt={refItem.name || 'Project'} className="w-full rounded-lg border border-white/10 object-contain max-h-64 mb-3"/>}
@@ -14269,15 +14309,18 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
 
                         
                         {/* V75: every raver gets this one — it is the client half of the DIY flow,
-                            not a creator feature. It only announces itself when there is something
-                            to see, so a raver who has never sent a design is not shown a portal to
-                            an empty room. */}
-                        {myActiveCount > 0 && (
+                            not a creator feature.
+                            V75.2: it used to render only when myActiveCount > 0. That hid the whole
+                            feature from anyone who had not already started a project, including the
+                            person trying to find it — a surface you can only see once you are
+                            already using it cannot be discovered, or tested. It is always visible
+                            now; the badge is what appears conditionally. */}
+                        {true && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-cyan-400 rounded-r flex items-center justify-between">
                                 <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">My Projects</span>
                                 <button onClick={() => setShowMyProjects(true)} className="relative bg-cyan-500/20 text-cyan-300 p-2 rounded hover:bg-cyan-500/40">
                                     <Package size={16}/>
-                                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-black text-[9px] font-black flex items-center justify-center">{myActiveCount}</span>
+                                    {myActiveCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-black text-[9px] font-black flex items-center justify-center">{myActiveCount}</span>}
                                 </button>
                             </div>
                         )}
