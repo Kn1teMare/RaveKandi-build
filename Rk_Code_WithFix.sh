@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=73
-RK_MINOR=56
+RK_MAJOR=75
+RK_MINOR=57
 RK_PATCH=141
-RK_BUILD=270
+RK_BUILD=273
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1649,7 +1649,14 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
             itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
             referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
             referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
-            isVIP: false, customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
+            // V74: FOUNDER VIP. Launch Perks used to be a live config read — isEffVIP() returned
+            // true only WHILE the flag was on, so the day it was switched off every raver who had
+            // signed up under the promise would have lost VIP. That is not what was promised, and
+            // an entitlement that evaporates when an admin toggles a setting is not an
+            // entitlement. It is written into the account instead, permanently, so it survives
+            // the flag being turned off and does not depend on it ever being read again.
+            ...(RK_CFG.launchPerks ? { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() } : { isVIP: false }),
+            customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
         });
 
         // STEP 2 — best-effort side writes. Each is isolated so a permissions error on
@@ -1835,8 +1842,13 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         let analysis;
         try {
             const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-            analysis = JSON.parse(jsonMatch ? jsonMatch[0] : cleanText);
+            // V74: the old path was one greedy match for {...} and a single JSON.parse. A reply
+            // cut off by the token limit has no closing brace, so the match returned null, the
+            // raw truncated text went to JSON.parse, and a response that had understood the
+            // request perfectly — right item, right materials — was thrown away for a generic
+            // fallback. Try to repair instead of discarding.
+            analysis = rkParseAnalysis(cleanText);
+            if (!analysis) throw new Error('unrepairable');
             analysis.imageUrl = '';
         } catch (parseError) {
             // V73: this fallback has been firing on EVERY generation and nobody could tell.
@@ -1845,7 +1857,12 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             // identical for a t-shirt, a necklace and a bracelet, which is what gave it away. The
             // analysis was failing silently and the screen showed placeholder numbers as if they
             // were real. A console.warn on a phone is not a report.
-            rkReport('AI analysis JSON unparseable (fallback used)', new Error(String(rawText).slice(0, 200)));
+            // Log the LENGTH and the TAIL as well as the head. The head is always the part that
+            // looks fine; whether a reply was truncated is only visible at the end, and the old
+            // report kept the first 200 characters and threw the evidence away.
+            const rt = String(rawText);
+            rkReport('AI analysis JSON unparseable (fallback used) len=' + rt.length,
+                new Error('HEAD: ' + rt.slice(0, 140) + ' || TAIL: ' + rt.slice(-140)));
             analysis = {
                 item_category: "Custom",
                 visual_description: prompt.substring(0, 150),
@@ -1949,6 +1966,8 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             estimated_time_hours: timeHrs,
             effort_basis: effort.basis,
             construction: effort.construction,
+            _fallback: !!analysis._fallback,
+            _repaired: !!analysis._repaired,
             material_cost: materialCost.toFixed(2),
             creation_fee: creationFee.toFixed(2),
             complexity_surcharge: complexitySurcharge.toFixed(2),
@@ -1982,6 +2001,63 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
 // drying are NOT included - resin sets for hours but the maker is not standing over it, and
 // billing elapsed time as labour is exactly how a $10 bracelet became an $81 one.
 // ============================================================================================
+
+// V74: tolerant analysis parser. Workers AI returns JSON as a string, sometimes fenced, and
+// sometimes cut off by the token ceiling mid-object. Rather than accept-or-discard, work
+// inwards: as-is, then as an extracted object, then repaired by rewinding to the last point
+// that CAN be closed cleanly. A reply that named the right item and the right materials should
+// not be thrown away because its final brace never arrived.
+//
+// The subtlety that broke the first attempt: when you rewind, you must close the brackets that
+// are open AT THE REWIND POINT, not the ones open at the end of the truncated text. Those are
+// different sets, and using the latter produces JSON that is still invalid.
+const rkScanJson = (str) => {
+    // Returns { stack, cuts } — cuts are byte offsets just after a completed value, outside
+    // strings, newest last. Rewinding to one of these keeps every complete entry before it.
+    let inStr = false, esc = false;
+    const stack = [], cuts = [];
+    for (let i = 0; i < str.length; i++) {
+        const c = str[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\') { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{' || c === '[') stack.push(c === '{' ? '}' : ']');
+        else if (c === '}' || c === ']') { stack.pop(); cuts.push(i + 1); }
+        else if (c === ',') cuts.push(i);
+    }
+    return { stack, cuts };
+};
+
+const rkParseAnalysis = (text) => {
+    const t = String(text || '').trim();
+    if (!t) return null;
+    const tryParse = (x) => { try { const v = JSON.parse(x); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null; } catch (e) { return null; } };
+
+    let out = tryParse(t);
+    if (out) return out;
+
+    const start = t.indexOf('{');
+    if (start < 0) return null;
+    const body = t.slice(start);
+
+    const lastClose = body.lastIndexOf('}');
+    if (lastClose > 0) { out = tryParse(body.slice(0, lastClose + 1)); if (out) return out; }
+
+    const { cuts } = rkScanJson(body);
+    // Newest cut first: the further right we can close, the more of the answer survives.
+    for (let k = cuts.length - 1; k >= 0; k--) {
+        let prefix = body.slice(0, cuts[k]).replace(/,\s*$/, '');
+        const st = rkScanJson(prefix).stack;
+        if (!st.length) continue;
+        let cand = prefix;
+        for (let m = st.length - 1; m >= 0; m--) cand += st[m];
+        out = tryParse(cand);
+        if (out) { out._repaired = true; return out; }
+    }
+    return null;
+};
+
 const RK_CONSTRUCTION = {
     // rate is UNITS PER MINUTE, and a "unit" means different things per technique - which is
     // exactly the trap. For bead techniques a unit is one bead, so the rate is high. For
@@ -5668,11 +5744,38 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     const rkLatestOfferId = (() => {
         for (let i = msgs.length - 1; i >= 0; i--) {
             const k = msgs[i] && msgs[i].kind;
-            if (k === 'offer_accept') return null;
+            // V73.16: a cancellation voids whatever it followed, so nothing is actionable until
+            // someone makes a fresh offer. Cancel APPENDS rather than deleting — messages cannot
+            // be edited under the rules, and an offer that silently vanishes from the other
+            // person's screen is worse than one visibly withdrawn.
+            if (k === 'offer_accept' || k === 'offer_cancel') return null;
             if (k === 'offer' || k === 'offer_counter') return msgs[i].id;
         }
         return null;
     })();
+    const [refItem, setRefItem] = useState(null);
+    const [refLoading, setRefLoading] = useState(false);
+    // V73.16: opens the referenced item WITHOUT leaving the chat. Portalled at z-[200], above the
+    // messenger's z-[70], so the conversation stays exactly where it was underneath — you can
+    // check what is being negotiated over and carry on in the same breath.
+    const rkOpenRefItem = async (itemId) => {
+        if (!itemId) return;
+        setRefLoading(true);
+        try {
+            const d = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', itemId));
+            if (!d.exists()) { alert('That project no longer exists.'); return; }
+            setRefItem({ id: d.id, ...d.data() });
+        } catch (e) { rkReport('messenger open ref item', e); alert('Could not load that project.'); }
+        finally { setRefLoading(false); }
+    };
+    const rkCancelOffer = async (m) => {
+        if (!activeOtherUid) return;
+        if (!window.confirm('Withdraw this offer? They will see it was withdrawn.')) return;
+        try {
+            await sendOfferMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName || 'Raver',
+                { id: m.offerItemId, name: m.offerItemName }, Number(m.offerAmount || 0), 'offer_cancel');
+        } catch (e) { rkReport('offer cancel', e); alert('Could not withdraw that: ' + (e && e.message ? e.message : 'unknown error')); }
+    };
     const rkRespondOffer = async (m, amount, mode) => {
         // V42.12: activeOtherUid is the real other-party uid; never split the thread id, UIDs
         // contain underscores.
@@ -6062,6 +6165,19 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                         )}
                         <div className="h-[55vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col">
                             {msgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi! 👋</p>}
+                            {refItem && (
+                                <Modal isOpen={!!refItem} onClose={() => setRefItem(null)} zClass="z-[200]" title={refItem.name || 'Project'}>
+                                    {(refItem.imageUrl || refItem.image) && <img src={refItem.imageUrl || refItem.image} alt={refItem.name || 'Project'} className="w-full rounded-lg border border-white/10 object-contain max-h-64 mb-3"/>}
+                                    <p className="text-xs text-white/80 mb-2">{refItem.description || refItem.visual_description || 'No description provided.'}</p>
+                                    <div className="bg-black/40 border border-white/10 rounded p-2.5 text-xs space-y-1">
+                                        <p className="flex justify-between"><span className="text-white/50">Agreed cost</span><span className="font-black text-lime-300">{Number(refItem.price) > 0 ? '$' + Number(refItem.price).toFixed(2) : 'not yet agreed'}</span></p>
+                                        {Number(refItem.estValue) > 0 && <p className="flex justify-between"><span className="text-white/50">Estimate</span><span className="text-cyan-300">${Number(refItem.estValue).toFixed(2)}</span></p>}
+                                        {refItem.workStage && <p className="flex justify-between"><span className="text-white/50">Stage</span><span className="text-white/80">{refItem.workStage}</span></p>}
+                                        {refItem.requestStatus && <p className="flex justify-between"><span className="text-white/50">Status</span><span className="text-white/80">{refItem.requestStatus}</span></p>}
+                                    </div>
+                                    {refItem.completionImage && <img src={refItem.completionImage} alt="Finished piece" className="w-full rounded-lg border border-lime-500/30 object-contain max-h-52 mt-3"/>}
+                                </Modal>
+                            )}
                             {msgs.map(m => {
                                 const mine = m.sender === myUid;
                                 // V73.15: offers render as cards rather than as a line of text. Only the
@@ -6099,7 +6215,31 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                                         </div>
                                                     </div>
                                                 )}
-                                                {isLatest && mine && <p className="text-[10px] text-white/40 mt-1.5">Waiting on their reply.</p>}
+                                                {m.offerItemId && (
+                                                    <button onClick={() => rkOpenRefItem(m.offerItemId)} disabled={refLoading}
+                                                        className="w-full mt-2 text-[10px] font-black uppercase py-1.5 rounded border border-cyan-400/40 bg-cyan-500/10 text-cyan-200">
+                                                        {refLoading ? 'Loading…' : 'View the item ↗'}
+                                                    </button>
+                                                )}
+                                                {isLatest && mine && (
+                                                    <>
+                                                        <p className="text-[10px] text-white/40 mt-1.5">Waiting on their reply.</p>
+                                                        {/* V73.16: a misclick used to be permanent — the figure sat there as
+                                                            the live offer until the other side acted on it. */}
+                                                        <button onClick={() => rkCancelOffer(m)} className="w-full mt-1.5 text-[10px] font-black uppercase py-1.5 rounded border border-red-400/40 bg-red-500/10 text-red-300">Withdraw this offer</button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                if (m.kind === 'offer_cancel') {
+                                    return (
+                                        <div key={m.id} className={`max-w-[92%] ${mine ? 'self-end' : 'self-start'}`}>
+                                            <div className="rounded-xl border border-white/15 bg-white/5 p-2.5">
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Offer withdrawn</p>
+                                                <p className="text-sm font-black text-white/50 line-through">${Number(m.offerAmount || 0).toFixed(2)}</p>
+                                                <p className="text-[10px] text-white/40 truncate">{m.offerItemName || 'Project'}</p>
                                             </div>
                                         </div>
                                     );
@@ -6111,6 +6251,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-lime-300">Deal agreed</p>
                                                 <p className="text-2xl font-black text-lime-200 leading-tight">${Number(m.offerAmount || 0).toFixed(2)}</p>
                                                 <p className="text-[10px] text-white/60 truncate">{m.offerItemName || 'Project'} — written to the agreed cost.</p>
+                                                {m.offerItemId && <button onClick={() => rkOpenRefItem(m.offerItemId)} className="w-full mt-2 text-[10px] font-black uppercase py-1.5 rounded border border-lime-400/40 bg-lime-500/10 text-lime-200">View the item ↗</button>}
                                             </div>
                                         </div>
                                     );
@@ -8195,6 +8336,12 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             a maker who disagrees with the number can see exactly which input drove
                             it instead of arguing with a black box. */}
                         {res.effort_basis && <p className="text-[10px] text-cyan-300/70 mt-1">Effort basis: {res.effort_basis}</p>}
+                        {/* V74: closes a gap open since 255. `_fallback` was set with a comment saying
+                            the UI could mark these as estimates, and nothing ever read it — so a run
+                            that failed entirely still presented placeholder costs as though they were
+                            a real costing. Numbers you cannot trust have to say so. */}
+                        {res._fallback && <p className="text-[10px] text-yellow-300 mt-1.5 border-t border-yellow-500/30 pt-1.5">⚠️ The costing service could not read this design, so these are generic placeholder figures — not a real breakdown. Reroll for a proper costing before quoting anyone.</p>}
+                        {res._repaired && !res._fallback && <p className="text-[10px] text-white/50 mt-1">Note: the costing reply arrived incomplete and was recovered — the material list may be short.</p>}
                         {/* V73.15: a generation you liked used to be unreproducible — the wording that
                             produced it was only in the box above, and rerolling or navigating away
                             lost it. Copy takes the exact prompt; Open puts the full-size render in a
@@ -11232,6 +11379,185 @@ const InventoryManager = ({ user, profile }) => {
         </Card> 
     );
 };
+
+// ============================================================================================
+// V75 - MY PROJECTS (client side)
+//
+// Builds 267-272 gave the CREATOR a full workspace: the request queue, work stages, the
+// negotiation, the completion gate. The person who asked for the piece got notifications and
+// nothing else. They could not see which stage their build was at, who was making it, what had
+// been agreed, or the photo of the finished thing - the entire record lived on a screen only
+// the maker could open.
+//
+// This is the other half. Same data, same vocabulary, read from the client's side, plus the two
+// things only they can do: reply to an offer, and confirm they actually received the piece.
+//
+// No rules change: the client IS the tradeItem's ownerId, and the owner update rule already
+// allows them to write their own document.
+// ============================================================================================
+// V73.12: progress WITHIN 'active'. requestStatus stays the lifecycle the hub tabs query —
+// moving a job day to day must not make it jump tabs — so granular progress lives on its own
+// field.
+// V75: hoisted to module scope. It was declared inside CreatorProjectHub, so the new client-side
+// tracker could not see it — and BOTH sides must read the same list or the maker's "Building"
+// would render as a different step on the client's progress bar.
+const RK_WORK_STAGES = [
+    { id: 'accepted',  label: 'Accepted' },
+    { id: 'sourcing',  label: 'Sourcing materials' },
+    { id: 'building',  label: 'Building' },
+    { id: 'finishing', label: 'Finishing / QC' },
+    { id: 'ready',     label: 'Ready to hand over' },
+];
+
+const RK_CLIENT_TABS = [
+    { id: 'active',    label: 'In progress', match: (r) => ['pending', 'awaiting_assignment', 'active'].includes(r.requestStatus) },
+    { id: 'completed', label: 'Finished',    match: (r) => r.requestStatus === 'completed' },
+    { id: 'denied',    label: 'Declined',    match: (r) => r.requestStatus === 'denied' }
+];
+
+const ClientProjectTracker = ({ user, profile, onClose, onMessageUser, onViewProfile }) => {
+    const [rows, setRows] = useState([]);
+    const [tab, setTab] = useState('active');
+    const [loading, setLoading] = useState(true);
+    const [makerNames, setMakerNames] = useState({});
+
+    useEffect(() => {
+        if (!user?.uid) return;
+        // Only ownerId is filtered server-side. requestStatus is filtered in the client because a
+        // compound filter here would need another composite index, and a raver has few enough
+        // projects that it is not worth one.
+        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid));
+        const unsub = onSnapshot(q, snap => {
+            const all = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !!r.requestStatus);
+            all.sort((a, b) => (b.workStageAt || b.acceptedAt || b.createdAt || 0) - (a.workStageAt || a.acceptedAt || a.createdAt || 0));
+            setRows(all);
+            setLoading(false);
+        }, e => { rkReport('client projects', e); setLoading(false); });
+        return () => unsub();
+    }, [user?.uid]);
+
+    // Resolve makers who were assigned before assigneeName was stamped, same as the hub does for
+    // clients. Nobody should ever be looking at an anonymous counterparty.
+    useEffect(() => {
+        const missing = [...new Set(rows.filter(r => r.assigneeId && !r.assigneeName && !makerNames[r.assigneeId]).map(r => r.assigneeId))];
+        if (!missing.length) return;
+        let live = true;
+        Promise.all(missing.map(async uid => {
+            try { const d = await getDoc(doc(db, 'artifacts', appId, 'users', uid)); return [uid, d.exists() ? (d.data().displayName || null) : null]; }
+            catch (e) { return [uid, null]; }
+        })).then(pairs => { if (!live) return; setMakerNames(prev => { const n = { ...prev }; pairs.forEach(([u, nm]) => { if (nm) n[u] = nm; }); return n; }); });
+        return () => { live = false; };
+    }, [rows]);
+
+    const makerName = (r) => r.assigneeName || makerNames[r.assigneeId] || null;
+    const shown = rows.filter(r => (RK_CLIENT_TABS.find(t => t.id === tab) || {}).match?.(r));
+
+    const confirmReceived = async (r) => {
+        if (!window.confirm('Confirm you have received "' + (r.name || 'this piece') + '"?\n\nThis tells the maker the job is closed out.')) return;
+        try {
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', r.id), { clientConfirmedAt: Date.now() });
+            if (r.assigneeId) pushNotif(r.assigneeId, 'diy', '\u2705 ' + (profile?.displayName || 'Your client') + ' confirmed they received "' + (r.name || 'the piece') + '"', r.id);
+        } catch (e) {
+            rkReport('client confirm received', e);
+            alert('Could not confirm that: ' + (e && e.message ? e.message : 'unknown error'));
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4 pb-40">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest">My Projects</h2>
+                <button onClick={onClose}><XCircle size={32}/></button>
+            </div>
+            <div className="flex gap-1 mb-5 overflow-x-auto pb-2">
+                {RK_CLIENT_TABS.map(t => {
+                    const n = rows.filter(x => t.match(x)).length;
+                    return (
+                        <button key={t.id} onClick={() => setTab(t.id)}
+                            className={'text-[11px] font-black uppercase px-3 py-2 rounded whitespace-nowrap border ' + (tab === t.id ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400/60' : 'bg-white/5 text-white/60 border-white/15')}>
+                            {t.label} ({n})
+                        </button>
+                    );
+                })}
+            </div>
+
+            {loading && <p className="text-center text-white/50 text-xs py-8">Loading your projects…</p>}
+            {!loading && shown.length === 0 && (
+                <div className="text-center py-10">
+                    <p className="text-white/60 text-sm mb-1">Nothing here yet.</p>
+                    <p className="text-white/40 text-xs">Designs you send to makers show up here so you can follow them.</p>
+                </div>
+            )}
+
+            {shown.map(r => {
+                const stageIdx = Math.max(0, RK_WORK_STAGES.findIndex(x => x.id === (r.workStage || 'accepted')));
+                const assigned = !!r.assigneeId;
+                return (
+                    <div key={r.id} className="bg-white/5 border border-white/10 rounded-xl p-3 mb-3">
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                            <h3 className="text-base font-black text-white leading-tight flex-1 min-w-0">{r.name || 'Untitled project'}</h3>
+                            <span className={'text-[9px] font-black uppercase px-2 py-1 rounded shrink-0 ' + ({ completed: 'bg-lime-500/20 text-lime-300', denied: 'bg-red-500/20 text-red-300', active: 'bg-cyan-500/20 text-cyan-300' }[r.requestStatus] || 'bg-white/10 text-white/60')}>
+                                {r.requestStatus === 'awaiting_assignment' || r.requestStatus === 'pending' ? 'Waiting for a maker' : r.requestStatus}
+                            </span>
+                        </div>
+
+                        {(r.imageUrl || r.image) && <img src={r.imageUrl || r.image} alt={r.name || 'Design'} loading="lazy" className="w-full rounded-lg border border-white/10 object-contain max-h-64 mb-2"/>}
+
+                        {/* Who is making it. The hub made the client clickable at 268; the same
+                            courtesy in reverse — a client should be able to look up their maker. */}
+                        {assigned ? (
+                            <button onClick={() => { if (onViewProfile) onViewProfile(r.assigneeId); }} className="block text-left py-2 group">
+                                <span className="block text-[9px] uppercase tracking-widest text-white/40">Your maker</span>
+                                <span className="block text-base font-black text-lime-300 group-active:text-lime-100 leading-tight">{makerName(r) || 'Resolving…'}<span className="text-xs font-normal text-white/40"> ›</span></span>
+                            </button>
+                        ) : (
+                            <p className="text-[11px] text-white/50 py-2">No maker has taken this on yet. It is visible to every creator in their queue.</p>
+                        )}
+
+                        {/* Progress. Read-only here — the maker owns the stage, the client watches it. */}
+                        {assigned && r.requestStatus === 'active' && (
+                            <div className="bg-black/40 border border-cyan-500/25 rounded-lg p-2.5 mb-2">
+                                <p className="text-[10px] font-black uppercase text-cyan-300 mb-2">Progress</p>
+                                <div className="flex gap-1 mb-1.5">
+                                    {RK_WORK_STAGES.map((st, i) => (
+                                        <div key={st.id} className={'h-1.5 flex-1 rounded-full ' + (i <= stageIdx ? 'bg-cyan-400' : 'bg-white/15')}/>
+                                    ))}
+                                </div>
+                                <p className="text-xs font-bold text-white">{RK_WORK_STAGES[stageIdx]?.label || 'Accepted'}</p>
+                                {r.workStageAt && <p className="text-[9px] text-white/40">Updated {new Date(r.workStageAt).toLocaleDateString()}</p>}
+                            </div>
+                        )}
+
+                        <div className="bg-black/40 border border-white/10 rounded p-2.5 text-xs space-y-1 mb-2">
+                            <p className="flex justify-between"><span className="text-white/50">Agreed cost</span>
+                                <span className={Number(r.price) > 0 ? 'font-black text-lime-300' : 'text-white/50 italic'}>{Number(r.price) > 0 ? '$' + Number(r.price).toFixed(2) : 'not yet agreed'}</span></p>
+                            {Number(r.estValue) > 0 && <p className="flex justify-between"><span className="text-white/50">Original estimate</span><span className="text-cyan-300">${Number(r.estValue).toFixed(2)}</span></p>}
+                        </div>
+
+                        {r.completionImage && (
+                            <div className="mb-2">
+                                <p className="text-[10px] font-black uppercase text-lime-300 mb-1">Your finished piece</p>
+                                <img src={r.completionImage} alt="Finished piece" loading="lazy" className="w-full rounded-lg border border-lime-500/30 object-contain max-h-64"/>
+                            </div>
+                        )}
+
+                        {r.dismissReason && <p className="text-[11px] text-red-300/80 mb-2">Declined: {r.dismissReason}</p>}
+
+                        {assigned && onMessageUser && (
+                            <Button onClick={() => onMessageUser(r.assigneeId, makerName(r) || 'Maker')} color="purple" className="w-full text-xs flex items-center justify-center gap-2 mb-1.5"><Mail size={14}/> {Number(r.price) > 0 ? 'Message your maker' : 'Message your maker to agree a price'}</Button>
+                        )}
+
+                        {r.requestStatus === 'completed' && !r.clientConfirmedAt && (
+                            <Button onClick={() => confirmReceived(r)} color="lime" className="w-full text-xs">I have received this ✓</Button>
+                        )}
+                        {r.clientConfirmedAt && <p className="text-[10px] text-lime-300 text-center py-1">Received {new Date(r.clientConfirmedAt).toLocaleDateString()} — all done.</p>}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
 const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfile }) => {
     const [hubTab, setHubTab] = useState('open');
     // V65.06: live tick so the countdown chips update while the hub is open.
@@ -11239,15 +11565,6 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
     useEffect(() => { const iv = setInterval(() => setHubNow(Date.now()), 15000); return () => clearInterval(iv); }, []);
     const [requests, setRequests] = useState([]);
     const [legacyPending, setLegacyPending] = useState([]);
-    // V73.12: progress WITHIN 'active'. requestStatus stays the lifecycle the tabs query — moving
-    // a job day to day must not make it jump tabs — so granular progress lives on its own field.
-    const RK_WORK_STAGES = [
-        { id: 'accepted',  label: 'Accepted' },
-        { id: 'sourcing',  label: 'Sourcing materials' },
-        { id: 'building',  label: 'Building' },
-        { id: 'finishing', label: 'Finishing / QC' },
-        { id: 'ready',     label: 'Ready to hand over' },
-    ];
     const rkStageLabel = (id) => (RK_WORK_STAGES.find(x => x.id === id) || {}).label || 'Accepted';
     const [offerDraft, setOfferDraft] = useState({});
     const sendOffer = async (req) => {
@@ -13757,6 +14074,26 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
+    const [showMyProjects, setShowMyProjects] = useState(false);
+    // V75: live counts for the two portal buttons. Queued at 261 for the creator side ("open-request
+    // counter on the creator portal button") — a bare hammer icon gave no reason to tap it, so a
+    // waiting request could sit unseen. The client side needs the same: a maker moving your build
+    // to Finishing is worth a badge, not just a notification you may have swiped away.
+    const [openReqCount, setOpenReqCount] = useState(0);
+    const [myActiveCount, setMyActiveCount] = useState(0);
+    useEffect(() => {
+        if (!user?.uid) return;
+        const unsubs = [];
+        if (profile?.isKandiCreator || profile?.isAdmin) {
+            unsubs.push(onSnapshot(
+                query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('requestStatus', 'in', ['pending', 'awaiting_assignment'])),
+                s2 => setOpenReqCount(s2.size), () => {}));
+        }
+        unsubs.push(onSnapshot(
+            query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', user.uid)),
+            s2 => setMyActiveCount(s2.docs.filter(d => ['pending', 'awaiting_assignment', 'active'].includes(d.data().requestStatus)).length), () => {}));
+        return () => unsubs.forEach(u => { try { u(); } catch (e) {} });
+    }, [user?.uid, profile?.isKandiCreator, profile?.isAdmin]);
     // V73.11: a tapped "you are now a creator" notification sets this from App. Consumed once and
     // cleared immediately, so returning to the profile later does not reopen the hub.
     useEffect(() => { if (openCreatorHub) { setShowCreatorHub(true); if (onConsumeCreatorHub) onConsumeCreatorHub(); } }, [openCreatorHub]);
@@ -13808,6 +14145,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const uploadPic = async (e) => { const f = e.target.files[0]; if(f) { const img = await compressImage(f); await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { photoURL: img }, { merge: true }); } };
     const copyUid = () => { navigator.clipboard.writeText(profile.publicUid || user.uid); alert("Public Friend ID Copied!"); };
     if(showCreatorHub) return <CreatorProjectHub user={user} profile={profile} onClose={() => setShowCreatorHub(false)} onMessageUser={onMessageUser} onViewProfile={onViewProfile} />;
+    if(showMyProjects) return <ClientProjectTracker user={user} profile={profile} onClose={() => setShowMyProjects(false)} onMessageUser={onMessageUser} onViewProfile={onViewProfile} />;
     
     if(showAdminPortal && profile.isAdmin) return (
         <div className="fixed inset-0 bg-black z-[100] overflow-y-auto p-4">
@@ -13926,10 +14264,27 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 </div>
 
                         
+                        {/* V75: every raver gets this one — it is the client half of the DIY flow,
+                            not a creator feature. It only announces itself when there is something
+                            to see, so a raver who has never sent a design is not shown a portal to
+                            an empty room. */}
+                        {myActiveCount > 0 && (
+                            <div className="mb-2 p-2 bg-white/5 border-l-2 border-cyan-400 rounded-r flex items-center justify-between">
+                                <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">My Projects</span>
+                                <button onClick={() => setShowMyProjects(true)} className="relative bg-cyan-500/20 text-cyan-300 p-2 rounded hover:bg-cyan-500/40">
+                                    <Package size={16}/>
+                                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-black text-[9px] font-black flex items-center justify-center">{myActiveCount}</span>
+                                </button>
+                            </div>
+                        )}
+
                         {(profile.isKandiCreator || profile.isAdmin) && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-lime-400 rounded-r flex items-center justify-between">
                                 <span className="text-[10px] uppercase font-bold text-lime-400 tracking-wider">Creator Portal Access</span>
-                                <button onClick={() => setShowCreatorHub(true)} className="bg-lime-500/20 text-lime-400 p-2 rounded hover:bg-lime-500/40"><Hammer size={16}/></button>
+                                <button onClick={() => setShowCreatorHub(true)} className="relative bg-lime-500/20 text-lime-400 p-2 rounded hover:bg-lime-500/40">
+                                    <Hammer size={16}/>
+                                    {openReqCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-lime-400 text-black text-[9px] font-black flex items-center justify-center">{openReqCount}</span>}
+                                </button>
                             </div>
                         )}
                         
@@ -14020,21 +14375,33 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                                 for an active MONTHLY plan, so a lifetime holder, a yearly subscriber or
                                 someone who was never VIP saw nothing at all and had to infer their own
                                 status from which buttons happened to work. */}
-                            <div className={'mb-3 rounded-lg border p-2.5 ' + (profile?.isVIP ? 'bg-yellow-500/10 border-yellow-400/50' : 'bg-white/5 border-white/20')}>
-                                <p className={'text-[11px] font-black ' + (profile?.isVIP ? 'text-yellow-300' : 'text-white/70')}>
-                                    {!profile?.isVIP ? '\u2606 Not a VIP subscriber'
+                            {/* V73.16: this block read the RAW isVIP flag while everything around it —
+                                the Go VIP prompt, the feature gates, the background picker — uses
+                                isEffVIP(), which counts Launch Perks. So during Launch Perks a raver
+                                with every VIP feature working was told "Not a VIP subscriber" on the
+                                same screen that announced perks were active. It now reports effective
+                                status, and names the REASON: perks are not a subscription, they last
+                                exactly as long as the admin leaves them on, and saying "VIP Active"
+                                without that would be a promise the app cannot keep. */}
+                            <div className={'mb-3 rounded-lg border p-2.5 ' + (isEffVIP(profile) ? 'bg-yellow-500/10 border-yellow-400/50' : 'bg-white/5 border-white/20')}>
+                                <p className={'text-[11px] font-black ' + (isEffVIP(profile) ? 'text-yellow-300' : 'text-white/70')}>
+                                    {!isEffVIP(profile) ? '\u2606 Not a VIP subscriber'
+                                        : profile?.vipPlan === 'launch_founder' ? '\ud83d\udc51 Founding VIP \u2014 Permanent'
+                                        : (!profile?.isVIP && RK_CFG.launchPerks) ? '\ud83d\udc51 VIP \u2014 Launch Perks'
                                         : profile?.lifetimeVipGranted ? '\ud83d\udc51 Lifetime VIP'
                                         : profile?.vipPlan === 'yearly' ? '\ud83d\udc51 VIP \u2014 Yearly'
                                         : profile?.vipPlan === 'monthly' ? '\ud83d\udc51 VIP \u2014 Monthly'
                                         : '\ud83d\udc51 VIP Active'}
                                 </p>
                                 <p className="text-[10px] text-white/70 leading-snug mt-0.5">
-                                    {!profile?.isVIP ? 'Banner messages, post boosts, 6 pins and more are VIP features.'
+                                    {!isEffVIP(profile) ? 'Banner messages, post boosts, 6 pins and more are VIP features.'
+                                        : profile?.vipPlan === 'launch_founder' ? 'You joined during Launch Perks, so VIP is yours permanently — it stays even after perks end. Never expires, nothing to pay, ever.'
+                                        : (!profile?.isVIP && RK_CFG.launchPerks) ? 'Every VIP perk is unlocked for you right now, free, for as long as Launch Perks stay on. No subscription and nothing to pay.'
                                         : profile?.lifetimeVipGranted ? 'Never expires. Every VIP perk, permanently.'
                                         : profile?.vipExpires ? ('Renews / expires ' + new Date(profile.vipExpires).toLocaleDateString() + ' \u00b7 ' + Math.max(0, Math.ceil((profile.vipExpires - Date.now()) / 86400000)) + ' days left.')
                                         : 'Active. No expiry date on file.'}
                                 </p>
-                                {profile?.isVIP && profile?.vipSince && <p className="text-[9px] text-white/40 mt-0.5">VIP since {new Date(profile.vipSince).toLocaleDateString()}</p>}
+                                {isEffVIP(profile) && profile?.isVIP && profile?.vipSince && <p className="text-[9px] text-white/40 mt-0.5">VIP since {new Date(profile.vipSince).toLocaleDateString()}</p>}
                             </div>
                             {profile?.isVIP && profile?.vipPlan === 'monthly' && profile?.vipExpires && (
                                 <p className="text-[10px] text-yellow-300 mb-3">Monthly VIP active — expires {new Date(profile.vipExpires).toLocaleDateString()} · <button onClick={() => setModals({...modals, vip: true})} className="underline text-lime-300 font-bold">Renew +30 days</button></p>
@@ -15516,6 +15883,21 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
+    // V74: accounts created BEFORE this build, while perks were already running, were promised
+    // the same thing and have no founder record. Grant it once, guarded by the flag itself so it
+    // can never run twice and stops entirely the moment perks end. Existing lifetime holders are
+    // skipped — overwriting vipPlan would erase how they actually got it.
+    useEffect(() => {
+        if (!user?.uid || !profile || !RK_CFG.launchPerks) return;
+        if (profile.founderVipAt || profile.lifetimeVipGranted) return;
+        (async () => {
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid),
+                    { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() }, { merge: true });
+            } catch (e) { rkReport('founder vip grant', e); }
+        })();
+    }, [user?.uid, profile?.founderVipAt, profile?.lifetimeVipGranted]);
+
     const bgUrl = isEffVIP(profile) ? profile.customBackground : null;
     // V59.2: video wallpapers are enabled ONLY for hosted URLs (a pasted .mp4/.webm link
     // streams from the USER's own host — zero bandwidth cost to us). We deliberately do NOT
@@ -17361,7 +17743,9 @@ exports.generateDesignAnalysis = onCall(
           // on every generation.
           response_format: { type: 'json_object' },
           temperature: 0.3,
-          max_tokens: 1400
+          // V74: 1400 truncated longer material lists mid-object, which produced JSON with no
+          // closing brace and sent a perfectly good analysis to the fallback.
+          max_tokens: 2600
         })
       });
       out = await r.json();
