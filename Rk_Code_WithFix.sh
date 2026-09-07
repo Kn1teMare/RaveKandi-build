@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=75
 RK_MINOR=57
-RK_PATCH=141
-RK_BUILD=273
+RK_PATCH=142
+RK_BUILD=274
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -15683,6 +15683,27 @@ const App = () => {
         return () => window.removeEventListener('rk-text-scale', handler);
     }, []);
     
+    // V74: accounts created BEFORE that build, while perks were already running, were promised the
+    // same thing and have no founder record. Grant it once, guarded by the flag itself so it can
+    // never run twice and stops entirely the moment perks end. Existing lifetime holders are
+    // skipped — overwriting vipPlan would erase how they actually got it.
+    //
+    // V75.1: this MUST live above the early returns below. 272 placed it after them, so on the
+    // first render `loading` was true, App returned early, and this hook never ran — then loading
+    // flipped and it did, giving React one more hook than the previous render. That is invariant
+    // #310, and it crashed the app on every launch. Hooks run unconditionally or not at all; a
+    // hook below an early return is a hook that sometimes does not exist.
+    useEffect(() => {
+        if (!user?.uid || !profile || !RK_CFG.launchPerks) return;
+        if (profile.founderVipAt || profile.lifetimeVipGranted) return;
+        (async () => {
+            try {
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid),
+                    { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() }, { merge: true });
+            } catch (e) { rkReport('founder vip grant', e); }
+        })();
+    }, [user?.uid, profile?.founderVipAt, profile?.lifetimeVipGranted]);
+
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
 
@@ -15883,21 +15904,6 @@ EOF
 
 # Block 19
 cat << 'EOF' >> src/App.js
-    // V74: accounts created BEFORE this build, while perks were already running, were promised
-    // the same thing and have no founder record. Grant it once, guarded by the flag itself so it
-    // can never run twice and stops entirely the moment perks end. Existing lifetime holders are
-    // skipped — overwriting vipPlan would erase how they actually got it.
-    useEffect(() => {
-        if (!user?.uid || !profile || !RK_CFG.launchPerks) return;
-        if (profile.founderVipAt || profile.lifetimeVipGranted) return;
-        (async () => {
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid),
-                    { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() }, { merge: true });
-            } catch (e) { rkReport('founder vip grant', e); }
-        })();
-    }, [user?.uid, profile?.founderVipAt, profile?.lifetimeVipGranted]);
-
     const bgUrl = isEffVIP(profile) ? profile.customBackground : null;
     // V59.2: video wallpapers are enabled ONLY for hosted URLs (a pasted .mp4/.webm link
     // streams from the USER's own host — zero bandwidth cost to us). We deliberately do NOT
