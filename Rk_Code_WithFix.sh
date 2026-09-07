@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=73
-RK_MINOR=55
+RK_MINOR=56
 RK_PATCH=141
-RK_BUILD=269
+RK_BUILD=270
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1581,6 +1581,38 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
         if (e && e.code === 'already-exists') return;
         try { rkReport('notify ' + type + ' -> ' + String(toUid).slice(0, 6), e); } catch (_) {}
     }
+};
+
+// V73.15: price negotiation rides the EXISTING messenger. Offers are messages, which means the
+// conversation and the offers are one record instead of two, and it needs no new collection and
+// no rules change: the messages rule already requires only `sender == uid` plus participation,
+// with no field whitelist. Messages cannot be UPDATED under those rules, which turns out to be
+// the right shape — every offer, counter and acceptance is appended, so the history of who
+// proposed what cannot be quietly rewritten by either side afterwards.
+//
+// `kind` marks a message as an offer; the messenger renders those as cards. Only the LAST offer
+// in a thread is actionable, everything above it is history.
+export const sendOfferMessage = async (fromUid, fromName, toUid, toName, item, amount, kind = 'offer', note = '') => {
+    const tid = [fromUid, toUid].sort().join('_');
+    const amt = Math.max(0, Math.round(Number(amount) * 100) / 100);
+    const label = kind === 'offer_accept' ? 'accepted $' + amt.toFixed(2)
+        : kind === 'offer_counter' ? 'countered with $' + amt.toFixed(2)
+        : 'offered $' + amt.toFixed(2);
+    const plain = (fromName || 'Someone') + ' ' + label + ' for "' + (item.name || 'this project') + '"' + (note ? ' - ' + note : '');
+    const enc = await rkEncMsg(plain, fromUid, toUid);
+    const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
+    await setDoc(tRef, { participants: [fromUid, toUid].sort(), names: { [fromUid]: fromName || 'Raver', [toUid]: toName || 'Raver' }, lastMessage: enc, lastAt: Date.now(), lastSender: fromUid }, { merge: true });
+    // The amount is stored in CLEAR alongside the encrypted body on purpose: both participants
+    // need to render and act on the figure, and it is not a secret from either of them.
+    await addDoc(collection(tRef, 'messages'), {
+        sender: fromUid, text: enc, at: Date.now(), ts: null, badge: null, ns: null,
+        kind, offerAmount: amt, offerItemId: item.id || '', offerItemName: item.name || 'Project', offerNote: note || ''
+    });
+    // refId is the SENDER's uid, not the thread id. Thread ids contain underscores (V42.12), so
+    // the receiving side cannot safely split one back into two uids — but it can open a thread
+    // with a person. This is the same shape onMessageUser already uses.
+    try { pushNotif(toUid, 'offer', '💬 ' + plain, fromUid); } catch (e) {}
+    return tid;
 };
 
 export const sendDirectMessage = async (fromUid, fromName, toUid, toName, text, styleObj = null, badgeObj = null, nameStyleObj = null) => {
@@ -5626,6 +5658,38 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     const [activeOtherUid, setActiveOtherUid] = useState(null); // V42.12: real other-UID (UIDs contain underscores — never split the thread id)
     const [msgs, setMsgs] = useState([]);
     const [previews, setPreviews] = useState({});  // threadId -> decrypted last-message preview (async)
+
+    // V73.15: accepting writes the figure to `price` on the item — already the agreed-cost field
+    // the completion gate checks, and already in the tradeItems rules whitelist, so the whole
+    // negotiation needs no rules change. A counter is just another offer travelling the other way.
+    const [counterDraft, setCounterDraft] = useState('');
+    // The newest un-settled offer is the only actionable one. Walking backwards also means an
+    // acceptance closes the thread's negotiation: nothing above it can be actioned again.
+    const rkLatestOfferId = (() => {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            const k = msgs[i] && msgs[i].kind;
+            if (k === 'offer_accept') return null;
+            if (k === 'offer' || k === 'offer_counter') return msgs[i].id;
+        }
+        return null;
+    })();
+    const rkRespondOffer = async (m, amount, mode) => {
+        // V42.12: activeOtherUid is the real other-party uid; never split the thread id, UIDs
+        // contain underscores.
+        if (!activeOtherUid) return alert('Could not work out who this thread is with.');
+        try {
+            if (mode === 'accept' && m.offerItemId) {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', m.offerItemId), { price: amount });
+            }
+            await sendOfferMessage(myUid, profile?.displayName || 'Raver', activeOtherUid, activeName || 'Raver',
+                { id: m.offerItemId, name: m.offerItemName }, amount, mode === 'accept' ? 'offer_accept' : 'offer_counter');
+        } catch (e) {
+            rkReport('offer respond ' + mode, e);
+            alert(e && e.code === 'permission-denied'
+                ? 'You do not have permission to set the price on that project.'
+                : 'Could not send that: ' + (e && e.message ? e.message : 'unknown error'));
+        }
+    };
     // V63 SECURE MESSAGING — per-user secure-mode toggle + transient screen-blanking on screenshot.
     const [secureMode, setSecureMode] = useState(() => { try { return localStorage.getItem('rk_secure_msgs') === '1'; } catch (e) { return false; } });
     const [screenBlanked, setScreenBlanked] = useState(false);
@@ -6000,6 +6064,57 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             {msgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi! 👋</p>}
                             {msgs.map(m => {
                                 const mine = m.sender === myUid;
+                                // V73.15: offers render as cards rather than as a line of text. Only the
+                                // LAST offer in the thread is actionable — everything above it is the
+                                // record of how the two sides got here, and messages cannot be edited
+                                // under the rules, so that record cannot be quietly rewritten.
+                                if (m.kind === 'offer' || m.kind === 'offer_counter') {
+                                    const isLatest = m.id === rkLatestOfferId;
+                                    const amt = Number(m.offerAmount || 0);
+                                    return (
+                                        <div key={m.id} className={`max-w-[92%] ${mine ? 'self-end' : 'self-start'}`}>
+                                            <div className={'rounded-xl border p-3 ' + (isLatest ? 'border-lime-400/60 bg-lime-500/10' : 'border-white/15 bg-white/5 opacity-60')}>
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{mine ? 'You offered' : 'Offer received'}{!isLatest && ' · superseded'}</p>
+                                                <p className="text-2xl font-black text-lime-300 leading-tight">${amt.toFixed(2)}</p>
+                                                <p className="text-[10px] text-white/60 truncate">{m.offerItemName || 'Project'}</p>
+                                                {m.offerNote && <p className="text-[10px] text-white/50 italic mt-0.5">{m.offerNote}</p>}
+                                                {isLatest && !mine && (
+                                                    <div className="mt-2.5">
+                                                        <Button onClick={() => rkRespondOffer(m, amt, 'accept')} color="lime" className="w-full text-xs mb-1.5">Accept ${amt.toFixed(2)}</Button>
+                                                        <p className="text-[9px] uppercase tracking-widest text-white/40 mb-1">Counter</p>
+                                                        <div className="flex gap-1.5 mb-1.5">
+                                                            {[-20, -10, 10].map(pc => (
+                                                                <button key={pc} onClick={() => rkRespondOffer(m, Math.max(1, Math.round(amt * (1 + pc / 100) * 100) / 100), 'counter')}
+                                                                    className="flex-1 text-[10px] font-black py-1.5 rounded border border-white/20 bg-white/5 text-white/70">
+                                                                    {pc > 0 ? '+' : ''}{pc}%<br/><span className="text-[9px] text-white/40">${Math.max(1, Math.round(amt * (1 + pc / 100) * 100) / 100).toFixed(2)}</span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex gap-1.5">
+                                                            <input type="number" inputMode="decimal" min="0" step="0.01" placeholder="Your figure"
+                                                                value={counterDraft} onChange={e => setCounterDraft(e.target.value)}
+                                                                className="flex-1 min-w-0 bg-black border border-white/20 text-xs p-2 rounded"/>
+                                                            <button onClick={() => { const v = Number(counterDraft); if (!(v > 0)) return alert('Enter the amount you would pay.'); rkRespondOffer(m, v, 'counter'); setCounterDraft(''); }}
+                                                                className="text-[10px] font-black px-3 rounded border border-cyan-400/50 bg-cyan-500/15 text-cyan-200">Send</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {isLatest && mine && <p className="text-[10px] text-white/40 mt-1.5">Waiting on their reply.</p>}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                if (m.kind === 'offer_accept') {
+                                    return (
+                                        <div key={m.id} className={`max-w-[92%] ${mine ? 'self-end' : 'self-start'}`}>
+                                            <div className="rounded-xl border border-lime-400/60 bg-lime-500/15 p-3">
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-lime-300">Deal agreed</p>
+                                                <p className="text-2xl font-black text-lime-200 leading-tight">${Number(m.offerAmount || 0).toFixed(2)}</p>
+                                                <p className="text-[10px] text-white/60 truncate">{m.offerItemName || 'Project'} — written to the agreed cost.</p>
+                                            </div>
+                                        </div>
+                                    );
+                                }
                                 return (
                                     <div key={m.id} className={`max-w-[82%] ${mine ? 'self-end' : 'self-start'}`}>
                                         {!mine && (m.badge || m.ns) && <div className="flex items-center gap-1 mb-0.5 ml-1"><span className={'text-[10px] font-bold ' + (m.ns ? '' : 'text-pink-300')}><RkName name={activeName} style={m.ns}/></span>{m.badge && <BadgeChip badge={m.badge} />}</div>}
@@ -7862,17 +7977,21 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             if(!user?.uid) return;
             const snap = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid));
             if(snap.exists()) {
-                const data = snap.data(); const lastReset = data.lastAiReset || 0; const now = new Date();
-                // V73.9: this used to build a CST wall-clock target and reset at 12:00 Central,
-                // while the Cloud Function enforces the SAME cap against midnight UTC. Two
-                // independent counters on two different schedules: for six hours a day the
-                // number on screen and the number actually enforced were different numbers.
-                // It was also comparing a timezone-shifted pseudo-date's epoch against a real
-                // epoch, so the boundary was skewed by the offset on top of that.
-                // The server is authoritative, so the display now matches it exactly.
-                const resetTarget = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-                if (lastReset < resetTarget) { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { aiUsageCount: 0, lastAiReset: Date.now() }, { merge: true }); setRemaining(DAILY_AI_LIMIT); } 
-                else { setRemaining(DAILY_AI_LIMIT - (data.aiUsageCount || 0)); }
+                const data = snap.data();
+                // V73.15: the client kept its OWN counter (aiUsageCount / lastAiReset) while the
+                // Cloud Function enforced a different one (imgCountToday / imgDay). Two counters,
+                // two field names, one document. 264 aligned their reset TIMES, which was not
+                // enough — the client counter was still client-maintained, so it went back to
+                // full whenever the client decided to reset it, while the server kept counting
+                // and eventually refused. That is why the limit appeared to reset on every
+                // rebuild and then blocked anyway.
+                // There is now ONE counter. The server's is authoritative because it is the one
+                // that actually gates the spend, so the client only ever READS it and never
+                // writes a count of its own. The rollover is the server's exact expression:
+                // a UTC date string, so it can only change when the UTC day changes.
+                const todayUtc = new Date().toISOString().slice(0, 10);
+                const usedToday = data.imgDay === todayUtc ? (Number(data.imgCountToday) || 0) : 0;
+                setRemaining(Math.max(0, DAILY_AI_LIMIT - usedToday));
             }
         };
         checkLimits();
@@ -7881,7 +8000,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [genPct, setGenPct] = useState(0);
     const gen = async () => { 
         if(!prompt || !user?.uid) return;
-        if(remaining <= 0) return alert("Daily limit reached. Resets at 12PM CST.");
+        if(remaining <= 0) return alert("Daily design limit reached. It resets at midnight UTC — the same moment the server's own counter rolls over.");
         if (!RK_CFG.aiLabEnabled) return alert("The AI Design Lab is temporarily disabled by the admin team — check back soon!");
         setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
@@ -7926,9 +8045,16 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
             const snap = await getDoc(userRef);
-            if (snap.exists()) { await updateDoc(userRef, { aiUsageCount: increment(1) }); } 
-            else { await setDoc(userRef, { aiUsageCount: 1 }, { merge: true }); }
-            setRemaining(prev => prev - 1);
+            // V73.15: the client no longer writes a usage count. The Cloud Function already
+            // incremented imgCountToday when it did the work; a second tally kept in the app was
+            // the whole cause of the display disagreeing with the enforcement. Re-read the
+            // server's number instead of guessing at it locally.
+            try {
+                const fresh = await getDoc(userRef);
+                const d2 = fresh.exists() ? fresh.data() : {};
+                const t2 = new Date().toISOString().slice(0, 10);
+                setRemaining(Math.max(0, DAILY_AI_LIMIT - (d2.imgDay === t2 ? (Number(d2.imgCountToday) || 0) : 0)));
+            } catch (e) { setRemaining(prev => Math.max(0, prev - 1)); }
             // V50: text-only analysis — the result is shown for the user to review and
             // optionally submit; we don't auto-write an image-less item to the collection.
         } catch(e){ 
@@ -8069,6 +8195,19 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             a maker who disagrees with the number can see exactly which input drove
                             it instead of arguing with a black box. */}
                         {res.effort_basis && <p className="text-[10px] text-cyan-300/70 mt-1">Effort basis: {res.effort_basis}</p>}
+                        {/* V73.15: a generation you liked used to be unreproducible — the wording that
+                            produced it was only in the box above, and rerolling or navigating away
+                            lost it. Copy takes the exact prompt; Open puts the full-size render in a
+                            new tab so it can be saved with the browser's own save, which works on
+                            Android where a long-press inside the app does not. */}
+                        <div className="flex gap-1.5 mt-3">
+                            <button onClick={() => { try { navigator.clipboard.writeText(prompt || ''); alert('Prompt copied.'); } catch (e) { alert(prompt || ''); } }}
+                                className="flex-1 text-[10px] font-black uppercase py-2 rounded border border-white/25 bg-white/5 text-white/70">Copy prompt</button>
+                            {(res.displayUrl || res.imageUrl) && (
+                                <a href={res.displayUrl || res.imageUrl} target="_blank" rel="noreferrer"
+                                    className="flex-1 text-center text-[10px] font-black uppercase py-2 rounded border border-cyan-400/50 bg-cyan-500/15 text-cyan-200">Open / save image</a>
+                            )}
+                        </div>
                     </div>
 
                     {res.skill_notes && <p className="text-[10px] italic opacity-70 mb-3">🛠️ {res.skill_notes}</p>}
@@ -11110,6 +11249,17 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
         { id: 'ready',     label: 'Ready to hand over' },
     ];
     const rkStageLabel = (id) => (RK_WORK_STAGES.find(x => x.id === id) || {}).label || 'Accepted';
+    const [offerDraft, setOfferDraft] = useState({});
+    const sendOffer = async (req) => {
+        const amt = Number(offerDraft[req.id]);
+        if (!(amt > 0)) return alert('Enter the amount you are asking for this build.');
+        if (!req.ownerId || req.ownerId === user.uid) return alert('There is no client to send this to.');
+        try {
+            await sendOfferMessage(user.uid, profile?.displayName || 'Creator', req.ownerId, rkClientName(req) || 'Client', req, amt, 'offer');
+            setOfferDraft(o => ({ ...o, [req.id]: '' }));
+            alert('Offer sent — it is in your chat with ' + (rkClientName(req) || 'the client') + '.');
+        } catch (e) { rkReport('creator hub sendOffer', e); alert('Could not send the offer: ' + (e && e.message ? e.message : 'unknown error')); }
+    };
     // Names are resolved live for requests written before ownerName was stamped on the payload.
     const [clientNames, setClientNames] = useState({});
     const rkClientName = (req) => req.ownerName || clientNames[req.ownerId] || null;
@@ -11215,8 +11365,12 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
     const handleComplete = async (item) => { const blockers = rkCompletionBlockers(item); if (blockers.length) return alert('Not ready to complete yet. Still to do:\n\n\u2022 ' + blockers.join('\n\u2022 ')); if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
     const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; if (!await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
 
+    // V73.15: pb-40 clears the fixed footer bar. Without it the last card on EVERY tab sat
+    // underneath it, hiding the action buttons — and the buttons are the entire point of the card.
+    // The header already measures itself as --rk-topbar-h (V66.42); the footer was never given
+    // the same courtesy.
     return (
-        <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4">
+        <div className="fixed inset-0 bg-black z-50 overflow-y-auto p-4 pb-40">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-black italic text-lime-400 uppercase tracking-widest">Creator Hub</h2>
                 <button onClick={onClose}><XCircle size={32}/></button>
@@ -11324,6 +11478,21 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                                         className="block w-full text-[10px] mt-1 text-white/60 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-black file:bg-cyan-500/20 file:text-cyan-200"/>
                                 </label>
                                 {rkCompletionBlockers(req).length > 0 && <p className="text-[9px] text-yellow-300/80 mt-1.5">Before completing: {rkCompletionBlockers(req).join('; ')}.</p>}
+                                {/* V73.15: the creator had nowhere to name a figure, so the agreed
+                                    cost on the card could only ever be set out of band. The offer
+                                    goes into the messenger as a card the client can accept or
+                                    counter, which keeps the conversation and the money in one
+                                    record instead of a chat that references a number set elsewhere. */}
+                                <div className="mt-2.5 pt-2.5 border-t border-white/10">
+                                    <p className="text-[10px] font-black uppercase text-lime-300 mb-1.5">{Number(req.price) > 0 ? 'Agreed: $' + Number(req.price).toFixed(2) + ' — send a revised offer' : 'Send an asking price'}</p>
+                                    <div className="flex gap-1.5">
+                                        <input type="number" inputMode="decimal" min="0" step="0.01" placeholder={Number(req.estValue) > 0 ? 'Est. ' + Number(req.estValue).toFixed(2) : '0.00'}
+                                            value={offerDraft[req.id] || ''} onChange={e => setOfferDraft(o => ({ ...o, [req.id]: e.target.value }))}
+                                            className="flex-1 min-w-0 bg-black border border-white/20 text-sm p-2 rounded"/>
+                                        <Button onClick={() => sendOffer(req)} color="lime" className="text-xs px-3 whitespace-nowrap">Send offer</Button>
+                                    </div>
+                                    <p className="text-[9px] text-white/40 mt-1">They can accept it or counter in the chat. Accepting writes it to the agreed cost.</p>
+                                </div>
                             </div>
                         )}
                         {req.dismissReason && <p className="text-[10px] text-red-400 mt-2">Denial reason: {req.dismissReason}</p>}
@@ -15427,6 +15596,9 @@ cat << 'EOF' >> src/App.js
                 // type where the item IS the whole message.
                 if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy') && n.refId) { setNotifItemId(n.refId); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
+                // V73.15: an offer notification opens the CHAT it lives in — the negotiation is
+                // carried as messages, so the thread is the destination, not a page.
+                else if (t === 'offer') { if (n.refId) setMsgTarget({ uid: n.refId, name: 'Raver' }); setMsgOpen(true); return; }
                 else if (t === 'ailab') { setMsgOpen(false); setPage('shop'); setTab('custom'); }
                 else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
                 else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
