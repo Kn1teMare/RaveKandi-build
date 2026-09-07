@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=75
 RK_MINOR=57
-RK_PATCH=142
-RK_BUILD=274
+RK_PATCH=143
+RK_BUILD=275
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1655,7 +1655,11 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
             // an entitlement that evaporates when an admin toggles a setting is not an
             // entitlement. It is written into the account instead, permanently, so it survives
             // the flag being turned off and does not depend on it ever being read again.
-            ...(RK_CFG.launchPerks ? { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() } : { isVIP: false }),
+            // V75.1: same vocabulary as the V42.23 grant that has run since build 42 — vipPlan
+            // 'lifetime', not a second plan name. Writing it AT CREATION as well means a brand-new
+            // account is a permanent VIP from its first render rather than waiting for an effect,
+            // but both paths agree on what they write, so whichever gets there first is correct.
+            ...(RK_CFG.launchPerks ? { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null } : { isVIP: false }),
             customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
         });
 
@@ -14386,7 +14390,6 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                             <div className={'mb-3 rounded-lg border p-2.5 ' + (isEffVIP(profile) ? 'bg-yellow-500/10 border-yellow-400/50' : 'bg-white/5 border-white/20')}>
                                 <p className={'text-[11px] font-black ' + (isEffVIP(profile) ? 'text-yellow-300' : 'text-white/70')}>
                                     {!isEffVIP(profile) ? '\u2606 Not a VIP subscriber'
-                                        : profile?.vipPlan === 'launch_founder' ? '\ud83d\udc51 Founding VIP \u2014 Permanent'
                                         : (!profile?.isVIP && RK_CFG.launchPerks) ? '\ud83d\udc51 VIP \u2014 Launch Perks'
                                         : profile?.lifetimeVipGranted ? '\ud83d\udc51 Lifetime VIP'
                                         : profile?.vipPlan === 'yearly' ? '\ud83d\udc51 VIP \u2014 Yearly'
@@ -14395,9 +14398,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                                 </p>
                                 <p className="text-[10px] text-white/70 leading-snug mt-0.5">
                                     {!isEffVIP(profile) ? 'Banner messages, post boosts, 6 pins and more are VIP features.'
-                                        : profile?.vipPlan === 'launch_founder' ? 'You joined during Launch Perks, so VIP is yours permanently — it stays even after perks end. Never expires, nothing to pay, ever.'
                                         : (!profile?.isVIP && RK_CFG.launchPerks) ? 'Every VIP perk is unlocked for you right now, free, for as long as Launch Perks stay on. No subscription and nothing to pay.'
-                                        : profile?.lifetimeVipGranted ? 'Never expires. Every VIP perk, permanently.'
+                                        : profile?.lifetimeVipGranted ? 'Never expires, nothing to pay, ever. Granted because you were here during Launch Perks — it stays yours after perks end.'
                                         : profile?.vipExpires ? ('Renews / expires ' + new Date(profile.vipExpires).toLocaleDateString() + ' \u00b7 ' + Math.max(0, Math.ceil((profile.vipExpires - Date.now()) / 86400000)) + ' days left.')
                                         : 'Active. No expiry date on file.'}
                                 </p>
@@ -15683,27 +15685,12 @@ const App = () => {
         return () => window.removeEventListener('rk-text-scale', handler);
     }, []);
     
-    // V74: accounts created BEFORE that build, while perks were already running, were promised the
-    // same thing and have no founder record. Grant it once, guarded by the flag itself so it can
-    // never run twice and stops entirely the moment perks end. Existing lifetime holders are
-    // skipped — overwriting vipPlan would erase how they actually got it.
-    //
-    // V75.1: this MUST live above the early returns below. 272 placed it after them, so on the
-    // first render `loading` was true, App returned early, and this hook never ran — then loading
-    // flipped and it did, giving React one more hook than the previous render. That is invariant
-    // #310, and it crashed the app on every launch. Hooks run unconditionally or not at all; a
-    // hook below an early return is a hook that sometimes does not exist.
-    useEffect(() => {
-        if (!user?.uid || !profile || !RK_CFG.launchPerks) return;
-        if (profile.founderVipAt || profile.lifetimeVipGranted) return;
-        (async () => {
-            try {
-                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid),
-                    { isVIP: true, vipPlan: 'launch_founder', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null, founderVipAt: Date.now() }, { merge: true });
-            } catch (e) { rkReport('founder vip grant', e); }
-        })();
-    }, [user?.uid, profile?.founderVipAt, profile?.lifetimeVipGranted]);
-
+    // V75.1: a founder-VIP grant was added here at 272 and removed at 275. It duplicated the
+    // V42.23 Phase 7 grant fifty lines above, which has done exactly this job since build 42 —
+    // isVIP, vipPlan 'lifetime', lifetimeVipGranted, written permanently while Launch Perks are
+    // on. Two effects writing the same fields would have raced, and whichever lost would have
+    // left vipPlan set to the other's value. The real bug was never the grant; it was the status
+    // readout using the raw isVIP flag instead of isEffVIP(), fixed at 271.
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
 
@@ -16436,6 +16423,92 @@ cd ~/RaveKandi-Build
 if [ ! -f "public/index.html" ]; then
   echo "CRITICAL ERROR: public/index.html is missing! Please re-run Block 1."
   exit 1
+fi
+
+# ============================================================================================
+# V75.1 - HOOK ORDER GATE
+#
+# Build 272 put a useEffect below App's early returns. On the first render `loading` was true,
+# App returned early, the hook never ran; loading flipped and it did - one more hook than the
+# previous render, React invariant #310, dead on launch. The JSX parse, the duplicate-declaration
+# scan and every grep passed on that build. They read structure; a misplaced hook is
+# structurally perfect.
+#
+# So the check runs here, on the assembled App.js, before anything is built or deployed. A
+# violation stops the script: shipping a build that cannot survive its first render is worse
+# than not shipping.
+#
+# It needs the typescript parser. If that is not installed the gate WARNS and continues rather
+# than blocking a build over a missing dev tool - but the warning names the one command to fix it.
+# ============================================================================================
+cat << 'HOOKEOF' > .rk_hook_check.js
+const fs = require('fs');
+let ts; try { ts = require('typescript'); } catch (e) { console.log('SKIP_NO_TS'); process.exit(0); }
+const src = fs.readFileSync('src/App.js', 'utf8');
+const sf = ts.createSourceFile('App.js', src, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JSX);
+const HOOK = /^use[A-Z]/;
+let bad = 0, scanned = 0;
+function checkBody(name, body) {
+  if (!body || !body.statements) return;
+  let firstReturn = null;
+  for (const st of body.statements) {
+    if (firstReturn !== null) break;
+    if (ts.isReturnStatement(st)) firstReturn = st.getStart(sf);
+    else if (ts.isIfStatement(st) && st.thenStatement) {
+      const t = st.thenStatement;
+      const hasRet = ts.isReturnStatement(t) || (ts.isBlock(t) && t.statements.some(ts.isReturnStatement));
+      if (hasRet) firstReturn = st.getStart(sf);
+    }
+  }
+  if (firstReturn === null) return;
+  scanned++;
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && HOOK.test(node.expression.text)) {
+      const pos = node.getStart(sf);
+      if (pos > firstReturn) {
+        const ln = sf.getLineAndCharacterOfPosition(pos).line + 1;
+        console.log('VIOLATION ' + name + ' -> ' + node.expression.text + '() at src/App.js line ' + ln);
+        bad++;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  body.statements.forEach(visit);
+}
+sf.statements.forEach(st => {
+  if (ts.isVariableStatement(st)) st.declarationList.declarations.forEach(d => {
+    if (d.name.kind === ts.SyntaxKind.Identifier && /^[A-Z]/.test(d.name.text) && d.initializer) {
+      const f = d.initializer;
+      if ((ts.isArrowFunction(f) || ts.isFunctionExpression(f)) && f.body && ts.isBlock(f.body)) checkBody(d.name.text, f.body);
+    }
+  });
+  if (ts.isFunctionDeclaration(st) && st.name && /^[A-Z]/.test(st.name.text) && st.body) checkBody(st.name.text, st.body);
+});
+console.log('SCANNED ' + scanned + ' VIOLATIONS ' + bad);
+process.exit(bad ? 1 : 0);
+HOOKEOF
+
+HOOK_OUT=$(node .rk_hook_check.js 2>/dev/null)
+HOOK_RC=$?
+rm -f .rk_hook_check.js
+if echo "$HOOK_OUT" | grep -q "SKIP_NO_TS"; then
+  echo "   Hook-order gate SKIPPED - typescript not installed."
+  echo "   Install once with:  cd ~/RaveKandi-Build && npm install typescript"
+elif [ $HOOK_RC -ne 0 ]; then
+  echo ""
+  echo "=================================================================="
+  echo "  BUILD STOPPED - HOOK ORDER VIOLATION"
+  echo "=================================================================="
+  echo "$HOOK_OUT"
+  echo ""
+  echo "  A React hook is called after an early return. React counts hooks"
+  echo "  per render, so on the render that takes the early return it does"
+  echo "  not run - and that is invariant #310, fatal on launch."
+  echo "  Move the hook ABOVE every early return in that component."
+  echo "=================================================================="
+  exit 1
+else
+  echo "   Hook-order gate: $HOOK_OUT"
 fi
 
 cat << 'EOF' > package.json
