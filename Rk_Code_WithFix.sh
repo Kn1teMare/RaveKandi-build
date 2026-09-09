@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=76
+RK_MAJOR=77
 RK_MINOR=57
 RK_PATCH=144
-RK_BUILD=277
+RK_BUILD=278
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -9484,7 +9484,8 @@ const RK_CREATOR_TOURS = {
         steps: [
             { tut: null, center: true, title: "You're a Music Creator 🎵", body: "Approved. You've got a music section on your profile now — let's set it up." },
             { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your music section lives here. Tap Profile.' },
-            { tut: null, center: true, title: 'Add your first track', body: 'The MUSIC block takes a YouTube, SoundCloud or Twitch link, or a 30-second sample straight from your phone. Ravers can play it without leaving your profile.' },
+            { tut: 'musicblock', title: 'This is your music block', body: 'It sits on your profile for every visitor. Anything you add here plays without them leaving the page.' },
+            { tut: 'addmusic', requireTap: true, title: 'Add your first track', body: 'Takes a YouTube, SoundCloud or Twitch link, or a 30-second sample straight from your phone. Tap + Add Music — this step needs the real tap.' },
             { tut: null, center: true, title: 'Order matters', body: "If you're also a Content Creator you can drag your Music and Content blocks to decide which a visitor sees first." },
             { tut: null, center: true, title: 'Get heard', body: 'Rave Radio pulls from creator tracks. Your socials are on your profile too — the verified follower counts you gave us are what set your referral allowance.' }
         ]
@@ -9495,7 +9496,7 @@ const RK_CREATOR_TOURS = {
         steps: [
             { tut: null, center: true, title: "You're a Content Creator 🎬", body: "Approved. You've got a showcase and something most ravers don't — a way to sell your work." },
             { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your showcase lives here. Tap Profile.' },
-            { tut: null, center: true, title: 'Show your work', body: 'CONTENT SHOWCASE takes clips, socials and photos. This is the first thing a promoter looks at, so lead with your best.' },
+            { tut: 'addcontent', requireTap: true, title: 'Show your work', body: 'CONTENT SHOWCASE takes clips, socials and photos — the first thing a promoter looks at, so lead with your best. Tap + Add Content.' },
             { tut: null, center: true, title: 'Services & Ad Spots', body: "Inside your showcase you can list what you'll make for people — story ads, shoutouts, posters, flyers, videos — with your prices. Ravers book you straight from your profile." },
             { tut: null, center: true, title: 'Getting paid', body: 'Payment is direct between you and the buyer. RaveKandi never holds funds, so agree terms in the messenger before you start work.' }
         ]
@@ -12815,12 +12816,12 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
     };
     if (!isSelf && tracks.length === 0 && !dragHandle) return null;
     return (
-        <div className="mb-4 bg-black/50 border border-purple-500/40 p-2.5 rounded-lg" style={dragStyle || {}}>
+        <div data-tut="musicblock" className="mb-4 bg-black/50 border border-purple-500/40 p-2.5 rounded-lg" style={dragStyle || {}}>
             <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm uppercase font-black text-purple-300 flex items-center gap-1.5"><Music size={16}/> Music{tracks.length > 0 ? ' · ' + tracks.length : ''}</h4>
                 <div className="flex items-center gap-1.5">
                     {dragHandle && <button {...dragHandle} className="cursor-grab active:cursor-grabbing touch-none text-white/60 hover:text-white text-xs px-1.5 py-0.5 bg-white/10 rounded border border-white/20" title="Hold & drag to reorder your sections">⇕</button>}
-                    {isSelf && <button onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Music'}</button>}
+                    {isSelf && <button data-tut="addmusic" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Music'}</button>}
                 </div>
             </div>
             {isSelf && adding && (
@@ -13048,7 +13049,7 @@ const ContentProfileSection = ({ targ, isSelf, dragHandle, dragStyle }) => {
                 <h4 className="text-sm uppercase font-black text-cyan-300 flex items-center gap-1.5"><Video size={16}/> Content Showcase{posts.length > 0 ? ' · ' + posts.length : ''}</h4>
                 <div className="flex items-center gap-1.5">
                     {dragHandle && <button {...dragHandle} className="cursor-grab active:cursor-grabbing touch-none text-white/60 hover:text-white text-xs px-1.5 py-0.5 bg-white/10 rounded border border-white/20" title="Hold & drag to reorder your sections">⇕</button>}
-                    {isSelf && <button onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Content'}</button>}
+                    {isSelf && <button data-tut="addcontent" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Content'}</button>}
                 </div>
             </div>
             {isSelf && adding && (
@@ -13452,14 +13453,104 @@ const MusicCreatorsBrowser = ({ viewerUid, onViewProfile }) => {
 // Renders a creator's Music + Content sections in THEIR chosen order. When the owner has both
 // creator types, ⇕ corner handles let them press-and-drag one block over the other; the order
 // persists (creatorMusicFirst) and applies everywhere the sections are shown.
-const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent }) => {
+
+// ============================================================================================
+// V77 - KANDI MAKER PROFILE SECTION
+//
+// Music and Content creators have each had a showcase on their profile since 208. A Kandi maker
+// - the creator type the whole DIY flow is built around - had nothing but a small hammer icon,
+// which is a portal INTO their work rather than anything a visitor can see. So a raver landing
+// on a maker's profile had no way to tell they were a maker at all, let alone whether they were
+// taking commissions or how long they take.
+//
+// Checked against the build 261 script before writing this: no Kandi section has ever existed.
+// Nothing was removed - it was simply never built.
+//
+// Everything here reads fields the account already has, plus two the maker sets themselves.
+// No rules change: these live on the user's own document, which the owner may already write.
+// ============================================================================================
+const RK_COMMISSION_STATES = [
+    { id: 'open',     label: 'Taking commissions', tone: 'bg-lime-500/20 text-lime-300 border-lime-400/50' },
+    { id: 'waitlist', label: 'Waitlist only',      tone: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/50' },
+    { id: 'closed',   label: 'Closed for now',     tone: 'bg-white/10 text-white/60 border-white/20' }
+];
+
+const KandiProfileSection = ({ targ, isSelf, onMessage, dragHandle, dragStyle }) => {
+    const [saving, setSaving] = useState(false);
+    const [turn, setTurn] = useState(targ?.kandiTurnaround || '');
+    const status = targ?.kandiCommissions || 'open';
+    const cur = RK_COMMISSION_STATES.find(x => x.id === status) || RK_COMMISSION_STATES[0];
+    // The application already asked for these. Showing them here means a maker does not fill the
+    // same thing in twice, and a visitor sees what was actually approved rather than a free-text
+    // claim written afterwards.
+    const specialties = String(targ?.specialty || '').split(',').map(x => x.trim()).filter(Boolean);
+
+    const setStatus = async (id) => {
+        if (!isSelf || !targ?.id) return;
+        try { await updateDoc(doc(db, 'artifacts', appId, 'users', targ.id), { kandiCommissions: id }); }
+        catch (e) { rkReport('kandi commission status', e); alert('Could not update that.'); }
+    };
+    const saveTurnaround = async () => {
+        if (!isSelf || !targ?.id) return;
+        setSaving(true);
+        try { await updateDoc(doc(db, 'artifacts', appId, 'users', targ.id), { kandiTurnaround: turn.slice(0, 60) }); }
+        catch (e) { rkReport('kandi turnaround', e); alert('Could not save that.'); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <div data-tut="kandiblock" style={dragStyle || undefined} className="bg-black/30 border border-lime-500/30 rounded-xl p-3 mb-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-base font-black uppercase tracking-wider text-lime-400 flex items-center gap-2"><Hammer size={16}/> Kandi Maker</h3>
+                {dragHandle && <span {...dragHandle} className="text-white/30 px-2 cursor-grab">⇕</span>}
+            </div>
+
+            <span className={'inline-block text-[10px] font-black uppercase px-2.5 py-1 rounded border mb-2 ' + cur.tone}>{cur.label}</span>
+
+            {specialties.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                    {specialties.slice(0, 8).map((sp, i) => <span key={i} className="text-[10px] font-bold bg-white/5 border border-white/15 text-white/70 rounded px-2 py-0.5">{sp}</span>)}
+                </div>
+            )}
+
+            {targ?.kandiTurnaround && <p className="text-[11px] text-white/60 mb-2">Typical turnaround: <span className="text-white/85 font-bold">{targ.kandiTurnaround}</span></p>}
+
+            {isSelf ? (
+                <div className="bg-black/40 border border-white/10 rounded-lg p-2.5 mt-1">
+                    <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Your commission status — ravers see this</p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                        {RK_COMMISSION_STATES.map(st => (
+                            <button key={st.id} onClick={() => setStatus(st.id)}
+                                className={'text-[10px] font-black px-2.5 py-1.5 rounded border ' + (status === st.id ? st.tone : 'bg-white/5 text-white/50 border-white/15')}>
+                                {st.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex gap-1.5">
+                        <input value={turn} onChange={e => setTurn(e.target.value)} placeholder="Typical turnaround, e.g. 3-5 days"
+                            className="flex-1 min-w-0 bg-black border border-white/20 text-[11px] p-2 rounded"/>
+                        <button onClick={saveTurnaround} disabled={saving} className="text-[10px] font-black px-3 rounded border border-lime-400/50 bg-lime-500/15 text-lime-200">{saving ? '…' : 'Save'}</button>
+                    </div>
+                    <p className="text-[9px] text-white/40 mt-1.5">Requests still reach you through the Creator Portal. This tells people what to expect before they ask.</p>
+                </div>
+            ) : (
+                status === 'closed'
+                    ? <p className="text-[11px] text-white/50">Not taking commissions at the moment.</p>
+                    : onMessage && <Button onClick={() => onMessage(targ.id, targ.displayName || 'Maker')} color="lime" className="w-full text-xs flex items-center justify-center gap-2"><Mail size={14}/> {status === 'waitlist' ? 'Ask about the waitlist' : 'Ask about a commission'}</Button>
+            )}
+        </div>
+    );
+};
+
+const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent, canEditKandi, onMessage }) => {
     const [dragging, setDragging] = useState(null); // 'music' | 'content'
     const [dragY, setDragY] = useState(0);
     const musicFirst = targ?.creatorMusicFirst !== false;
     const showMusic = !!(targ?.isMusicCreator || canEditMusic);
     const showContent = !!(targ?.isContentCreator || canEditContent);
+    const showKandi = !!(targ?.isKandiCreator || canEditKandi);
     const canReorder = !!(isSelf && targ?.isMusicCreator && targ?.isContentCreator);
-    if (!showMusic && !showContent) return null;
+    if (!showMusic && !showContent && !showKandi) return null;
     const swap = async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'users', targ.id), { creatorMusicFirst: !musicFirst }); } catch (e) {} };
     const handleFor = (which) => ({
         onPointerDown: (e) => {
@@ -13479,7 +13570,10 @@ const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent
     });
     const music = showMusic ? <MusicProfileSection key="cs-m" targ={targ} isSelf={canEditMusic} viewerUid={viewerUid} dragHandle={canReorder ? handleFor('music') : null} dragStyle={dragging === 'music' ? { transform: 'translateY(' + dragY + 'px)', zIndex: 5, position: 'relative', opacity: 0.9 } : {}}/> : null;
     const content = showContent ? <ContentProfileSection key="cs-c" targ={targ} isSelf={canEditContent} dragHandle={canReorder ? handleFor('content') : null} dragStyle={dragging === 'content' ? { transform: 'translateY(' + dragY + 'px)', zIndex: 5, position: 'relative', opacity: 0.9 } : {}}/> : null;
-    return musicFirst ? <>{music}{content}</> : <>{content}{music}</>;
+    // Kandi leads. It is the only one of the three tied to a two-sided workflow, so whether the
+    // maker is open for commissions is the first thing a visitor needs — the others are portfolio.
+    const kandi = showKandi ? <KandiProfileSection key="cs-k" targ={targ} isSelf={!!canEditKandi} onMessage={onMessage}/> : null;
+    return <>{kandi}{musicFirst ? <>{music}{content}</> : <>{content}{music}</>}</>;
 };
 
 const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem }) => {
@@ -13602,7 +13696,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                                 </div>
                             )}
 
-                            <CreatorSections targ={targ} isSelf={isSelf} viewerUid={viewerUid} canEditMusic={isSelf && !!viewerProfile?.isMusicCreator} canEditContent={isSelf && !!viewerProfile?.isContentCreator}/>
+                            <CreatorSections targ={targ} isSelf={isSelf} onMessage={onMessage} canEditKandi={isSelf && !!viewerProfile?.isKandiCreator} viewerUid={viewerUid} canEditMusic={isSelf && !!viewerProfile?.isMusicCreator} canEditContent={isSelf && !!viewerProfile?.isContentCreator}/>
 
                             <div className="flex items-center gap-2 justify-center md:justify-start mb-3 w-full"><div onClick={() => { try { navigator.clipboard.writeText(targ.publicUid || targ.id); alert('Friend UID copied!'); } catch (e) {} }} className="bg-gradient-to-r from-lime-900/40 to-cyan-900/40 border border-lime-400/40 px-4 py-2 rounded font-mono text-sm w-full md:w-auto text-center md:text-left truncate cursor-pointer hover:border-lime-400 transition-colors">Friend UID: <span className="text-lime-400 font-bold">{targ.publicUid || targ.id}</span> <Copy size={11} className="inline ml-1 text-cyan-400"/></div></div>
 
@@ -14373,7 +14467,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
 
                 {/* Music & Content Creator sections — the owner's live dashboard, right under the pins. */}
                 <div className="mt-3">
-                    <CreatorSections targ={{ ...profile, id: user.uid }} isSelf={true} viewerUid={user.uid} canEditMusic={!!profile.isMusicCreator} canEditContent={!!profile.isContentCreator}/>
+                    <CreatorSections targ={{ ...profile, id: user.uid }} isSelf={true} viewerUid={user.uid} canEditMusic={!!profile.isMusicCreator} canEditContent={!!profile.isContentCreator} canEditKandi={!!profile.isKandiCreator} onMessage={onMessageUser}/>
                 </div>
 
                         
