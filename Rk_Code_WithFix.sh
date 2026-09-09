@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=75
+RK_MAJOR=76
 RK_MINOR=57
 RK_PATCH=144
-RK_BUILD=276
+RK_BUILD=277
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -6651,7 +6651,7 @@ EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
-const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial }) => {
+const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, onReplayCreatorTour }) => {
     // V69: brand manager lives here because the button that opens it does.
     const [brandsOpen, setBrandsOpen] = useState(false);
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
@@ -6903,6 +6903,14 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial })
 
         <div className="border-b border-white/10 pb-4 space-y-2">
             <h4 className="font-bold text-xs mb-2 text-yellow-400">Help &amp; Support</h4>
+            {/* V76: a creator walkthrough stays replayable for as long as the permission is held,
+                and disappears if it is ever revoked — a tour for a portal you can no longer open
+                would just be a broken promise sitting in Settings. */}
+            {Object.keys(RK_CREATOR_TOURS).filter(f => profile?.[f]).map(f => (
+                <Button key={f} onClick={() => { if (onReplayCreatorTour) { onClose(); onReplayCreatorTour(f); } }} color="cyan" className="w-full text-xs mb-2">
+                    ▶ Replay: {RK_CREATOR_TOURS[f].label}
+                </Button>
+            ))}
             <Button onClick={() => { if (onReplayTutorial) { onClose(); onReplayTutorial(); } }} color="purple" className="w-full text-[10px] flex items-center justify-center gap-2"><Compass size={14}/> Replay App Tutorial</Button>
             <Button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} color="lime" className="w-full text-[10px] flex items-center justify-center gap-2"><Wallet size={14}/> Crypto Wallet &amp; Info</Button>
             <Button onClick={() => setShowTicket(true)} color="accent" className="w-full text-[10px] flex items-center justify-center gap-2"><HelpCircle size={14}/> Report a Bug / Get Help</Button>
@@ -9434,7 +9442,68 @@ const TUTORIAL_STEPS = [
     { tut: null, center: true, title: "All done! 🎉", body: "That's it! Tap around — almost everything opens something. You can watch this again in Settings. Welcome to the tribe! 🌈" }
 ];
 
-const TutorialOverlay = ({ active, onFinish }) => {
+// V76: takes its steps as a prop. It was hard-wired to TUTORIAL_STEPS, which was fine while
+// there was one tour; there are now four — the general one plus a tour per creator type — and
+// they all want the same spotlight, scroll-into-view and tap-gating behaviour.
+
+// ============================================================================================
+// V76 - CREATOR TUTORIALS
+//
+// Being granted a creator permission used to be a notification and nothing else. The person was
+// told they were now a Kandi Maker and left to find the Creator Portal, the request queue, the
+// work stages and the offer system on their own — and most of that lives behind a small icon on
+// the profile, which is not somewhere anyone looks unprompted.
+//
+// One tour per creator type, forced once on the next launch after the grant. Same engine as the
+// general tutorial: `requireTap` steps have no NEXT button, so the only way forward is to use
+// the real control. Reading about a feature and using it once are different things, and only
+// the second one sticks.
+//
+// Completion is stored on the USER DOCUMENT, not localStorage. A permission granted to a person
+// follows them to whatever device they sign in on; a tutorial keyed to a browser would re-run
+// on the second device and never run at all if they were granted it while signed in elsewhere.
+// ============================================================================================
+const RK_CREATOR_TOURS = {
+    isKandiCreator: {
+        key: 'tutKandiDone',
+        label: 'Kandi Maker walkthrough',
+        steps: [
+            { tut: null, center: true, title: "You're a Kandi Maker now 🔨", body: "Approved. There are a few places that only open up for makers — let's walk them so you know where they are. About a minute." },
+            { tut: 'profile', requireTap: true, title: 'Start on your profile', body: 'Everything a maker needs hangs off your profile. Tap it — this step needs the real tap.' },
+            { tut: 'creatorhub', requireTap: true, unlockSkip: true, title: 'This is your Creator Portal', body: 'The hammer is where every request from every raver lands. The number on it is how many are waiting for someone to take them. Tap it.' },
+            { tut: null, center: true, title: 'Taking a job', body: "Open Requests shows the design, the estimated materials and who asked. Accept moves it to Active and tells them you've got it." },
+            { tut: null, center: true, title: 'Keep them updated', body: "On an active job you set the stage — Sourcing, Building, Finishing, Ready. Every change tells your client. It's the difference between a good maker and a silent one." },
+            { tut: null, center: true, title: 'Agreeing a price', body: "Send an asking price from the job card. It arrives in your chat with them, where they can accept it or counter. Nothing is agreed until one of you accepts." },
+            { tut: null, center: true, title: 'Finishing up', body: "To close a job you need three things: the stage on Ready, a price agreed, and a photo of the finished piece. RaveKandi never holds your money — you and your client settle it directly." },
+            { tut: null, center: true, title: "That's the loop 🌈", body: 'Request → accept → build → agree → deliver. You can replay this from Settings any time.' }
+        ]
+    },
+    isMusicCreator: {
+        key: 'tutMusicDone',
+        label: 'Music Creator walkthrough',
+        steps: [
+            { tut: null, center: true, title: "You're a Music Creator 🎵", body: "Approved. You've got a music section on your profile now — let's set it up." },
+            { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your music section lives here. Tap Profile.' },
+            { tut: null, center: true, title: 'Add your first track', body: 'The MUSIC block takes a YouTube, SoundCloud or Twitch link, or a 30-second sample straight from your phone. Ravers can play it without leaving your profile.' },
+            { tut: null, center: true, title: 'Order matters', body: "If you're also a Content Creator you can drag your Music and Content blocks to decide which a visitor sees first." },
+            { tut: null, center: true, title: 'Get heard', body: 'Rave Radio pulls from creator tracks. Your socials are on your profile too — the verified follower counts you gave us are what set your referral allowance.' }
+        ]
+    },
+    isContentCreator: {
+        key: 'tutContentDone',
+        label: 'Content Creator walkthrough',
+        steps: [
+            { tut: null, center: true, title: "You're a Content Creator 🎬", body: "Approved. You've got a showcase and something most ravers don't — a way to sell your work." },
+            { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your showcase lives here. Tap Profile.' },
+            { tut: null, center: true, title: 'Show your work', body: 'CONTENT SHOWCASE takes clips, socials and photos. This is the first thing a promoter looks at, so lead with your best.' },
+            { tut: null, center: true, title: 'Services & Ad Spots', body: "Inside your showcase you can list what you'll make for people — story ads, shoutouts, posters, flyers, videos — with your prices. Ravers book you straight from your profile." },
+            { tut: null, center: true, title: 'Getting paid', body: 'Payment is direct between you and the buyer. RaveKandi never holds funds, so agree terms in the messenger before you start work.' }
+        ]
+    }
+};
+
+const TutorialOverlay = ({ active, onFinish, steps }) => {
+    const STEPS = steps && steps.length ? steps : TUTORIAL_STEPS;
     const [step, setStep] = useState(0);
     const [rect, setRect] = useState(null);
     // V65.41: once a step marked unlockSkip has been completed, Skip appears for the rest of the
@@ -9442,7 +9511,7 @@ const TutorialOverlay = ({ active, onFinish }) => {
     const [skipUnlocked, setSkipUnlocked] = useState(false);
     // Always begin at step 1 each time the tutorial opens (fresh launch or replay from Settings).
     useEffect(() => { if (active) { setStep(0); setSkipUnlocked(false); } }, [active]);
-    const cur = TUTORIAL_STEPS[step];
+    const cur = STEPS[step];
 
     // A requireTap step advances only when the spotlighted control is actually used. The cutout
     // already lets taps through — the four dark panels surround the hole rather than covering it —
@@ -9492,7 +9561,7 @@ const TutorialOverlay = ({ active, onFinish }) => {
         return () => { ts.forEach(clearTimeout); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
     }, [active, step]);
     if (!active || !cur) return null;
-    const last = step === TUTORIAL_STEPS.length - 1;
+    const last = step === STEPS.length - 1;
     // Declared here, above the pass-through early return that uses them. `const` is not hoisted,
     // so leaving these further down threw a ReferenceError the instant that step rendered.
     const finish = () => { setStep(0); onFinish(); };
@@ -14114,7 +14183,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     );
 };
 
-const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial, openCreatorHub, onConsumeCreatorHub }) => {
+const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial, onReplayCreatorTour, openCreatorHub, onConsumeCreatorHub }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
@@ -14209,7 +14278,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <UsernameModal user={user} profile={profile} isOpen={modals.username} onClose={()=>setModals({...modals, username:false})}/>
                 <CollectionPopout user={user} type="posts" isOpen={modals.collection} onClose={()=>setModals({...modals, collection:false})} onViewFeed={onViewFeed} hideDIY={!!profile?.hideDIYFromOthers}/>
                 <CollectionPopout user={user} type="stock" isOpen={modals.inventory} onClose={()=>setModals({...modals, inventory:false})}/>
-                <MainSettingsModal user={user} profile={profile} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})} onReplayTutorial={onReplayTutorial}/>
+                <MainSettingsModal user={user} profile={profile} onReplayCreatorTour={onReplayCreatorTour} isOpen={modals.settings} onClose={()=>setModals({...modals, settings:false})} onReplayTutorial={onReplayTutorial}/>
                 <BioModal user={user} currentBio={profile.bio || ''} isOpen={modals.bio} onClose={()=>setModals({...modals, bio:false})}/>
                 <EditSocialsModal user={user} profile={profile} isOpen={modals.socials} onClose={()=>setModals({...modals, socials:false})}/>
                 <ReferralModal user={user} profile={profile} isOpen={modals.referrals} onClose={()=>setModals({...modals, referrals:false})} onOpenWallet={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} onViewProfile={(u) => { setModals({...modals, referrals:false}); onViewProfile && onViewProfile(u); }}/>
@@ -14328,7 +14397,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         {(profile.isKandiCreator || profile.isAdmin) && (
                             <div className="mb-2 p-2 bg-white/5 border-l-2 border-lime-400 rounded-r flex items-center justify-between">
                                 <span className="text-[10px] uppercase font-bold text-lime-400 tracking-wider">Creator Portal Access</span>
-                                <button onClick={() => setShowCreatorHub(true)} className="relative bg-lime-500/20 text-lime-400 p-2 rounded hover:bg-lime-500/40">
+                                <button data-tut="creatorhub" onClick={() => setShowCreatorHub(true)} className="relative bg-lime-500/20 text-lime-400 p-2 rounded hover:bg-lime-500/40">
                                     <Hammer size={16}/>
                                     {openReqCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-lime-400 text-black text-[9px] font-black flex items-center justify-center">{openReqCount}</span>}
                                 </button>
@@ -15093,6 +15162,8 @@ const App = () => {
     const [tutorialActive, setTutorialActive] = useState(false);
     const [tutorialPending, setTutorialPending] = useState(false);
     const [tutorialReminder, setTutorialReminder] = useState(false);
+    // V76: which creator tour is running, by permission key. null when none.
+    const [creatorTour, setCreatorTour] = useState(null);
     const [showVipModal, setShowVipModal] = useState(false);
     
     // PHASE 8: Rave Radio State
@@ -15290,6 +15361,30 @@ const App = () => {
     }, []);
 
     // V60: replay the tutorial from scratch (used by the Settings button).
+    // V76: after the general tutorial is out of the way, run any creator tour the person is owed.
+    // One at a time — someone holding two permissions gets the second on the next launch rather
+    // than eight minutes of tours in one sitting. Guarded on the user document so a grant made
+    // while they were signed in elsewhere still reaches them.
+    useEffect(() => {
+        if (!user?.uid || !profile || tutorialActive || tutorialPending || creatorTour) return;
+        try { if (localStorage.getItem('rk_tutorial_done') !== 'true') return; } catch (e) { return; }
+        const owed = Object.keys(RK_CREATOR_TOURS).find(flag => profile[flag] && !profile[RK_CREATOR_TOURS[flag].key]);
+        if (!owed) return;
+        const t = setTimeout(() => setCreatorTour(owed), 900);
+        return () => clearTimeout(t);
+    }, [user?.uid, profile, tutorialActive, tutorialPending, creatorTour]);
+
+    const finishCreatorTour = async () => {
+        const flag = creatorTour;
+        setCreatorTour(null);
+        if (!flag || !user?.uid) return;
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { [RK_CREATOR_TOURS[flag].key]: true }, { merge: true });
+        } catch (e) { rkReport('creator tour done flag', e); }
+    };
+
+    const replayCreatorTour = (flag) => { setCreatorTour(flag); };
+
     const replayTutorial = () => {
         try { localStorage.removeItem('rk_tutorial_done'); } catch (e) {}
         setPage('home');
@@ -15953,6 +16048,7 @@ cat << 'EOF' >> src/App.js
             <WelcomeAlphaModal />
             <AnnouncementPopIn cfg={rkConfig} />
             <DiscoveryTip cfg={rkConfig} />
+            <TutorialOverlay active={!!creatorTour} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
             <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
             <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
@@ -16426,7 +16522,7 @@ cat << 'EOF' >> src/App.js
                         )}
                    </div>
                 )}
-                {page === 'profile' && <ProfileView user={user} openCreatorHub={forceCreatorHub} onConsumeCreatorHub={() => setForceCreatorHub(false)} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
+                {page === 'profile' && <ProfileView user={user} onReplayCreatorTour={replayCreatorTour} openCreatorHub={forceCreatorHub} onConsumeCreatorHub={() => setForceCreatorHub(false)} onOpenSettings={() => setForceSettings(true)} onViewFeed={handleViewFeed} onViewProfile={(id) => setViewingProfileId(id)} onMessageUser={(uid, name) => { setMsgTarget({ uid, name: name || 'Raver' }); setMsgOpen(true); }} onReplayTutorial={replayTutorial}/>}
             </main>
             <div className="fixed bottom-0 w-full bg-black border-t border-white/10 font-mono uppercase z-50 px-3 pt-1.5" style={{ paddingBottom: 'calc(6px + env(safe-area-inset-bottom))' }}>
                 {nowPlaying && (
