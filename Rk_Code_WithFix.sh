@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=77
+RK_MAJOR=78
 RK_MINOR=57
 RK_PATCH=144
-RK_BUILD=278
+RK_BUILD=279
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -10384,6 +10384,22 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                 // V65.31: the approved per-platform counts and their total land on the USER doc.
                 // approvedFollowers is the only follower number anything else in the app may read —
                 // claimed figures stay on the application and are never granted anything.
+                // V78: the application asks for craft specialty, genres and niche, and NONE of it
+                // reached the user document — approval copied only the flag and the follower
+                // counts. So the Kandi block at 278 rendered no specialty chips for anybody, not
+                // just for old grants: the field it reads had never been written. Carry the
+                // profile fields across at approval so the showcase has something to show.
+                if (a.creatorType === 'Kandi Maker') {
+                    if (a.specialty) flag.specialty = a.specialty;
+                    if (Array.isArray(a.specialties) && a.specialties.length) flag.specialties = a.specialties;
+                    if (a.years) flag.kandiYears = a.years;
+                } else if (a.creatorType === 'Music Creator') {
+                    if (a.genres) flag.musicGenres = a.genres;
+                    if (a.musicPlatform) flag.musicPlatform = a.musicPlatform;
+                } else if (a.creatorType === 'Content Creator') {
+                    if (a.niche) flag.contentNiche = a.niche;
+                    if (a.contentPlatform) flag.contentPlatform = a.contentPlatform;
+                }
                 const approvedSocials = rkBuildApprovedSocials(a);
                 const total = rkApprovedFollowerTotal(approvedSocials);
                 if (approvedSocials.length) {
@@ -13542,6 +13558,108 @@ const KandiProfileSection = ({ targ, isSelf, onMessage, dragHandle, dragStyle })
     );
 };
 
+
+// ============================================================================================
+// V78 - CREATOR PROFILE COMPLETION
+//
+// The application collects craft specialty, genres and niche. Approval copied the creator flag
+// and the follower counts and nothing else, so those answers stayed on the application document
+// and never reached the user. The 278 Kandi showcase reads `specialty` from the user - which is
+// why it showed no chips for anyone, old grant or new.
+//
+// 279 fixes the copy at approval, but that only helps future approvals. Everyone already
+// approved still has the gap, so this closes it in two steps, in this order:
+//
+//   1. SELF-HEAL. Look up their own approved application. If the answer is sitting there,
+//      copy it across silently. Nobody should be asked to re-type something they already
+//      told us and we simply failed to move.
+//   2. PROMPT. Only if the answer genuinely does not exist anywhere. Shown on every launch
+//      until it is filled, because an incomplete showcase is invisible to the ravers it is
+//      meant to reach - and "remind me later" that persists is just a way of never asking.
+//
+// No rules change: reading your own application is already permitted (uid == auth.uid) and the
+// owner may write their own user document.
+// ============================================================================================
+const RK_PROFILE_GAPS = {
+    isKandiCreator: {
+        appType: 'Kandi Maker',
+        field: 'specialty',
+        title: 'What do you make?',
+        blurb: 'Your Kandi Maker block shows this to every raver who lands on your profile. Without it they cannot tell what you actually craft.',
+        copyFrom: (app) => {
+            const out = {};
+            if (app.specialty) out.specialty = app.specialty;
+            if (Array.isArray(app.specialties) && app.specialties.length) out.specialties = app.specialties;
+            return out.specialty ? out : null;
+        }
+    },
+    isMusicCreator: {
+        appType: 'Music Creator',
+        field: 'musicGenres',
+        title: 'What do you play?',
+        blurb: 'Shown on your music block so ravers browsing know what they are about to hear.',
+        copyFrom: (app) => (app.genres ? { musicGenres: app.genres } : null)
+    },
+    isContentCreator: {
+        appType: 'Content Creator',
+        field: 'contentNiche',
+        title: 'What is your content about?',
+        blurb: 'Shown on your showcase. Promoters scanning profiles use it to decide who to approach.',
+        copyFrom: (app) => (app.niche ? { contentNiche: app.niche } : null)
+    }
+};
+
+const CreatorProfileCompletion = ({ user, profile, gapKey, onClose }) => {
+    const cfg = RK_PROFILE_GAPS[gapKey];
+    const [picked, setPicked] = useState([]);
+    const [other, setOther] = useState('');
+    const [text, setText] = useState('');
+    const [saving, setSaving] = useState(false);
+    if (!cfg) return null;
+    const isKandi = gapKey === 'isKandiCreator';
+
+    const save = async () => {
+        const value = isKandi
+            ? [...picked, ...(other.trim() ? [other.trim()] : [])].join(', ')
+            : text.trim();
+        if (!value) return alert(isKandi ? 'Pick at least one, or describe your own.' : 'Enter something so ravers know what to expect.');
+        setSaving(true);
+        try {
+            const payload = isKandi ? { specialty: value, specialties: picked } : { [cfg.field]: value.slice(0, 120) };
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), payload, { merge: true });
+            onClose();
+        } catch (e) { rkReport('creator profile completion', e); alert('Could not save that: ' + (e && e.message ? e.message : 'unknown error')); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} zClass="z-[200]" title={'\u2728 ' + cfg.title}>
+            <p className="text-xs text-white/70 mb-3">{cfg.blurb}</p>
+            {isKandi ? (
+                <>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                        {RK_CRAFT_SPECIALTIES.map(opt => {
+                            const on = picked.includes(opt);
+                            return <button key={opt} type="button" onClick={() => setPicked(p => on ? p.filter(x => x !== opt) : [...p, opt])}
+                                className={'text-[10px] font-black px-2.5 py-1.5 rounded border ' + (on ? 'bg-purple-500/25 text-purple-100 border-purple-400/60' : 'bg-white/5 text-white/60 border-white/15')}>
+                                {on ? '\u2713 ' : ''}{opt}</button>;
+                        })}
+                    </div>
+                    <input value={other} onChange={e => setOther(e.target.value)} placeholder="Other — describe it in your own words"
+                        className="w-full bg-black border border-white/20 text-[11px] p-2 rounded mb-3"/>
+                </>
+            ) : (
+                <input value={text} onChange={e => setText(e.target.value)} placeholder={gapKey === 'isMusicCreator' ? 'e.g. Melodic bass, DnB, hard techno' : 'e.g. Festival vlogs, outfit builds, set recaps'}
+                    className="w-full bg-black border border-white/20 text-xs p-2 rounded mb-3"/>
+            )}
+            <Button onClick={save} disabled={saving} color="lime" className="w-full text-sm mb-2">{saving ? 'Saving…' : 'Save to my profile'}</Button>
+            {/* Deliberately not "don't ask again". The prompt exists because the profile is
+                incomplete; the only thing that should stop it is completing the profile. */}
+            <button onClick={onClose} className="w-full text-[11px] text-white/50 py-1">Not now — ask me next time</button>
+        </Modal>
+    );
+};
+
 const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent, canEditKandi, onMessage }) => {
     const [dragging, setDragging] = useState(null); // 'music' | 'content'
     const [dragY, setDragY] = useState(0);
@@ -15258,6 +15376,8 @@ const App = () => {
     const [tutorialReminder, setTutorialReminder] = useState(false);
     // V76: which creator tour is running, by permission key. null when none.
     const [creatorTour, setCreatorTour] = useState(null);
+    const [profileGap, setProfileGap] = useState(null);
+    const gapDismissedRef = useRef({});
     const [showVipModal, setShowVipModal] = useState(false);
     
     // PHASE 8: Rave Radio State
@@ -15455,6 +15575,34 @@ const App = () => {
     }, []);
 
     // V60: replay the tutorial from scratch (used by the Settings button).
+    // V78: self-heal first, prompt only if there is genuinely nothing to heal from. Runs after
+    // the tours so a newly-approved creator is not hit with a walkthrough and a form at once.
+    useEffect(() => {
+        if (!user?.uid || !profile || tutorialActive || creatorTour || profileGap) return;
+        const gapKey = Object.keys(RK_PROFILE_GAPS).find(k =>
+            profile[k] && !profile[RK_PROFILE_GAPS[k].field] && !gapDismissedRef.current[k]);
+        if (!gapKey) return;
+        let live = true;
+        (async () => {
+            const cfg = RK_PROFILE_GAPS[gapKey];
+            try {
+                // Their own approved application. Reading it is already permitted — the rule
+                // allows uid == auth.uid — so no admin path and no rules change.
+                const snap = await getDocs(query(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'),
+                    where('uid', '==', user.uid)));
+                const app = snap.docs.map(d => d.data()).find(a => a.creatorType === cfg.appType && a.status === 'approved');
+                const heal = app ? cfg.copyFrom(app) : null;
+                if (heal) {
+                    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), heal, { merge: true });
+                    return;   // healed silently; nothing to ask
+                }
+            } catch (e) { rkReport('creator profile self-heal', e); }
+            if (live) setProfileGap(gapKey);
+        })();
+        return () => { live = false; };
+    }, [user?.uid, profile, tutorialActive, creatorTour, profileGap]);
+
     // V76: after the general tutorial is out of the way, run any creator tour the person is owed.
     // One at a time — someone holding two permissions gets the second on the next launch rather
     // than eight minutes of tours in one sitting. Guarded on the user document so a grant made
@@ -16142,6 +16290,8 @@ cat << 'EOF' >> src/App.js
             <WelcomeAlphaModal />
             <AnnouncementPopIn cfg={rkConfig} />
             <DiscoveryTip cfg={rkConfig} />
+            {profileGap && <CreatorProfileCompletion user={user} profile={profile} gapKey={profileGap}
+                onClose={() => { gapDismissedRef.current[profileGap] = true; setProfileGap(null); }} />}
             <TutorialOverlay active={!!creatorTour} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
             <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
             <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
