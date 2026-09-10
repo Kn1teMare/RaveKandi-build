@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=59
+RK_MINOR=60
 RK_PATCH=144
-RK_BUILD=282
+RK_BUILD=283
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -7960,7 +7960,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                                 three taps deep, and it marked a design "sold" that was never for
                                 sale. */}
                             {!readOnly && (item.isAICreation || item.isDesignConcept) && (
-                                <div className="mt-1.5" onClick={(ev) => ev.stopPropagation()}><RkConceptVisibility item={item}/></div>
+                                <div className="mt-1.5" onClick={(ev) => ev.stopPropagation()}><RkConceptVisibility item={item} context="collection"/></div>
                             )}
                             {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
                                 <div className={`mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
@@ -8893,10 +8893,14 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 {/* V73.2: a concept can be viewed or requested, never added to a cart. The prompter is
                     not selling anything, so an Add button would be offering a transaction that does
                     not exist. */}
+                {/* V79.3: this sat INSIDE the action row, so the chip, a full sentence of status
+                    text and the REQUEST button fought over one line — the status wrapped to three
+                    lines and REQUEST ran off the card. Own row, above the actions, and the status
+                    is a short clause rather than a sentence. */}
                 {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
-                    <div className="mb-2 flex items-center gap-2">
-                        <RkConceptVisibility item={item}/>
-                        <span className="text-[9px] text-white/40">{item.isHidden ? 'Only you can see this' : 'Showing in the feed and your collection'}</span>
+                    <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+                        <RkConceptVisibility item={item} context="feed"/>
+                        <span className="text-[9px] text-white/40 shrink-0">{item.isHidden ? 'Hidden — only you' : 'Live in the feed'}</span>
                     </div>
                 )}
                 {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
@@ -11569,7 +11573,11 @@ const RkStageHistory = ({ item }) => {
     if (!rows.length) return null;
     return (
         <div className="bg-black/40 border border-white/10 rounded-lg p-2.5 mt-2">
-            <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Stage history</p>
+            {/* V79.3: capped height with its own scroll. An unbounded list pushed every other
+                project off the screen, so a creator with one chatty build made the whole hub
+                hard to scan. */}
+            <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Stage history{rows.length > 8 ? ' · ' + rows.length : ''}</p>
+            <div className={rows.length > 8 ? 'max-h-40 overflow-y-auto pr-1' : ''}>
             {rows.slice().reverse().map((r, i) => {
                 const label = (RK_WORK_STAGES.find(x => x.id === r.stage) || {}).label || r.stage;
                 const d = r.at ? new Date(r.at) : null;
@@ -11580,6 +11588,7 @@ const RkStageHistory = ({ item }) => {
                     </p>
                 );
             })}
+            </div>
         </div>
     );
 };
@@ -11862,8 +11871,16 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
         }
     };
     const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; if (!await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
-    const handleComplete = async (item) => { const blockers = rkCompletionBlockers(item); if (blockers.length) return alert('Not ready to complete yet. Still to do:\n\n\u2022 ' + blockers.join('\n\u2022 ')); if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
-    const handleDeny = async (item) => { const r = prompt("Reason for denial:"); if(!r) return; if (!await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
+    // V79.3: any creator could Complete or Deny any job, including one another creator had
+    // already accepted. The hub lists everyone's work, so this was one tap away at all times —
+    // a maker could close or kill a build they had nothing to do with. The rules cannot catch
+    // it either: requestStatus is writable by any signed-in raver by design, because that is how
+    // an unassigned request gets picked up in the first place.
+    const rkMayAct = (item) => !item.assigneeId || item.assigneeId === user.uid || !!profile?.isAdmin;
+    const rkDenyAct = (item) => { alert('This build was accepted by ' + (item.assigneeName || 'another creator') + '. Only they can complete or decline it.'); };
+
+    const handleComplete = async (item) => { if (!rkMayAct(item)) return rkDenyAct(item); const blockers = rkCompletionBlockers(item); if (blockers.length) return alert('Not ready to complete yet. Still to do:\n\n\u2022 ' + blockers.join('\n\u2022 ')); if(!window.confirm("Mark this request as completed?")) return; if (!await setStage(item, 'completed', { completedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '✅ Your request "' + item.name + '" is COMPLETED!', item.id); };
+    const handleDeny = async (item) => { if (!rkMayAct(item)) return rkDenyAct(item); const r = prompt("Reason for denial:"); if(!r) return; if (!await setStage(item, 'denied', { dismissReason: r, deniedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '❌ Your request "' + item.name + '" was denied: ' + r, item.id); };
 
     // V73.15: pb-40 clears the fixed footer bar. Without it the last card on EVERY tab sat
     // underneath it, hiding the action buttons — and the buttons are the entire point of the card.
@@ -11964,12 +11981,31 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                         )}
                         {hubTab === 'active' && req.assigneeId === user.uid && (
                             <div className="bg-black/40 border border-cyan-500/25 rounded-lg p-2.5 mt-3">
+                                {/* V79.3: the hub shows every creator's active work, and nothing said
+                                    whose was whose. A maker could not tell their own build from
+                                    somebody else's without opening it. */}
+                                {req.assigneeId && (
+                                    <p className="text-[10px] mb-1.5">
+                                        <span className="text-white/40 uppercase tracking-widest text-[9px]">Accepted by </span>
+                                        <button onClick={() => { if (onViewProfile) onViewProfile(req.assigneeId); }}
+                                            className={'font-black ' + (req.assigneeId === user.uid ? 'text-lime-300' : 'text-cyan-300')}>
+                                            {req.assigneeId === user.uid ? 'you' : (req.assigneeName || 'a creator')} ›
+                                        </button>
+                                        {req.acceptedAt && <span className="text-white/40"> · {new Date(req.acceptedAt).toLocaleDateString()}</span>}
+                                    </p>
+                                )}
                                 <p className="text-[10px] font-black uppercase text-cyan-300 mb-1.5">Progress — the client sees this</p>
                                 <div className="flex flex-wrap gap-1.5">
                                     {RK_WORK_STAGES.map(st => {
                                         const on = (req.workStage || 'accepted') === st.id;
-                                        return <button key={st.id} onClick={() => setWorkStage(req, st.id)}
-                                            className={'text-[10px] font-black px-2 py-1.5 rounded border ' + (on ? 'bg-cyan-500/25 text-cyan-100 border-cyan-400/60' : 'bg-white/5 text-white/60 border-white/15')}>{on ? '● ' : ''}{st.label}</button>;
+                                        // V79.3: Accepted is a fact about the past, not a place to
+                                        // move back to. Allowing it let a stage be toggled in and out
+                                        // of the opening state, filling the history with noise that
+                                        // says nothing about the build.
+                                        const locked = st.id === 'accepted';
+                                        return <button key={st.id} disabled={locked} onClick={() => !locked && setWorkStage(req, st.id)}
+                                            title={locked ? 'Accepted is where every build starts — you cannot move back to it' : undefined}
+                                            className={'text-[10px] font-black px-2 py-1.5 rounded border ' + (on ? 'bg-cyan-500/25 text-cyan-100 border-cyan-400/60' : locked ? 'bg-white/5 text-white/25 border-white/10 cursor-not-allowed' : 'bg-white/5 text-white/60 border-white/15')}>{on ? '● ' : ''}{st.label}</button>;
                                     })}
                                 </div>
                                 <label className="block mt-2">
@@ -13659,7 +13695,19 @@ const RkCreatorTags = ({ targ, isSelf, options, field, mirror, tone, emptySelf, 
 // One resolver, shared, so the next caller cannot get it wrong either.
 const rkResolveTradeItemId = async (item, meUid) => {
     if (!item) return null;
-    if (item.ownerId) return item.id;              // already a tradeItems doc
+    // V79.3: `if (item.ownerId) return item.id` was wrong. INVENTORY documents carry ownerId
+    // too, so a collection card short-circuited here and handed back its inventory id as though
+    // it were a listing id — setDoc(merge) on a missing doc became a CREATE and the rule denied
+    // it. That is why the toggle worked in the feed (real tradeItems docs) and failed in the
+    // collection every time. Presence of a field is not proof of which collection a doc is from;
+    // the only proof is that the document actually exists where we are about to write.
+    const exists = async (id) => {
+        if (!id) return false;
+        try { return (await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id))).exists(); }
+        catch (e) { return false; }
+    };
+    if (await exists(item.id)) return item.id;
+    if (await exists(item.refId)) return item.refId;
     try {
         const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', meUid)));
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -13674,7 +13722,10 @@ const rkResolveTradeItemId = async (item, meUid) => {
     return null;
 };
 
-const RkConceptVisibility = ({ item, className = '' }) => {
+// `context` decides the warning. The two directions are not symmetrical: making something
+// visible publishes it to every raver, hiding it removes it from the feed. Saying "are you
+// sure?" for both tells the person nothing about which they are doing.
+const RkConceptVisibility = ({ item, className = '', context = 'collection', onGoToCollection }) => {
     const [busy, setBusy] = useState(false);
     const [hidden, setHidden] = useState(!!item?.isHidden);
     useEffect(() => { setHidden(!!item?.isHidden); }, [item?.isHidden]);
@@ -13682,6 +13733,22 @@ const RkConceptVisibility = ({ item, className = '' }) => {
 
     const flip = async () => {
         const next = !hidden;
+        const name = item.name || 'this design';
+        // The two directions are not symmetrical, so they do not get the same wording. Going
+        // visible PUBLISHES — that is the one worth pausing on. Going hidden is reversible and
+        // loses nothing, so the message's job is to say where the design went, not to warn.
+        //
+        // Deliberately one dialog, not a three-way. window.confirm has two buttons; faking a
+        // third with a second confirm reads as the app asking twice because it did not believe
+        // you. A real three-option sheet with a "take me there" button is queued instead.
+        const msg = !next
+            ? 'Share "' + name + '" to the feed?\n\nEvery raver will be able to see it, and makers can offer to build it. You can hide it again at any time.'
+            : 'Hide "' + name + '" from the feed?\n\nIt stays in your collection — Profile → My Collection — and only you can see it.';
+        if (!window.confirm(msg)) return;
+        await doFlip(next);
+    };
+
+    const doFlip = async (next) => {
         setBusy(true);
         try {
             const me = auth?.currentUser?.uid;
