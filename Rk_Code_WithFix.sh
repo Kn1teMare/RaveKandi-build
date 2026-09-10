@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=78
-RK_MINOR=57
+RK_MAJOR=79
+RK_MINOR=58
 RK_PATCH=144
-RK_BUILD=279
+RK_BUILD=281
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -7950,6 +7950,13 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                             {/* V73.1: an AI concept that is not offered for sale gets Hide, not
                                 Sold & Hide — there is nothing to sell, so "sold" is a state it can
                                 never legitimately reach. */}
+                            {/* V79.1: visibility, right on the card. Previously the only way to take
+                                a concept off your profile was Sold & Hide from the detail sheet —
+                                three taps deep, and it marked a design "sold" that was never for
+                                sale. */}
+                            {!readOnly && (item.isAICreation || item.isDesignConcept) && (
+                                <div className="mt-1.5" onClick={(ev) => ev.stopPropagation()}><RkConceptVisibility item={item}/></div>
+                            )}
                             {!readOnly && (item.isDIYRequest || item.isAICreation || item.isDesignConcept) && (
                                 <div className={`mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 self-start ${hideDIY ? 'bg-white/10 text-white/50' : 'bg-lime-500/20 text-lime-300'}`}>{hideDIY ? <><EyeOff size={8}/> Hidden from others</> : <><Eye size={8}/> Visible to others</>}</div>
                             )}
@@ -8881,6 +8888,12 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 {/* V73.2: a concept can be viewed or requested, never added to a cart. The prompter is
                     not selling anything, so an Add button would be offering a transaction that does
                     not exist. */}
+                {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
+                    <div className="mb-2 flex items-center gap-2">
+                        <RkConceptVisibility item={item}/>
+                        <span className="text-[9px] text-white/40">{item.isHidden ? 'Only you can see this' : 'Showing in the feed and your collection'}</span>
+                    </div>
+                )}
                 {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
                     item.allowRequest
                         ? <Button onClick={async () => {
@@ -10394,10 +10407,14 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                     if (Array.isArray(a.specialties) && a.specialties.length) flag.specialties = a.specialties;
                     if (a.years) flag.kandiYears = a.years;
                 } else if (a.creatorType === 'Music Creator') {
-                    if (a.genres) flag.musicGenres = a.genres;
+                    // V79: NOT musicGenres. That field is an ARRAY built by arrayUnion from the
+                    // genres on a creator's uploaded tracks, and it is read with .slice().join()
+                    // on the creator carousel — writing the application's free-text string there
+                    // would have thrown on render. Stated style is its own field.
+                    if (a.genres) flag.musicStyleTags = String(a.genres).split(',').map(x => x.trim()).filter(Boolean).slice(0, 8);
                     if (a.musicPlatform) flag.musicPlatform = a.musicPlatform;
                 } else if (a.creatorType === 'Content Creator') {
-                    if (a.niche) flag.contentNiche = a.niche;
+                    if (a.niche) flag.contentTags = String(a.niche).split(',').map(x => x.trim()).filter(Boolean).slice(0, 8);
                     if (a.contentPlatform) flag.contentPlatform = a.contentPlatform;
                 }
                 const approvedSocials = rkBuildApprovedSocials(a);
@@ -12840,6 +12857,13 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
                     {isSelf && <button data-tut="addmusic" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Music'}</button>}
                 </div>
             </div>
+            {/* V79: what they PLAY, stated by them. Distinct from `musicGenres`, which is derived
+                from the genres on their uploaded tracks and must stay an array built by
+                arrayUnion. A visitor could see somebody was a Music Creator and not whether that
+                meant hard techno or downtempo — which is most of what decides a tap-through. */}
+            <RkCreatorTags targ={targ} isSelf={isSelf} options={RK_MUSIC_STYLES}
+                field="musicStyleTags" tone="bg-purple-500/15 text-purple-200 border-purple-400/40"
+                emptySelf="Add your sound" emptyOther="Hasn't listed their sound yet."/>
             {isSelf && adding && (
                 <div className="bg-black/40 border border-white/15 rounded-lg p-2 mb-2 space-y-2">
                     <Input label="Title" value={form.title} onChange={v => setForm({ ...form, title: v })} placeholder="Track / set / stream name" className="mb-0"/>
@@ -13068,6 +13092,9 @@ const ContentProfileSection = ({ targ, isSelf, dragHandle, dragStyle }) => {
                     {isSelf && <button data-tut="addcontent" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Content'}</button>}
                 </div>
             </div>
+            <RkCreatorTags targ={targ} isSelf={isSelf} options={RK_CONTENT_KINDS}
+                field="contentTags" tone="bg-cyan-500/15 text-cyan-200 border-cyan-400/40"
+                emptySelf="Add what you make" emptyOther="Hasn't listed their content yet."/>
             {isSelf && adding && (
                 <div className="bg-black/40 border border-white/15 rounded-lg p-2 mb-2 space-y-2">
                     <div className="flex gap-1 bg-black/40 rounded-lg p-1">
@@ -13485,6 +13512,141 @@ const MusicCreatorsBrowser = ({ viewerUid, onViewProfile }) => {
 // Everything here reads fields the account already has, plus two the maker sets themselves.
 // No rules change: these live on the user's own document, which the owner may already write.
 // ============================================================================================
+
+// ============================================================================================
+// V79 - CREATOR TAGS
+//
+// The chips are the one part of a creator profile that answers "what do you actually make?".
+// They were readable on the Kandi block from 278 and editable only through the 279 completion
+// prompt - which by design only appears while the field is EMPTY, so once filled there was no
+// way to change it. A maker who moves from cuffs to LED work had no route back.
+//
+// Editable in place, and ONLY the chips. Everything else on an application - years, portfolio,
+// follower counts - was verified by an admin at approval and must not become self-editable;
+// letting someone rewrite an approved follower count would hand them a larger referral
+// allowance for free. What a person makes is a description, not a credential, so it is theirs
+// to change.
+//
+// Music and Content get the same treatment. A visitor could see that someone was a Music
+// Creator but not whether they played hard techno or downtempo, which is most of what decides
+// whether you tap through.
+// ============================================================================================
+const RK_MUSIC_STYLES = ['House', 'Techno', 'Hard Techno', 'Trance', 'Psytrance', 'Drum & Bass',
+    'Dubstep', 'Riddim', 'Melodic Bass', 'Future Bass', 'Trap', 'Hardstyle', 'Hardcore',
+    'Downtempo', 'Breaks', 'Jersey Club', 'Live PA', 'Open Format'];
+const RK_CONTENT_KINDS = ['Festival vlogs', 'Set recaps', 'Outfit builds', 'Photography',
+    'Videography', 'Editing', 'Tutorials', 'Reviews', 'Interviews', 'Livestreams',
+    'Promo & flyers', 'Memes', 'Podcasts', 'Kandi how-tos'];
+
+// `field` is an array on the user doc; `mirror` optionally keeps a comma-joined string in step
+// for anything that still reads the old shape.
+const RkCreatorTags = ({ targ, isSelf, options, field, mirror, tone, emptySelf, emptyOther }) => {
+    const stored = targ?.[field];
+    const current = Array.isArray(stored) ? stored
+        : (typeof stored === 'string' && stored ? stored.split(',').map(x => x.trim()).filter(Boolean) : []);
+    const [editing, setEditing] = useState(false);
+    const [picked, setPicked] = useState(current);
+    const [other, setOther] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const open = () => { setPicked(current); setOther(''); setEditing(true); };
+    const save = async () => {
+        const list = [...picked, ...(other.trim() ? [other.trim()] : [])].filter(Boolean).slice(0, 10);
+        if (!list.length) return alert('Pick at least one, or describe your own.');
+        setSaving(true);
+        try {
+            const payload = { [field]: list };
+            if (mirror) payload[mirror] = list.join(', ');
+            await setDoc(doc(db, 'artifacts', appId, 'users', targ.id), payload, { merge: true });
+            setEditing(false);
+        } catch (e) { rkReport('creator tags save', e); alert('Could not save that: ' + (e && e.message ? e.message : 'unknown error')); }
+        finally { setSaving(false); }
+    };
+
+    if (editing) {
+        return (
+            <div className="bg-black/40 border border-white/15 rounded-lg p-2.5 mb-2">
+                <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Pick every one that applies</p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                    {options.map(opt => {
+                        const on = picked.includes(opt);
+                        return <button key={opt} type="button" onClick={() => setPicked(p => on ? p.filter(x => x !== opt) : [...p, opt])}
+                            className={'text-[10px] font-black px-2.5 py-1.5 rounded border ' + (on ? tone : 'bg-white/5 text-white/60 border-white/15')}>
+                            {on ? '\u2713 ' : ''}{opt}</button>;
+                    })}
+                </div>
+                <input value={other} onChange={e => setOther(e.target.value)} placeholder="Other — your own words"
+                    className="w-full bg-black border border-white/20 text-[11px] p-2 rounded mb-2"/>
+                <div className="flex gap-1.5">
+                    <button onClick={save} disabled={saving} className="flex-1 text-[10px] font-black py-2 rounded border border-lime-400/50 bg-lime-500/15 text-lime-200">{saving ? 'Saving…' : 'Save'}</button>
+                    <button onClick={() => setEditing(false)} className="text-[10px] font-black px-3 rounded border border-white/20 bg-white/5 text-white/60">Cancel</button>
+                </div>
+            </div>
+        );
+    }
+
+    if (!current.length) {
+        return isSelf
+            ? <button onClick={open} className="text-[10px] font-black text-cyan-300 border border-cyan-400/40 bg-cyan-500/10 rounded px-2.5 py-1.5 mb-2">+ {emptySelf}</button>
+            : <p className="text-[11px] text-white/40 mb-2">{emptyOther}</p>;
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1 mb-2">
+            {current.slice(0, 10).map((t, i) => <span key={i} className={'text-[10px] font-bold rounded px-2 py-0.5 border ' + tone}>{t}</span>)}
+            {isSelf && <button onClick={open} className="text-[10px] font-black text-white/50 border border-white/20 rounded px-2 py-0.5">Edit</button>}
+        </div>
+    );
+};
+
+
+// ============================================================================================
+// V79.1 - AI CONCEPT VISIBILITY TOGGLE  (queue item 1, raised at 261)
+//
+// Hiding a concept only existed as part of "Sold & Hide", which also writes soldOut and zeroes
+// stock. That is right for a finished sale and wrong for a design: a concept was never for
+// sale, so "sold" is a state it can never legitimately reach, and a raver who just wanted a
+// half-finished idea off their profile for a while had to mark it sold to get there - then
+// found it stuck behind an unhide flow warning them about re-listing stock that never existed.
+//
+// This is the plain version: show or hide, either way, any time, with nothing else attached.
+// It writes `isHidden` on the public document - the field every reader already queries - and
+// touches nothing else, so a concept can go back and forth without acquiring a sales history
+// it never had.
+// ============================================================================================
+const RkConceptVisibility = ({ item, className = '' }) => {
+    const [busy, setBusy] = useState(false);
+    const [hidden, setHidden] = useState(!!item?.isHidden);
+    useEffect(() => { setHidden(!!item?.isHidden); }, [item?.isHidden]);
+    const id = item?.refId || item?.id;
+    if (!id) return null;
+
+    const flip = async () => {
+        const next = !hidden;
+        setBusy(true);
+        try {
+            // Deliberately NOT soldOut/stockQty. See the note above — this is visibility only.
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id),
+                next ? { isHidden: true, hiddenAt: Date.now() } : { isHidden: false, hiddenAt: null }, { merge: true });
+            const me = auth?.currentUser?.uid;
+            if (me) for (const inv of [item.refId, item.id].filter(Boolean)) {
+                try { await setDoc(doc(db, 'artifacts', appId, 'users', me, 'inventory', inv), { isHidden: next }, { merge: true }); } catch (e) {}
+            }
+            setHidden(next);
+        } catch (e) {
+            rkReport('concept visibility toggle', e);
+            alert(e && e.code === 'permission-denied' ? 'You can only change visibility on your own designs.' : 'Could not change visibility: ' + (e && e.message ? e.message : 'unknown error'));
+        } finally { setBusy(false); }
+    };
+
+    return (
+        <button onClick={(ev) => { ev.stopPropagation(); flip(); }} disabled={busy}
+            className={'text-[10px] font-black uppercase px-2.5 py-1.5 rounded border inline-flex items-center gap-1.5 ' +
+                (hidden ? 'border-white/25 bg-white/5 text-white/60' : 'border-cyan-400/50 bg-cyan-500/15 text-cyan-200') + ' ' + className}>
+            {busy ? '…' : hidden ? <><EyeOff size={12}/> Hidden</> : <><Eye size={12}/> Visible</>}
+        </button>
+    );
+};
+
 const RK_COMMISSION_STATES = [
     { id: 'open',     label: 'Taking commissions', tone: 'bg-lime-500/20 text-lime-300 border-lime-400/50' },
     { id: 'waitlist', label: 'Waitlist only',      tone: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/50' },
@@ -13499,7 +13661,6 @@ const KandiProfileSection = ({ targ, isSelf, onMessage, dragHandle, dragStyle })
     // The application already asked for these. Showing them here means a maker does not fill the
     // same thing in twice, and a visitor sees what was actually approved rather than a free-text
     // claim written afterwards.
-    const specialties = String(targ?.specialty || '').split(',').map(x => x.trim()).filter(Boolean);
 
     const setStatus = async (id) => {
         if (!isSelf || !targ?.id) return;
@@ -13523,11 +13684,9 @@ const KandiProfileSection = ({ targ, isSelf, onMessage, dragHandle, dragStyle })
 
             <span className={'inline-block text-[10px] font-black uppercase px-2.5 py-1 rounded border mb-2 ' + cur.tone}>{cur.label}</span>
 
-            {specialties.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                    {specialties.slice(0, 8).map((sp, i) => <span key={i} className="text-[10px] font-bold bg-white/5 border border-white/15 text-white/70 rounded px-2 py-0.5">{sp}</span>)}
-                </div>
-            )}
+            <RkCreatorTags targ={targ} isSelf={isSelf} options={RK_CRAFT_SPECIALTIES}
+                field="specialties" mirror="specialty" tone="bg-lime-500/15 text-lime-200 border-lime-400/40"
+                emptySelf="Add what you make" emptyOther="Hasn't listed what they make yet."/>
 
             {targ?.kandiTurnaround && <p className="text-[11px] text-white/60 mb-2">Typical turnaround: <span className="text-white/85 font-bold">{targ.kandiTurnaround}</span></p>}
 
@@ -13595,17 +13754,17 @@ const RK_PROFILE_GAPS = {
     },
     isMusicCreator: {
         appType: 'Music Creator',
-        field: 'musicGenres',
+        field: 'musicStyleTags',
         title: 'What do you play?',
         blurb: 'Shown on your music block so ravers browsing know what they are about to hear.',
-        copyFrom: (app) => (app.genres ? { musicGenres: app.genres } : null)
+        copyFrom: (app) => (app.genres ? { musicStyleTags: String(app.genres).split(',').map(x => x.trim()).filter(Boolean).slice(0, 8) } : null)
     },
     isContentCreator: {
         appType: 'Content Creator',
-        field: 'contentNiche',
+        field: 'contentTags',
         title: 'What is your content about?',
         blurb: 'Shown on your showcase. Promoters scanning profiles use it to decide who to approach.',
-        copyFrom: (app) => (app.niche ? { contentNiche: app.niche } : null)
+        copyFrom: (app) => (app.niche ? { contentTags: String(app.niche).split(',').map(x => x.trim()).filter(Boolean).slice(0, 8) } : null)
     }
 };
 
