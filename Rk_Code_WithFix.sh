@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=58
+RK_MINOR=59
 RK_PATCH=144
-RK_BUILD=281
+RK_BUILD=282
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -7396,8 +7396,13 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     // V63: re-list a previously hidden post — makes it visible again in the feed and collections.
     // Resolve which tradeItems doc (if any) this item maps to, so hide/unhide reliably hits the
     // public listing even when the item we're holding came from the inventory subcollection.
+    // V79.2: delegates to the shared rkResolveTradeItemId. The body below is kept as the
+    // fallback for the one case the shared version deliberately refuses — returning a best-guess
+    // id when no listing was found — because hide/unhide here has always had that behaviour and
+    // changing it is a separate decision from fixing the concept toggle.
     const resolveTradeItemId = async () => {
-        // 1) If the item itself is a tradeItems doc (has ownerId), its id is correct.
+        const shared = await rkResolveTradeItemId(item, meUid);
+        if (shared) return shared;
         if (item.ownerId) return item.id;
         // 2) refId sometimes points at the tradeItems doc.
         // 3) Otherwise, find the owner's listing by matching name + image.
@@ -11556,6 +11561,29 @@ const RK_WORK_STAGES = [
     { id: 'ready',     label: 'Ready to hand over' },
 ];
 
+
+// V79.2: one renderer, both sides. The maker and the client must see the same account of what
+// happened — two independently written timelines is how a dispute starts.
+const RkStageHistory = ({ item }) => {
+    const rows = Array.isArray(item?.workStageHistory) ? item.workStageHistory : [];
+    if (!rows.length) return null;
+    return (
+        <div className="bg-black/40 border border-white/10 rounded-lg p-2.5 mt-2">
+            <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Stage history</p>
+            {rows.slice().reverse().map((r, i) => {
+                const label = (RK_WORK_STAGES.find(x => x.id === r.stage) || {}).label || r.stage;
+                const d = r.at ? new Date(r.at) : null;
+                return (
+                    <p key={i} className="flex justify-between gap-2 text-[10px] py-0.5 border-b border-white/5 last:border-0">
+                        <span className={i === 0 ? 'font-black text-cyan-300' : 'text-white/60'}>{label}</span>
+                        <span className="text-white/40 shrink-0">{d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                    </p>
+                );
+            })}
+        </div>
+    );
+};
+
 const RK_CLIENT_TABS = [
     { id: 'active',    label: 'In progress', match: (r) => ['pending', 'awaiting_assignment', 'active'].includes(r.requestStatus) },
     { id: 'completed', label: 'Finished',    match: (r) => r.requestStatus === 'completed' },
@@ -11672,6 +11700,7 @@ const ClientProjectTracker = ({ user, profile, onClose, onMessageUser, onViewPro
                                 </div>
                                 <p className="text-xs font-bold text-white">{RK_WORK_STAGES[stageIdx]?.label || 'Accepted'}</p>
                                 {r.workStageAt && <p className="text-[9px] text-white/40">Updated {new Date(r.workStageAt).toLocaleDateString()}</p>}
+                                <RkStageHistory item={r}/>
                             </div>
                         )}
 
@@ -11776,7 +11805,14 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
 
     const setWorkStage = async (req, stage) => {
         try {
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', req.id), { workStage: stage, workStageAt: Date.now() });
+            // V79.2: append, never overwrite. workStage alone says where a build is; the history
+            // says how it got there — a job that moved steadily and one that sat on Sourcing for
+            // a fortnight look identical without it. Capped at 20 so a doc cannot grow unbounded
+            // from someone toggling stages.
+            const prior = Array.isArray(req.workStageHistory) ? req.workStageHistory : [];
+            const entry = { stage, at: Date.now(), by: user.uid };
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', req.id),
+                { workStage: stage, workStageAt: entry.at, workStageHistory: [...prior, entry].slice(-20) });
             if (req.ownerId && req.ownerId !== user.uid) pushNotif(req.ownerId, 'diy', '🛠️ "' + req.name + '" moved to: ' + rkStageLabel(stage), req.id);
         } catch (e) {
             rkReport('creator hub setWorkStage -> ' + stage, e);
@@ -11942,6 +11978,7 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                                         className="block w-full text-[10px] mt-1 text-white/60 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-black file:bg-cyan-500/20 file:text-cyan-200"/>
                                 </label>
                                 {rkCompletionBlockers(req).length > 0 && <p className="text-[9px] text-yellow-300/80 mt-1.5">Before completing: {rkCompletionBlockers(req).join('; ')}.</p>}
+                                <RkStageHistory item={req}/>
                                 {/* V73.15: the creator had nowhere to name a figure, so the agreed
                                     cost on the card could only ever be set out of band. The offer
                                     goes into the messenger as a card the client can accept or
@@ -13613,21 +13650,46 @@ const RkCreatorTags = ({ targ, isSelf, options, field, mirror, tone, emptySelf, 
 // touches nothing else, so a concept can go back and forth without acquiring a sales history
 // it never had.
 // ============================================================================================
+
+// V79.2: lifted out of ItemDetailModal, where it had lived since V65.38.01, because 281 wrote a
+// second id-resolution by hand and got it wrong. A collection card is an INVENTORY document —
+// its id is not the tradeItems id — so `refId || id` lands on a document that does not exist,
+// setDoc(merge) turns into a CREATE, and the create rule denies it for having no ownerId. The
+// error reads "you can only change visibility on your own designs" on an item you plainly own.
+// One resolver, shared, so the next caller cannot get it wrong either.
+const rkResolveTradeItemId = async (item, meUid) => {
+    if (!item) return null;
+    if (item.ownerId) return item.id;              // already a tradeItems doc
+    try {
+        const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('ownerId', '==', meUid)));
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (item.refId && rows.some(r => r.id === item.refId)) return item.refId;
+        const match = rows.find(r => (r.name && item.name && r.name === item.name)
+            || (item.imageUrl && r.imageUrl === item.imageUrl)
+            || (item.mediaUrls?.[0]?.url && r.imageUrl === item.mediaUrls[0].url));
+        if (match) return match.id;
+    } catch (e) { rkReport('resolveTradeItemId', e); }
+    // No public listing found. Returning null rather than a guess: writing to a guessed id
+    // would CREATE an orphan listing, which is worse than failing loudly.
+    return null;
+};
+
 const RkConceptVisibility = ({ item, className = '' }) => {
     const [busy, setBusy] = useState(false);
     const [hidden, setHidden] = useState(!!item?.isHidden);
     useEffect(() => { setHidden(!!item?.isHidden); }, [item?.isHidden]);
-    const id = item?.refId || item?.id;
-    if (!id) return null;
+    if (!item?.id) return null;
 
     const flip = async () => {
         const next = !hidden;
         setBusy(true);
         try {
+            const me = auth?.currentUser?.uid;
+            const id = await rkResolveTradeItemId(item, me);
+            if (!id) { alert('This design has no public listing to show or hide yet. Share it first.'); return; }
             // Deliberately NOT soldOut/stockQty. See the note above — this is visibility only.
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id),
                 next ? { isHidden: true, hiddenAt: Date.now() } : { isHidden: false, hiddenAt: null }, { merge: true });
-            const me = auth?.currentUser?.uid;
             if (me) for (const inv of [item.refId, item.id].filter(Boolean)) {
                 try { await setDoc(doc(db, 'artifacts', appId, 'users', me, 'inventory', inv), { isHidden: next }, { merge: true }); } catch (e) {}
             }
