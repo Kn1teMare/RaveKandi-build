@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=60
+RK_MINOR=61
 RK_PATCH=144
-RK_BUILD=283
+RK_BUILD=284
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -8897,10 +8897,27 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     text and the REQUEST button fought over one line — the status wrapped to three
                     lines and REQUEST ran off the card. Own row, above the actions, and the status
                     is a short clause rather than a sentence. */}
-                {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
-                    <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
-                        <RkConceptVisibility item={item} context="feed"/>
-                        <span className="text-[9px] text-white/40 shrink-0">{item.isHidden ? 'Hidden — only you' : 'Live in the feed'}</span>
+                {/* V79.4: the card showed a price and a REQUEST button and never said WHAT it was.
+                    A raver scrolling could not tell an AI concept from a finished piece for sale —
+                    which matters, because one is a render nobody has made yet and the other is a
+                    real object. The estimate needs the same qualification: it is what a maker
+                    would charge to build it, not what you are paying today. */}
+                {(item.isAICreation || item.isDesignConcept || item.isDIYRequest) && (
+                    <div className="mb-2 rounded-lg border border-cyan-400/25 bg-cyan-500/5 p-2">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
+                            {item.isDIYRequest ? '🛠️ DIY request' : '✨ AI concept'}
+                        </p>
+                        <p className="text-[9px] text-white/50 leading-snug mt-0.5">
+                            {item.isDIYRequest
+                                ? 'Someone has asked a maker to build this. It does not exist yet.'
+                                : 'An AI render, not a finished piece. Request it and a maker quotes to build it for real.'}
+                        </p>
+                        {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                <RkConceptVisibility item={item} context="feed"/>
+                                <span className="text-[9px] text-white/40">{item.isHidden ? 'Hidden — only you' : 'Live in the feed'}</span>
+                            </div>
+                        )}
                     </div>
                 )}
                 {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
@@ -11577,7 +11594,10 @@ const RkStageHistory = ({ item }) => {
                 project off the screen, so a creator with one chatty build made the whole hub
                 hard to scan. */}
             <p className="text-[10px] font-black uppercase text-white/50 mb-1.5">Stage history{rows.length > 8 ? ' · ' + rows.length : ''}</p>
-            <div className={rows.length > 8 ? 'max-h-40 overflow-y-auto pr-1' : ''}>
+            {/* V79.4: .rk-scroll is the existing visible-scrollbar class from V63, built for exactly
+                this — a scroll box where nothing on screen says it scrolls. Reusing it rather than
+                writing a second scrollbar style. */}
+            <div className={rows.length > 8 ? 'max-h-40 overflow-y-auto pr-1 rk-scroll' : ''}>
             {rows.slice().reverse().map((r, i) => {
                 const label = (RK_WORK_STAGES.find(x => x.id === r.stage) || {}).label || r.stage;
                 const d = r.at ? new Date(r.at) : null;
@@ -16640,7 +16660,17 @@ cat << 'EOF' >> src/App.js
                 // drop you at the top of the feed with no idea which project it meant — the same
                 // bug V70.2 fixed for comments and likes, left in place for the one notification
                 // type where the item IS the whole message.
-                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy') && n.refId) { setNotifItemId(n.refId); return; }
+                // V79.4: 'trade' was the big miss — eight call sites, no branch, so every offer
+                // and counter-offer notification fell through to the feed. 'message' had five and
+                // did the same. The old shape put a catch-all `setPage('feed')` at the end, which
+                // meant any type without an explicit branch LOOKED handled while quietly going
+                // nowhere useful, and every new type inherited that by default.
+                //
+                // Now: item-bearing types open the item, thread types open the thread, and the
+                // final else does NOTHING rather than guessing. A notification that cannot say
+                // where it belongs should leave the person where they are, not move them.
+                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'trade') && n.refId) { setNotifItemId(n.refId); return; }
+                if (t === 'trade' || t === 'message') { if (n.refId) setMsgTarget({ uid: n.refId, name: 'Raver' }); setMsgOpen(true); return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
                 // V73.15: an offer notification opens the CHAT it lives in — the negotiation is
                 // carried as messages, so the thread is the destination, not a page.
