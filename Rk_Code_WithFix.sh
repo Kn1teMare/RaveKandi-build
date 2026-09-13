@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=61
+RK_MINOR=62
 RK_PATCH=144
-RK_BUILD=284
+RK_BUILD=285
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1511,7 +1511,9 @@ export const proposeToTribe = async (tribeId, candidateUid, candidateName, propo
     pending[candidateUid] = { name: candidateName || 'Raver', votes: [proposerUid], needed };
     await updateDoc(ref, { pendingVotes: pending });
     // notify other members to vote
-    (t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'friendreq', '🗳️ Vote: should @' + (candidateName || 'a raver') + ' join your "' + t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
+    // V79.5: was 'friendreq', whose refId is a USER id and now opens that profile. These carry a
+    // TRIBE id, so they would have opened a profile that does not exist.
+    (t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'tribe', '🗳️ Vote: should @' + (candidateName || 'a raver') + ' join your "' + t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
     return needed;
 };
 // Cast a vote; if the threshold is met, the candidate is added + joins the group chat.
@@ -1530,7 +1532,7 @@ export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
         const newNames = { ...(t.memberNames || {}), [candidateUid]: entry.name };
         delete pending[candidateUid];
         await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length, pendingVotes: pending });
-        pushNotif(candidateUid, 'friendreq', '🎉 You were voted into the "' + t.name + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
+        pushNotif(candidateUid, 'tribe', '🎉 You were voted into the "' + t.name + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
         return 'approved';
     } else {
         pending[candidateUid] = entry;
@@ -5909,9 +5911,33 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     // V42.10: deep-link straight into a thread (e.g. "Message the Admin" on the homepage)
     useEffect(() => {
+        // V79.5: a `message` notification carries the THREAD id as its refId, not a uid. The
+        // router handed it in as `uid`, this line built [myUid, threadId] into a brand-new
+        // thread id that belongs to nobody, and the name fell back to 'Raver' — which is the
+        // "separate chat with Raver" people were landing in. UIDs contain underscores (V42.12)
+        // so a thread id can never be split back into two uids; the thread document has to be
+        // read instead.
+        if (isOpen && initialTarget?.threadId && myUid) {
+            const tid = initialTarget.threadId;
+            (async () => {
+                try {
+                    const d = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid));
+                    if (!d.exists()) { alert('That conversation no longer exists.'); if (onConsumeTarget) onConsumeTarget(); return; }
+                    const td = d.data();
+                    const other = (td.participants || []).find(u => u !== myUid);
+                    setActiveThread(tid); setActiveOtherUid(other || null);
+                    setActiveName((td.names || {})[other] || 'Raver'); setTab('msgs');
+                } catch (e) { rkReport('open thread from notification', e); }
+                if (onConsumeTarget) onConsumeTarget();
+            })();
+            return;
+        }
         if (isOpen && initialTarget?.uid && myUid) {
             const tid = [myUid, initialTarget.uid].sort().join('_');
-            setActiveThread(tid); setActiveName(initialTarget.name || 'Raver'); setActiveOtherUid(initialTarget.uid); setTab('msgs');
+            // Real name, not a placeholder: the thread already knows it, and the threads list is
+            // loaded here anyway.
+            const known = (threads || []).find(t => t.id === tid);
+            setActiveThread(tid); setActiveName(initialTarget.name || (known?.names || {})[initialTarget.uid] || 'Raver'); setActiveOtherUid(initialTarget.uid); setTab('msgs');
             if (onConsumeTarget) onConsumeTarget();
         }
     }, [isOpen, initialTarget]);
@@ -8902,22 +8928,29 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     which matters, because one is a render nobody has made yet and the other is a
                     real object. The estimate needs the same qualification: it is what a maker
                     would charge to build it, not what you are paying today. */}
+                {/* V79.5: 284 put this inside the action row, so it became a narrow column wedged
+                    between the share button and REQUEST — the text wrapped to nine lines and the
+                    whole card deformed. It is a full-width band of its own now, below the showcase
+                    line and above the actions, so it cannot push anything sideways. */}
                 {(item.isAICreation || item.isDesignConcept || item.isDIYRequest) && (
-                    <div className="mb-2 rounded-lg border border-cyan-400/25 bg-cyan-500/5 p-2">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
-                            {item.isDIYRequest ? '🛠️ DIY request' : '✨ AI concept'}
-                        </p>
-                        <p className="text-[9px] text-white/50 leading-snug mt-0.5">
-                            {item.isDIYRequest
-                                ? 'Someone has asked a maker to build this. It does not exist yet.'
-                                : 'An AI render, not a finished piece. Request it and a maker quotes to build it for real.'}
-                        </p>
-                        {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
-                            <div className="mt-2 flex items-center gap-2 flex-wrap">
-                                <RkConceptVisibility item={item} context="feed"/>
-                                <span className="text-[9px] text-white/40">{item.isHidden ? 'Hidden — only you' : 'Live in the feed'}</span>
+                    <div className="w-full mb-2 rounded-lg border border-cyan-400/25 bg-cyan-500/5 px-2.5 py-2">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
+                                    {item.isDIYRequest ? '🛠️ DIY request' : '✨ AI concept'}
+                                </p>
+                                <p className="text-[9px] text-white/50 leading-snug mt-0.5">
+                                    {item.isDIYRequest
+                                        ? 'Someone has asked a maker to build this — it does not exist yet.'
+                                        : 'An AI render, not a finished piece. Request it and a maker quotes to build it for real.'}
+                                </p>
                             </div>
-                        )}
+                            {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <RkConceptVisibility item={item} context="feed"/>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
                 {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
@@ -11585,6 +11618,35 @@ const RK_WORK_STAGES = [
 
 // V79.2: one renderer, both sides. The maker and the client must see the same account of what
 // happened — two independently written timelines is how a dispute starts.
+
+// V79.5: the progress bar only rendered on ACTIVE jobs, so a completed build showed no stage at
+// all and an open request showed nothing either — the one glance that says "where is this" was
+// missing from every tab except one. Read-only, shown everywhere, and honest about the states
+// that sit outside the five work stages rather than pretending the bar applies to them.
+const RkStageBar = ({ item }) => {
+    const st = item?.requestStatus;
+    const unassigned = st === 'pending' || st === 'awaiting_assignment';
+    const done = st === 'completed';
+    const dead = st === 'denied';
+    const idx = Math.max(0, RK_WORK_STAGES.findIndex(x => x.id === (item?.workStage || 'accepted')));
+    const filled = dead ? 0 : done ? RK_WORK_STAGES.length : unassigned ? 0 : idx + 1;
+    const label = dead ? 'Declined' : done ? 'Delivered' : unassigned ? 'Waiting for a maker'
+        : (RK_WORK_STAGES[idx] || {}).label || 'Accepted';
+    return (
+        <div className="mt-2">
+            <div className="flex gap-1 mb-1">
+                {RK_WORK_STAGES.map((x, i) => (
+                    <div key={x.id} className={'h-1.5 flex-1 rounded-full ' +
+                        (dead ? 'bg-red-500/30' : i < filled ? (done ? 'bg-lime-400' : 'bg-cyan-400') : 'bg-white/15')}/>
+                ))}
+            </div>
+            <p className={'text-[10px] font-bold ' + (dead ? 'text-red-300' : done ? 'text-lime-300' : unassigned ? 'text-white/50' : 'text-white')}>{label}
+                {item?.workStageAt && !unassigned && <span className="text-white/40 font-normal"> · {new Date(item.workStageAt).toLocaleDateString()}</span>}
+            </p>
+        </div>
+    );
+};
+
 const RkStageHistory = ({ item }) => {
     const rows = Array.isArray(item?.workStageHistory) ? item.workStageHistory : [];
     if (!rows.length) return null;
@@ -11705,6 +11767,7 @@ const ClientProjectTracker = ({ user, profile, onClose, onMessageUser, onViewPro
                             </span>
                         </div>
 
+                        <RkStageBar item={r}/>
                         {(r.imageUrl || r.image) && <img src={r.imageUrl || r.image} alt={r.name || 'Design'} loading="lazy" className="w-full rounded-lg border border-white/10 object-contain max-h-64 mb-2"/>}
 
                         {/* Who is making it. The hub made the client clickable at 268; the same
@@ -11979,6 +12042,7 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
                         {/* V73.12: the image was never rendered here. A maker was deciding whether
                             to take a job — and quoting for it — from a text summary alone, while the
                             picture the whole request was built around sat unused on the document. */}
+                        <RkStageBar item={req}/>
                         {(req.imageUrl || req.image) && (
                             <img src={req.imageUrl || req.image} alt={req.name || 'Requested design'} loading="lazy"
                                 className="w-full rounded-lg mt-3 border border-white/10 bg-black/40 object-contain max-h-72"/>
@@ -16670,14 +16734,19 @@ cat << 'EOF' >> src/App.js
                 // final else does NOTHING rather than guessing. A notification that cannot say
                 // where it belongs should leave the person where they are, not move them.
                 if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'trade') && n.refId) { setNotifItemId(n.refId); return; }
-                if (t === 'trade' || t === 'message') { if (n.refId) setMsgTarget({ uid: n.refId, name: 'Raver' }); setMsgOpen(true); return; }
+                // 'message' refIds are THREAD ids; 'trade' and 'offer' refIds are the sender's uid.
+                // Two different shapes behind one field, so they cannot share a branch.
+                if (t === 'message') { if (n.refId) setMsgTarget({ threadId: n.refId }); setMsgOpen(true); return; }
+                if (t === 'trade') { if (n.refId) setMsgTarget({ uid: n.refId }); setMsgOpen(true); return; }
+                if (t === 'friendreq') { if (n.refId) { setMsgOpen(false); setViewingProfileId(n.refId); return; } setMsgOpen(false); setPage('profile'); return; }
+                if (t === 'tribe') { setMsgOpen(false); setPage('profile'); try { setTimeout(() => window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe' })), 250); } catch (e) {} return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
                 // V73.15: an offer notification opens the CHAT it lives in — the negotiation is
                 // carried as messages, so the thread is the destination, not a page.
-                else if (t === 'offer') { if (n.refId) setMsgTarget({ uid: n.refId, name: 'Raver' }); setMsgOpen(true); return; }
+                else if (t === 'offer') { if (n.refId) setMsgTarget({ uid: n.refId }); setMsgOpen(true); return; }
                 else if (t === 'ailab') { setMsgOpen(false); setPage('shop'); setTab('custom'); }
                 else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
-                else if (t === 'achievement' || t === 'friendreq' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
+                else if (t === 'achievement' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
             }} />}
             {notifItem && (
                 <ItemDetailModal
