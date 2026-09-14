@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=64
+RK_MINOR=65
 RK_PATCH=144
-RK_BUILD=287
+RK_BUILD=288
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -5753,6 +5753,14 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     // negotiation needs no rules change. A counter is just another offer travelling the other way.
     const [counterDraft, setCounterDraft] = useState('');
     const [newOfferDraft, setNewOfferDraft] = useState('');
+    // V79.8: every message in a thread is decrypted with async AES-GCM through a single
+    // Promise.all before ANY of them render. On a long thread that is a real stall, and the pane
+    // showed nothing at all while it ran — so the app looked frozen, taps went nowhere, and there
+    // was no way to tell loading from broken. The work stays where it is; what was missing was
+    // any signal that it was happening.
+    const [msgsLoading, setMsgsLoading] = useState(false);
+    const [threadsLoading, setThreadsLoading] = useState(true);
+    useEffect(() => { if (threads) setThreadsLoading(false); }, [threads]);
     // V75.2: the ONLY way to put a figure in the chat was the creator's hub, and the only reply was
     // a counter on a live offer. So once an offer was withdrawn or expired, nobody could restart:
     // the client had never been able to open a negotiation at all, and the creator had to leave the
@@ -5851,14 +5859,16 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
 
     // live messages for the open thread
     useEffect(() => {
-        if (!isOpen || !activeThread) { setMsgs([]); return; }
+        if (!isOpen || !activeThread) { setMsgs([]); setMsgsLoading(false); return; }
+        setMsgsLoading(true);
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread, 'messages'), orderBy('at', 'asc'));
         const unsub = onSnapshot(q, async s => {
             const rows = s.docs.map(d => ({ ...d.data(), id: d.id }));
             // Decrypt every message (async AES-GCM / legacy XOR) before showing it.
             const decrypted = await Promise.all(rows.map(async r => ({ ...r, _plain: await rkDecMsg(r.text, myUid, activeOtherUid) })));
             setMsgs(decrypted);
-        }, e => console.log('msgs', e));
+            setMsgsLoading(false);
+        }, e => { console.log('msgs', e); setMsgsLoading(false); });
         // mark thread read
         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'threads', activeThread), { unread: { [myUid]: 0 } }, { merge: true }).catch(()=>{});
         // subscribe to the thread doc for obliterate state
@@ -6182,7 +6192,21 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             });
                         return (
                         <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
-                            {list.length === 0 && <p className="text-center opacity-50 text-xs py-6">No conversations yet. Search a raver above to start one!</p>}
+                            {/* V79.8: one generic "no conversations yet" for every filter made the
+                                sort tabs look dead — tap Unread with nothing unread and the screen
+                                says the same thing it said before, so nothing appears to have
+                                happened. Each filter now names what it found nothing of, which is
+                                also the only visible proof the tab did anything. */}
+                            {threadsLoading && <p className="text-center text-cyan-300 text-xs py-6 animate-pulse">Loading your conversations…</p>}
+                            {!threadsLoading && list.length === 0 && sortMode !== 'recent' && (
+                                <p className="text-center opacity-60 text-xs py-6">
+                                    {sortMode === 'favorites' ? 'No favourited chats. Tap the star on a conversation to pin it here.'
+                                        : sortMode === 'unread' ? 'Nothing unread — you are all caught up.'
+                                        : sortMode === 'read' ? 'No read conversations yet.'
+                                        : 'No chats with your tribe yet.'}
+                                </p>
+                            )}
+                            {!threadsLoading && list.length === 0 && sortMode === 'recent' && <p className="text-center opacity-50 text-xs py-6">No conversations yet. Search a raver above to start one!</p>}
                             {list.map(t => {
                                 const other = otherOf(t); const un = t.unread?.[myUid] || 0;
                                 const preview = previews[t.id] || '';
@@ -6254,6 +6278,17 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                     </div>
                                     {refItem.completionImage && <img src={refItem.completionImage} alt="Finished piece" className="w-full rounded-lg border border-lime-500/30 object-contain max-h-52 mt-3"/>}
                                 </Modal>
+                            )}
+                            {/* V79.8: the pane was empty while decryption ran, which is
+                                indistinguishable from an empty conversation or a broken one. */}
+                            {msgsLoading && (
+                                <div className="self-stretch text-center py-8">
+                                    <div className="h-1 w-2/3 mx-auto rounded-full bg-white/10 overflow-hidden mb-3">
+                                        <div className="h-full w-1/3 bg-cyan-400 animate-pulse rounded-full"/>
+                                    </div>
+                                    <p className="text-xs font-black text-cyan-200">Decrypting messages…</p>
+                                    <p className="text-[10px] text-white/40 mt-0.5">Longer conversations take a moment.</p>
+                                </div>
                             )}
                             {msgs.map(m => {
                                 const mine = m.sender === myUid;
