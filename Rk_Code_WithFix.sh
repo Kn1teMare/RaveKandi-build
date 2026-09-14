@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=63
+RK_MINOR=64
 RK_PATCH=144
-RK_BUILD=286
+RK_BUILD=287
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -15228,6 +15228,12 @@ const AuthScreen = ({ setLoadMsg }) => {
     const [refCode, setRefCode] = useState(RK_URL_PARAMS.ref || '');
     const [loading, setLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
+    // V79.7: the form was live while the stored-credential lookup was still running. Someone
+    // would start typing their email, the lookup would land a moment later and overwrite both
+    // fields underneath them, and the next tap submitted whatever the browser had put there.
+    // Locked while it runs, with a stated reason — and it unlocks ITSELF after a few seconds,
+    // because a lock with no exit is worse than the race it prevents.
+    const [restoring, setRestoring] = useState(true);
 
     useEffect(() => {
         try {
@@ -15237,13 +15243,19 @@ const AuthScreen = ({ setLoadMsg }) => {
         } catch (e) { /* in-app browsers may block storage — harmless */ }
         // Try to autofill from a stored credential (Google Password Manager / browser). Pre-fills
         // the email (and password where the platform exposes it) so reinstall feels remembered.
+        let settled = false;
+        const done = () => { if (!settled) { settled = true; setRestoring(false); } };
+        // Whatever happens, the form is usable within 4 seconds. A platform that never answers
+        // the credential call must not be able to strand someone on a dead screen.
+        const failsafe = setTimeout(done, 4000);
         try {
             if (navigator.credentials && navigator.credentials.get && window.PasswordCredential) {
                 navigator.credentials.get({ password: true, mediation: 'optional' }).then((c) => {
                     if (c && c.id) { setEmail(c.id); if (c.password) setPassword(c.password); }
-                }).catch(() => {});
-            }
-        } catch (e) { /* unsupported — harmless */ }
+                    done();
+                }).catch(done);
+            } else { done(); }
+        } catch (e) { done(); }
         // V64.01.01: WEB NEVER TOUCHES OAUTH REDIRECT PLUMBING. Calling getRedirectResult is what
         // can paint Firebase's "missing initial state" death page in storage-partitioned browsers
         // (Instagram/TikTok webviews, incognito). On web we skip it entirely and just sweep any
@@ -15259,7 +15271,9 @@ const AuthScreen = ({ setLoadMsg }) => {
                 }
                 /* otherwise harmless */
             });
+            try { clearTimeout(failsafe); } catch (e) {}
         } else {
+            try { clearTimeout(failsafe); } catch (e) {}
             try {
                 Object.keys(sessionStorage).forEach(k => { if (/pendingRedirect/i.test(k)) sessionStorage.removeItem(k); });
                 Object.keys(localStorage).forEach(k => { if (/pendingRedirect/i.test(k)) localStorage.removeItem(k); });
@@ -15475,7 +15489,25 @@ const AuthScreen = ({ setLoadMsg }) => {
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
                 <p className="text-center text-[10px] text-lime-400/70 mb-5 font-mono">build {APP_VERSION_FULL}</p>
                 
+                {/* V79.7: a real lock, not a spinner floating over a live form. `inert` is not
+                    universally supported, so the fieldset does the disabling — it is the one
+                    thing that reliably stops every control inside it at once. The state is
+                    stated rather than implied, and there is always a way out. */}
+                {restoring && (
+                    <div className="mb-4 rounded-lg border border-cyan-400/40 bg-cyan-500/10 p-3 text-center">
+                        <div className="h-1 w-full rounded-full bg-white/10 overflow-hidden mb-2">
+                            <div className="h-full w-1/3 bg-cyan-400 animate-pulse rounded-full"/>
+                        </div>
+                        <p className="text-[11px] font-black text-cyan-200">Checking for a saved sign-in…</p>
+                        <p className="text-[9px] text-white/50 mt-0.5">This takes a second. The form unlocks either way.</p>
+                        <button type="button" onClick={() => setRestoring(false)}
+                            className="mt-2 text-[10px] font-black uppercase px-3 py-1.5 rounded border border-white/25 bg-white/5 text-white/70">
+                            Skip — let me type it in
+                        </button>
+                    </div>
+                )}
                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }} autoComplete="on">
+                <fieldset disabled={restoring} className={restoring ? 'opacity-40 pointer-events-none' : ''}>
                 {isReg && <Input label="DJ Name" name="nickname" value={djName} onChange={setDjName} placeholder="TechnoViking" autoComplete="nickname" />}
                 {isReg && <div>
                     <Input label="Friend UID (Optional)" value={refCode} onChange={setRefCode} placeholder="Enter Referral Code..." />
@@ -15490,6 +15522,7 @@ const AuthScreen = ({ setLoadMsg }) => {
                 </div>
 
                 <Button type="submit" disabled={loading} color="lime" className="w-full mb-3 py-3">{loading ? "Processing..." : (isReg ? "Sign Up" : "Log In")}</Button>
+                </fieldset>
                 </form>
                 {!isReg && <button onClick={() => doPasswordReset()} className="text-[11px] text-pink-300 w-full text-center hover:underline mb-3">Forgot password? Email me a reset link</button>}
                 <button onClick={() => setIsReg(!isReg)} className="text-xs text-cyan-400 w-full text-center hover:underline mb-6">{isReg ? "Already have an account? Log In" : "Need an account? Sign Up"}</button>
