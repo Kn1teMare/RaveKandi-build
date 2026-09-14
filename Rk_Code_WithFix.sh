@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=62
+RK_MINOR=63
 RK_PATCH=144
-RK_BUILD=285
+RK_BUILD=286
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1513,6 +1513,10 @@ export const proposeToTribe = async (tribeId, candidateUid, candidateName, propo
     // notify other members to vote
     // V79.5: was 'friendreq', whose refId is a USER id and now opens that profile. These carry a
     // TRIBE id, so they would have opened a profile that does not exist.
+    // V79.6: the CANDIDATE was never told. They were entered into a vote about themselves and
+    // heard nothing unless it passed — so a stalled proposal looked to them like nothing had
+    // happened, and to the proposer like the app had eaten it.
+    pushNotif(candidateUid, 'tribe', '\ud83d\uddf3\ufe0f You have been put forward to join the "' + t.name + '" Vibe Tribe \u2014 members are voting now.', tribeId);
     (t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'tribe', '🗳️ Vote: should @' + (candidateName || 'a raver') + ' join your "' + t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
     return needed;
 };
@@ -1532,6 +1536,9 @@ export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
         const newNames = { ...(t.memberNames || {}), [candidateUid]: entry.name };
         delete pending[candidateUid];
         await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length, pendingVotes: pending });
+        // V79.6: the existing members were never told either — someone simply appeared in the
+        // chat. `entry.name`, not `nm`: there is no such variable in this scope.
+        (t.members || []).filter(m => m && m !== candidateUid).forEach(m => pushNotif(m, 'tribe', '\ud83c\udf89 @' + (entry.name || 'A raver') + ' passed the vote and joined "' + t.name + '".', tribeId));
         pushNotif(candidateUid, 'tribe', '🎉 You were voted into the "' + t.name + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
         return 'approved';
     } else {
@@ -8910,6 +8917,32 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 </div>
             </div>
             
+            {/* V79.6: moved OUT of the action row. 285 rewrote this band's internals but left
+                it as a flex CHILD of `mt-auto flex justify-between`, so it still sat between
+                the share button and REQUEST and still pushed REQUEST out of the card.
+                Restyling something in the wrong parent does not move it. It is a sibling
+                ABOVE the action row now, full width, with the toggle pinned right. */}
+            {(item.isAICreation || item.isDesignConcept || item.isDIYRequest) && (
+                <div className="w-full mb-2 rounded-lg border border-cyan-400/25 bg-cyan-500/5 px-2.5 py-2">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
+                                {item.isDIYRequest ? '🛠️ DIY request' : '✨ AI concept'}
+                            </p>
+                            <p className="text-[9px] text-white/50 leading-snug mt-0.5">
+                                {item.isDIYRequest
+                                    ? 'Someone has asked a maker to build this — it does not exist yet.'
+                                    : 'An AI render, not a finished piece. Request it and a maker quotes to build it for real.'}
+                            </p>
+                        </div>
+                        {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <RkConceptVisibility item={item} context="feed"/>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             <div className="mt-auto flex justify-between items-center pt-3 border-t border-white/10">
                 <div className="flex gap-2 items-center">
                     <button onClick={toggleLike} className={'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition ' + (liked ? 'text-pink-400 border-pink-500/50 bg-pink-500/10' : 'text-white/60 border-white/15 hover:border-white/30')}><Heart size={20} fill={liked?"currentColor":"none"}/><span className="text-xs font-bold">{(item.likes?.length || 0)}</span></button>
@@ -8928,31 +8961,6 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     which matters, because one is a render nobody has made yet and the other is a
                     real object. The estimate needs the same qualification: it is what a maker
                     would charge to build it, not what you are paying today. */}
-                {/* V79.5: 284 put this inside the action row, so it became a narrow column wedged
-                    between the share button and REQUEST — the text wrapped to nine lines and the
-                    whole card deformed. It is a full-width band of its own now, below the showcase
-                    line and above the actions, so it cannot push anything sideways. */}
-                {(item.isAICreation || item.isDesignConcept || item.isDIYRequest) && (
-                    <div className="w-full mb-2 rounded-lg border border-cyan-400/25 bg-cyan-500/5 px-2.5 py-2">
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
-                                    {item.isDIYRequest ? '🛠️ DIY request' : '✨ AI concept'}
-                                </p>
-                                <p className="text-[9px] text-white/50 leading-snug mt-0.5">
-                                    {item.isDIYRequest
-                                        ? 'Someone has asked a maker to build this — it does not exist yet.'
-                                        : 'An AI render, not a finished piece. Request it and a maker quotes to build it for real.'}
-                                </p>
-                            </div>
-                            {(item.isAICreation || item.isDesignConcept) && item.ownerId === auth?.currentUser?.uid && (
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                    <RkConceptVisibility item={item} context="feed"/>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
                 {(item.isAICreation || item.isDesignConcept || item.notForSale) ? (
                     item.allowRequest
                         ? <Button onClick={async () => {
@@ -11705,7 +11713,7 @@ const ClientProjectTracker = ({ user, profile, onClose, onMessageUser, onViewPro
     // Resolve makers who were assigned before assigneeName was stamped, same as the hub does for
     // clients. Nobody should ever be looking at an anonymous counterparty.
     useEffect(() => {
-        const missing = [...new Set(rows.filter(r => r.assigneeId && !r.assigneeName && !makerNames[r.assigneeId]).map(r => r.assigneeId))];
+        const missing = [...new Set(rows.filter(r => r.assigneeId && !rkRealName(r.assigneeName) && !makerNames[r.assigneeId]).map(r => r.assigneeId))];
         if (!missing.length) return;
         let live = true;
         Promise.all(missing.map(async uid => {
@@ -11715,7 +11723,12 @@ const ClientProjectTracker = ({ user, profile, onClose, onMessageUser, onViewPro
         return () => { live = false; };
     }, [rows]);
 
-    const makerName = (r) => r.assigneeName || makerNames[r.assigneeId] || null;
+    // V79.6: `assigneeName` is written at accept time as `displayName || 'Creator'`, so a maker
+    // whose profile had not loaded got the literal string "Creator" stored on the job forever.
+    // The live-lookup fallback never fired, because the field was technically populated. A
+    // placeholder is not a name — treat it as absent so the lookup can do its job.
+    const rkRealName = (n) => (n && n !== 'Creator' && n !== 'Raver' ? n : null);
+    const makerName = (r) => rkRealName(r.assigneeName) || makerNames[r.assigneeId] || null;
     const shown = rows.filter(r => (RK_CLIENT_TABS.find(t => t.id === tab) || {}).match?.(r));
 
     const confirmReceived = async (r) => {
@@ -11953,7 +11966,7 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
             return false;
         }
     };
-    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; if (!await setStage(item, 'active', { assigneeId: user.uid, assigneeName: user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
+    const handleAccept = async (item) => { if(!window.confirm("Accept this request and assign it to yourself?")) return; if (!await setStage(item, 'active', { assigneeId: user.uid, assigneeName: profile?.displayName || user.displayName || 'Creator', status: item.isRequest ? 'request' : (item.status === 'pending' ? 'approved' : (item.status || 'approved')), acceptedAt: Date.now() })) return; pushNotif(item.ownerId, 'diy', '🛠️ Your request "' + item.name + '" was accepted and is now ACTIVE!', item.id); };
     // V79.3: any creator could Complete or Deny any job, including one another creator had
     // already accepted. The hub lists everyone's work, so this was one tap away at all times —
     // a maker could close or kill a build they had nothing to do with. The rules cannot catch
