@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=79
-RK_MINOR=65
+RK_MINOR=67
 RK_PATCH=144
-RK_BUILD=288
+RK_BUILD=290
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -6123,8 +6123,28 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             <button onClick={() => setShowMsgSettings(!showMsgSettings)} className="bg-black border border-white/20 rounded px-2 text-cyan-400" title="Message privacy"><Settings size={14}/></button>
                         </div>
                         <div className="flex gap-1 mb-2 flex-wrap">
+                            {/* V79.10: each tab carries the count it will produce. Four reports have
+                                come in saying these do nothing, and the filter has been correct since
+                                289 — so the missing thing is not the filter, it is any way to tell
+                                what a tap SHOULD do before you make it. A tab reading "Unread (0)"
+                                that then shows an empty list is self-evidently working; the same tab
+                                with no number is indistinguishable from a dead control.
+                                This also settles the question the reports could not: if the counts
+                                are wrong, the data is wrong, and if the counts are right but the
+                                list ignores them, the render is wrong. */}
                             {[{k:'recent',l:'Recent'},{k:'favorites',l:'⭐ Favorites'},{k:'unread',l:'Unread'},{k:'read',l:'Read'},{k:'friends',l:'🤝 Tribe'}].map(f => (
-                                <button key={f.k} onClick={() => setSortMode(f.k)} className={`text-[10px] font-bold px-2 py-1 rounded-full border ${sortMode===f.k ? 'bg-cyan-600 text-black border-cyan-400' : 'bg-white/5 text-white/60 border-white/15'}`}>{f.l}</button>
+                                <button key={f.k} onClick={() => setSortMode(f.k)} data-rk-tab={f.k} className={`text-[10px] font-bold px-2 py-1 rounded-full border ${sortMode===f.k ? 'bg-cyan-600 text-black border-cyan-400' : 'bg-white/5 text-white/60 border-white/15'}`}>{f.l}{(() => {
+                                    // Counted from `threads` with the SAME predicates the list uses,
+                                    // so a mismatch between a count and what appears is itself the bug
+                                    // report — no more "it does nothing".
+                                    const n = (threads || []).filter(t =>
+                                        f.k === 'favorites' ? !!t.favorites?.[myUid]
+                                        : f.k === 'unread' ? (t.unread?.[myUid] || 0) > 0
+                                        : f.k === 'read' ? (t.unread?.[myUid] || 0) === 0
+                                        : f.k === 'friends' ? (profile?.friends || []).includes(otherOf(t))
+                                        : true).length;
+                                    return <span className="opacity-60"> ({n})</span>;
+                                })()}</button>
                             ))}
                         </div>
                         {showMsgSettings && (
@@ -6170,12 +6190,28 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             render meant the Messages tab produced nothing at all, so conversations looked
                             locked and taps did nothing. Declared inline so it cannot be orphaned again. */}
                         {(() => {
+                        // V79.9: THIS is why the tabs never worked, through three reports. There are
+                        // two `list` variables. An outer one above filters by sortMode correctly and
+                        // is then SHADOWED by this inline const, which the JSX actually renders — and
+                        // this one only ever SORTED by sortMode. So the tabs were labelled as filters
+                        // ("Unread", "Favorites") and implemented as sort orders: Unread reordered
+                        // every thread instead of hiding the read ones, which looks exactly like
+                        // nothing happening. The 288 empty-state messages read the OUTER list, so they
+                        // never appeared either — the two disagreed about what was on screen.
+                        //
+                        // The filter lives here now, on the list that is actually rendered.
                         const list = [...(threads || [])]
                             .filter(t => {
                                 const q = rkCleanSearch(term).toLowerCase();
-                                if (!q) return true;
-                                const o = otherOf(t);
-                                return String(t.names?.[o] || '').toLowerCase().includes(q);
+                                if (q) {
+                                    const o = otherOf(t);
+                                    if (!String(t.names?.[o] || '').toLowerCase().includes(q)) return false;
+                                }
+                                if (sortMode === 'favorites') return !!t.favorites?.[myUid];
+                                if (sortMode === 'unread') return (t.unread?.[myUid] || 0) > 0;
+                                if (sortMode === 'read') return (t.unread?.[myUid] || 0) === 0;
+                                if (sortMode === 'friends') return (profile?.friends || []).includes(otherOf(t));
+                                return true;
                             })
                             .sort((a, b) => {
                                 // Favourites pinned, then by whichever order the raver picked.
