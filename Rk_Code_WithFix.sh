@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=80
-RK_MINOR=67
+RK_MINOR=68
 RK_PATCH=144
-RK_BUILD=291
+RK_BUILD=292
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -6756,6 +6756,7 @@ EOF
 # Block 9
 cat << 'EOF' >> src/App.js
 const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, onReplayCreatorTour }) => {
+    const [pinOpen, setPinOpen] = useState(false);
     // V69: brand manager lives here because the button that opens it does.
     const [brandsOpen, setBrandsOpen] = useState(false);
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
@@ -7007,6 +7008,12 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
 
         <div className="border-b border-white/10 pb-4 space-y-2">
             <h4 className="font-bold text-xs mb-2 text-yellow-400">Help &amp; Support</h4>
+            {/* V80.1: security lives in Settings because that is where people look for it, and in
+                the VIP panel because that is where it is listed as a perk. Same window both ways —
+                one explanation, maintained once. */}
+            <Button onClick={() => setPinOpen(true)} color="cyan" className="w-full text-xs mb-2">🔐 App PIN Lock</Button>
+            <AppPinModal user={user} profile={profile} isOpen={pinOpen} onClose={() => setPinOpen(false)}/>
+
             {/* V76: a creator walkthrough stays replayable for as long as the permission is held,
                 and disappears if it is ever revoked — a tour for a portal you can no longer open
                 would just be a broken promise sitting in Settings. */}
@@ -13944,6 +13951,122 @@ const RkConceptVisibility = ({ item, className = '', context = 'collection', onG
     );
 };
 
+
+// ============================================================================================
+// V80.1 - APP PIN SETUP  (step 3 of 4)
+//
+// One window, reached from two places — the VIP panel and Settings — because this is where the
+// explanation lives and people look for security settings in both.
+//
+// The copy is deliberately plain about two things it would be easy to overstate:
+//   - NOBODY can remove this lock. There is no admin override, by design. That means the
+//     self-service reset is the only route back, and it is worth saying so before someone sets
+//     a PIN they might forget.
+//   - It is a lock on the APP, not encryption of the account. Anyone holding the account
+//     password can sign in elsewhere. Claiming more than that is the kind of security promise
+//     that costs trust the moment somebody discovers the truth.
+// ============================================================================================
+const RK_PIN_WINDOWS = [
+    { ms: 15000,      l: '15 seconds' },
+    { ms: 30000,      l: '30 seconds' },
+    { ms: 60000,      l: '1 minute' },
+    { ms: 300000,     l: '5 minutes' },
+    { ms: 900000,     l: '15 minutes' },
+    { ms: 1800000,    l: '30 minutes' },
+    { ms: 3600000,    l: '1 hour' },
+    { ms: 14400000,   l: '4 hours' },
+    { ms: 43200000,   l: '12 hours' },
+    { ms: 86400000,   l: '24 hours' },
+    { ms: 604800000,  l: 'Until I sign out' }
+];
+const RK_PIN_ATTEMPTS = [
+    { n: 3,  l: '3 tries' },
+    { n: 5,  l: '5 tries' },
+    { n: 10, l: '10 tries' },
+    { n: 0,  l: 'Unlimited' }
+];
+
+const AppPinModal = ({ user, profile, isOpen, onClose }) => {
+    const [pin, setPin] = useState('');
+    const [confirm, setConfirm] = useState('');
+    const [windowMs, setWindowMs] = useState(900000);
+    const [maxAttempts, setMaxAttempts] = useState(5);
+    const [busy, setBusy] = useState(false);
+    if (!isOpen) return null;
+
+    const save = async () => {
+        if (!/^[0-9]{4,6}$/.test(pin)) return alert('Your PIN must be 4 to 6 digits.');
+        if (pin !== confirm) return alert('The two PINs do not match.');
+        if (!window.confirm('Set this PIN?\n\nNobody can remove it for you — not staff, not support. If you forget it you will need your account password and a verified email to reset it.')) return;
+        setBusy(true);
+        try {
+            const fn = httpsCallable(getFunctions(app), 'setAppPin');
+            await fn({ pin, maxAttempts, windowMs, appId });
+            alert('PIN set. The app will ask for it when your session window expires.');
+            setPin(''); setConfirm(''); onClose();
+        } catch (e) {
+            // REAUTH_REQUIRED is not an error in the ordinary sense — it is the function refusing
+            // to take "already signed in" as proof of identity, which is the point.
+            if (String(e?.message || '').includes('REAUTH_REQUIRED')) {
+                alert('For your security, sign out and back in, then set your PIN within 5 minutes.');
+            } else {
+                rkReport('setAppPin', e);
+                alert('Could not set your PIN: ' + (e?.message || 'unknown error'));
+            }
+        } finally { setBusy(false); }
+    };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} zClass="z-[200]" title="🔐 App PIN Lock">
+            <p className="text-xs text-white mb-3">
+                A 4-6 digit PIN asked for when you open RaveKandi. It stops someone who picks up your
+                unlocked phone from reading your messages, your collection or your earnings.
+            </p>
+
+            <div className="bg-black/50 border border-yellow-500/40 rounded-lg p-2.5 mb-3">
+                <p className="text-[11px] font-black text-yellow-300 mb-1">Read this before you set one</p>
+                <p className="text-[11px] text-white leading-snug">
+                    <span className="font-black">Nobody can remove this lock — including us.</span> There is no
+                    admin override and no back door. If you forget your PIN, the only way back in is your
+                    account password plus a verified email.
+                </p>
+                <p className="text-[11px] text-white leading-snug mt-1.5">
+                    This locks the app, not the account. Someone with your password could still sign in on
+                    another device, so keep that strong too.
+                </p>
+            </div>
+
+            <label className="block text-[11px] font-black uppercase text-white mb-1">Your PIN (4-6 digits)</label>
+            <input type="password" inputMode="numeric" maxLength={6} value={pin}
+                onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-2"/>
+            <label className="block text-[11px] font-black uppercase text-white mb-1">Confirm</label>
+            <input type="password" inputMode="numeric" maxLength={6} value={confirm}
+                onChange={e => setConfirm(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-3"/>
+
+            <label className="block text-[11px] font-black uppercase text-white mb-1">Ask again after</label>
+            <select value={windowMs} onChange={e => setWindowMs(Number(e.target.value))}
+                className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-1">
+                {RK_PIN_WINDOWS.map(w => <option key={w.ms} value={w.ms} className="text-black">{w.l}</option>)}
+            </select>
+            <p className="text-[10px] text-white/70 mb-3">How long one correct PIN keeps the app open. Shorter is safer; longer is less nagging.</p>
+
+            <label className="block text-[11px] font-black uppercase text-white mb-1">Wrong tries before lockout</label>
+            <select value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))}
+                className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-1">
+                {RK_PIN_ATTEMPTS.map(a => <option key={a.n} value={a.n} className="text-black">{a.l}</option>)}
+            </select>
+            <p className="text-[10px] text-white/70 mb-3">
+                Hit the limit and the app locks for 1 hour, then 6, then 12, then 24 if it keeps happening.
+                After that you can only get back in by resetting.
+            </p>
+
+            <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : 'Set my PIN'}</Button>
+        </Modal>
+    );
+};
+
 const RK_COMMISSION_STATES = [
     { id: 'open',     label: 'Taking commissions', tone: 'bg-lime-500/20 text-lime-300 border-lime-400/50' },
     { id: 'waitlist', label: 'Waitlist only',      tone: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/50' },
@@ -14855,6 +14978,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     const [showCreatorHub, setShowCreatorHub] = useState(false);
+    const [pinOpen, setPinOpen] = useState(false);
     const [showMyProjects, setShowMyProjects] = useState(false);
     // V75: live counts for the two portal buttons. Queued at 261 for the creator side ("open-request
     // counter on the creator portal button") — a bare hammer icon gave no reason to tap it, so a
@@ -15194,6 +15318,14 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                             {RK_CFG.launchPerks && (
                                 <p className="text-[10px] text-lime-300 mb-3">🎉 Launch Perks active — VIP is free for every raver & seller commission is cut to 10%. <button onClick={() => setModals({...modals, vip: true})} className="underline">Details</button></p>
                             )}
+                            {/* V80.1: listed as a VIP perk, and opening the same window Settings
+                                opens. Full width above the grid because it is security, not a
+                                cosmetic feature — it should not read as one tile among four. */}
+                            <button onClick={() => setPinOpen(true)} className="w-full mb-3 p-3 bg-gradient-to-r from-lime-500/15 to-transparent border border-lime-400/40 rounded-lg text-left">
+                                <p className="text-sm font-black text-lime-300">🔐 App PIN Lock</p>
+                                <p className="text-[11px] text-white mt-0.5">A 4-6 digit PIN to open RaveKandi. Nobody can remove it but you.</p>
+                            </button>
+                            <AppPinModal user={user} profile={profile} isOpen={pinOpen} onClose={() => setPinOpen(false)}/>
                             <div className="grid grid-cols-2 gap-3">
                                 <button onClick={() => setShowBanner(true)} className="p-4 bg-gradient-to-r from-cyan-500/10 to-transparent border border-cyan-500/30 rounded-xl text-left hover:bg-cyan-500/20 active:scale-95 transition"><span className="text-sm font-bold text-cyan-400 block uppercase tracking-widest mb-0.5">📢 Banner Msgs</span><span className="text-[11px] opacity-80">Post on the live marquee</span></button>
                                 <button onClick={() => setShowBoost(true)} className="p-4 bg-gradient-to-r from-pink-500/10 to-transparent border border-pink-500/30 rounded-xl text-left hover:bg-pink-500/20 active:scale-95 transition"><span className="text-sm font-bold text-pink-400 block uppercase tracking-widest mb-0.5">⚡ Post Boosts</span><span className="text-[11px] opacity-80">Pin your item to the top</span></button>
@@ -18908,7 +19040,16 @@ const LOCKOUT_MS = [60, 360, 720, 1440].map(m => m * 60 * 1000);   // 1h, 6h, 12
 // this defends against is someone picking up an unlocked phone — a window long enough that
 // switching to the camera and back does not demand the PIN again, short enough that a phone
 // left on a table re-locks on its own. The client also re-locks on background.
-const SESSION_MS = 15 * 60 * 1000;
+const SESSION_DEFAULT_MS = 15 * 60 * 1000;
+// V80.1: the window is the raver's choice. Floor of 15 seconds — below that a PIN stops being a
+// lock and becomes a tax on opening your own app. No ceiling: someone who wants it to hold until
+// they sign out is making a judgement about their own phone, and it is theirs to make.
+const SESSION_MIN_MS = 15 * 1000;
+const cleanWindow = (v) => {
+    const n = Number(v);
+    if (!isFinite(n) || n <= 0) return SESSION_DEFAULT_MS;
+    return Math.max(SESSION_MIN_MS, Math.round(n));
+};
 
 const hashPin = (pin, salt) => new Promise((resolve, reject) => {
     crypto.scrypt(String(pin), salt, 64, (err, key) => err ? reject(err) : resolve(key.toString('hex')));
@@ -18937,15 +19078,16 @@ exports.setAppPin = functions.https.onCall(async (data, ctx) => {
     if (!/^[0-9]{4,6}$/.test(pin)) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
     const allowed = [3, 5, 10, 0];   // 0 = unlimited
     const maxAttempts = allowed.indexOf(Number(data && data.maxAttempts)) >= 0 ? Number(data.maxAttempts) : 5;
+    const windowMs = cleanWindow(data && data.windowMs);
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = await hashPin(pin, salt);
     await lockRef(uid, appId).set({
-        hash, salt, maxAttempts,
+        hash, salt, maxAttempts, windowMs,
         attempts: 0, lockoutTier: 0, lockedUntil: 0,
-        sessionUntil: Date.now() + SESSION_MS,   // setting it also unlocks the current session
+        sessionUntil: Date.now() + windowMs,   // setting it also unlocks the current session
         updatedAt: Date.now()
     }, { merge: true });
-    return { ok: true, maxAttempts };
+    return { ok: true, maxAttempts, windowMs };
 });
 
 exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
@@ -18974,8 +19116,9 @@ exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
     const good = a.length === b.length && crypto.timingSafeEqual(a, b);
 
     if (good) {
-        await lockRef(uid, appId).set({ attempts: 0, lockedUntil: 0, sessionUntil: now + SESSION_MS }, { merge: true });
-        return { ok: true, sessionUntil: now + SESSION_MS };
+        const win = cleanWindow(d.windowMs);
+        await lockRef(uid, appId).set({ attempts: 0, lockedUntil: 0, sessionUntil: now + win }, { merge: true });
+        return { ok: true, sessionUntil: now + win, windowMs: win };
     }
 
     const attempts = Number(d.attempts || 0) + 1;
