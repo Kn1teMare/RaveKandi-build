@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=80
 RK_MINOR=69
-RK_PATCH=144
-RK_BUILD=293
+RK_PATCH=145
+RK_BUILD=294
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -410,7 +410,7 @@ cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, sendEmailVerification, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -13989,30 +13989,62 @@ const RK_PIN_ATTEMPTS = [
 const AppPinModal = ({ user, profile, isOpen, onClose }) => {
     const [pin, setPin] = useState('');
     const [confirm, setConfirm] = useState('');
+    const [currentPin, setCurrentPin] = useState('');
+    const [pw, setPw] = useState('');
     const [windowMs, setWindowMs] = useState(900000);
     const [maxAttempts, setMaxAttempts] = useState(5);
     const [busy, setBusy] = useState(false);
+    const [hasPin, setHasPin] = useState(null);
+    const [verified, setVerified] = useState(!!auth?.currentUser?.emailVerified);
+    const [sent, setSent] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        (async () => {
+            try { await auth.currentUser?.reload(); setVerified(!!auth.currentUser?.emailVerified); } catch (e) {}
+            try {
+                const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
+                const r = (await fn({ appId })).data || {};
+                setHasPin(!r.noPin);
+            } catch (e) { rkReport('pin modal status', e); setHasPin(false); }
+        })();
+    }, [isOpen]);
     if (!isOpen) return null;
+
+    const resend = async () => {
+        try { await sendEmailVerification(auth.currentUser); setSent(true); }
+        catch (e) { rkReport('resend verification', e); alert('Could not send it: ' + (e?.message || 'unknown error')); }
+    };
 
     const save = async () => {
         if (!/^[0-9]{4,6}$/.test(pin)) return alert('Your PIN must be 4 to 6 digits.');
         if (pin !== confirm) return alert('The two PINs do not match.');
-        if (!window.confirm('Set this PIN?\n\nNobody can remove it for you — not staff, not support. If you forget it you will need your account password and a verified email to reset it.')) return;
+        if (hasPin && !/^[0-9]{4,6}$/.test(currentPin)) return alert('Enter your CURRENT PIN to change these settings.');
+        if (!pw) return alert('Enter your account password to confirm.');
+        if (!window.confirm('Set this PIN?\n\nNobody can remove it for you — not staff, not support. If you forget it, your account password and verified email are the only way back.')) return;
         setBusy(true);
         try {
+            // V80.3: the current PIN is checked BEFORE the password, so somebody holding an
+            // unlocked phone cannot silently change the lock settings even if the password is
+            // saved in the browser. Two different proofs: something you know, and the existing
+            // lock itself.
+            if (hasPin) {
+                const vf = httpsCallable(getFunctions(app), 'verifyAppPin');
+                const vr = (await vf({ pin: currentPin, appId })).data || {};
+                if (!vr.ok) { setBusy(false); return alert('That current PIN is not right.'); }
+            }
+            // V80.3: reauth HERE, in the window, instead of making people sign out and back in.
+            // It refreshes auth_time, which is what the function checks — same proof, none of
+            // the ceremony.
+            await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(user.email, pw));
             const fn = httpsCallable(getFunctions(app), 'setAppPin');
             await fn({ pin, maxAttempts, windowMs, appId });
-            alert('PIN set. The app will ask for it when your session window expires.');
-            setPin(''); setConfirm(''); onClose();
+            alert('PIN set.');
+            setPin(''); setConfirm(''); setCurrentPin(''); setPw(''); onClose();
         } catch (e) {
-            // REAUTH_REQUIRED is not an error in the ordinary sense — it is the function refusing
-            // to take "already signed in" as proof of identity, which is the point.
-            if (String(e?.message || '').includes('REAUTH_REQUIRED')) {
-                alert('For your security, sign out and back in, then set your PIN within 5 minutes.');
-            } else {
-                rkReport('setAppPin', e);
-                alert('Could not set your PIN: ' + (e?.message || 'unknown error'));
-            }
+            const m = String(e?.message || '');
+            if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That account password is not right.');
+            else { rkReport('setAppPin', e); alert('Could not set your PIN: ' + (m || 'unknown error')); }
         } finally { setBusy(false); }
     };
 
@@ -14023,12 +14055,30 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 unlocked phone from reading your messages, your collection or your earnings.
             </p>
 
+            {/* V80.3: the interlock. Reset requires a verified email, so without one a PIN would be
+                a door whose only key does not exist — set it, forget it, and the account is gone.
+                Setting a PIN is blocked until the address is verified. This is not a nag; it is the
+                thing that makes the lock safe to use. */}
+            {!verified ? (
+                <div className="bg-red-500/15 border-2 border-red-400/60 rounded-lg p-3">
+                    <p className="text-3xl text-center mb-1">🛑</p>
+                    <p className="text-sm font-black text-red-300 text-center mb-2">Verify your email first</p>
+                    <p className="text-[12px] text-white leading-snug mb-2">
+                        If you forget your PIN, a verified email is the <span className="font-black">only</span> way
+                        to prove the account is yours — nobody can remove the lock for you. So we will not let you
+                        set one until that route works.
+                    </p>
+                    <p className="text-[12px] text-white leading-snug mb-2">We sent a link to <span className="font-black">{user?.email}</span>. Open it, then come back and reopen this window.</p>
+                    <Button onClick={resend} color="cyan" className="w-full text-xs">{sent ? 'Sent — check your inbox and spam' : 'Send the link again'}</Button>
+                </div>
+            ) : (
+            <>
             <div className="bg-black/50 border border-yellow-500/40 rounded-lg p-2.5 mb-3">
                 <p className="text-[11px] font-black text-yellow-300 mb-1">Read this before you set one</p>
                 <p className="text-[11px] text-white leading-snug">
                     <span className="font-black">Nobody can remove this lock — including us.</span> There is no
-                    admin override and no back door. If you forget your PIN, the only way back in is your
-                    account password plus a verified email.
+                    admin override. If you forget your PIN, the only way back is your account password plus your
+                    verified email.
                 </p>
                 <p className="text-[11px] text-white leading-snug mt-1.5">
                     This locks the app, not the account. Someone with your password could still sign in on
@@ -14036,7 +14086,16 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 </p>
             </div>
 
-            <label className="block text-[11px] font-black uppercase text-white mb-1">Your PIN (4-6 digits)</label>
+            {hasPin && (
+                <>
+                    <label className="block text-[11px] font-black uppercase text-white mb-1">Current PIN</label>
+                    <input type="password" inputMode="numeric" maxLength={6} value={currentPin}
+                        onChange={e => setCurrentPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-3"/>
+                </>
+            )}
+
+            <label className="block text-[11px] font-black uppercase text-white mb-1">{hasPin ? 'New PIN' : 'Your PIN'} (4-6 digits)</label>
             <input type="password" inputMode="numeric" maxLength={6} value={pin}
                 onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
                 className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-2"/>
@@ -14050,128 +14109,23 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-1">
                 {RK_PIN_WINDOWS.map(w => <option key={w.ms} value={w.ms} className="text-black">{w.l}</option>)}
             </select>
-            <p className="text-[10px] text-white/70 mb-3">How long one correct PIN keeps the app open. Shorter is safer; longer is less nagging.</p>
+            <p className="text-[10px] text-white mb-3">How long one correct PIN keeps the app open.</p>
 
             <label className="block text-[11px] font-black uppercase text-white mb-1">Wrong tries before lockout</label>
             <select value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))}
                 className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-1">
                 {RK_PIN_ATTEMPTS.map(a => <option key={a.n} value={a.n} className="text-black">{a.l}</option>)}
             </select>
-            <p className="text-[10px] text-white/70 mb-3">
-                Hit the limit and the app locks for 1 hour, then 6, then 12, then 24 if it keeps happening.
-                After that you can only get back in by resetting.
-            </p>
+            <p className="text-[10px] text-white mb-3">Hit the limit and the app locks for 1 hour, then 6, then 12, then 24.</p>
 
-            <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : 'Set my PIN'}</Button>
+            <label className="block text-[11px] font-black uppercase text-white mb-1">Account password</label>
+            <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Confirms it is really you"
+                className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-3"/>
+
+            <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : hasPin ? 'Update my PIN' : 'Set my PIN'}</Button>
+            </>
+            )}
         </Modal>
-    );
-};
-
-
-// ============================================================================================
-// V80.2 - APP LOCK SCREEN  (step 4a of 4)
-//
-// Covers the app until the right PIN is entered. Deliberately shipped WITHOUT the rules gating
-// (step 4b): while `pinOk()` guards no path, a bug in here is an inconvenience you can sign out
-// of. Once it guards messages and inventory, the same bug is somebody locked out of their own
-// account with no admin override to rescue them. Prove the reset works first, gate second.
-//
-// Status is fetched by calling verifyAppPin with NO pin, which the function treats as a query
-// rather than an attempt — otherwise every launch would spend one of the raver's tries.
-// ============================================================================================
-const AppLockScreen = ({ user, onUnlocked }) => {
-    const [pin, setPin] = useState('');
-    const [state, setState] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [resetting, setResetting] = useState(false);
-    const [pw, setPw] = useState('');
-    const [now, setNow] = useState(Date.now());
-
-    useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-
-    const submit = async () => {
-        if (!/^[0-9]{4,6}$/.test(pin)) return;
-        setBusy(true);
-        try {
-            const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
-            const r = (await fn({ pin, appId })).data || {};
-            if (r.ok) { setPin(''); onUnlocked(); return; }
-            setState(r); setPin('');
-        } catch (e) { rkReport('verifyAppPin', e); alert('Could not check your PIN: ' + (e?.message || 'unknown error')); }
-        finally { setBusy(false); }
-    };
-
-    // The only route back in. Reauth with the account password refreshes auth_time, which is
-    // what resetAppPin checks — being signed in already is not enough, by design.
-    const doReset = async () => {
-        if (!pw) return alert('Enter your account password.');
-        setBusy(true);
-        try {
-            const cred = EmailAuthProvider.credential(user.email, pw);
-            await reauthenticateWithCredential(auth.currentUser, cred);
-            const fn = httpsCallable(getFunctions(app), 'resetAppPin');
-            await fn({ appId });
-            alert('PIN removed. Set a new one from Settings whenever you like.');
-            setPw(''); onUnlocked();
-        } catch (e) {
-            const m = String(e?.message || '');
-            if (m.includes('VERIFY_EMAIL')) alert('Your email is not verified yet. Verify it from your inbox, then try again — this is the check that stops someone else resetting your PIN.');
-            else if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That password is not right.');
-            else { rkReport('resetAppPin', e); alert('Could not reset: ' + (m || 'unknown error')); }
-        } finally { setBusy(false); }
-    };
-
-    const lockedFor = state?.lockedUntil && state.lockedUntil > now ? state.lockedUntil - now : 0;
-    const fmt = (ms) => {
-        const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), sec = Math.floor((ms % 60000) / 1000);
-        return h > 0 ? h + 'h ' + m + 'm' : m > 0 ? m + 'm ' + sec + 's' : sec + 's';
-    };
-
-    return (
-        <div className="fixed inset-0 z-[9999] bg-[#0a0014] flex flex-col items-center justify-center p-6">
-            <p className="text-4xl mb-2">🔐</p>
-            <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest mb-1">Locked</h2>
-            <p className="text-xs text-white mb-6 text-center">Enter your PIN to open RaveKandi.</p>
-
-            {lockedFor > 0 ? (
-                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
-                    <p className="text-sm font-black text-red-300">Too many wrong tries</p>
-                    <p className="text-2xl font-black text-white my-1">{fmt(lockedFor)}</p>
-                    <p className="text-[11px] text-white">Locked until the timer runs out. Each lockout is longer than the last.</p>
-                </div>
-            ) : state?.resetRequired ? (
-                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
-                    <p className="text-sm font-black text-red-300">PIN entry is closed</p>
-                    <p className="text-[11px] text-white mt-1">You have reached the last lockout. Reset below with your account password.</p>
-                </div>
-            ) : (
-                <>
-                    <input type="password" inputMode="numeric" maxLength={6} value={pin} autoFocus
-                        onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-                        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-                        className="w-full max-w-xs bg-black border-2 border-cyan-400/50 text-white text-3xl tracking-[0.6em] text-center p-3 rounded-lg mb-3"/>
-                    {state && state.attemptsLeft != null && state.attemptsLeft < 99 && !state.ok && (
-                        <p className="text-xs text-yellow-300 mb-3">{state.attemptsLeft} {state.attemptsLeft === 1 ? 'try' : 'tries'} left before a lockout.</p>
-                    )}
-                    <Button onClick={submit} disabled={busy || pin.length < 4} color="lime" className="w-full max-w-xs text-sm mb-4">{busy ? 'Checking…' : 'Unlock'}</Button>
-                </>
-            )}
-
-            {!resetting ? (
-                <button onClick={() => setResetting(true)} className="text-xs text-white/70 underline">Forgotten your PIN?</button>
-            ) : (
-                <div className="w-full max-w-xs bg-black/60 border border-white/20 rounded-lg p-3">
-                    <p className="text-[11px] text-white mb-2">
-                        Nobody can remove your PIN for you — not staff, not support. Prove the account is yours
-                        with your password and we will clear it.
-                    </p>
-                    <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Account password"
-                        className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-2"/>
-                    <Button onClick={doReset} disabled={busy} color="cyan" className="w-full text-xs mb-1">{busy ? 'Checking…' : 'Remove my PIN'}</Button>
-                    <button onClick={() => { setResetting(false); setPw(''); }} className="w-full text-[11px] text-white/60 py-1">Cancel</button>
-                </div>
-            )}
-        </div>
     );
 };
 
@@ -15645,6 +15599,11 @@ const AuthScreen = ({ setLoadMsg }) => {
                 //    Firestore rules — that was the "Missing or insufficient permissions"
                 //    error during signup whenever a referral code was entered.)
                 const cred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+                // V80.3: no verification email had EVER been sent. `resetAppPin` requires a
+                // verified address, so the only route back into a PIN-locked account was a check
+                // nobody could pass. Swallowed deliberately — a mail failure must not block a
+                // signup, and Settings can resend.
+                try { await sendEmailVerification(cred.user); } catch (e) { rkReport('signup verification email', e); }
                 // 2) NOW that we're authenticated, resolve the referral code (best-effort).
                 let referrerUid = null;
                 if (refCode) {
@@ -19154,12 +19113,18 @@ echo "  functions/rk_image.js written (script-owned)."
 # scrypt and timingSafeEqual are Node built-ins. No new dependency.
 # ============================================================================================
 cat << 'PINEOF' > "$RK_FN_DIR/rk_pin.js"
-const functions = require('firebase-functions');
+// V80.3: v2 API. This file shipped at 291 written against the v1 signature —
+// `onCall(async (data, ctx) => ...)` — while every other function in this project uses v2,
+// where the handler takes ONE argument. So `ctx` was undefined, `requireAuth(ctx)` threw a
+// TypeError before any logic ran, and every call came back [functions/internal]. The PIN was
+// never checked, the lock never engaged, and reset could not work either.
+//
+// Copied from rk_image.js rather than written from memory, which is how the mismatch happened.
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
 if (!admin.apps.length) admin.initializeApp();
 
-const HttpsError = functions.https.HttpsError;
 // V80: 'ravekandi-core-prod', matching `const appId` in the app and the default rk_image uses.
 // The first draft of this file hardcoded 'ravekandi_default' — a plausible-looking id that
 // exists nowhere, which would have written every lock to a collection the rules do not cover
@@ -19191,30 +19156,30 @@ const hashPin = (pin, salt) => new Promise((resolve, reject) => {
     crypto.scrypt(String(pin), salt, 64, (err, key) => err ? reject(err) : resolve(key.toString('hex')));
 });
 
-const requireAuth = (ctx) => {
-    if (!ctx.auth || !ctx.auth.uid) throw new HttpsError('unauthenticated', 'Sign in first.');
-    return ctx.auth.uid;
+const requireAuth = (req) => {
+    if (!req.auth || !req.auth.uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+    return req.auth.uid;
 };
 
 // A PIN change and a PIN reset both require PROOF the person is present right now, not merely
 // that a session cookie exists. auth_time is when they last actually authenticated; Firebase
 // refreshes it on reauthenticateWithCredential. Without this check, "reset with your login
 // details" would be satisfied by already being signed in, which is no check at all.
-const requireFreshAuth = (ctx) => {
-    const t = ctx.auth && ctx.auth.token ? ctx.auth.token.auth_time : 0;
+const requireFreshAuth = (req) => {
+    const t = req.auth && req.auth.token ? req.auth.token.auth_time : 0;
     const age = Math.floor(Date.now() / 1000) - Number(t || 0);
     if (!t || age > 300) throw new HttpsError('failed-precondition', 'REAUTH_REQUIRED');
 };
 
-exports.setAppPin = functions.https.onCall(async (data, ctx) => {
-    const uid = requireAuth(ctx);
-    const appId = String((data && data.appId) || APP_ID_DEFAULT);
-    requireFreshAuth(ctx);
-    const pin = String((data && data.pin) || '');
+exports.setAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
+    const uid = requireAuth(req);
+    const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
+    requireFreshAuth(req);
+    const pin = String((req.data && req.data.pin) || '');
     if (!/^[0-9]{4,6}$/.test(pin)) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
     const allowed = [3, 5, 10, 0];   // 0 = unlimited
-    const maxAttempts = allowed.indexOf(Number(data && data.maxAttempts)) >= 0 ? Number(data.maxAttempts) : 5;
-    const windowMs = cleanWindow(data && data.windowMs);
+    const maxAttempts = allowed.indexOf(Number(req.data && req.data.maxAttempts)) >= 0 ? Number(req.data.maxAttempts) : 5;
+    const windowMs = cleanWindow(req.data && req.data.windowMs);
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = await hashPin(pin, salt);
     await lockRef(uid, appId).set({
@@ -19226,9 +19191,9 @@ exports.setAppPin = functions.https.onCall(async (data, ctx) => {
     return { ok: true, maxAttempts, windowMs };
 });
 
-exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
-    const uid = requireAuth(ctx);
-    const appId = String((data && data.appId) || APP_ID_DEFAULT);
+exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
+    const uid = requireAuth(req);
+    const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
     const snap = await lockRef(uid, appId).get();
     if (!snap.exists) return { ok: true, noPin: true };
     const d = snap.data();
@@ -19242,7 +19207,7 @@ exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
         return { ok: false, resetRequired: true, attemptsLeft: 0 };
     }
 
-    const pin = String((data && data.pin) || '');
+    const pin = String((req.data && req.data.pin) || '');
     // V80.2: no PIN supplied means "what is my status?", NOT a failed attempt. Without this the
     // app's own startup check would hash an empty string, fail, and burn one of the raver's
     // tries every single time they opened RaveKandi — three-try users would lock themselves out
@@ -19288,11 +19253,11 @@ exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
 
 // The ONLY route back in. There is no admin override by design, so this has to be both
 // airtight and reliable: fresh password reauth AND a verified email on the account.
-exports.resetAppPin = functions.https.onCall(async (data, ctx) => {
-    const uid = requireAuth(ctx);
-    const appId = String((data && data.appId) || APP_ID_DEFAULT);
-    requireFreshAuth(ctx);
-    if (!ctx.auth.token.email_verified) throw new HttpsError('failed-precondition', 'VERIFY_EMAIL');
+exports.resetAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
+    const uid = requireAuth(req);
+    const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
+    requireFreshAuth(req);
+    if (!req.auth.token.email_verified) throw new HttpsError('failed-precondition', 'VERIFY_EMAIL');
     await lockRef(uid, appId).delete();
     return { ok: true };
 });
