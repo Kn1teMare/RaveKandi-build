@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=80
 RK_MINOR=69
-RK_PATCH=145
-RK_BUILD=294
+RK_PATCH=146
+RK_BUILD=295
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14059,19 +14059,22 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 a door whose only key does not exist — set it, forget it, and the account is gone.
                 Setting a PIN is blocked until the address is verified. This is not a nag; it is the
                 thing that makes the lock safe to use. */}
+            {/* V80.4: a hard block at 294, on the reasoning that a verified email was the only
+                proof of ownership. That reasoning was wrong — reset takes the account PASSWORD,
+                the same bar as signing in anywhere else, and the email check only built a door
+                that locked owners out for good. A warning now, because an unverified address
+                still matters: it is how you recover a forgotten PASSWORD. */}
             {!verified ? (
-                <div className="bg-red-500/15 border-2 border-red-400/60 rounded-lg p-3">
-                    <p className="text-3xl text-center mb-1">🛑</p>
-                    <p className="text-sm font-black text-red-300 text-center mb-2">Verify your email first</p>
+                <div className="bg-yellow-500/15 border-2 border-yellow-400/60 rounded-lg p-3 mb-3">
+                    <p className="text-3xl text-center mb-1">⚠️</p>
+                    <p className="text-sm font-black text-yellow-300 text-center mb-2">Your email is not verified</p>
                     <p className="text-[12px] text-white leading-snug mb-2">
-                        If you forget your PIN, a verified email is the <span className="font-black">only</span> way
-                        to prove the account is yours — nobody can remove the lock for you. So we will not let you
-                        set one until that route works.
+                        You can still set a PIN — your account password will always remove it. But if you ever
+                        forget that password too, a verified address is the only way to recover the account.
                     </p>
-                    <p className="text-[12px] text-white leading-snug mb-2">We sent a link to <span className="font-black">{user?.email}</span>. Open it, then come back and reopen this window.</p>
-                    <Button onClick={resend} color="cyan" className="w-full text-xs">{sent ? 'Sent — check your inbox and spam' : 'Send the link again'}</Button>
+                    <Button onClick={resend} color="cyan" className="w-full text-xs">{sent ? 'Sent — check your inbox and spam' : 'Send me a verification link'}</Button>
                 </div>
-            ) : (
+            ) : null}
             <>
             <div className="bg-black/50 border border-yellow-500/40 rounded-lg p-2.5 mb-3">
                 <p className="text-[11px] font-black text-yellow-300 mb-1">Read this before you set one</p>
@@ -14124,8 +14127,119 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
 
             <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : hasPin ? 'Update my PIN' : 'Set my PIN'}</Button>
             </>
-            )}
         </Modal>
+    );
+};
+
+
+// ============================================================================================
+// V80.2 - APP LOCK SCREEN  (rebuilt at V80.4)
+//
+// Deleted by accident at 294: that build rewrote AppPinModal by slicing from `const AppPinModal`
+// to the next top-level marker, and this component sat between the two. The result still
+// referenced <AppLockScreen/>, so 294 would have crashed the instant anybody locked. Rebuilt
+// here with the 295 changes folded in.
+//
+// Status is fetched by calling verifyAppPin with NO pin, which the function treats as a query
+// rather than an attempt — otherwise every launch would spend one of the raver's tries.
+// ============================================================================================
+const AppLockScreen = ({ user, onUnlocked }) => {
+    const [pin, setPin] = useState('');
+    const [state, setState] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [resetting, setResetting] = useState(false);
+    const [pw, setPw] = useState('');
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+    const submit = async () => {
+        if (!/^[0-9]{4,6}$/.test(pin)) return;
+        setBusy(true);
+        try {
+            const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
+            const r = (await fn({ pin, appId })).data || {};
+            if (r.ok) { setPin(''); onUnlocked(); return; }
+            setState(r); setPin('');
+        } catch (e) { rkReport('verifyAppPin', e); alert('Could not check your PIN: ' + (e?.message || 'unknown error')); }
+        finally { setBusy(false); }
+    };
+
+    // The only route back in. The account password is the whole check — the same bar as signing
+    // in on any other device, which is exactly right, because anyone holding that password could
+    // do so already.
+    const doReset = async () => {
+        if (!pw) return alert('Enter your account password.');
+        setBusy(true);
+        try {
+            await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(user.email, pw));
+            const fn = httpsCallable(getFunctions(app), 'resetAppPin');
+            await fn({ appId });
+            alert('PIN removed. Set a new one from Settings whenever you like.');
+            setPw(''); onUnlocked();
+        } catch (e) {
+            const m = String(e?.message || '');
+            if (m.includes('VERIFY_EMAIL')) alert('The server is still running the old check. Redeploy functions, then try again — your password is all that is needed now.');
+            else if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That password is not right.');
+            else { rkReport('resetAppPin', e); alert('Could not reset: ' + (m || 'unknown error')); }
+        } finally { setBusy(false); }
+    };
+
+    const lockedFor = state?.lockedUntil && state.lockedUntil > now ? state.lockedUntil - now : 0;
+    const fmt = (ms) => {
+        const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), sec = Math.floor((ms % 60000) / 1000);
+        return h > 0 ? h + 'h ' + m + 'm' : m > 0 ? m + 'm ' + sec + 's' : sec + 's';
+    };
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-[#0a0014] flex flex-col items-center justify-center p-6 overflow-y-auto">
+            <p className="text-4xl mb-2">🔐</p>
+            <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest mb-1">Locked</h2>
+            <p className="text-xs text-white mb-6 text-center">Enter your PIN to open RaveKandi.</p>
+
+            {lockedFor > 0 ? (
+                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
+                    <p className="text-sm font-black text-red-300">Too many wrong tries</p>
+                    <p className="text-2xl font-black text-white my-1">{fmt(lockedFor)}</p>
+                    <p className="text-[11px] text-white">Locked until the timer runs out. Each lockout is longer than the last.</p>
+                </div>
+            ) : state?.resetRequired ? (
+                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
+                    <p className="text-sm font-black text-red-300">PIN entry is closed</p>
+                    <p className="text-[11px] text-white mt-1">You have reached the last lockout. Use your account password below.</p>
+                </div>
+            ) : (
+                <>
+                    <input type="password" inputMode="numeric" maxLength={6} value={pin} autoFocus
+                        onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+                        className="w-full max-w-xs bg-black border-2 border-cyan-400/50 text-white text-3xl tracking-[0.6em] text-center p-3 rounded-lg mb-3"/>
+                    {state && state.attemptsLeft != null && !state.ok && (
+                        <p className="text-xs text-yellow-300 mb-3">{state.attemptsLeft} {state.attemptsLeft === 1 ? 'try' : 'tries'} left before a lockout.</p>
+                    )}
+                    <Button onClick={submit} disabled={busy || pin.length < 4} color="lime" className="w-full max-w-xs text-sm mb-4">{busy ? 'Checking…' : 'Unlock'}</Button>
+                </>
+            )}
+
+            {!resetting ? (
+                <button onClick={() => setResetting(true)} className="text-xs text-white underline">Forgotten your PIN?</button>
+            ) : (
+                <div className="w-full max-w-xs bg-black/60 border border-white/20 rounded-lg p-3">
+                    <p className="text-[11px] text-white mb-2">
+                        Nobody can remove your PIN for you — not staff, not support. Your account password proves
+                        the account is yours, and that is all this needs.
+                    </p>
+                    <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Account password"
+                        className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-2"/>
+                    <Button onClick={doReset} disabled={busy} color="cyan" className="w-full text-xs mb-1">{busy ? 'Checking…' : 'Remove my PIN'}</Button>
+                    {/* Reachable from the LOCK SCREEN, because that is where somebody is stuck. A
+                        recovery control that only exists behind the lock is not a recovery control. */}
+                    <button onClick={async () => { try { await sendEmailVerification(auth.currentUser); alert('Verification link sent. It is not needed to remove your PIN — only to recover a forgotten password.'); } catch (e) { alert('Could not send it: ' + (e?.message || 'unknown error')); } }}
+                        className="w-full text-[11px] text-cyan-300 underline py-1">Send me a verification email</button>
+                    <button onClick={() => { setResetting(false); setPw(''); }} className="w-full text-[11px] text-white py-1">Cancel</button>
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -19257,7 +19371,19 @@ exports.resetAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
     const uid = requireAuth(req);
     const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
     requireFreshAuth(req);
-    if (!req.auth.token.email_verified) throw new HttpsError('failed-precondition', 'VERIFY_EMAIL');
+    // V80.4: the email_verified requirement is GONE, and removing it makes the feature safer
+    // rather than weaker.
+    //
+    // The attacker this lock defends against is someone holding an unlocked phone WITHOUT the
+    // account password. Anyone who has the password can already sign in on another device and
+    // read everything — this locks the app, it does not encrypt the account. So demanding a
+    // verified email on top of a correct password never raised the bar against a thief. All it
+    // did was build a door that locks the owner out permanently: forget the PIN on an account
+    // whose address was never verified, and there is no admin override to rescue you.
+    //
+    // A fresh password reauth is the same bar as signing in anywhere else, which is exactly the
+    // right bar. Verification still matters for password recovery, so it is still sent and still
+    // surfaced — it is just not a gate on getting back into your own account.
     await lockRef(uid, appId).delete();
     return { ok: true };
 });
