@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=80
-RK_MINOR=68
+RK_MINOR=69
 RK_PATCH=144
-RK_BUILD=292
+RK_BUILD=293
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14067,6 +14067,114 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
     );
 };
 
+
+// ============================================================================================
+// V80.2 - APP LOCK SCREEN  (step 4a of 4)
+//
+// Covers the app until the right PIN is entered. Deliberately shipped WITHOUT the rules gating
+// (step 4b): while `pinOk()` guards no path, a bug in here is an inconvenience you can sign out
+// of. Once it guards messages and inventory, the same bug is somebody locked out of their own
+// account with no admin override to rescue them. Prove the reset works first, gate second.
+//
+// Status is fetched by calling verifyAppPin with NO pin, which the function treats as a query
+// rather than an attempt — otherwise every launch would spend one of the raver's tries.
+// ============================================================================================
+const AppLockScreen = ({ user, onUnlocked }) => {
+    const [pin, setPin] = useState('');
+    const [state, setState] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [resetting, setResetting] = useState(false);
+    const [pw, setPw] = useState('');
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+    const submit = async () => {
+        if (!/^[0-9]{4,6}$/.test(pin)) return;
+        setBusy(true);
+        try {
+            const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
+            const r = (await fn({ pin, appId })).data || {};
+            if (r.ok) { setPin(''); onUnlocked(); return; }
+            setState(r); setPin('');
+        } catch (e) { rkReport('verifyAppPin', e); alert('Could not check your PIN: ' + (e?.message || 'unknown error')); }
+        finally { setBusy(false); }
+    };
+
+    // The only route back in. Reauth with the account password refreshes auth_time, which is
+    // what resetAppPin checks — being signed in already is not enough, by design.
+    const doReset = async () => {
+        if (!pw) return alert('Enter your account password.');
+        setBusy(true);
+        try {
+            const cred = EmailAuthProvider.credential(user.email, pw);
+            await reauthenticateWithCredential(auth.currentUser, cred);
+            const fn = httpsCallable(getFunctions(app), 'resetAppPin');
+            await fn({ appId });
+            alert('PIN removed. Set a new one from Settings whenever you like.');
+            setPw(''); onUnlocked();
+        } catch (e) {
+            const m = String(e?.message || '');
+            if (m.includes('VERIFY_EMAIL')) alert('Your email is not verified yet. Verify it from your inbox, then try again — this is the check that stops someone else resetting your PIN.');
+            else if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That password is not right.');
+            else { rkReport('resetAppPin', e); alert('Could not reset: ' + (m || 'unknown error')); }
+        } finally { setBusy(false); }
+    };
+
+    const lockedFor = state?.lockedUntil && state.lockedUntil > now ? state.lockedUntil - now : 0;
+    const fmt = (ms) => {
+        const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), sec = Math.floor((ms % 60000) / 1000);
+        return h > 0 ? h + 'h ' + m + 'm' : m > 0 ? m + 'm ' + sec + 's' : sec + 's';
+    };
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-[#0a0014] flex flex-col items-center justify-center p-6">
+            <p className="text-4xl mb-2">🔐</p>
+            <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest mb-1">Locked</h2>
+            <p className="text-xs text-white mb-6 text-center">Enter your PIN to open RaveKandi.</p>
+
+            {lockedFor > 0 ? (
+                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
+                    <p className="text-sm font-black text-red-300">Too many wrong tries</p>
+                    <p className="text-2xl font-black text-white my-1">{fmt(lockedFor)}</p>
+                    <p className="text-[11px] text-white">Locked until the timer runs out. Each lockout is longer than the last.</p>
+                </div>
+            ) : state?.resetRequired ? (
+                <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
+                    <p className="text-sm font-black text-red-300">PIN entry is closed</p>
+                    <p className="text-[11px] text-white mt-1">You have reached the last lockout. Reset below with your account password.</p>
+                </div>
+            ) : (
+                <>
+                    <input type="password" inputMode="numeric" maxLength={6} value={pin} autoFocus
+                        onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+                        className="w-full max-w-xs bg-black border-2 border-cyan-400/50 text-white text-3xl tracking-[0.6em] text-center p-3 rounded-lg mb-3"/>
+                    {state && state.attemptsLeft != null && state.attemptsLeft < 99 && !state.ok && (
+                        <p className="text-xs text-yellow-300 mb-3">{state.attemptsLeft} {state.attemptsLeft === 1 ? 'try' : 'tries'} left before a lockout.</p>
+                    )}
+                    <Button onClick={submit} disabled={busy || pin.length < 4} color="lime" className="w-full max-w-xs text-sm mb-4">{busy ? 'Checking…' : 'Unlock'}</Button>
+                </>
+            )}
+
+            {!resetting ? (
+                <button onClick={() => setResetting(true)} className="text-xs text-white/70 underline">Forgotten your PIN?</button>
+            ) : (
+                <div className="w-full max-w-xs bg-black/60 border border-white/20 rounded-lg p-3">
+                    <p className="text-[11px] text-white mb-2">
+                        Nobody can remove your PIN for you — not staff, not support. Prove the account is yours
+                        with your password and we will clear it.
+                    </p>
+                    <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Account password"
+                        className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-2"/>
+                    <Button onClick={doReset} disabled={busy} color="cyan" className="w-full text-xs mb-1">{busy ? 'Checking…' : 'Remove my PIN'}</Button>
+                    <button onClick={() => { setResetting(false); setPw(''); }} className="w-full text-[11px] text-white/60 py-1">Cancel</button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const RK_COMMISSION_STATES = [
     { id: 'open',     label: 'Taking commissions', tone: 'bg-lime-500/20 text-lime-300 border-lime-400/50' },
     { id: 'waitlist', label: 'Waitlist only',      tone: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/50' },
@@ -16692,7 +16800,35 @@ const App = () => {
     // on. Two effects writing the same fields would have raced, and whichever lost would have
     // left vipPlan set to the other's value. The real bug was never the grant; it was the status
     // readout using the raw isVIP flag instead of isEffVIP(), fixed at 271.
+    // V80.2: the lock state and its effect sit ABOVE the early returns, because a hook below one
+    // is a hook that sometimes does not run — the 272 crash. `locked` starts null meaning
+    // "unknown", so nothing is covered until the status call answers; starting it true would
+    // flash a lock screen at every raver who has never set a PIN.
+    const [locked, setLocked] = useState(null);
+    const rkCheckLock = React.useCallback(async () => {
+        if (!user?.uid) { setLocked(false); return; }
+        try {
+            const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
+            const r = (await fn({ appId })).data || {};   // no pin = status query, never an attempt
+            setLocked(r.noPin ? false : !r.ok);
+        } catch (e) {
+            // A failed status call must NOT lock anybody out. Until step 4b gates the rules the
+            // lock is advisory anyway, and failing open is the only safe direction for a check
+            // that stands between a person and their own account.
+            rkReport('pin status', e); setLocked(false);
+        }
+    }, [user?.uid]);
+    useEffect(() => { rkCheckLock(); }, [rkCheckLock]);
+    // Re-check when the app comes back to the foreground — that is the moment the window may
+    // have expired, and it is the whole scenario this defends against: a phone put down.
+    useEffect(() => {
+        const h = () => { if (document.visibilityState === 'visible') rkCheckLock(); };
+        document.addEventListener('visibilitychange', h);
+        return () => document.removeEventListener('visibilitychange', h);
+    }, [rkCheckLock]);
+
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
+    if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => setLocked(false)} />;
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
 
     const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
@@ -19107,6 +19243,19 @@ exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
     }
 
     const pin = String((data && data.pin) || '');
+    // V80.2: no PIN supplied means "what is my status?", NOT a failed attempt. Without this the
+    // app's own startup check would hash an empty string, fail, and burn one of the raver's
+    // tries every single time they opened RaveKandi — three-try users would lock themselves out
+    // by launching the app three times.
+    if (!pin) {
+        return {
+            ok: Number(d.sessionUntil || 0) > now,
+            needsPin: true,
+            lockedUntil: Number(d.lockedUntil || 0),
+            attemptsLeft: Number(d.maxAttempts || 5) === 0 ? null : Math.max(0, Number(d.maxAttempts || 5) - Number(d.attempts || 0)),
+            resetRequired: Number(d.lockoutTier || 0) >= LOCKOUT_MS.length
+        };
+    }
     const attempt = await hashPin(pin, d.salt || '');
     const a = Buffer.from(attempt, 'hex');
     const b = Buffer.from(String(d.hash || ''), 'hex');
