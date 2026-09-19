@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=79
+RK_MAJOR=80
 RK_MINOR=67
 RK_PATCH=144
-RK_BUILD=290
+RK_BUILD=291
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -18873,6 +18873,140 @@ exports.generateDesignImage = onCall(
 CFEOF
 echo "  functions/rk_image.js written (script-owned)."
 
+# ============================================================================================
+# V80 - APP PIN LOCK  (step 2 of 4)
+#
+# rk_pin.js is script-owned and regenerated every build, like rk_push and rk_image.
+#
+# Everything lives in artifacts/{appId}/pinLocks/{uid}, which is deny-all in the rules. The
+# Admin SDK ignores rules, so only these functions can reach it. Nothing PIN-related touches
+# /users/{uid} — a hash, a counter or a lockout stored there could be cleared by the account
+# holder from devtools, which makes the whole lockout decorative.
+#
+# scrypt and timingSafeEqual are Node built-ins. No new dependency.
+# ============================================================================================
+cat << 'PINEOF' > "$RK_FN_DIR/rk_pin.js"
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const crypto = require('crypto');
+if (!admin.apps.length) admin.initializeApp();
+
+const HttpsError = functions.https.HttpsError;
+// V80: 'ravekandi-core-prod', matching `const appId` in the app and the default rk_image uses.
+// The first draft of this file hardcoded 'ravekandi_default' — a plausible-looking id that
+// exists nowhere, which would have written every lock to a collection the rules do not cover
+// and the client never reads. Taken from the client's own constant, not from memory.
+const APP_ID_DEFAULT = 'ravekandi-core-prod';
+const lockRef = (uid, appId) => admin.firestore()
+    .collection('artifacts').doc(appId || APP_ID_DEFAULT).collection('pinLocks').doc(uid);
+
+// The ladder. Index by how many times they have already been locked out, so it escalates
+// across lockouts rather than resetting each time. Past the end, no more lockouts are issued —
+// the account is reset-only, which is what "hits the max" means.
+const LOCKOUT_MS = [60, 360, 720, 1440].map(m => m * 60 * 1000);   // 1h, 6h, 12h, 24h
+// V80: how long one successful entry keeps the app open. 15 minutes, chosen because the threat
+// this defends against is someone picking up an unlocked phone — a window long enough that
+// switching to the camera and back does not demand the PIN again, short enough that a phone
+// left on a table re-locks on its own. The client also re-locks on background.
+const SESSION_MS = 15 * 60 * 1000;
+
+const hashPin = (pin, salt) => new Promise((resolve, reject) => {
+    crypto.scrypt(String(pin), salt, 64, (err, key) => err ? reject(err) : resolve(key.toString('hex')));
+});
+
+const requireAuth = (ctx) => {
+    if (!ctx.auth || !ctx.auth.uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+    return ctx.auth.uid;
+};
+
+// A PIN change and a PIN reset both require PROOF the person is present right now, not merely
+// that a session cookie exists. auth_time is when they last actually authenticated; Firebase
+// refreshes it on reauthenticateWithCredential. Without this check, "reset with your login
+// details" would be satisfied by already being signed in, which is no check at all.
+const requireFreshAuth = (ctx) => {
+    const t = ctx.auth && ctx.auth.token ? ctx.auth.token.auth_time : 0;
+    const age = Math.floor(Date.now() / 1000) - Number(t || 0);
+    if (!t || age > 300) throw new HttpsError('failed-precondition', 'REAUTH_REQUIRED');
+};
+
+exports.setAppPin = functions.https.onCall(async (data, ctx) => {
+    const uid = requireAuth(ctx);
+    const appId = String((data && data.appId) || APP_ID_DEFAULT);
+    requireFreshAuth(ctx);
+    const pin = String((data && data.pin) || '');
+    if (!/^[0-9]{4,6}$/.test(pin)) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
+    const allowed = [3, 5, 10, 0];   // 0 = unlimited
+    const maxAttempts = allowed.indexOf(Number(data && data.maxAttempts)) >= 0 ? Number(data.maxAttempts) : 5;
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = await hashPin(pin, salt);
+    await lockRef(uid, appId).set({
+        hash, salt, maxAttempts,
+        attempts: 0, lockoutTier: 0, lockedUntil: 0,
+        sessionUntil: Date.now() + SESSION_MS,   // setting it also unlocks the current session
+        updatedAt: Date.now()
+    }, { merge: true });
+    return { ok: true, maxAttempts };
+});
+
+exports.verifyAppPin = functions.https.onCall(async (data, ctx) => {
+    const uid = requireAuth(ctx);
+    const appId = String((data && data.appId) || APP_ID_DEFAULT);
+    const snap = await lockRef(uid, appId).get();
+    if (!snap.exists) return { ok: true, noPin: true };
+    const d = snap.data();
+    const now = Date.now();
+
+    if (d.lockedUntil && d.lockedUntil > now) {
+        return { ok: false, lockedUntil: d.lockedUntil, attemptsLeft: 0 };
+    }
+    // Ladder exhausted: no further lockouts, reset is the only way through.
+    if (d.lockoutTier >= LOCKOUT_MS.length) {
+        return { ok: false, resetRequired: true, attemptsLeft: 0 };
+    }
+
+    const pin = String((data && data.pin) || '');
+    const attempt = await hashPin(pin, d.salt || '');
+    const a = Buffer.from(attempt, 'hex');
+    const b = Buffer.from(String(d.hash || ''), 'hex');
+    // Length-checked before timingSafeEqual, which throws on a mismatch rather than returning
+    // false — and compared with timingSafeEqual rather than === so the comparison cannot leak
+    // the PIN one character at a time through response timing.
+    const good = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+    if (good) {
+        await lockRef(uid, appId).set({ attempts: 0, lockedUntil: 0, sessionUntil: now + SESSION_MS }, { merge: true });
+        return { ok: true, sessionUntil: now + SESSION_MS };
+    }
+
+    const attempts = Number(d.attempts || 0) + 1;
+    const max = Number(d.maxAttempts || 5);
+    if (max === 0) {   // unlimited — count for the record, never lock
+        await lockRef(uid, appId).set({ attempts }, { merge: true });
+        return { ok: false, attemptsLeft: null };
+    }
+    if (attempts >= max) {
+        const tier = Number(d.lockoutTier || 0);
+        const until = now + LOCKOUT_MS[Math.min(tier, LOCKOUT_MS.length - 1)];
+        await lockRef(uid, appId).set({ attempts: 0, lockoutTier: tier + 1, lockedUntil: until, sessionUntil: 0 }, { merge: true });
+        return { ok: false, lockedUntil: until, attemptsLeft: 0, resetRequired: tier + 1 >= LOCKOUT_MS.length };
+    }
+    await lockRef(uid, appId).set({ attempts }, { merge: true });
+    return { ok: false, attemptsLeft: max - attempts };
+});
+
+// The ONLY route back in. There is no admin override by design, so this has to be both
+// airtight and reliable: fresh password reauth AND a verified email on the account.
+exports.resetAppPin = functions.https.onCall(async (data, ctx) => {
+    const uid = requireAuth(ctx);
+    const appId = String((data && data.appId) || APP_ID_DEFAULT);
+    requireFreshAuth(ctx);
+    if (!ctx.auth.token.email_verified) throw new HttpsError('failed-precondition', 'VERIFY_EMAIL');
+    await lockRef(uid, appId).delete();
+    return { ok: true };
+});
+PINEOF
+echo "  functions/rk_pin.js written (script-owned)."
+
 # index.js: created if absent, otherwise appended to. Never overwritten.
 if [ ! -f "$RK_FN_DIR/index.js" ]; then
 cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
@@ -18885,6 +19019,7 @@ cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
 // below. Do not edit rk_push.js — every build replaces it.
 module.exports = Object.assign(module.exports, require('./rk_push'));
 module.exports = Object.assign(module.exports, require('./rk_image'));
+module.exports = Object.assign(module.exports, require('./rk_pin'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -18900,6 +19035,12 @@ elif grep -q "rk_push" "$RK_FN_DIR/index.js"; then
     if ! grep -q "rk_image" "$RK_FN_DIR/index.js"; then
         printf '\n// V72: image generation, generated by the build script into rk_image.js.\nmodule.exports = Object.assign(module.exports, require("./rk_image"));\n' >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: rk_image re-export appended."
+    fi
+    # V80: same shape again for rk_pin — an index.js that predates it needs its own append,
+    # and checking for rk_image would wrongly skip this one.
+    if ! grep -q "rk_pin" "$RK_FN_DIR/index.js"; then
+        printf '\n// V80: app PIN lock, generated by the build script into rk_pin.js.\nmodule.exports = Object.assign(module.exports, require("./rk_pin"));\n' >> "$RK_FN_DIR/index.js"
+        echo "  functions/index.js: rk_pin re-export appended."
     fi
 else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
