@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=80
+RK_MAJOR=81
 RK_MINOR=70
 RK_PATCH=146
-RK_BUILD=296
+RK_BUILD=297
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14339,7 +14339,19 @@ const AppLockScreen = ({ user, onUnlocked }) => {
             )}
 
             {!resetting ? (
-                <button onClick={() => setResetting(true)} className="text-xs text-white underline">Forgotten your PIN?</button>
+                <div className="flex flex-col items-center gap-3">
+                    <button onClick={() => setResetting(true)} className="text-xs text-white underline">Forgotten your PIN?</button>
+                    {/* V81: there was no way off this screen. Somebody with two accounts who locked
+                        one was stuck — no sign-out, no route to the login screen, and the PIN they
+                        needed belonged to the other account. It is not a bypass either: the lock is
+                        keyed to a uid, so signing back into the same account lands right back here,
+                        and reaching it any other way already needs the password, which removes the
+                        PIN outright. */}
+                    <button onClick={async () => {
+                        if (!window.confirm('Sign out and use a different account?\n\nThis PIN stays on this account — you will be asked for it again next time you sign in here.')) return;
+                        try { await signOut(auth); } catch (e) { rkReport('lock screen signout', e); alert('Could not sign out: ' + (e?.message || 'unknown error')); }
+                    }} className="text-xs text-white/70 underline">Sign out / use another account</button>
+                </div>
             ) : (
                 <div className="w-full max-w-xs bg-black/60 border border-white/20 rounded-lg p-3">
                     <p className="text-[11px] text-white mb-2">
@@ -17014,12 +17026,25 @@ const App = () => {
     // "unknown", so nothing is covered until the status call answers; starting it true would
     // flash a lock screen at every raver who has never set a PIN.
     const [locked, setLocked] = useState(null);
+    const rkSessionTimer = useRef(null);
+    useEffect(() => () => { if (rkSessionTimer.current) clearTimeout(rkSessionTimer.current); }, []);
     const rkCheckLock = React.useCallback(async () => {
         if (!user?.uid) { setLocked(false); return; }
         try {
             const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
             const r = (await fn({ appId })).data || {};   // no pin = status query, never an attempt
             setLocked(r.noPin ? false : !r.ok);
+            // V81: re-lock exactly when the window expires. This is a PREREQUISITE for gating the
+            // rules, not a nicety — once pinOk() guards a path, an expired session means Firestore
+            // starts refusing reads. Without this the app would keep running and simply stop being
+            // able to load anything, which reads as the app breaking rather than the lock engaging.
+            // The lock screen now appears at the same moment the rules begin to deny.
+            if (rkSessionTimer.current) clearTimeout(rkSessionTimer.current);
+            const until = Number(r.sessionUntil || 0);
+            if (!r.noPin && r.ok && until > Date.now()) {
+                const ms = Math.min(until - Date.now() + 500, 2147483000);
+                rkSessionTimer.current = setTimeout(() => setLocked(true), ms);
+            }
         } catch (e) {
             // A failed status call must NOT lock anybody out. Until step 4b gates the rules the
             // lock is advisory anyway, and failing open is the only safe direction for a check
@@ -17037,7 +17062,9 @@ const App = () => {
     }, [rkCheckLock]);
 
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
-    if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => setLocked(false)} />;
+    // onUnlocked re-runs the status check rather than just clearing the flag — that is what arms
+    // the re-lock timer for the window that just opened.
+    if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => { setLocked(false); rkCheckLock(); }} />;
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
 
     const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
@@ -19465,6 +19492,9 @@ exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
     if (!pin) {
         return {
             ok: Number(d.sessionUntil || 0) > now,
+            // V81: the client arms a re-lock timer from this, so the status query has to report it.
+            // Without it the timer never sets and a session would run past its own expiry.
+            sessionUntil: Number(d.sessionUntil || 0),
             needsPin: true,
             lockedUntil: Number(d.lockedUntil || 0),
             attemptsLeft: Number(d.maxAttempts || 5) === 0 ? null : Math.max(0, Number(d.maxAttempts || 5) - Number(d.attempts || 0)),
