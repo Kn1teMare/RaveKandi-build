@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=80
-RK_MINOR=69
+RK_MINOR=70
 RK_PATCH=146
-RK_BUILD=295
+RK_BUILD=296
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14143,6 +14143,117 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
 // Status is fetched by calling verifyAppPin with NO pin, which the function treats as a query
 // rather than an attempt — otherwise every launch would spend one of the raver's tries.
 // ============================================================================================
+
+// ============================================================================================
+// V80.5 - LOCK SCREEN STARFIELD
+//
+// Stars drift, gather into the word RAVEKANDI, hold, then scatter back. One canvas, one rAF
+// loop, ~520 particles.
+//
+// Deliberately restrained on a phone: devicePixelRatio is capped at 2 rather than honoured
+// blindly, because a 3x screen means nine times the fill and this runs behind a PIN entry that
+// has to stay responsive. It also stops entirely when the tab is hidden — a background tab
+// animating a canvas is pure battery drain — and honours prefers-reduced-motion by drawing a
+// still field, since this is a full-screen moving pattern and that setting exists for people
+// who get sick looking at one.
+// ============================================================================================
+const RkStarfield = () => {
+    const ref = useRef(null);
+    useEffect(() => {
+        const cv = ref.current; if (!cv) return;
+        const ctx = cv.getContext('2d'); if (!ctx) return;
+        const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let W = 0, H = 0, dpr = 1, raf = 0, targets = [], t0 = performance.now(), running = true;
+        const N = 520;
+        const P = [];
+
+        const resize = () => {
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            W = cv.clientWidth; H = cv.clientHeight;
+            cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            buildTargets();
+        };
+
+        // Sample the word off an offscreen canvas and keep the lit pixels as destinations.
+        const buildTargets = () => {
+            const o = document.createElement('canvas');
+            o.width = Math.max(320, Math.floor(W)); o.height = Math.max(120, Math.floor(H * 0.28));
+            const oc = o.getContext('2d');
+            const size = Math.min(o.width / 7.2, o.height * 0.7);
+            oc.fillStyle = '#fff';
+            oc.textAlign = 'center'; oc.textBaseline = 'middle';
+            oc.font = '900 ' + Math.floor(size) + 'px system-ui, sans-serif';
+            oc.fillText('RAVEKANDI', o.width / 2, o.height / 2);
+            const d = oc.getImageData(0, 0, o.width, o.height).data;
+            const pts = [];
+            const step = Math.max(2, Math.floor(o.width / 190));
+            for (let y = 0; y < o.height; y += step) {
+                for (let x = 0; x < o.width; x += step) {
+                    if (d[(y * o.width + x) * 4 + 3] > 128) pts.push([x * (W / o.width), y * (H * 0.28 / o.height) + H * 0.36]);
+                }
+            }
+            targets = pts;
+        };
+
+        for (let i = 0; i < N; i++) P.push({
+            x: Math.random() * 1200, y: Math.random() * 2000,
+            vx: (Math.random() - 0.5) * 0.12, vy: (Math.random() - 0.5) * 0.12,
+            r: Math.random() * 1.4 + 0.4, tw: Math.random() * Math.PI * 2,
+            hue: Math.random() < 0.5 ? 190 : Math.random() < 0.5 ? 285 : 330
+        });
+
+        const draw = (now) => {
+            if (!running) return;
+            const el = (now - t0) / 1000;
+            // 16s loop: 4s drift, 3s gather, 4s hold, 3s scatter, 2s drift
+            const c = el % 16;
+            const form = c < 4 ? 0 : c < 7 ? (c - 4) / 3 : c < 11 ? 1 : c < 14 ? 1 - (c - 11) / 3 : 0;
+            const ease = form < 0.5 ? 2 * form * form : 1 - Math.pow(-2 * form + 2, 2) / 2;
+
+            ctx.clearRect(0, 0, W, H);
+            const g = ctx.createLinearGradient(0, 0, 0, H);
+            g.addColorStop(0, '#05000f'); g.addColorStop(0.6, '#0a0118'); g.addColorStop(1, '#12002a');
+            ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+            for (let i = 0; i < P.length; i++) {
+                const p = P[i];
+                if (!reduce) { p.x += p.vx; p.y += p.vy; p.tw += 0.03; }
+                if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+                if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
+
+                let dx = p.x, dy = p.y, rr = p.r;
+                if (ease > 0.001 && targets.length) {
+                    const tg = targets[i % targets.length];
+                    dx = p.x + (tg[0] - p.x) * ease;
+                    dy = p.y + (tg[1] - p.y) * ease;
+                    rr = p.r + ease * 0.8;
+                }
+                const a = (0.35 + Math.sin(p.tw) * 0.25) * (0.55 + ease * 0.45);
+                ctx.beginPath();
+                ctx.fillStyle = 'hsla(' + p.hue + ',90%,' + (70 + ease * 20) + '%,' + a.toFixed(3) + ')';
+                ctx.arc(dx, dy, rr, 0, 6.283);
+                ctx.fill();
+            }
+            raf = requestAnimationFrame(draw);
+        };
+
+        const onVis = () => {
+            // Stop when hidden, and rebase the clock on return so it resumes mid-loop instead of
+            // snapping to a different phase.
+            if (document.visibilityState === 'hidden') { running = false; cancelAnimationFrame(raf); }
+            else if (!running) { running = true; t0 = performance.now(); raf = requestAnimationFrame(draw); }
+        };
+
+        resize();
+        window.addEventListener('resize', resize);
+        document.addEventListener('visibilitychange', onVis);
+        raf = requestAnimationFrame(draw);
+        return () => { running = false; cancelAnimationFrame(raf); window.removeEventListener('resize', resize); document.removeEventListener('visibilitychange', onVis); };
+    }, []);
+    return <canvas ref={ref} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>;
+};
+
 const AppLockScreen = ({ user, onUnlocked }) => {
     const [pin, setPin] = useState('');
     const [state, setState] = useState(null);
@@ -14150,8 +14261,10 @@ const AppLockScreen = ({ user, onUnlocked }) => {
     const [resetting, setResetting] = useState(false);
     const [pw, setPw] = useState('');
     const [now, setNow] = useState(Date.now());
+    const [vSent, setVSent] = useState(0);
 
     useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+    useEffect(() => { if (vSent <= 0) return; const t = setTimeout(() => setVSent(v => v - 1), 1000); return () => clearTimeout(t); }, [vSent]);
 
     const submit = async () => {
         if (!/^[0-9]{4,6}$/.test(pin)) return;
@@ -14192,7 +14305,11 @@ const AppLockScreen = ({ user, onUnlocked }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-[#0a0014] flex flex-col items-center justify-center p-6 overflow-y-auto">
+        <div className="fixed inset-0 z-[9999] bg-[#0a0014] overflow-y-auto">
+            <RkStarfield/>
+            {/* Content sits above the canvas in its own layer — the canvas is pointer-events-none
+                so it can never swallow a tap meant for the PIN box. */}
+            <div className="relative z-10 min-h-full flex flex-col items-center justify-center p-6">
             <p className="text-4xl mb-2">🔐</p>
             <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest mb-1">Locked</h2>
             <p className="text-xs text-white mb-6 text-center">Enter your PIN to open RaveKandi.</p>
@@ -14234,11 +14351,30 @@ const AppLockScreen = ({ user, onUnlocked }) => {
                     <Button onClick={doReset} disabled={busy} color="cyan" className="w-full text-xs mb-1">{busy ? 'Checking…' : 'Remove my PIN'}</Button>
                     {/* Reachable from the LOCK SCREEN, because that is where somebody is stuck. A
                         recovery control that only exists behind the lock is not a recovery control. */}
-                    <button onClick={async () => { try { await sendEmailVerification(auth.currentUser); alert('Verification link sent. It is not needed to remove your PIN — only to recover a forgotten password.'); } catch (e) { alert('Could not send it: ' + (e?.message || 'unknown error')); } }}
-                        className="w-full text-[11px] text-cyan-300 underline py-1">Send me a verification email</button>
+                    {/* V80.5: `auth/too-many-requests` is Firebase throttling the ADDRESS, not a
+                        failure of the app — and it is almost certainly why no mail arrived. Every
+                        tap of an un-cooled button spent another send against the quota and pushed
+                        the block further out, so the control that was meant to rescue somebody was
+                        making their situation worse. A local cooldown stops that at the source,
+                        and the message says what is actually happening rather than showing a
+                        Firebase error code to a person who is already locked out. */}
+                    <button disabled={vSent > 0} onClick={async () => {
+                        try {
+                            await sendEmailVerification(auth.currentUser);
+                            setVSent(60);
+                            alert('Link sent to ' + (user?.email || 'your address') + '.\n\nCheck spam — these often land there. It is NOT needed to remove your PIN; your password below does that.');
+                        } catch (e) {
+                            const m = String(e?.code || e?.message || '');
+                            if (m.includes('too-many-requests')) { setVSent(900); alert('Firebase has paused verification emails for this address — too many were requested in a short time.\n\nWait about 15 minutes, and check your spam folder meanwhile: the earlier ones may already be there.\n\nThis does NOT block you. Your account password below still removes the PIN right now.'); }
+                            else alert('Could not send it: ' + (m || 'unknown error'));
+                        }
+                    }} className={'w-full text-[11px] underline py-1 ' + (vSent > 0 ? 'text-white/40' : 'text-cyan-300')}>
+                        {vSent > 0 ? 'Wait ' + vSent + 's before sending again' : 'Send me a verification email'}
+                    </button>
                     <button onClick={() => { setResetting(false); setPw(''); }} className="w-full text-[11px] text-white py-1">Cancel</button>
                 </div>
             )}
+            </div>
         </div>
     );
 };
