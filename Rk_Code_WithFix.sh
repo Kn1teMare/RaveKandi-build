@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=81
 RK_MINOR=70
-RK_PATCH=146
-RK_BUILD=297
+RK_PATCH=147
+RK_BUILD=298
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14190,7 +14190,10 @@ const RkStarfield = () => {
             const step = Math.max(2, Math.floor(o.width / 190));
             for (let y = 0; y < o.height; y += step) {
                 for (let x = 0; x < o.width; x += step) {
-                    if (d[(y * o.width + x) * 4 + 3] > 128) pts.push([x * (W / o.width), y * (H * 0.28 / o.height) + H * 0.36]);
+                    // V81.1: formed at 12% down instead of 36%, which is where the PIN box sits —
+                    // the word was materialising behind the input. Up in the empty top band it is
+                    // fully visible and nothing overlaps it.
+                    if (d[(y * o.width + x) * 4 + 3] > 128) pts.push([x * (W / o.width), y * (H * 0.18 / o.height) + H * 0.12]);
                 }
             }
             targets = pts;
@@ -14200,6 +14203,7 @@ const RkStarfield = () => {
             x: Math.random() * 1200, y: Math.random() * 2000,
             vx: (Math.random() - 0.5) * 0.12, vy: (Math.random() - 0.5) * 0.12,
             r: Math.random() * 1.4 + 0.4, tw: Math.random() * Math.PI * 2,
+            former: i % 3 === 0,   // one in three forms the word; the rest are the sky
             hue: Math.random() < 0.5 ? 190 : Math.random() < 0.5 ? 285 : 330
         });
 
@@ -14223,13 +14227,21 @@ const RkStarfield = () => {
                 if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
 
                 let dx = p.x, dy = p.y, rr = p.r;
-                if (ease > 0.001 && targets.length) {
+                // V81.1: only the FORMERS travel. Before, every star flew to the word and left the
+                // sky empty behind it — the screen went blank apart from the text. Two thirds stay
+                // put and keep drifting as the night sky, so the word appears out of a field that
+                // is still there rather than consuming it.
+                if (p.former && ease > 0.001 && targets.length) {
                     const tg = targets[i % targets.length];
                     dx = p.x + (tg[0] - p.x) * ease;
                     dy = p.y + (tg[1] - p.y) * ease;
                     rr = p.r + ease * 0.8;
                 }
-                const a = (0.35 + Math.sin(p.tw) * 0.25) * (0.55 + ease * 0.45);
+                // Background stars dim slightly as the word forms, so it reads clearly without
+                // the sky having to disappear for it.
+                const a = p.former
+                    ? (0.35 + Math.sin(p.tw) * 0.25) * (0.55 + ease * 0.45)
+                    : (0.30 + Math.sin(p.tw) * 0.20) * (1 - ease * 0.35);
                 ctx.beginPath();
                 ctx.fillStyle = 'hsla(' + p.hue + ',90%,' + (70 + ease * 20) + '%,' + a.toFixed(3) + ')';
                 ctx.arc(dx, dy, rr, 0, 6.283);
@@ -17025,8 +17037,32 @@ const App = () => {
     // is a hook that sometimes does not run — the 272 crash. `locked` starts null meaning
     // "unknown", so nothing is covered until the status call answers; starting it true would
     // flash a lock screen at every raver who has never set a PIN.
+    // V81.1 SECURITY. `locked` started null and the app rendered underneath while the status call
+    // was in flight. On a slow connection that is several seconds of a fully browsable app —
+    // messages, account details, the lot — before the lock screen arrives. Reported from the
+    // field, and it is a real hole, not a cosmetic one.
+    //
+    // Two changes. First, a local flag: the moment a raver sets a PIN we remember THAT they have
+    // one (never the PIN, never the hash — just a boolean) so the next launch can show the lock
+    // instantly, before any network call. Second, `locked === null` no longer renders the app; it
+    // renders the loading screen, so nothing is on screen until the answer is known.
+    //
+    // Fail direction is now decided by evidence rather than by convenience: with local evidence
+    // of a PIN, a failed or slow check stays LOCKED. Without it, it opens — because there is
+    // nothing to protect and stranding somebody would be the worse error.
+    const rkPinFlagKey = user?.uid ? 'rk_haspin_' + user.uid : null;
+    const rkKnownPin = () => { try { return rkPinFlagKey && localStorage.getItem(rkPinFlagKey) === '1'; } catch (e) { return false; } };
     const [locked, setLocked] = useState(null);
     const rkSessionTimer = useRef(null);
+    useEffect(() => { if (rkKnownPin()) setLocked(true); }, [user?.uid]);
+    // Ceiling on the wait. A network that never answers must not become a permanent loading
+    // screen; after 8 seconds the check above resolves by evidence instead of by hope.
+    const [rkLockTimedOut, setRkLockTimedOut] = useState(false);
+    useEffect(() => {
+        if (!user?.uid || locked !== null) return;
+        const t = setTimeout(() => { setRkLockTimedOut(true); setLocked(rkKnownPin() ? true : false); }, 8000);
+        return () => clearTimeout(t);
+    }, [user?.uid, locked]);
     useEffect(() => () => { if (rkSessionTimer.current) clearTimeout(rkSessionTimer.current); }, []);
     const rkCheckLock = React.useCallback(async () => {
         if (!user?.uid) { setLocked(false); return; }
@@ -17034,6 +17070,7 @@ const App = () => {
             const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
             const r = (await fn({ appId })).data || {};   // no pin = status query, never an attempt
             setLocked(r.noPin ? false : !r.ok);
+            try { if (rkPinFlagKey) { if (r.noPin) localStorage.removeItem(rkPinFlagKey); else localStorage.setItem(rkPinFlagKey, '1'); } } catch (e) {}
             // V81: re-lock exactly when the window expires. This is a PREREQUISITE for gating the
             // rules, not a nicety — once pinOk() guards a path, an expired session means Firestore
             // starts refusing reads. Without this the app would keep running and simply stop being
@@ -17046,10 +17083,11 @@ const App = () => {
                 rkSessionTimer.current = setTimeout(() => setLocked(true), ms);
             }
         } catch (e) {
-            // A failed status call must NOT lock anybody out. Until step 4b gates the rules the
-            // lock is advisory anyway, and failing open is the only safe direction for a check
-            // that stands between a person and their own account.
-            rkReport('pin status', e); setLocked(false);
+            // V81.1: fail CLOSED when we know a PIN exists. Before, any error unlocked — so a
+            // flaky connection was a bypass. Without local evidence of a PIN there is nothing to
+            // protect, so that case still opens rather than stranding somebody.
+            rkReport('pin status', e);
+            setLocked(rkKnownPin() ? true : false);
         }
     }, [user?.uid]);
     useEffect(() => { rkCheckLock(); }, [rkCheckLock]);
@@ -17060,6 +17098,18 @@ const App = () => {
         document.addEventListener('visibilitychange', h);
         return () => document.removeEventListener('visibilitychange', h);
     }, [rkCheckLock]);
+
+    // V81.1: `locked === null` means "not answered yet" and now holds the SAME loading screen the
+    // app already uses, instead of letting the app render underneath. Nothing reaches the screen
+    // until the question is settled. The 8-second ceiling keeps a dead network from stranding
+    // anybody — at which point the fail direction above decides, by evidence.
+    if(user && locked === null && !rkLockTimedOut) return (
+        <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]">
+            <p className="text-4xl mb-3">🔐</p>
+            <p className="text-sm font-black text-cyan-300 uppercase tracking-widest mb-1">Checking security</p>
+            <p className="text-[11px] text-white text-center">One moment — making sure this device is allowed in.</p>
+        </div>
+    );
 
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     // onUnlocked re-runs the status check rather than just clearing the flag — that is what arms
@@ -19469,6 +19519,11 @@ exports.setAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
 });
 
 exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
+  // V81.1: wrapped. An uncaught throw in a v2 callable surfaces as [functions/internal] with no
+  // cause attached — which is all the client has been able to report for four builds. Anything
+  // unexpected is now logged server-side (visible in `firebase functions:log`) and returned as a
+  // named failure, so the next occurrence says what actually broke.
+  try {
     const uid = requireAuth(req);
     const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
     const snap = await lockRef(uid, appId).get();
@@ -19529,6 +19584,11 @@ exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
     }
     await lockRef(uid, appId).set({ attempts }, { merge: true });
     return { ok: false, attemptsLeft: max - attempts };
+  } catch (e) {
+    console.error('verifyAppPin failed', { uid: req.auth && req.auth.uid, msg: e && e.message, stack: e && e.stack });
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError('internal', 'PIN_CHECK_FAILED: ' + String((e && e.message) || 'unknown'));
+  }
 });
 
 // The ONLY route back in. There is no admin override by design, so this has to be both
