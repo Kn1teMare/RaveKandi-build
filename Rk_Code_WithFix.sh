@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=81
 RK_MINOR=70
-RK_PATCH=147
-RK_BUILD=298
+RK_PATCH=148
+RK_BUILD=299
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14157,6 +14157,17 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
 // still field, since this is a full-screen moving pattern and that setting exists for people
 // who get sick looking at one.
 // ============================================================================================
+
+// V81.2: a callable that cannot reach the network reports `functions/internal` with no cause —
+// the server logs confirm it ("auth":"VALID", "Callable request verification passed", no error),
+// so these were never server faults. Telling somebody staring at a lock screen that there was an
+// "internal error" is both wrong and useless; telling them they are offline is neither.
+const rkIsOffline = (e) => {
+    try { if (navigator && navigator.onLine === false) return true; } catch (x) {}
+    const c = String((e && (e.code || e.message)) || '');
+    return /unavailable|deadline-exceeded|network|failed to fetch|internal/i.test(c);
+};
+
 const RkStarfield = () => {
     const ref = useRef(null);
     useEffect(() => {
@@ -14164,46 +14175,66 @@ const RkStarfield = () => {
         const ctx = cv.getContext('2d'); if (!ctx) return;
         const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         let W = 0, H = 0, dpr = 1, raf = 0, targets = [], t0 = performance.now(), running = true;
-        const N = 520;
+        // V81.2: 520 with one in three forming meant ~170 stars for ten letters — far too sparse
+        // to read as RAVEKANDI. 900 with half forming gives ~450, which resolves.
+        const N = 900;
         const P = [];
 
         const resize = () => {
             dpr = Math.min(window.devicePixelRatio || 1, 2);
-            W = cv.clientWidth; H = cv.clientHeight;
+            // Measure the VIEWPORT, not the element — a fixed canvas inside a scrolling parent can
+            // report a clientHeight larger than the screen.
+            W = window.innerWidth; H = window.innerHeight;
             cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             buildTargets();
         };
 
         // Sample the word off an offscreen canvas and keep the lit pixels as destinations.
+        // V81.2: the offscreen canvas is now EXACTLY the band the word occupies, so sampled
+        // pixels map 1:1 onto the screen. Previously the buffer was 0.28H tall and the result was
+        // squeezed into 0.18H, which compressed every glyph vertically until it stopped reading as
+        // letters at all.
+        const BAND_TOP = 0.07, BAND_H = 0.17;   // upper band, clear of the PIN box
         const buildTargets = () => {
+            const bw = Math.max(320, Math.floor(W));
+            const bh = Math.max(90, Math.floor(H * BAND_H));
             const o = document.createElement('canvas');
-            o.width = Math.max(320, Math.floor(W)); o.height = Math.max(120, Math.floor(H * 0.28));
+            o.width = bw; o.height = bh;
             const oc = o.getContext('2d');
-            const size = Math.min(o.width / 7.2, o.height * 0.7);
+            // Fit to width first — RAVEKANDI is ten characters, so width is what constrains it.
+            let size = Math.floor(Math.min(bw / 6.4, bh * 0.82));
             oc.fillStyle = '#fff';
             oc.textAlign = 'center'; oc.textBaseline = 'middle';
-            oc.font = '900 ' + Math.floor(size) + 'px system-ui, sans-serif';
-            oc.fillText('RAVEKANDI', o.width / 2, o.height / 2);
-            const d = oc.getImageData(0, 0, o.width, o.height).data;
+            oc.font = '900 ' + size + 'px system-ui, sans-serif';
+            while (size > 10 && oc.measureText('RAVEKANDI').width > bw * 0.92) {
+                size -= 2; oc.font = '900 ' + size + 'px system-ui, sans-serif';
+            }
+            oc.fillText('RAVEKANDI', bw / 2, bh / 2);
+            const d = oc.getImageData(0, 0, bw, bh).data;
             const pts = [];
-            const step = Math.max(2, Math.floor(o.width / 190));
-            for (let y = 0; y < o.height; y += step) {
-                for (let x = 0; x < o.width; x += step) {
-                    // V81.1: formed at 12% down instead of 36%, which is where the PIN box sits —
-                    // the word was materialising behind the input. Up in the empty top band it is
-                    // fully visible and nothing overlaps it.
-                    if (d[(y * o.width + x) * 4 + 3] > 128) pts.push([x * (W / o.width), y * (H * 0.18 / o.height) + H * 0.12]);
+            // Denser sampling than before — the previous step left gaps inside the strokes.
+            const step = 2;
+            for (let y = 0; y < bh; y += step) {
+                for (let x = 0; x < bw; x += step) {
+                    if (d[(y * bw + x) * 4 + 3] > 128) pts.push([x * (W / bw), y + H * BAND_TOP]);
                 }
             }
-            targets = pts;
+            // Thin evenly if we sampled more points than we have formers, so the word keeps its
+            // shape instead of losing one end of it.
+            const formers = Math.ceil(N / 2);
+            if (pts.length > formers) {
+                const keep = [], stride = pts.length / formers;
+                for (let k = 0; k < formers; k++) keep.push(pts[Math.floor(k * stride)]);
+                targets = keep;
+            } else targets = pts;
         };
 
         for (let i = 0; i < N; i++) P.push({
             x: Math.random() * 1200, y: Math.random() * 2000,
             vx: (Math.random() - 0.5) * 0.12, vy: (Math.random() - 0.5) * 0.12,
             r: Math.random() * 1.4 + 0.4, tw: Math.random() * Math.PI * 2,
-            former: i % 3 === 0,   // one in three forms the word; the rest are the sky
+            former: i % 2 === 0,   // half form the word; half stay as the sky behind it
             hue: Math.random() < 0.5 ? 190 : Math.random() < 0.5 ? 285 : 330
         });
 
@@ -14232,7 +14263,11 @@ const RkStarfield = () => {
                 // put and keep drifting as the night sky, so the word appears out of a field that
                 // is still there rather than consuming it.
                 if (p.former && ease > 0.001 && targets.length) {
-                    const tg = targets[i % targets.length];
+                    // V81.2: index by the FORMER's own ordinal, not by `i`. With `i % len`, half
+                    // the particles are non-formers and their slots were simply never drawn — the
+                    // word came out with every other pixel missing, which is most of why it stopped
+                    // being readable.
+                    const tg = targets[(i >> 1) % targets.length];
                     dx = p.x + (tg[0] - p.x) * ease;
                     dy = p.y + (tg[1] - p.y) * ease;
                     rr = p.r + ease * 0.8;
@@ -14263,7 +14298,10 @@ const RkStarfield = () => {
         raf = requestAnimationFrame(draw);
         return () => { running = false; cancelAnimationFrame(raf); window.removeEventListener('resize', resize); document.removeEventListener('visibilitychange', onVis); };
     }, []);
-    return <canvas ref={ref} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>;
+    // V81.2: FIXED, not absolute. The lock screen scrolls, and `absolute inset-0` sizes to the
+    // container's visible box — so the canvas stopped at the fold and the lower screen was bare.
+    // Fixed pins it to the viewport regardless of scroll position.
+    return <canvas ref={ref} className="fixed inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>;
 };
 
 const AppLockScreen = ({ user, onUnlocked }) => {
@@ -14274,6 +14312,13 @@ const AppLockScreen = ({ user, onUnlocked }) => {
     const [pw, setPw] = useState('');
     const [now, setNow] = useState(Date.now());
     const [vSent, setVSent] = useState(0);
+    const [offline, setOffline] = useState(false);
+    useEffect(() => {
+        const on = () => setOffline(false), off = () => setOffline(true);
+        window.addEventListener('online', on); window.addEventListener('offline', off);
+        try { if (navigator.onLine === false) setOffline(true); } catch (e) {}
+        return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    }, []);
 
     useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
     useEffect(() => { if (vSent <= 0) return; const t = setTimeout(() => setVSent(v => v - 1), 1000); return () => clearTimeout(t); }, [vSent]);
@@ -14286,7 +14331,11 @@ const AppLockScreen = ({ user, onUnlocked }) => {
             const r = (await fn({ pin, appId })).data || {};
             if (r.ok) { setPin(''); onUnlocked(); return; }
             setState(r); setPin('');
-        } catch (e) { rkReport('verifyAppPin', e); alert('Could not check your PIN: ' + (e?.message || 'unknown error')); }
+        } catch (e) {
+            rkReport('verifyAppPin', e);
+            if (rkIsOffline(e)) { setOffline(true); }
+            else alert('Could not check your PIN: ' + (e?.message || 'unknown error'));
+        }
         finally { setBusy(false); }
     };
 
@@ -14306,6 +14355,7 @@ const AppLockScreen = ({ user, onUnlocked }) => {
             const m = String(e?.message || '');
             if (m.includes('VERIFY_EMAIL')) alert('The server is still running the old check. Redeploy functions, then try again — your password is all that is needed now.');
             else if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That password is not right.');
+            else if (rkIsOffline(e)) { setOffline(true); }
             else { rkReport('resetAppPin', e); alert('Could not reset: ' + (m || 'unknown error')); }
         } finally { setBusy(false); }
     };
@@ -14324,7 +14374,22 @@ const AppLockScreen = ({ user, onUnlocked }) => {
             <div className="relative z-10 min-h-full flex flex-col items-center justify-center p-6">
             <p className="text-4xl mb-2">🔐</p>
             <h2 className="text-2xl font-black italic text-cyan-400 uppercase tracking-widest mb-1">Locked</h2>
-            <p className="text-xs text-white mb-6 text-center">Enter your PIN to open RaveKandi.</p>
+            <p className="text-xs text-white mb-4 text-center">Enter your PIN to open RaveKandi.</p>
+            {/* V81.2: stated plainly, because it IS the design and hiding it would be worse. The
+                PIN is checked on the server — that is precisely what stops it being bypassed by
+                editing anything on the phone — so a connection is required to unlock. Saying
+                "internal error" to somebody in a dead spot tells them the app is broken when it
+                is doing exactly what it was built to do. */}
+            {offline && (
+                <div className="w-full max-w-xs bg-yellow-500/15 border border-yellow-400/50 rounded-lg p-3 mb-4 text-center">
+                    <p className="text-sm font-black text-yellow-300">No connection</p>
+                    <p className="text-[11px] text-white mt-1">
+                        Your PIN is checked on our servers, which is what stops anyone unlocking this phone
+                        without it. That means you need signal or wifi to get back in.
+                    </p>
+                    <p className="text-[11px] text-white mt-1.5">Reconnect and try again — nothing is lost.</p>
+                </div>
+            )}
 
             {lockedFor > 0 ? (
                 <div className="w-full max-w-xs bg-red-500/10 border border-red-400/40 rounded-lg p-4 text-center mb-4">
@@ -17086,7 +17151,9 @@ const App = () => {
             // V81.1: fail CLOSED when we know a PIN exists. Before, any error unlocked — so a
             // flaky connection was a bypass. Without local evidence of a PIN there is nothing to
             // protect, so that case still opens rather than stranding somebody.
-            rkReport('pin status', e);
+            // V81.2: offline is not an error worth logging on every launch in a dead spot — it
+            // buries the real faults. Logged only when we are actually online.
+            if (!rkIsOffline(e)) rkReport('pin status', e);
             setLocked(rkKnownPin() ? true : false);
         }
     }, [user?.uid]);
