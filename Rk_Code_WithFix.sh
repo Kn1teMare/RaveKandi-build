@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=82
-RK_MINOR=70
+RK_MINOR=71
 RK_PATCH=148
-RK_BUILD=300
+RK_BUILD=301
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -658,7 +658,23 @@ const safeSetPersistence = async (preferLocal) => {
     }
     // If every option failed, auth still works for this session (default in-memory).
 };
-const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+// V82.1 - FIRESTORE TRANSPORT  (queue item 28)
+//
+// Was `experimentalForceLongPolling: true`, which FORCES the slower long-polling transport for
+// every client — web included — rather than letting capable ones use WebChannel streaming. There
+// was no comment saying why. It was very likely added to fix a WebView that could not hold a
+// streaming connection, and it does fix that, but it charged the cost to everybody.
+//
+// `experimentalAutoDetectLongPolling` is the documented safety net for exactly that case: it
+// tries streaming and falls back to long-polling only where streaming actually fails. Same
+// protection for the WebView that needed it, none of the cost for the ones that did not.
+//
+// REVERT: if the APK's connection gets WORSE after this build, set RK_FORCE_LONG_POLL to true.
+// That is the whole rollback — one word, no other change.
+const RK_FORCE_LONG_POLL = false;
+const db = initializeFirestore(app, RK_FORCE_LONG_POLL
+    ? { experimentalForceLongPolling: true }
+    : { experimentalAutoDetectLongPolling: true });
 const storage = getStorage(app);
 
 const stripePromise = loadStripe('pk_test_51TPtnt2MxetxkseOoF7LgE3ZvI8F7txTFexIp8h6gxm1YABwoR7ndJGZxxD3gj9cTEjCAi6zQbBpDnipZHVZxDQy00zbrmzqlU');
@@ -13995,6 +14011,7 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
     const [maxAttempts, setMaxAttempts] = useState(5);
     const [busy, setBusy] = useState(false);
     const [hasPin, setHasPin] = useState(null);
+    const [current, setCurrent] = useState(null);
     const [verified, setVerified] = useState(!!auth?.currentUser?.emailVerified);
     const [sent, setSent] = useState(false);
 
@@ -14006,6 +14023,15 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
                 const r = (await fn({ appId })).data || {};
                 setHasPin(!r.noPin);
+                // V82.1: pre-set the pickers to what is ACTUALLY configured. They defaulted to
+                // 15 minutes and 5 tries every time the window opened, so it looked as though the
+                // raver's own choices had been forgotten — and saving without touching them would
+                // quietly overwrite the real settings with the defaults.
+                if (!r.noPin) {
+                    if (r.windowMs) setWindowMs(Number(r.windowMs));
+                    if (r.maxAttempts != null) setMaxAttempts(Number(r.maxAttempts));
+                    setCurrent({ windowMs: Number(r.windowMs || 0), maxAttempts: r.maxAttempts == null ? null : Number(r.maxAttempts) });
+                }
             } catch (e) { rkReport('pin modal status', e); setHasPin(false); }
         })();
     }, [isOpen]);
@@ -14089,6 +14115,20 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 </p>
             </div>
 
+            {/* V82.1: what is actually set, stated before anything can be changed. */}
+            {hasPin && current && (
+                <div className="bg-lime-500/10 border border-lime-400/40 rounded-lg p-2.5 mb-3">
+                    <p className="text-[11px] font-black uppercase text-lime-300 mb-1.5">Your current settings</p>
+                    <div className="flex justify-between text-[12px] text-white mb-0.5">
+                        <span>Locks after</span>
+                        <span className="font-black">{(RK_PIN_WINDOWS.find(w => w.ms === current.windowMs) || {}).l || Math.round((current.windowMs || 0) / 1000) + ' seconds'} idle</span>
+                    </div>
+                    <div className="flex justify-between text-[12px] text-white">
+                        <span>Wrong tries allowed</span>
+                        <span className="font-black">{current.maxAttempts === 0 ? 'Unlimited' : current.maxAttempts}</span>
+                    </div>
+                </div>
+            )}
             {hasPin && (
                 <>
                     <label className="block text-[11px] font-black uppercase text-white mb-1">Current PIN</label>
@@ -14112,7 +14152,7 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-1">
                 {RK_PIN_WINDOWS.map(w => <option key={w.ms} value={w.ms} className="text-black">{w.l}</option>)}
             </select>
-            <p className="text-[10px] text-white mb-3">How long one correct PIN keeps the app open.</p>
+            <p className="text-[10px] text-white mb-3">How long the app can sit untouched before it locks. Using it keeps it open.</p>
 
             <label className="block text-[11px] font-black uppercase text-white mb-1">Wrong tries before lockout</label>
             <select value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))}
@@ -16845,14 +16885,10 @@ const App = () => {
     const [msgTarget, setMsgTarget] = useState(null);
     const [threads, setThreads] = useState([]);
     const [notifs, setNotifs] = useState([]);
-    useEffect(() => {
-        if (!user?.uid) return;
-        const tq = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads'), where('participants', 'array-contains', user.uid));
-        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('threads listener', e));
-        const nq = query(collection(db, 'artifacts', appId, 'users', user.uid, 'notifications'), orderBy('at', 'desc'), limit(60));
-        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('notifications listener', e));
-        return () => { u1(); u2(); };
-    }, [user]);
+    // V82.1: the threads/notifications listener was here. MOVED below the `locked` declaration —
+    // see the note where it now lives. It could not simply gain `locked` as a dependency in place:
+    // the dependency array is evaluated during render, `locked` is declared ~280 lines further
+    // down, and referencing a const in its temporal dead zone throws on every render.
 
     // V37.14: VIP banner & boost slot feeds + minute ticker for window math + merch popup
     const [bannerSlots, setBannerSlots] = useState([]);
@@ -17215,6 +17251,25 @@ const App = () => {
         document.addEventListener('visibilitychange', h);
         return () => document.removeEventListener('visibilitychange', h);
     }, [rkCheckLock]);
+
+    // V82.1: messenger listeners, gated on the lock. Keyed only on `user` before, so they
+    // subscribed once at login and never again. Once 300's rules began gating thread reads, the
+    // first message to arrive while locked was DENIED — and a Firestore listener that receives
+    // permission-denied is TERMINATED, it does not retry. So after lock -> unlock the thread list
+    // silently stopped updating until the app was restarted. That is the `threads listener:
+    // permission-denied` in the diagnostic log; the rules were right, the listener was not.
+    //
+    // Now subscribed only while unlocked. Locking unsubscribes cleanly (no error, nothing denied),
+    // unlocking subscribes fresh. `locked === null` waits rather than subscribing, since that is
+    // the state where we do not yet know if reads are allowed.
+    useEffect(() => {
+        if (!user?.uid || locked !== false) return;
+        const tq = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads'), where('participants', 'array-contains', user.uid));
+        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('threads listener', e));
+        const nq = query(collection(db, 'artifacts', appId, 'users', user.uid, 'notifications'), orderBy('at', 'desc'), limit(60));
+        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('notifications listener', e));
+        return () => { u1(); u2(); };
+    }, [user, locked]);
 
     // V81.1: `locked === null` means "not answered yet" and now holds the SAME loading screen the
     // app already uses, instead of letting the app render underneath. Nothing reaches the screen
@@ -18067,6 +18122,88 @@ elif [ $HOOK_RC -ne 0 ]; then
   exit 1
 else
   echo "   Hook-order gate: $HOOK_OUT"
+fi
+
+# ============================================================================================
+# V82.1 - DEPENDENCY-ORDER GATE
+#
+# Sibling to the hook gate, for a different fault it cannot see. A hook's dependency array is
+# evaluated DURING render, so `useEffect(fn, [locked])` placed above `const [locked] = ...`
+# reads a const in its temporal dead zone and throws on every render. The file parses, has no
+# duplicates, and passes the hook-order gate — and the app is dead on launch.
+#
+# Found at 301 by checking declaration order by hand before gating the threads listener on the
+# lock. It would have shipped otherwise. The check below does it for every dependency array.
+# ============================================================================================
+cat << 'TDZEOF' > .rk_tdz_check.js
+// Flags any hook dependency array that references a const declared LATER in the same component.
+// A dependency array is evaluated during render, so this throws a ReferenceError on every render.
+const ts=require('typescript'),fs=require('fs');
+const sf=ts.createSourceFile('a.jsx',fs.readFileSync('src/App.js','utf8'),ts.ScriptTarget.ESNext,true,ts.ScriptKind.JSX);
+let bad=0, checked=0;
+const HOOK=/^use(Effect|Memo|Callback|LayoutEffect)$/;
+function scan(name, body){
+  if(!body||!body.statements) return;
+  const decl=new Map();   // identifier -> position of its declaration
+  body.statements.forEach(st=>{
+    if(ts.isVariableStatement(st)) st.declarationList.declarations.forEach(d=>{
+      const add=(n)=>{ if(ts.isIdentifier(n)) decl.set(n.text,d.getStart(sf));
+        else if(ts.isArrayBindingPattern(n)||ts.isObjectBindingPattern(n)) n.elements.forEach(e=>e.name&&add(e.name)); };
+      add(d.name);
+    });
+  });
+  body.statements.forEach(st=>{
+    const visit=(node)=>{
+      if(ts.isCallExpression(node)&&ts.isIdentifier(node.expression)&&HOOK.test(node.expression.text)){
+        const deps=node.arguments[1];
+        if(deps&&ts.isArrayLiteralExpression(deps)){
+          checked++;
+          const pos=node.getStart(sf);
+          deps.elements.forEach(el=>{
+            const root=(e)=>ts.isIdentifier(e)?e.text:(ts.isPropertyAccessExpression(e)||ts.isNonNullExpression(e))?root(e.expression):null;
+            const id=root(el.kind===ts.SyntaxKind.PropertyAccessExpression?el:el);
+            if(id&&decl.has(id)&&decl.get(id)>pos){
+              const ln=sf.getLineAndCharacterOfPosition(pos).line+1;
+              console.log('  TDZ: '+name+' -> deps reference `'+id+'` before it is declared (line '+ln+')'); bad++;
+            }
+          });
+        }
+      }
+      if(!(ts.isFunctionDeclaration(node)||ts.isArrowFunction(node)||ts.isFunctionExpression(node))) ts.forEachChild(node,visit);
+    };
+    visit(st);
+  });
+}
+sf.statements.forEach(st=>{
+  if(ts.isVariableStatement(st)) st.declarationList.declarations.forEach(d=>{
+    if(ts.isIdentifier(d.name)&&/^[A-Z]/.test(d.name.text)&&d.initializer&&(ts.isArrowFunction(d.initializer)||ts.isFunctionExpression(d.initializer))&&ts.isBlock(d.initializer.body)) scan(d.name.text,d.initializer.body);
+  });
+  if(ts.isFunctionDeclaration(st)&&st.name&&/^[A-Z]/.test(st.name.text)&&st.body) scan(st.name.text,st.body);
+});
+console.log('dependency arrays checked: '+checked+' | TDZ violations: '+bad);
+process.exit(bad?1:0);
+
+TDZEOF
+
+TDZ_OUT=$(node .rk_tdz_check.js 2>/dev/null)
+TDZ_RC=$?
+rm -f .rk_tdz_check.js
+if [ -z "$TDZ_OUT" ]; then
+  echo "   Dependency-order gate SKIPPED - typescript not installed."
+elif [ $TDZ_RC -ne 0 ]; then
+  echo ""
+  echo "=================================================================="
+  echo "  BUILD STOPPED - HOOK DEPENDENCY REFERENCES AN UNDECLARED CONST"
+  echo "=================================================================="
+  echo "$TDZ_OUT"
+  echo ""
+  echo "  A dependency array is evaluated during render. Referencing a"
+  echo "  const declared further down throws a ReferenceError on EVERY"
+  echo "  render. Move the hook below the declaration."
+  echo "=================================================================="
+  exit 1
+else
+  echo "   Dependency-order gate: $(echo "$TDZ_OUT" | tail -1)"
 fi
 
 cat << 'EOF' > package.json
@@ -19680,6 +19817,10 @@ exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
         return {
             ok: valid,
             windowMs: cleanWindow(d.windowMs),
+            // V82.1: the PIN window needs to SHOW the current settings, and the allowance was never
+            // reported — only what remained of it. Returned as the configured value so the picker
+            // can be pre-set to what the raver actually chose.
+            maxAttempts: Number(d.maxAttempts == null ? 5 : d.maxAttempts),
             // V81: the client arms a re-lock timer from this, so the status query has to report it.
             // Without it the timer never sets and a session would run past its own expiry.
             sessionUntil: Number(d.sessionUntil || 0),
