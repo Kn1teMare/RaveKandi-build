@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=81
+RK_MAJOR=82
 RK_MINOR=70
 RK_PATCH=148
-RK_BUILD=299
+RK_BUILD=300
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -14180,12 +14180,26 @@ const RkStarfield = () => {
         const N = 900;
         const P = [];
 
+        // V82: the on-screen keyboard shrinks window.innerHeight on Android. The old handler took
+        // that at face value, rebuilt the canvas at the SHORTER height, and the bottom of the
+        // screen went blank the moment somebody tapped the PIN box — which is the one thing
+        // everyone on this screen does.
+        //
+        // A keyboard opening changes the height and NOT the width; a rotation changes the width.
+        // So: width change → full rebuild at the new size. Height shrink with the same width →
+        // ignored, the canvas keeps its full height. Height growth → adopted, so closing the
+        // keyboard or a browser bar collapsing is still handled.
+        let stableH = 0;
         const resize = () => {
+            const nw = window.innerWidth, nh = window.innerHeight;
+            const widthChanged = nw !== W;
+            if (!widthChanged && nh <= stableH) return;
+            if (widthChanged) stableH = nh; else stableH = Math.max(stableH, nh);
+            W = nw; H = stableH;
             dpr = Math.min(window.devicePixelRatio || 1, 2);
-            // Measure the VIEWPORT, not the element — a fixed canvas inside a scrolling parent can
-            // report a clientHeight larger than the screen.
-            W = window.innerWidth; H = window.innerHeight;
             cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
+            // An explicit pixel height, so CSS cannot shrink the element along with the viewport.
+            cv.style.height = H + 'px';
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             buildTargets();
         };
@@ -14301,7 +14315,9 @@ const RkStarfield = () => {
     // V81.2: FIXED, not absolute. The lock screen scrolls, and `absolute inset-0` sizes to the
     // container's visible box — so the canvas stopped at the fold and the lower screen was bare.
     // Fixed pins it to the viewport regardless of scroll position.
-    return <canvas ref={ref} className="fixed inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>;
+    // Top-anchored with a JS-set height rather than inset-0/h-full: both of those follow the
+    // viewport, and the viewport is exactly what the keyboard shrinks.
+    return <canvas ref={ref} className="fixed top-0 left-0 w-full pointer-events-none" aria-hidden="true"/>;
 };
 
 const AppLockScreen = ({ user, onUnlocked }) => {
@@ -17118,7 +17134,11 @@ const App = () => {
     const rkPinFlagKey = user?.uid ? 'rk_haspin_' + user.uid : null;
     const rkKnownPin = () => { try { return rkPinFlagKey && localStorage.getItem(rkPinFlagKey) === '1'; } catch (e) { return false; } };
     const [locked, setLocked] = useState(null);
-    const rkSessionTimer = useRef(null);
+    // V82: idle tracking. Any touch, key, scroll or wheel is presence. Captured at the window so
+    // no component can swallow it; passive so it never costs a scroll frame.
+    const rkLastAct = useRef(Date.now());
+    const rkLastBeat = useRef(0);
+    const rkWindowMs = useRef(0);
     useEffect(() => { if (rkKnownPin()) setLocked(true); }, [user?.uid]);
     // Ceiling on the wait. A network that never answers must not become a permanent loading
     // screen; after 8 seconds the check above resolves by evidence instead of by hope.
@@ -17128,7 +17148,38 @@ const App = () => {
         const t = setTimeout(() => { setRkLockTimedOut(true); setLocked(rkKnownPin() ? true : false); }, 8000);
         return () => clearTimeout(t);
     }, [user?.uid, locked]);
-    useEffect(() => () => { if (rkSessionTimer.current) clearTimeout(rkSessionTimer.current); }, []);
+    useEffect(() => {
+        const bump = () => { rkLastAct.current = Date.now(); };
+        const evs = ['pointerdown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+        evs.forEach(e => window.addEventListener(e, bump, { passive: true, capture: true }));
+        return () => evs.forEach(e => window.removeEventListener(e, bump, { capture: true }));
+    }, []);
+    // Once a second: lock if idle past the window; otherwise, if there has been activity since the
+    // last heartbeat, slide the SERVER session forward so the rules keep pace with the raver.
+    //
+    // Cadence is max(10s, min(window/2, 60s)). Half the window keeps the server comfortably ahead;
+    // the 10s floor stops a 15-second setting firing a function every few seconds; the 60s ceiling
+    // stops a 24-hour window letting the server drift hours behind somebody still using the app.
+    useEffect(() => {
+        if (locked !== false) return;
+        const t = setInterval(async () => {
+            const win = rkWindowMs.current;
+            if (!win) return;
+            const now = Date.now();
+            // Lock 1.5s BEFORE the window, not at it. The server session expires at exactly
+            // `win` after the last heartbeat; locking at the same instant left a one-tick gap where
+            // the rules denied reads while the client still showed the app. The lock screen must
+            // always arrive before the denial, never after it.
+            if (now - rkLastAct.current >= win - 1500) { setLocked(true); return; }
+            const hb = Math.max(10000, Math.min(win / 2, 60000));
+            if (now - rkLastBeat.current > hb && rkLastAct.current > rkLastBeat.current) {
+                rkLastBeat.current = now;
+                try { await httpsCallable(getFunctions(app), 'verifyAppPin')({ appId, extend: true }); }
+                catch (e) { if (!rkIsOffline(e)) rkReport('pin heartbeat', e); }
+            }
+        }, 1000);
+        return () => clearInterval(t);
+    }, [locked]);
     const rkCheckLock = React.useCallback(async () => {
         if (!user?.uid) { setLocked(false); return; }
         try {
@@ -17141,12 +17192,11 @@ const App = () => {
             // starts refusing reads. Without this the app would keep running and simply stop being
             // able to load anything, which reads as the app breaking rather than the lock engaging.
             // The lock screen now appears at the same moment the rules begin to deny.
-            if (rkSessionTimer.current) clearTimeout(rkSessionTimer.current);
-            const until = Number(r.sessionUntil || 0);
-            if (!r.noPin && r.ok && until > Date.now()) {
-                const ms = Math.min(until - Date.now() + 500, 2147483000);
-                rkSessionTimer.current = setTimeout(() => setLocked(true), ms);
-            }
+            // V82: the window is IDLE time, not time-since-unlock. 297 armed one timeout for
+            // sessionUntil — a fixed moment after the last PIN entry — so with a 15-second window
+            // the app locked 15 seconds after unlocking regardless of what the raver was doing,
+            // and a short window became an unbreakable loop. The idle watcher replaces it.
+            if (!r.noPin && r.ok) { rkWindowMs.current = Number(r.windowMs || 0); rkLastAct.current = Date.now(); }
         } catch (e) {
             // V81.1: fail CLOSED when we know a PIN exists. Before, any error unlocked — so a
             // flaky connection was a bypass. Without local evidence of a PIN there is nothing to
@@ -17181,7 +17231,7 @@ const App = () => {
     if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
     // onUnlocked re-runs the status check rather than just clearing the flag — that is what arms
     // the re-lock timer for the window that just opened.
-    if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => { setLocked(false); rkCheckLock(); }} />;
+    if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => { rkLastAct.current = Date.now(); rkLastBeat.current = 0; setLocked(false); rkCheckLock(); }} />;
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
 
     const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
@@ -19612,8 +19662,24 @@ exports.verifyAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
     // tries every single time they opened RaveKandi — three-try users would lock themselves out
     // by launching the app three times.
     if (!pin) {
+        const valid = Number(d.sessionUntil || 0) > now;
+        // V82: heartbeat. An active raver's client calls this with `extend` so the SERVER session
+        // slides forward with their activity. Without it, once the rules gate reads on
+        // sessionUntil, somebody using the app continuously would be denied data the moment the
+        // window elapsed from their last PIN entry — the rules have no idea they are still there.
+        //
+        // Extends ONLY a session that is currently valid. That is the whole security property:
+        // this cannot open an expired session, so it is not a way around the PIN — it only keeps
+        // alive a session the PIN already opened.
+        if (valid && req.data && req.data.extend) {
+            const win = cleanWindow(d.windowMs);
+            const nu = now + win;
+            await lockRef(uid, appId).set({ sessionUntil: nu }, { merge: true });
+            return { ok: true, sessionUntil: nu, windowMs: win, needsPin: true };
+        }
         return {
-            ok: Number(d.sessionUntil || 0) > now,
+            ok: valid,
+            windowMs: cleanWindow(d.windowMs),
             // V81: the client arms a re-lock timer from this, so the status query has to report it.
             // Without it the timer never sets and a session would run past its own expiry.
             sessionUntil: Number(d.sessionUntil || 0),
