@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=82
-RK_MINOR=71
+RK_MAJOR=83
+RK_MINOR=72
 RK_PATCH=148
-RK_BUILD=301
+RK_BUILD=303
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -4733,6 +4733,26 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const stationListRef = useRef(null);
 
     const audioRef = useRef(null);
+    // V82.2 - TWO ELEMENTS. `audioRef` is routed through Web Audio for the EQ, which REQUIRES the
+    // stream server to send CORS headers: the element carries crossOrigin="anonymous", and a server
+    // that does not answer with Access-Control-Allow-Origin makes the load fail outright. That was
+    // "Stream failed" on six of the fifteen stations — every Radio Record stream — and it was never
+    // the network. SomaFM sends the headers; hostingradio.ru does not.
+    //
+    // Dropping crossOrigin on the same element is NOT a fallback. Per the Web Audio spec, once
+    // createMediaElementSource has claimed an element, cross-origin media without CORS outputs
+    // zeroes — it would "play" in total silence — and there is no way to un-claim the element. So
+    // non-CORS stations get a SECOND element that Web Audio never touches. They play normally;
+    // the EQ simply does not apply to them, and the player says so.
+    const plainRef = useRef(null);
+    const usingPlainRef = useRef(false);
+    const [eqBypassed, setEqBypassed] = useState(false);
+    const cur = () => (usingPlainRef.current ? plainRef.current : audioRef.current);
+    // Stations that failed the EQ path are remembered, so the next play goes straight to the plain
+    // element instead of failing first and falling back — no stall on every tap.
+    const RK_NOCORS_KEY = 'rk_radio_nocors';
+    const noCorsGet = () => { try { return new Set(JSON.parse(localStorage.getItem(RK_NOCORS_KEY) || '[]')); } catch (e) { return new Set(); } };
+    const noCorsAdd = (id) => { try { const s2 = noCorsGet(); s2.add(id); localStorage.setItem(RK_NOCORS_KEY, JSON.stringify([...s2])); } catch (e) {} };
     const ctxRef = useRef(null);
     const bassRef = useRef(null);
     const midRef = useRef(null);
@@ -4755,7 +4775,10 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         } catch (e) { console.log('EQ unavailable, falling back to basic volume.', e); }
     };
 
-    useEffect(() => { if (audioRef.current) audioRef.current.volume = volume / 100; }, [volume]);
+    useEffect(() => {
+        if (audioRef.current) audioRef.current.volume = volume / 100;
+        if (plainRef.current) plainRef.current.volume = volume / 100;
+    }, [volume]);
     useEffect(() => { if (bassRef.current) bassRef.current.gain.value = bass; }, [bass]);
     useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
     useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
@@ -4766,8 +4789,8 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // hidden so audio only plays in-app.
     useEffect(() => {
         const onVis = () => {
-            if (document.hidden && !bgAudio && audioRef.current && playing) {
-                audioRef.current.pause(); setPlaying(false); setStatus('Paused (background audio is off)');
+            if (document.hidden && !bgAudio && cur() && playing) {
+                cur().pause(); setPlaying(false); setStatus('Paused (background audio is off)');
             }
         };
         document.addEventListener('visibilitychange', onVis);
@@ -4778,8 +4801,8 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         try {
             if ('mediaSession' in navigator && playing && station) {
                 navigator.mediaSession.metadata = new window.MediaMetadata({ title: station.name, artist: 'RaveKandi Radio', album: station.genre || 'Rave Radio' });
-                navigator.mediaSession.setActionHandler('play', () => { try { audioRef.current && audioRef.current.play(); setPlaying(true); } catch (e) {} });
-                navigator.mediaSession.setActionHandler('pause', () => { try { audioRef.current && audioRef.current.pause(); setPlaying(false); } catch (e) {} });
+                navigator.mediaSession.setActionHandler('play', () => { try { cur() && cur().play(); setPlaying(true); } catch (e) {} });
+                navigator.mediaSession.setActionHandler('pause', () => { try { cur() && cur().pause(); setPlaying(false); } catch (e) {} });
             }
         } catch (e) {}
     }, [playing, station]);
@@ -4832,20 +4855,55 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         setStatus('Audio enabled. Pick a station!');
     };
 
+    // Plain path: an element Web Audio never claimed, so a server with no CORS headers is fine.
+    const playPlain = async (st) => {
+        const p = plainRef.current; if (!p) throw new Error('no plain element');
+        try { audioRef.current && audioRef.current.pause(); } catch (e) {}
+        usingPlainRef.current = true; setEqBypassed(true);
+        p.src = st.url; p.load();
+        await p.play();
+    };
+
     const playStation = async (st) => {
         const a = audioRef.current; if (!a) return;
         setStation(st); setStatus('Connecting to ' + st.name + '...');
+        try { plainRef.current && plainRef.current.pause(); } catch (e) {}
+
+        // Known non-CORS station: skip straight to the plain element.
+        if (noCorsGet().has(st.id)) {
+            try { await playPlain(st); setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)'); }
+            catch (e) { setPlaying(false); setStatus(st.name + ' is not responding right now. Try another station.'); }
+            return;
+        }
+
+        // Try the EQ path first — it is the better experience where the server allows it.
         try {
+            usingPlainRef.current = false; setEqBypassed(false);
             initEq();
             if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume();
             a.src = st.url; a.load();
             await a.play();
             setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre);
-        } catch (e) { setPlaying(false); setStatus('Stream failed. Check connection or try another station.'); }
+        } catch (e) {
+            // The EQ path refused. Almost always a server without CORS headers — so try it plain
+            // before telling anybody the station is broken, and remember the answer.
+            try {
+                await playPlain(st);
+                noCorsAdd(st.id);
+                setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)');
+            } catch (e2) {
+                // Failed BOTH ways. That is a genuinely unreachable stream, not a CORS problem —
+                // say so plainly rather than blaming the listener's connection.
+                usingPlainRef.current = false; setEqBypassed(false);
+                setPlaying(false);
+                setStatus(st.name + ' is not responding right now. Try another station.');
+                rkReport('radio stream unreachable ' + st.id, e2);
+            }
+        }
     };
 
     const togglePlay = () => {
-        const a = audioRef.current; if (!a) return;
+        const a = cur(); if (!a) return;
         if (playing) { a.pause(); setPlaying(false); setStatus('Paused: ' + station.name); }
         else { playStation(station); }
     };
@@ -4868,7 +4926,12 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
 
     return (
         <>
-            <audio ref={audioRef} crossOrigin="anonymous" playsInline preload="none" onError={() => { if (playing) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
+            {/* EQ element. onError is ignored while the plain element is in use — otherwise the
+                failed EQ attempt that triggered the fallback would stomp on the station that is now
+                playing successfully. */}
+            <audio ref={audioRef} crossOrigin="anonymous" playsInline preload="none" onError={() => { if (playing && !usingPlainRef.current) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
+            {/* Plain element — no crossOrigin, and never passed to createMediaElementSource. */}
+            <audio ref={plainRef} playsInline preload="none" onError={() => { if (playing && usingPlainRef.current) { setPlaying(false); setStatus(station.name + ' is not responding right now. Try another station.'); } }} />
             {isOpen && (
                 <div className="fixed inset-0 bg-black/90 z-[200] flex items-start justify-center p-4 overflow-y-auto">
                     <Card className="max-w-md w-full my-8 bg-[#0f001e]/95" glow="purpleGlow">
@@ -4976,6 +5039,16 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                     <EqSlider label="Volume" value={volume} min={0} max={100} onChange={setVolume} suffix="%" />
                     <div className="border-t border-white/10 my-2 pt-2">
                         <p className="text-[10px] uppercase font-black text-pink-300 tracking-widest mb-2">3-Band Equalizer</p>
+                        {/* V82.2: without this, the sliders would move and change nothing on these
+                            stations, which reads as a broken EQ. It is not broken — the station's
+                            server does not allow audio processing, and saying so is the honest
+                            answer. */}
+                        {eqBypassed && (
+                            <p className="text-[11px] text-yellow-300 bg-yellow-500/10 border border-yellow-400/40 rounded p-2 mb-2">
+                                EQ is off for this station — its server does not allow audio processing, so it plays
+                                untouched. Switch to another station and the EQ works again.
+                            </p>
+                        )}
                         <EqSlider label="Bass" value={bass} min={-12} max={12} onChange={setBass} suffix=" dB" />
                         <EqSlider label="Mid" value={mid} min={-12} max={12} onChange={setMid} suffix=" dB" />
                         <EqSlider label="Treble" value={treble} min={-12} max={12} onChange={setTreble} suffix=" dB" />
@@ -14696,6 +14769,93 @@ const CreatorProfileCompletion = ({ user, profile, gapKey, onClose }) => {
     );
 };
 
+
+// ============================================================================================
+// V83 - VERIFIED CREATOR SOCIALS ON PROFILES  (queue item 1, raised 261, re-scoped 287)
+//
+// Filed for two years as "social link buttons are too small". There was nothing to resize:
+// socialsApproved was read in exactly one place, the admin Creator Reach panel, and NOTHING
+// rendered a creator's socials on their public profile. The entire approved-follower system —
+// the admin verification panel, per-platform counts, the verified toggle — existed to check
+// accounts that no raver could then see.
+//
+// Only APPROVED figures are shown. `claimed` is what the creator typed on their application;
+// `approved` is what an admin confirmed by looking. Publishing the claimed number would let
+// anybody advertise a following nobody checked, and the whole point of the verification step is
+// that the number on a profile means something.
+//
+// An entry is shown when an admin either marked it verified or confirmed a follower count. A
+// social that was claimed and never looked at does not appear — it is not verified, so it is not
+// the app's to vouch for.
+// ============================================================================================
+// Rounds FIRST, then picks the unit from the rounded value. Choosing the unit from the raw number
+// and rounding after is the classic boundary bug: 999,999 lands in the thousands branch, rounds
+// to 1000, and prints "1000K". Caught by testing the boundaries before shipping.
+const rkFmtCount = (n) => {
+    n = Math.max(0, Number(n) || 0);
+    const fmt = (v, unit) => { const r = Number(v.toFixed(v >= 10 ? 0 : 1)); return String(r) + unit; };
+    if (n >= 1e6) return fmt(n / 1e6, 'M');
+    if (n >= 1e3) {
+        const k = n / 1e3, rk = Number(k.toFixed(k >= 10 ? 0 : 1));
+        return rk >= 1000 ? fmt(n / 1e6, 'M') : fmt(k, 'K');
+    }
+    return String(Math.round(n));
+};
+
+const CreatorSocialsRow = ({ targ, isSelf }) => {
+    const list = (Array.isArray(targ?.socialsApproved) ? targ.socialsApproved : [])
+        .filter(sc => sc && sc.p && sc.handle && (sc.verified || Number(sc.approved) > 0))
+        .sort((a, b) => (Number(b.approved) || 0) - (Number(a.approved) || 0));
+
+    if (!list.length) {
+        // A visitor sees nothing rather than an empty box. The owner is told why, since "my
+        // socials are missing" is exactly the report this item started as.
+        return isSelf ? (
+            <p className="text-[11px] text-white mb-3 bg-white/5 border border-white/15 rounded-lg p-2.5">
+                Your verified social accounts will show here once an admin has checked them.
+            </p>
+        ) : null;
+    }
+    return (
+        <div className="mb-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-white mb-1.5">Verified socials</p>
+            <div className="flex flex-wrap gap-2">
+                {list.map((sc, i) => {
+                    const url = RK_SOCIAL_URL(sc.p, sc.handle);
+                    // 44px tall: the tap-target size that stops the original complaint — a
+                    // button too small to hit reliably with a thumb.
+                    const inner = (
+                        <>
+                            <span className="text-base leading-none">{RK_SOCIAL_EMOJI[sc.p] || '\ud83d\udd17'}</span>
+                            <span className="flex flex-col items-start leading-tight min-w-0">
+                                <span className="text-[12px] font-black text-white truncate max-w-[9rem]">
+                                    {sc.p}{sc.verified && <span className="text-cyan-300"> \u2713</span>}
+                                </span>
+                                <span className="text-[10px] text-white truncate max-w-[9rem]">
+                                    @{String(sc.handle).replace(/^@+/, '')}{Number(sc.approved) > 0 ? ' \u00b7 ' + rkFmtCount(sc.approved) : ''}
+                                </span>
+                            </span>
+                        </>
+                    );
+                    return url ? (
+                        <a key={i} href={url} target="_blank" rel="noreferrer noopener"
+                            className="min-h-[44px] flex items-center gap-2 px-3 py-1.5 rounded-lg border border-cyan-400/40 bg-cyan-500/10 active:bg-cyan-500/25">
+                            {inner}
+                        </a>
+                    ) : (
+                        // No addressable profile URL for this platform: offer the handle to copy
+                        // rather than a link that goes nowhere.
+                        <button key={i} onClick={() => { try { navigator.clipboard.writeText(sc.handle); alert('Copied @' + String(sc.handle).replace(/^@+/, '')); } catch (e) { alert(sc.handle); } }}
+                            className="min-h-[44px] flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/25 bg-white/5 active:bg-white/15">
+                            {inner}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent, canEditKandi, onMessage }) => {
     const [dragging, setDragging] = useState(null); // 'music' | 'content'
     const [dragY, setDragY] = useState(0);
@@ -14727,7 +14887,9 @@ const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent
     // Kandi leads. It is the only one of the three tied to a two-sided workflow, so whether the
     // maker is open for commissions is the first thing a visitor needs — the others are portfolio.
     const kandi = showKandi ? <KandiProfileSection key="cs-k" targ={targ} isSelf={!!canEditKandi} onMessage={onMessage}/> : null;
-    return <>{kandi}{musicFirst ? <>{music}{content}</> : <>{content}{music}</>}</>;
+    // V83: verified socials lead the creator area. They are the evidence behind everything below
+    // them — who this person is elsewhere, checked by an admin — so they come first.
+    return <><CreatorSocialsRow targ={targ} isSelf={isSelf}/>{kandi}{musicFirst ? <>{music}{content}</> : <>{content}{music}</>}</>;
 };
 
 const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem }) => {
