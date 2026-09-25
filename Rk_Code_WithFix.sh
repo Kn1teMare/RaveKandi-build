@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=83
-RK_MINOR=72
-RK_PATCH=148
-RK_BUILD=303
+RK_MAJOR=84
+RK_MINOR=74
+RK_PATCH=149
+RK_BUILD=307
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -3961,6 +3961,12 @@ const CreatorApplicationForm = ({ user, onClose, initialType, onOpenCreatorHub }
     // invites reapplying, so a fresh submission is correct there.
     const rkAppStatus = (apps[d.creatorType] && apps[d.creatorType].data && apps[d.creatorType].data.status) || null;
     const rkLocked = rkAppStatus === 'pending' || rkAppStatus === 'waitlist' || rkAppStatus === 'approved';
+    // V83.2: an approved creator may reopen their application for ONE purpose — updating follower
+    // counts. Everything else about an approved application stays settled; this is not a way to
+    // re-litigate creator status, it is the only route a creator has to correct a number that has
+    // grown since it was checked. Without it the figure on their profile is frozen forever and
+    // an admin would have to re-type it by hand, which does not survive a real userbase.
+    const [refreshMode, setRefreshMode] = useState(false);
     const draftKey = (t) => 'rk_creator_draft_' + (user?.uid || 'anon') + '_' + String(t || '').replace(/\s+/g, '');
     const hydrate = (t, appMap) => {
         const m = appMap || apps;
@@ -4014,11 +4020,24 @@ const CreatorApplicationForm = ({ user, onClose, initialType, onOpenCreatorHub }
         // V73.10: without this, a wait-listed or approved applicant could file a second
         // application of the same type. Editing the existing one is always allowed.
         if (rkLocked && !existingId) return alert('You already have a ' + d.creatorType + ' application on file. You can edit it until a decision is made.');
-        if (rkAppStatus === 'approved') return alert('You are already an approved ' + d.creatorType + '. Nothing further to submit.');
+        if (rkAppStatus === 'approved' && !refreshMode) return alert('You are already an approved ' + d.creatorType + '. Nothing further to submit.');
+        if (refreshMode && !(d.socials || []).length) return alert('Add at least one social account to have its follower count checked.');
         if (d.creatorType === 'Kandi Maker' && !(d.specialties || []).length && !String(d.specialtyOther || '').trim()) return alert('Pick at least one craft specialty, or describe your own under Other.');
         setLoading(true);
         try {
-            if(existingId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', existingId), { ...d, updatedAt: Date.now() }); setApps(m => ({ ...m, [d.creatorType]: { id: existingId, data: { ...d } } })); }
+            if(existingId) {
+                // V83.2: a follower refresh sends the application back to PENDING and marks why.
+                // It reuses the application record, the admin review screen and the approval path
+                // that already writes socialsApproved — so re-verifying a count needs no new
+                // collection, no new rules and no second review UI. The creator keeps their
+                // approved status throughout; only the numbers are up for checking.
+                const patch = refreshMode
+                    ? { ...d, updatedAt: Date.now(), status: 'pending', kind: 'refresh', refreshRequestedAt: Date.now() }
+                    : { ...d, updatedAt: Date.now() };
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications', existingId), patch);
+                setApps(m => ({ ...m, [d.creatorType]: { id: existingId, data: { ...d, ...(refreshMode ? { status: 'pending', kind: 'refresh' } : {}) } } }));
+                if (refreshMode) setRefreshMode(false);
+            }
             else { const newRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), { ...d, uid: user.uid, status: 'pending', submittedAt: Date.now() }); setApps(m => ({ ...m, [d.creatorType]: { id: newRef.id, data: { ...d } } })); try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '📋 New ' + (d.creatorType || 'Creator') + ' application from ' + (d.name || 'a raver'))); } catch (e) {} }
             try { localStorage.removeItem(draftKey(d.creatorType)); } catch (e) {}
             setS('success'); 
@@ -4067,7 +4086,22 @@ const CreatorApplicationForm = ({ user, onClose, initialType, onOpenCreatorHub }
                             return <option key={t} value={t} disabled={done} className="text-black">{t}{done ? ' — already approved ✓' : st === 'pending' ? ' — under review' : st === 'waitlist' ? ' — wait-listed' : ''}</option>;
                         })}
                     </select>
-                    {rkAppStatus === 'approved' && <p className="text-[10px] text-lime-300 mt-1">You are already an approved {d.creatorType}. Pick a different type to apply for another.</p>}
+                    {rkAppStatus === 'approved' && !refreshMode && (
+                <div className="mt-2 bg-cyan-500/10 border border-cyan-400/40 rounded-lg p-2.5">
+                    <p className="text-[11px] text-white mb-2">
+                        You are an approved {d.creatorType}. Grown since you were verified? Send your updated
+                        follower counts for checking — your profile keeps showing the old verified figures until
+                        an admin confirms the new ones.
+                    </p>
+                    <Button onClick={() => setRefreshMode(true)} color="cyan" className="w-full text-xs">Update my follower counts</Button>
+                </div>
+            )}
+            {refreshMode && (
+                <p className="text-[11px] text-cyan-200 mt-2 bg-cyan-500/10 border border-cyan-400/40 rounded p-2">
+                    Follower refresh. Update the counts on your social accounts below and submit — only those
+                    numbers are being re-checked, your creator status is not affected.
+                </p>
+            )}
                 </div>
                 {existingId ? null : <p className="text-[10px] text-lime-300 -mt-1 mb-1">💾 Auto-saving your draft as you type — switch types or close anytime, nothing is lost. Each type is its own separate application.</p>}
                 <Input label="Full Name / DJ Name" value={d.name} onChange={v=>setD({...d, name:v})}/>
@@ -4747,6 +4781,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const plainRef = useRef(null);
     const usingPlainRef = useRef(false);
     const [eqBypassed, setEqBypassed] = useState(false);
+    const [nowSong, setNowSong] = useState('');
     const cur = () => (usingPlainRef.current ? plainRef.current : audioRef.current);
     // Stations that failed the EQ path are remembered, so the next play goes straight to the plain
     // element instead of failing first and falling back — no stall on every tap.
@@ -4819,7 +4854,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // other stations report as a live stream (no track metadata available).
     useEffect(() => {
         if (!onNowPlaying) return;
-        if (!playing || !station) { onNowPlaying(null); return; }
+        if (!playing || !station) { setNowSong(''); onNowPlaying(null); return; }
         let alive = true;
         const isSoma = station.url.includes('somafm.com/');
         const channel = isSoma ? station.url.split('somafm.com/')[1].split('-')[0] : null;
@@ -4831,7 +4866,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                     if (r.ok) { const j = await r.json(); const s0 = j.songs && j.songs[0]; if (s0) song = (s0.artist ? s0.artist + ' — ' : '') + (s0.title || ''); }
                 } catch (e) {}
             }
-            if (alive) onNowPlaying({ name: station.name, song: song || 'Live Stream', color: station.color });
+            if (alive) { setNowSong(song || 'Live Stream'); onNowPlaying({ name: station.name, song: song || 'Live Stream', color: station.color }); }
         };
         pull();
         const int = setInterval(pull, 25000);
@@ -4855,12 +4890,35 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         setStatus('Audio enabled. Pick a station!');
     };
 
+    // V83.1: SomaFM serves every channel from ice1/2/4/5/6, and their own documentation warns
+    // that "direct server links can vary based on individual server availability". 302 hardcoded
+    // ice1 — so when ice1 went down, Deep House, Techno Trip and Beat Bodega all died together and
+    // reported "not responding", which is exactly what the diagnostic log showed. It was never
+    // those stations; it was one host.
+    //
+    // ice2 first because it is the documented primary for several channels, ice1 fourth because it
+    // is the one currently failing. A mirror that works is remembered, so the next play goes
+    // straight to it.
+    const RK_SOMA_MIRRORS = ['ice2', 'ice4', 'ice6', 'ice1', 'ice5'];
+    const RK_MIRROR_KEY = 'rk_radio_mirror';
+    const mirrorGet = (id) => { try { return JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}')[id] || null; } catch (e) { return null; } };
+    const mirrorSet = (id, url) => { try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); m[id] = url; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {} };
+    const streamCandidates = (st) => {
+        const out = [];
+        const known = mirrorGet(st.id);
+        if (known) out.push(known);
+        const m = String(st.url).match(/^https:\/\/ice\d\.somafm\.com\/(.+)$/);
+        if (m) RK_SOMA_MIRRORS.forEach(h => { const u = 'https://' + h + '.somafm.com/' + m[1]; if (!out.includes(u)) out.push(u); });
+        if (!out.includes(st.url)) out.push(st.url);
+        return out;
+    };
+
     // Plain path: an element Web Audio never claimed, so a server with no CORS headers is fine.
-    const playPlain = async (st) => {
+    const playPlain = async (st, url) => {
         const p = plainRef.current; if (!p) throw new Error('no plain element');
         try { audioRef.current && audioRef.current.pause(); } catch (e) {}
         usingPlainRef.current = true; setEqBypassed(true);
-        p.src = st.url; p.load();
+        p.src = url || st.url; p.load();
         await p.play();
     };
 
@@ -4869,37 +4927,43 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         setStation(st); setStatus('Connecting to ' + st.name + '...');
         try { plainRef.current && plainRef.current.pause(); } catch (e) {}
 
-        // Known non-CORS station: skip straight to the plain element.
-        if (noCorsGet().has(st.id)) {
-            try { await playPlain(st); setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)'); }
-            catch (e) { setPlaying(false); setStatus(st.name + ' is not responding right now. Try another station.'); }
-            return;
+        // Every mirror, each tried on the EQ path then the plain one. A station is only declared
+        // unreachable once every host has refused it both ways.
+        const urls = streamCandidates(st);
+        const knownNoCors = noCorsGet().has(st.id);
+        let lastErr = null;
+
+        for (let i = 0; i < urls.length; i++) {
+            const url = urls[i];
+            if (!knownNoCors) {
+                try {
+                    usingPlainRef.current = false; setEqBypassed(false);
+                    initEq();
+                    if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume();
+                    a.src = url; a.load();
+                    await a.play();
+                    mirrorSet(st.id, url);
+                    setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre);
+                    return;
+                } catch (e) { lastErr = e; }
+            }
+            // Plain path — a server with no CORS headers, or one the EQ route just refused.
+            try {
+                await playPlain(st, url);
+                if (!knownNoCors) noCorsAdd(st.id);
+                mirrorSet(st.id, url);
+                setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)');
+                return;
+            } catch (e2) { lastErr = e2; }
         }
 
-        // Try the EQ path first — it is the better experience where the server allows it.
-        try {
-            usingPlainRef.current = false; setEqBypassed(false);
-            initEq();
-            if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume();
-            a.src = st.url; a.load();
-            await a.play();
-            setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre);
-        } catch (e) {
-            // The EQ path refused. Almost always a server without CORS headers — so try it plain
-            // before telling anybody the station is broken, and remember the answer.
-            try {
-                await playPlain(st);
-                noCorsAdd(st.id);
-                setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)');
-            } catch (e2) {
-                // Failed BOTH ways. That is a genuinely unreachable stream, not a CORS problem —
-                // say so plainly rather than blaming the listener's connection.
-                usingPlainRef.current = false; setEqBypassed(false);
-                setPlaying(false);
-                setStatus(st.name + ' is not responding right now. Try another station.');
-                rkReport('radio stream unreachable ' + st.id, e2);
-            }
-        }
+        // Every mirror refused, both ways. Genuinely unreachable — say so rather than blaming the
+        // listener's connection, and drop the remembered mirror so the next try starts clean.
+        try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); delete m[st.id]; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {}
+        usingPlainRef.current = false; setEqBypassed(false);
+        setPlaying(false);
+        setStatus(st.name + ' is not responding right now. Try another station.');
+        rkReport('radio all mirrors failed ' + st.id + ' (' + urls.length + ' tried)', lastErr);
     };
 
     const togglePlay = () => {
@@ -4962,6 +5026,15 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                             <div className="space-y-4">
                                 <div className="bg-black/60 border border-white/10 rounded p-2 text-center">
                                     <p className="text-[10px] font-mono truncate" style={{ color: station.color }}>{status}</p>
+                                    {/* V83.1 (queue item 1): the track was fetched and shown in the
+                                        header ticker but NOT in the player itself — the one screen
+                                        somebody has open while listening. SomaFM publishes
+                                        now-playing JSON with CORS, so this is real track data, not
+                                        a placeholder. Radio Record has no browser-readable feed and
+                                        stays "Live Stream"; that needs a server-side proxy, queued. */}
+                                    {playing && nowSong && nowSong !== 'Live Stream' && (
+                                        <p className="text-[13px] font-bold text-white truncate mt-0.5">♪ {nowSong}</p>
+                                    )}
                                 </div>
                                 <div className="flex gap-1 bg-black/40 rounded-lg p-1">
                                     <button onClick={() => setRadioTab('inapp')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded ${radioTab==='inapp' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>📻 In-App Stations</button>
@@ -9049,7 +9122,19 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                             padding, so the tap target was a few pixels tall and wedged between two other
                             controls — easy to miss, easy to hit the wrong thing. Now 14px, badge moved to
                             the RIGHT on the same line, and py-1.5 gives clear space above and below. */}
-                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{cardBrand && <span className="text-[9px] font-bold uppercase tracking-wide text-purple-300 whitespace-nowrap">Brand: {cardBrand}</span>}{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
+                        {/* V84.1 (queue item, raised 249): the brand was a 9px span immediately
+                            after the username on the same line, so it read as part of the name —
+                            "@King Brand: NeonThread" — rather than as a separate business. It is
+                            its own element on the right of the header now, at readable size. A
+                            seller's brand is the thing they are building; it should not look like
+                            a suffix on their handle. */}
+                        {cardBrand && (
+                            <span className="ml-auto mr-2 shrink-0 text-right">
+                                <span className="block text-[8px] uppercase tracking-widest text-white/50 leading-none">Brand</span>
+                                <span className="block text-[13px] font-black text-purple-200 leading-tight max-w-[7.5rem] truncate">{cardBrand}</span>
+                            </span>
+                        )}
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
                     <span className="text-lime-400 font-bold">
@@ -10616,7 +10701,11 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         p: sc.p, g: sc.g || RK_SOCIAL_GROUP_OF[sc.p] || 'Other', handle: sc.handle,
         claimed: parseInt(sc.claimed, 10) || 0,
         approved: Math.max(0, parseInt(socialApproved[sc.p], 10) || 0),
-        verified: !!socialVerified[sc.p]
+        verified: !!socialVerified[sc.p],
+        // V83.2: when this figure was actually checked. Without it a number has no age, and a
+        // profile cannot tell the difference between a count confirmed this week and one from
+        // two years ago — which is the whole stale-follower problem.
+        approvedAt: Date.now()
     }));
     // V65.31: the old one-tap approve() was REMOVED. It had no callers, but it granted the creator
     // flag straight from a window.confirm — no platform verification, no approved follower counts.
@@ -11267,6 +11356,10 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                     </div>
                     <span className="flex flex-col items-end gap-1 shrink-0">
                         <span className={'text-[9px] font-black uppercase px-1.5 py-0.5 rounded ' + ({ approved: 'bg-lime-500/20 text-lime-300', denied: 'bg-red-500/20 text-red-300', waitlist: 'bg-yellow-500/20 text-yellow-300' }[a.status] || 'bg-white/10 text-white/70')}>{a.status || 'pending'}</span>
+                        {/* V83.2: a refresh is a different job from a new application — the person
+                            is already approved and only their numbers need re-checking. Saying so
+                            saves the reviewer re-reading an application they have already judged. */}
+                        {a.kind === 'refresh' && <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">follower refresh</span>}
                         <span className="text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded">Review →</span>
                     </span>
                 </button>
@@ -14791,6 +14884,24 @@ const CreatorProfileCompletion = ({ user, profile, gapKey, onClose }) => {
 // Rounds FIRST, then picks the unit from the rounded value. Choosing the unit from the raw number
 // and rounding after is the classic boundary bug: 999,999 lands in the thousands branch, rounds
 // to 1000, and prints "1000K". Caught by testing the boundaries before shipping.
+
+// V83.2: how old a verified figure is. A follower count checked once and shown forever is a
+// promise the app cannot keep — the creator grows and their profile keeps advertising the old
+// number. Saying WHEN it was checked is the cheap half of fixing that, and it is honest even
+// before any automation exists.
+const rkVerifiedAge = (ts) => {
+    const t = Number(ts) || 0;
+    if (!t) return '';
+    const d = Math.floor((Date.now() - t) / 86400000);
+    if (d < 1) return 'checked today';
+    if (d < 30) return 'checked ' + d + 'd ago';
+    const mo = Math.floor(d / 30);
+    if (mo < 12) return 'checked ' + mo + 'mo ago';
+    return 'checked ' + Math.floor(mo / 12) + 'y ago';
+};
+const RK_STALE_DAYS = 180;
+const rkIsStale = (ts) => { const t = Number(ts) || 0; return !!t && (Date.now() - t) > RK_STALE_DAYS * 86400000; };
+
 const rkFmtCount = (n) => {
     n = Math.max(0, Number(n) || 0);
     const fmt = (v, unit) => { const r = Number(v.toFixed(v >= 10 ? 0 : 1)); return String(r) + unit; };
@@ -14819,11 +14930,25 @@ const CreatorSocialsRow = ({ targ, isSelf }) => {
     return (
         <div className="mb-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-white mb-1.5">Verified socials</p>
+            {/* V83.2: an old figure is flagged rather than quietly presented as current. The
+                creator is told they can refresh it; a visitor is told the number has age. Neither
+                is as good as automation, but both are honest, and the alternative was a number
+                that silently drifts further from the truth every month. */}
+            {list.some(sc => rkIsStale(sc.approvedAt)) && (
+                <p className="text-[11px] text-yellow-300 mb-1.5">
+                    {isSelf
+                        ? 'Some of these were checked a while ago. Update them from your creator application so they stay accurate.'
+                        : 'Some of these figures were checked a while ago and may be out of date.'}
+                </p>
+            )}
+            {/* V83.2: back to the 303 chips. 304 enlarged these on a misread — the "too small"
+                report was about the SAVED SOCIALS on the profile (socialLinks), not this verified
+                block. Reverted rather than left oversized, because this block is about to be
+                reworked for follower-count refresh and starting that from a wrong shape would
+                just carry the mistake forward. */}
             <div className="flex flex-wrap gap-2">
                 {list.map((sc, i) => {
                     const url = RK_SOCIAL_URL(sc.p, sc.handle);
-                    // 44px tall: the tap-target size that stops the original complaint — a
-                    // button too small to hit reliably with a thumb.
                     const inner = (
                         <>
                             <span className="text-base leading-none">{RK_SOCIAL_EMOJI[sc.p] || '\ud83d\udd17'}</span>
@@ -14833,6 +14958,7 @@ const CreatorSocialsRow = ({ targ, isSelf }) => {
                                 </span>
                                 <span className="text-[10px] text-white truncate max-w-[9rem]">
                                     @{String(sc.handle).replace(/^@+/, '')}{Number(sc.approved) > 0 ? ' \u00b7 ' + rkFmtCount(sc.approved) : ''}
+                                    {sc.approvedAt ? ' \u00b7 ' + rkVerifiedAge(sc.approvedAt) : ''}
                                 </span>
                             </span>
                         </>
@@ -14843,8 +14969,6 @@ const CreatorSocialsRow = ({ targ, isSelf }) => {
                             {inner}
                         </a>
                     ) : (
-                        // No addressable profile URL for this platform: offer the handle to copy
-                        // rather than a link that goes nowhere.
                         <button key={i} onClick={() => { try { navigator.clipboard.writeText(sc.handle); alert('Copied @' + String(sc.handle).replace(/^@+/, '')); } catch (e) { alert(sc.handle); } }}
                             className="min-h-[44px] flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/25 bg-white/5 active:bg-white/15">
                             {inner}
@@ -15022,7 +15146,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                             </div>
 
                             <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
-                                {SOCIAL_PLATFORMS.map(p => { if (targ.socialLinks && targ.socialLinks[p.id]) return (<a key={p.id} href={`https://${p.baseUrl}${targ.socialLinks[p.id]}`} target="_blank" rel="noreferrer" className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition hover:scale-110"><p.icon size={20} color={p.color}/></a>); return null; })}
+                                {SOCIAL_PLATFORMS.map(p => { if (targ.socialLinks && targ.socialLinks[p.id]) return (<a key={p.id} href={`https://${p.baseUrl}${targ.socialLinks[p.id]}`} target="_blank" rel="noreferrer" className="bg-white/10 min-w-[56px] min-h-[56px] flex items-center justify-center rounded-full hover:bg-white/20 active:bg-white/25 transition hover:scale-110"><p.icon size={28} color={p.color}/></a>); return null; })}
                             </div>
 
                             <div className="grid grid-cols-4 gap-2 mb-2">
@@ -15874,7 +15998,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         </div>
 
                         <div className="flex gap-4 my-4 justify-center md:justify-start flex-wrap">
-                            {SOCIAL_PLATFORMS.map(p => { if(profile.socialLinks && profile.socialLinks[p.id]) return (<a key={p.id} href={`https://${p.baseUrl}${profile.socialLinks[p.id]}`} target="_blank" rel="noreferrer" className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition hover:scale-110"><p.icon size={20} color={p.color}/></a>); return null; })}
+                            {SOCIAL_PLATFORMS.map(p => { if(profile.socialLinks && profile.socialLinks[p.id]) return (<a key={p.id} href={`https://${p.baseUrl}${profile.socialLinks[p.id]}`} target="_blank" rel="noreferrer" className="bg-white/10 min-w-[56px] min-h-[56px] flex items-center justify-center rounded-full hover:bg-white/20 active:bg-white/25 transition hover:scale-110"><p.icon size={28} color={p.color}/></a>); return null; })}
                         </div>
                         
                         <div className="grid grid-cols-4 gap-2 mb-2">
@@ -20052,6 +20176,36 @@ exports.resetAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
 PINEOF
 echo "  functions/rk_pin.js written (script-owned)."
 
+# ============================================================================================
+# V84 - SOCIAL FOLLOWER REFRESH  (queue item 1, first platform)
+#
+# rk_social.js is script-owned and regenerated every build.
+#
+# YouTube first, deliberately: it is the ONLY platform whose follower figure can be read with an
+# API key alone. Everything else needs OAuth as the account owner, and two of them need an app
+# review that takes weeks. Shipping the one that works proves the whole refresh path — resolve a
+# handle, read a real count, stamp it verified today — so the OAuth platforms become a matter of
+# adding a fetcher rather than building the pipeline from scratch.
+#
+# Note on accuracy: YouTube publicly rounds subscriber counts to three significant figures. A
+# channel with 12,345 subscribers reports 12,300. That is YouTube's number, not an error, and it
+# is still far closer to the truth than a figure typed in by hand two years ago.
+# ============================================================================================
+cat << 'SOCEOF' > "$RK_FN_DIR/rk_social.js"
+// V84.1 - INTENTIONALLY EMPTY.
+//
+// 306 put automatic follower lookups here. Shelved at 307: only YouTube could be read without
+// OAuth, and the platforms that matter most to ravers — Instagram and TikTok — need an app
+// review measured in weeks, while X needs a paid tier. Not worth the surface area for one
+// platform. The reasoning is in the update log under "Wanted but not currently viable".
+//
+// The FILE stays, deliberately. index.js already carries `require('./rk_social')` from the 306
+// re-export guard, and deleting the file would break every future deploy with a missing module.
+// Exporting nothing is the safe revert: the next deploy simply drops refreshSocialCounts.
+module.exports = {};
+SOCEOF
+echo "  functions/rk_social.js written (script-owned)."
+
 # index.js: created if absent, otherwise appended to. Never overwritten.
 if [ ! -f "$RK_FN_DIR/index.js" ]; then
 cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
@@ -20065,6 +20219,7 @@ cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
 module.exports = Object.assign(module.exports, require('./rk_push'));
 module.exports = Object.assign(module.exports, require('./rk_image'));
 module.exports = Object.assign(module.exports, require('./rk_pin'));
+module.exports = Object.assign(module.exports, require('./rk_social'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -20086,6 +20241,10 @@ elif grep -q "rk_push" "$RK_FN_DIR/index.js"; then
     if ! grep -q "rk_pin" "$RK_FN_DIR/index.js"; then
         printf '\n// V80: app PIN lock, generated by the build script into rk_pin.js.\nmodule.exports = Object.assign(module.exports, require("./rk_pin"));\n' >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: rk_pin re-export appended."
+    fi
+    if ! grep -q "rk_social" "$RK_FN_DIR/index.js"; then
+        printf '\n// V84: social follower refresh, generated by the build script into rk_social.js.\nmodule.exports = Object.assign(module.exports, require("./rk_social"));\n' >> "$RK_FN_DIR/index.js"
+        echo "  functions/index.js: rk_social re-export appended."
     fi
 else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
