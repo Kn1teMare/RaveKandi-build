@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=84
 RK_MINOR=74
-RK_PATCH=149
-RK_BUILD=307
+RK_PATCH=150
+RK_BUILD=308
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -720,12 +720,15 @@ const rkReport = (where, e) => {
     try { console.log('[rk]', where, e); } catch (_) {}
 };
 
+// V84.150 (308): runs only once somebody is signed in (the App effect passes that gate), and the
+// device is marked as counted only AFTER the write lands. Both stats paths require a signed-in
+// user in the rules, and this used to fire at app mount — before sign-in on every fresh install.
+// The write was refused, the visitor id had already been saved, and that device was never counted
+// at all. A brand-new phone showed it at once: "visitor stats write: permission-denied".
 const trackUniqueVisit = async () => {
     try {
         const VKEY = 'rk_visitor_id';
-        let isNew = false;
-        let vid = localStorage.getItem(VKEY);
-        if (!vid) { vid = 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); localStorage.setItem(VKEY, vid); isNew = true; }
+        const isNew = !localStorage.getItem(VKEY);
         const statsRef = doc(db, 'artifacts', appId, 'global', 'stats');
         // daily-active stamp (one per device per day)
         const today = new Date().toISOString().slice(0, 10);
@@ -745,9 +748,12 @@ const trackUniqueVisit = async () => {
         //
         // One document per day makes the write target enumerable, so the rule can be narrow: a
         // single `count` field that may only go up by one.
-        const upd = {};
-        if (isNew) upd.uniqueVisitors = increment(1);
-        if (Object.keys(upd).length) { try { await setDoc(statsRef, upd, { merge: true }); } catch (e) { rkReport('visitor stats write', e); } }
+        if (isNew) {
+            try {
+                await setDoc(statsRef, { uniqueVisitors: increment(1) }, { merge: true });
+                localStorage.setItem(VKEY, 'v_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+            } catch (e) { rkReport('visitor stats write', e); }
+        }
         if (!countedToday) {
             // Flag set only AFTER the write lands. 233 set it first, so a write refused by rules
             // (or offline) marked the day as counted and never retried — one failure meant that
@@ -14168,6 +14174,11 @@ const RK_PIN_ATTEMPTS = [
     { n: 0,  l: 'Unlimited' }
 ];
 
+// V84.150 (308): tells the App to re-read the lock from the server — after a PIN or settings
+// change (so a new window applies at once), and after a wrong current PIN used the last try (so
+// the lock screen appears instead of an open app whose session the rules have stopped honouring).
+const rkPinChanged = () => { try { window.dispatchEvent(new Event('rk-pin-changed')); } catch (e) {} };
+
 const AppPinModal = ({ user, profile, isOpen, onClose }) => {
     const [pin, setPin] = useState('');
     const [confirm, setConfirm] = useState('');
@@ -14208,12 +14219,24 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
         catch (e) { rkReport('resend verification', e); alert('Could not send it: ' + (e?.message || 'unknown error')); }
     };
 
+    // V84.150 (308): changing the window or the tries no longer forces a new PIN. With a PIN set,
+    // the New PIN boxes are optional: leave them empty and the current PIN plus the account
+    // password are enough. Before, `save` always demanded a new PIN, so every settings change was
+    // a PIN reset in disguise.
     const save = async () => {
-        if (!/^[0-9]{4,6}$/.test(pin)) return alert('Your PIN must be 4 to 6 digits.');
-        if (pin !== confirm) return alert('The two PINs do not match.');
+        const changingPin = !hasPin || pin.length > 0 || confirm.length > 0;
+        if (changingPin) {
+            if (!/^[0-9]{4,6}$/.test(pin)) return alert(hasPin ? 'A new PIN must be 4 to 6 digits. To keep your current PIN, leave both New PIN boxes empty.' : 'Your PIN must be 4 to 6 digits.');
+            if (pin !== confirm) return alert('The two PINs do not match.');
+        } else if (current && current.windowMs === windowMs && current.maxAttempts === maxAttempts) {
+            return alert('Nothing has changed. Pick a new setting, or enter a new PIN.');
+        }
         if (hasPin && !/^[0-9]{4,6}$/.test(currentPin)) return alert('Enter your CURRENT PIN to change these settings.');
         if (!pw) return alert('Enter your account password to confirm.');
-        if (!window.confirm('Set this PIN?\n\nNobody can remove it for you — not staff, not support. If you forget it, your account password and verified email are the only way back.')) return;
+        const ask = changingPin
+            ? 'Set this PIN?\n\nNobody can remove it for you — not staff, not support. If you forget it, your account password is the only way back.'
+            : 'Save these settings?\n\nYour PIN stays the same.';
+        if (!window.confirm(ask)) return;
         setBusy(true);
         try {
             // V80.3: the current PIN is checked BEFORE the password, so somebody holding an
@@ -14223,19 +14246,33 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
             if (hasPin) {
                 const vf = httpsCallable(getFunctions(app), 'verifyAppPin');
                 const vr = (await vf({ pin: currentPin, appId })).data || {};
-                if (!vr.ok) { setBusy(false); return alert('That current PIN is not right.'); }
+                if (!vr.ok) {
+                    setBusy(false); setCurrentPin('');
+                    // A wrong current PIN counts as a wrong try. If it used the last one, the server
+                    // has already locked the account and closed the session, so close this window
+                    // and let the app lock now.
+                    if (vr.lockedUntil || vr.resetRequired) {
+                        alert('That current PIN is not right, and that was the last try. The app will lock now.');
+                        onClose(); rkPinChanged(); return;
+                    }
+                    return alert('That current PIN is not right.' + (vr.attemptsLeft != null ? ' ' + vr.attemptsLeft + (vr.attemptsLeft === 1 ? ' try' : ' tries') + ' left before lockout.' : ''));
+                }
             }
             // V80.3: reauth HERE, in the window, instead of making people sign out and back in.
             // It refreshes auth_time, which is what the function checks — same proof, none of
             // the ceremony.
             await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(user.email, pw));
             const fn = httpsCallable(getFunctions(app), 'setAppPin');
-            await fn({ pin, maxAttempts, windowMs, appId });
-            alert('PIN set.');
+            await fn({ pin: changingPin ? pin : '', maxAttempts, windowMs, appId });
+            alert(changingPin ? 'PIN set.' : 'Settings saved. Your PIN is unchanged.');
             setPin(''); setConfirm(''); setCurrentPin(''); setPw(''); onClose();
+            // The app's lock reads the window from the server. Re-read it now, so a shorter window
+            // takes effect immediately instead of at the next launch.
+            rkPinChanged();
         } catch (e) {
             const m = String(e?.message || '');
             if (m.includes('wrong-password') || m.includes('invalid-credential')) alert('That account password is not right.');
+            else if (!changingPin && m.includes('PIN must be 4 to 6 digits')) alert('The server is still running the old PIN function, which always needs a new PIN. Deploy functions, then try again.');
             else { rkReport('setAppPin', e); alert('Could not set your PIN: ' + (m || 'unknown error')); }
         } finally { setBusy(false); }
     };
@@ -14272,8 +14309,7 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 <p className="text-[11px] font-black text-yellow-300 mb-1">Read this before you set one</p>
                 <p className="text-[11px] text-white leading-snug">
                     <span className="font-black">Nobody can remove this lock — including us.</span> There is no
-                    admin override. If you forget your PIN, the only way back is your account password plus your
-                    verified email.
+                    admin override. If you forget your PIN, the only way back is your account password.
                 </p>
                 <p className="text-[11px] text-white leading-snug mt-1.5">
                     This locks the app, not the account. Someone with your password could still sign in on
@@ -14304,11 +14340,12 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
                 </>
             )}
 
-            <label className="block text-[11px] font-black uppercase text-white mb-1">{hasPin ? 'New PIN' : 'Your PIN'} (4-6 digits)</label>
+            <label className="block text-[11px] font-black uppercase text-white mb-1">{hasPin ? 'New PIN (optional)' : 'Your PIN (4-6 digits)'}</label>
+            {hasPin && <p className="text-[11px] text-white mb-1">Leave both boxes empty to keep your current PIN and only change the settings below.</p>}
             <input type="password" inputMode="numeric" maxLength={6} value={pin}
                 onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
                 className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-2"/>
-            <label className="block text-[11px] font-black uppercase text-white mb-1">Confirm</label>
+            <label className="block text-[11px] font-black uppercase text-white mb-1">{hasPin ? 'Confirm new PIN' : 'Confirm'}</label>
             <input type="password" inputMode="numeric" maxLength={6} value={confirm}
                 onChange={e => setConfirm(e.target.value.replace(/[^0-9]/g, ''))}
                 className="w-full bg-black border border-white/25 text-white text-lg tracking-[0.5em] text-center p-2 rounded mb-3"/>
@@ -14331,7 +14368,7 @@ const AppPinModal = ({ user, profile, isOpen, onClose }) => {
             <input type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Confirms it is really you"
                 className="w-full bg-black border border-white/25 text-white text-sm p-2 rounded mb-3"/>
 
-            <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : hasPin ? 'Update my PIN' : 'Set my PIN'}</Button>
+            <Button onClick={save} disabled={busy} color="lime" className="w-full text-sm">{busy ? 'Saving…' : hasPin ? 'Save changes' : 'Set my PIN'}</Button>
             </>
         </Modal>
     );
@@ -17267,7 +17304,9 @@ const App = () => {
         }
     }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
     // V52.2: count this device as a unique visitor (once ever) + daily-active ping.
-    useEffect(() => { trackUniqueVisit(); }, []);
+    // V84.150 (308): only once signed in. The rules refuse both writes without a user, so running
+    // at mount just produced two permission-denied reports on every fresh install.
+    useEffect(() => { if (user?.uid) trackUniqueVisit(); }, [user?.uid]);
 
     // V42.16: any browser-tab user (iOS or Android) who hasn't installed gets a one-time
     // guide to add RaveKandi to their home screen as an app.
@@ -17461,13 +17500,17 @@ const App = () => {
     const rkLastAct = useRef(Date.now());
     const rkLastBeat = useRef(0);
     const rkWindowMs = useRef(0);
+    // V84.150 (308): true while the app is open WITHOUT a definite answer from the server — a new
+    // device (no local evidence of a PIN) whose first check failed or ran past 8 seconds. The
+    // retry effect below keeps asking until the server answers.
+    const rkLockUnverified = useRef(false);
     useEffect(() => { if (rkKnownPin()) setLocked(true); }, [user?.uid]);
     // Ceiling on the wait. A network that never answers must not become a permanent loading
     // screen; after 8 seconds the check above resolves by evidence instead of by hope.
     const [rkLockTimedOut, setRkLockTimedOut] = useState(false);
     useEffect(() => {
         if (!user?.uid || locked !== null) return;
-        const t = setTimeout(() => { setRkLockTimedOut(true); setLocked(rkKnownPin() ? true : false); }, 8000);
+        const t = setTimeout(() => { setRkLockTimedOut(true); if (!rkKnownPin()) rkLockUnverified.current = true; setLocked(rkKnownPin() ? true : false); }, 8000);
         return () => clearTimeout(t);
     }, [user?.uid, locked]);
     useEffect(() => {
@@ -17496,18 +17539,32 @@ const App = () => {
             const hb = Math.max(10000, Math.min(win / 2, 60000));
             if (now - rkLastBeat.current > hb && rkLastAct.current > rkLastBeat.current) {
                 rkLastBeat.current = now;
-                try { await httpsCallable(getFunctions(app), 'verifyAppPin')({ appId, extend: true }); }
+                try {
+                    const r = (await httpsCallable(getFunctions(app), 'verifyAppPin')({ appId, extend: true })).data || {};
+                    // V84.150 (308): the answer used to be thrown away. When the server says the
+                    // session is gone (a beat that landed after expiry on a slow connection, a
+                    // lockout from a wrong current PIN, a reset on another device), lock NOW,
+                    // before the rules start refusing reads under an app that still looks open.
+                    if (r.noPin) rkWindowMs.current = 0;
+                    else if (r.ok === false) setLocked(true);
+                    else if (r.windowMs) rkWindowMs.current = Number(r.windowMs);
+                }
                 catch (e) { if (!rkIsOffline(e)) rkReport('pin heartbeat', e); }
             }
         }, 1000);
         return () => clearInterval(t);
     }, [locked]);
+    // V84.150 (308): returns what it learned: true = open (no PIN, or a valid session), false =
+    // locked, null = no answer (offline or failed). The listeners use it to tell an expired session
+    // from a real fault.
     const rkCheckLock = React.useCallback(async () => {
-        if (!user?.uid) { setLocked(false); return; }
+        if (!user?.uid) { setLocked(false); return true; }
         try {
             const fn = httpsCallable(getFunctions(app), 'verifyAppPin');
             const r = (await fn({ appId })).data || {};   // no pin = status query, never an attempt
-            setLocked(r.noPin ? false : !r.ok);
+            const open = !!(r.noPin || r.ok);
+            rkLockUnverified.current = false;
+            setLocked(!open);
             try { if (rkPinFlagKey) { if (r.noPin) localStorage.removeItem(rkPinFlagKey); else localStorage.setItem(rkPinFlagKey, '1'); } } catch (e) {}
             // V81: re-lock exactly when the window expires. This is a PREREQUISITE for gating the
             // rules, not a nicety — once pinOk() guards a path, an expired session means Firestore
@@ -17519,6 +17576,7 @@ const App = () => {
             // the app locked 15 seconds after unlocking regardless of what the raver was doing,
             // and a short window became an unbreakable loop. The idle watcher replaces it.
             if (!r.noPin && r.ok) { rkWindowMs.current = Number(r.windowMs || 0); rkLastAct.current = Date.now(); }
+            return open;
         } catch (e) {
             // V81.1: fail CLOSED when we know a PIN exists. Before, any error unlocked — so a
             // flaky connection was a bypass. Without local evidence of a PIN there is nothing to
@@ -17526,10 +17584,29 @@ const App = () => {
             // V81.2: offline is not an error worth logging on every launch in a dead spot — it
             // buries the real faults. Logged only when we are actually online.
             if (!rkIsOffline(e)) rkReport('pin status', e);
+            if (!rkKnownPin()) rkLockUnverified.current = true;
             setLocked(rkKnownPin() ? true : false);
+            return null;
         }
     }, [user?.uid]);
     useEffect(() => { rkCheckLock(); }, [rkCheckLock]);
+    // V84.150 (308): a NEW device has no local evidence of a PIN, so a failed or slow first check
+    // opens the app (by design: stranding somebody who has no PIN would be the worse error). It
+    // used to stay open until the next launch or foreground. Now it asks again every 5 seconds
+    // until the server answers, and locks the moment the answer is "PIN needed". The rules were
+    // already refusing the gated reads in that gap; this makes the screen agree with them.
+    useEffect(() => {
+        if (locked !== false) return;
+        const t = setInterval(() => { if (rkLockUnverified.current) rkCheckLock(); }, 5000);
+        return () => clearInterval(t);
+    }, [locked, rkCheckLock]);
+    // V84.150 (308): the PIN window announces changes (new settings, or a lockout from a wrong
+    // current PIN). Re-read the lock so the new window, or the lock screen, applies at once.
+    useEffect(() => {
+        const h = () => { rkCheckLock(); };
+        window.addEventListener('rk-pin-changed', h);
+        return () => window.removeEventListener('rk-pin-changed', h);
+    }, [rkCheckLock]);
     // Re-check when the app comes back to the foreground — that is the moment the window may
     // have expired, and it is the whole scenario this defends against: a phone put down.
     useEffect(() => {
@@ -17551,11 +17628,19 @@ const App = () => {
     useEffect(() => {
         if (!user?.uid || locked !== false) return;
         const tq = query(collection(db, 'artifacts', appId, 'public', 'data', 'threads'), where('participants', 'array-contains', user.uid));
-        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('threads listener', e));
+        // V84.150 (308): a refusal here almost always means the SERVER session ended while this
+        // screen still looked unlocked. Ask the server first: if the PIN is needed, the lock screen
+        // appears and these listeners re-subscribe cleanly after the unlock, and nothing is
+        // reported. Only a refusal with a valid session is a real fault worth a report.
+        const onDenied = (where) => (e) => {
+            if (e && e.code === 'permission-denied') rkCheckLock().then(open => { if (open === true) rkReport(where, e); });
+            else rkReport(where, e);
+        };
+        const u1 = onSnapshot(tq, s => setThreads(s.docs.map(d => ({ ...d.data(), id: d.id }))), onDenied('threads listener'));
         const nq = query(collection(db, 'artifacts', appId, 'users', user.uid, 'notifications'), orderBy('at', 'desc'), limit(60));
-        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('notifications listener', e));
+        const u2 = onSnapshot(nq, s => setNotifs(s.docs.map(d => ({ ...d.data(), id: d.id }))), onDenied('notifications listener'));
         return () => { u1(); u2(); };
-    }, [user, locked]);
+    }, [user, locked, rkCheckLock]);
 
     // V81.1: `locked === null` means "not answered yet" and now holds the SAME loading screen the
     // app already uses, instead of letting the app render underneath. Nothing reaches the screen
@@ -18343,6 +18428,10 @@ fi
 cat << 'HOOKEOF' > .rk_hook_check.js
 const fs = require('fs');
 let ts; try { ts = require('typescript'); } catch (e) { console.log('SKIP_NO_TS'); process.exit(0); }
+// V84.150 (308): a TypeScript release whose entry point is not the parser (7.x ships a version
+// stub there) used to crash this checker silently, and the build then stopped with a false
+// "HOOK ORDER VIOLATION" and an empty report. Say what is actually wrong instead.
+if (typeof ts.createSourceFile !== 'function') { console.log('SKIP_TS_INCOMPATIBLE ' + (ts.version || 'unknown')); process.exit(0); }
 const src = fs.readFileSync('src/App.js', 'utf8');
 const sf = ts.createSourceFile('App.js', src, ts.ScriptTarget.ESNext, true, ts.ScriptKind.JSX);
 const HOOK = /^use[A-Z]/;
@@ -18390,9 +18479,19 @@ HOOKEOF
 HOOK_OUT=$(node .rk_hook_check.js 2>/dev/null)
 HOOK_RC=$?
 rm -f .rk_hook_check.js
+# V84.150 (308): TypeScript lives in the HOME folder, pinned. Installed in the project it is wiped
+# whenever package.json changes, and an unpinned install now pulls a release with no parser API.
 if echo "$HOOK_OUT" | grep -q "SKIP_NO_TS"; then
   echo "   Hook-order gate SKIPPED - typescript not installed."
-  echo "   Install once with:  cd ~/RaveKandi-Build && npm install typescript"
+  echo "   Install once with:  cd ~ && npm install --save-exact typescript@6.0.3"
+elif echo "$HOOK_OUT" | grep -q "SKIP_TS_INCOMPATIBLE"; then
+  echo "   Hook-order gate SKIPPED - TypeScript $(echo "$HOOK_OUT" | sed -n 's/.*SKIP_TS_INCOMPATIBLE //p') has no parser API."
+  echo "   Fix once with:  cd ~ && npm install --save-exact typescript@6.0.3"
+elif [ $HOOK_RC -ne 0 ] && [ -z "$HOOK_OUT" ]; then
+  # A crash prints nothing (stderr is discarded above). That is a broken checker, not a violation,
+  # so it must not stop the build with an empty report.
+  echo "   Hook-order gate SKIPPED - the checker crashed. Check TypeScript (expect 6.0.3):"
+  echo "     cd ~/RaveKandi-Build && node -e \"console.log(require('typescript').version)\""
 elif [ $HOOK_RC -ne 0 ]; then
   echo ""
   echo "=================================================================="
@@ -18424,7 +18523,9 @@ fi
 cat << 'TDZEOF' > .rk_tdz_check.js
 // Flags any hook dependency array that references a const declared LATER in the same component.
 // A dependency array is evaluated during render, so this throws a ReferenceError on every render.
-const ts=require('typescript'),fs=require('fs');
+let ts; try { ts = require('typescript'); } catch (e) { console.log('SKIP_NO_TS'); process.exit(0); }
+if (typeof ts.createSourceFile !== 'function') { console.log('SKIP_TS_INCOMPATIBLE ' + (ts.version || 'unknown')); process.exit(0); }
+const fs=require('fs');
 const sf=ts.createSourceFile('a.jsx',fs.readFileSync('src/App.js','utf8'),ts.ScriptTarget.ESNext,true,ts.ScriptKind.JSX);
 let bad=0, checked=0;
 const HOOK=/^use(Effect|Memo|Callback|LayoutEffect)$/;
@@ -18474,8 +18575,9 @@ TDZEOF
 TDZ_OUT=$(node .rk_tdz_check.js 2>/dev/null)
 TDZ_RC=$?
 rm -f .rk_tdz_check.js
-if [ -z "$TDZ_OUT" ]; then
-  echo "   Dependency-order gate SKIPPED - typescript not installed."
+if [ -z "$TDZ_OUT" ] || echo "$TDZ_OUT" | grep -q "^SKIP_"; then
+  echo "   Dependency-order gate SKIPPED - TypeScript missing or incompatible."
+  echo "   Fix once with:  cd ~ && npm install --save-exact typescript@6.0.3"
 elif [ $TDZ_RC -ne 0 ]; then
   echo ""
   echo "=================================================================="
@@ -19428,6 +19530,7 @@ echo ""
 echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
 bash ./gradlew assembleDebug --no-daemon --max-workers=2 --build-cache < /dev/null
+RK_GRADLE_RC=$?
 
 # ---- Print the DEBUG-keystore SHA-1 for Google Sign-In setup ---------------------------------
 # Native Google sign-in returns error code 10 (DEVELOPER_ERROR) until this fingerprint is
@@ -19541,7 +19644,17 @@ PREPEOF
 if command -v timeout >/dev/null 2>&1; then timeout 15 cp "$PREP" "/storage/emulated/0/Download/PLAY_STORE_PREP.txt" 2>/dev/null || timeout 15 cp "$PREP" "$HOME/storage/downloads/PLAY_STORE_PREP.txt" 2>/dev/null || true; else cp "$PREP" "/storage/emulated/0/Download/PLAY_STORE_PREP.txt" 2>/dev/null || cp "$PREP" "$HOME/storage/downloads/PLAY_STORE_PREP.txt" 2>/dev/null || true; fi
 echo "  [OK] Play Console prep sheet: Downloads/PLAY_STORE_PREP.txt"
 
-cp app/build/outputs/apk/debug/app-debug.apk "$OUT_DIR/$APK_NAME"
+# V84.150 (308): the export used to run even when Gradle had failed, and its fallback then said
+# "The APK built perfectly, but Android blocked the transfer", pointing at storage for what was a
+# compile or download failure. Only a real APK is exported now; the web deploy below still runs.
+RK_APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
+if [ "$RK_GRADLE_RC" != "0" ] || [ ! -f "$RK_APK_SRC" ]; then
+    echo "==========================================================="
+    echo "APK BUILD FAILED - Gradle exit code ${RK_GRADLE_RC:-unknown}. The cause is in the Gradle"
+    echo "error above. Nothing was exported. The web deploy below still runs."
+    echo "==========================================================="
+else
+cp "$RK_APK_SRC" "$OUT_DIR/$APK_NAME"
 
 echo "Attempting to export APK to public Downloads folder..."
 
@@ -19583,6 +19696,7 @@ else
     echo "Or run: termux-setup-storage, then try copying manually."
     echo "==========================================================="
 fi
+fi   # V84.150 (308): end of the "only export a real APK" guard
 
 # Block 20.5 — V65.27: Cloud Function that actually delivers push notifications.
 # pushNotif() writes a doc to users/{uid}/notifications. This function fires on that write and
@@ -20043,10 +20157,21 @@ exports.setAppPin = onCall({ timeoutSeconds: 30 }, async (req) => {
     const appId = String((req.data && req.data.appId) || APP_ID_DEFAULT);
     requireFreshAuth(req);
     const pin = String((req.data && req.data.pin) || '');
-    if (!/^[0-9]{4,6}$/.test(pin)) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
     const allowed = [3, 5, 10, 0];   // 0 = unlimited
     const maxAttempts = allowed.indexOf(Number(req.data && req.data.maxAttempts)) >= 0 ? Number(req.data.maxAttempts) : 5;
     const windowMs = cleanWindow(req.data && req.data.windowMs);
+    // V84.150 (308): settings-only. An empty PIN with a lock already in place means "keep my PIN,
+    // change the window or the tries". It takes the same proof as a PIN change (the fresh password
+    // sign-in checked above), which is also the bar for removing the lock outright, so it opens
+    // nothing new. The hash, the salt and the lockout ladder are left exactly as they are.
+    if (!pin) {
+        const ref = lockRef(uid, appId);
+        const snap = await ref.get();
+        if (!snap.exists) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
+        await ref.set({ maxAttempts, windowMs, sessionUntil: Date.now() + windowMs, updatedAt: Date.now() }, { merge: true });
+        return { ok: true, maxAttempts, windowMs, pinChanged: false };
+    }
+    if (!/^[0-9]{4,6}$/.test(pin)) throw new HttpsError('invalid-argument', 'PIN must be 4 to 6 digits.');
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = await hashPin(pin, salt);
     await lockRef(uid, appId).set({
@@ -20366,12 +20491,22 @@ if [ "$RK_NO_WEB" != "1" ]; then
     # V65.29: this used to overwrite firebase.json unconditionally, which silently deleted the
     # "functions" section on every single build — the deploy failure would have come straight
     # back next run. Hosting config is rewritten; everything else in the file is preserved.
+    # V84.150 (308): this merge had NEVER run since V65.37.01. A comment inside the single-quoted
+    # JavaScript below contained the characters '<' in quotes, which closed the shell string early;
+    # bash then read the rest of the script as a file to redirect from ("No such file or
+    # directory"), and firebase.json was left exactly as it was. Anything in this block must stay
+    # free of single quotes. A fresh phone only worked because the fallback below wrote the file.
     if [ -f firebase.json ] && command -v node >/dev/null 2>&1; then
         node -e '
             const fs = require("fs");
             let j = {};
             try { j = JSON.parse(fs.readFileSync("firebase.json", "utf8")); } catch (e) { j = {}; }
             j.hosting = {
+                // V84.150 (308): named, so the deploy never depends on looking the default site up.
+                // Errors from that lookup are discarded by firebase-tools, and a dropped connection
+                // then surfaced as "Assertion failed: resolving hosting target of a site with no
+                // site name or target name" instead of the real cause.
+                site: "ravekandi",
                 public: "build",
                 ignore: ["firebase.json", "**/.*", "**/node_modules/**"],
                 rewrites: [ { source: "**", destination: "/index.html" } ],
@@ -20379,7 +20514,7 @@ if [ "$RK_NO_WEB" != "1" ]; then
                 // normally. Cause: no cache headers, so browsers held index.html indefinitely. The
                 // stale HTML asked for JS bundle hashes that no longer existed, the SPA rewrite
                 // answered those 404s with index.html, and the browser tried to parse HTML as
-                // JavaScript -> "Uncaught SyntaxError: Unexpected token '<'".
+                // JavaScript -> "Uncaught SyntaxError: Unexpected token <".
                 //
                 // CRA fingerprints every bundle (main.<hash>.js), so those are safe to cache
                 // forever — a new build produces a new filename. index.html is the one file that
@@ -20404,6 +20539,7 @@ if [ "$RK_NO_WEB" != "1" ]; then
     cat << 'EOF' > firebase.json
 {
   "hosting": {
+    "site": "ravekandi",
     "public": "build",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [ { "source": "**", "destination": "/index.html" } ],
@@ -20430,6 +20566,23 @@ EOF
 { "projects": { "default": "ravekandi" } }
 EOF
     command -v firebase >/dev/null 2>&1 || npm install -g firebase-tools
+
+    # V84.150 (308): pick a connection mode Node can use on THIS network. Node gives each server
+    # address 250 ms before abandoning it for the next; on a slow mobile connection every attempt
+    # can be abandoned and every Google API call times out, while curl and the app itself connect
+    # fine. Seen on the A16. Probe once: if the default fails and IPv4-only works, the Firebase
+    # commands below use IPv4-only. If the default works, nothing changes.
+    rk_probe() { node $1 -e "fetch('https://firebase.googleapis.com/v1beta1/projects/ravekandi').then(()=>process.exit(0)).catch(()=>process.exit(1))" >/dev/null 2>&1; }
+    RK_FB_NODE_OPTS=""
+    if rk_probe ""; then
+        echo "  Network: Node reaches Google normally."
+    elif rk_probe "--dns-result-order=ipv4first --no-network-family-autoselection"; then
+        RK_FB_NODE_OPTS="--dns-result-order=ipv4first --no-network-family-autoselection"
+        echo "  Network: Node's default connection racing fails here - Firebase commands use IPv4-only."
+    else
+        echo "  Network: Google is unreachable from Termux right now. The deploys below retry."
+    fi
+    export NODE_OPTIONS="$RK_FB_NODE_OPTS"
     if ! firebase projects:list >/dev/null 2>&1; then
         echo "Firebase not authenticated — opening login (approve in your browser):"
         firebase login || echo "⚠ Login failed. Fix auth, then deploy with: cd ~/RaveKandi-Build && firebase deploy --only hosting"
@@ -20439,9 +20592,16 @@ EOF
     echo ""
     echo "🧪 Deploying to STAGING (private test URL)..."
     # 'staging' channel kept alive 30 days; re-deploys reuse the same URL.
-    STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
-    echo "$STAGE_OUT"
-    STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
+    # V84.150 (308): retried. A phone's connection drops for seconds at a time, and one dropped
+    # connection used to cost the whole deploy.
+    STAGE_URL=""
+    for RK_TRY in 1 2 3; do
+        STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
+        echo "$STAGE_OUT"
+        STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
+        [ -n "$STAGE_URL" ] && break
+        [ "$RK_TRY" -lt 3 ] && { echo "  Staging attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
+    done
     if [ -z "$STAGE_URL" ]; then
         echo "⚠ Couldn't capture the staging URL automatically — look for the 'Channel URL' line above."
         STAGE_URL="(see the Channel URL printed above)"
@@ -20464,7 +20624,12 @@ EOF
         echo "   Go live anytime: cd ~/RaveKandi-Build && firebase deploy --only hosting"
     else
         echo "🚀 Publishing to PRODUCTION automatically..."
-        if firebase deploy --only hosting; then
+        RK_LIVE_OK=0
+        for RK_TRY in 1 2 3; do
+            if firebase deploy --only hosting; then RK_LIVE_OK=1; break; fi
+            [ "$RK_TRY" -lt 3 ] && { echo "  Production attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
+        done
+        if [ "$RK_LIVE_OK" = "1" ]; then
             echo ""
             echo "🌐 PRODUCTION IS LIVE AT: https://ravekandi.web.app"
             echo "   (alias: https://ravekandi.firebaseapp.com)"
