@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=84
-RK_MINOR=74
+RK_MINOR=75
 RK_PATCH=150
-RK_BUILD=308
+RK_BUILD=309
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -411,7 +411,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, sendEmailVerification, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch, deleteField } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -1491,6 +1491,9 @@ export const acceptObliterate = async (tid, myUid) => {
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await setDoc(tRef, { obliterate: { accepted: { [myUid]: true } } }, { merge: true });
 };
+// V84.151 (309): deleteField was never imported, so this threw a ReferenceError before updateDoc
+// ran (the .catch below only covers updateDoc's own promise) and cancelling never worked. Found by
+// the new name gate.
 export const cancelObliterate = async (tid) => {
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     await updateDoc(tRef, { obliterate: deleteField() }).catch(()=>{});
@@ -1812,6 +1815,20 @@ const rkGenerateImage = async (visualPrompt) => {
     }
 };
 
+// V84.151 (309): the image prompt, in one place, so a reroll asks for exactly what the first image
+// asked for. The raver's own words lead, then the model's visual script, then a short neutral
+// finish. It was the script alone plus "vibrant rave kandi product render, neon festival
+// aesthetic", which pushed every item toward kandi beads (a silk jacket included) and never sent
+// the raver's own wording to the image model unless the script came back empty. Same lesson as
+// V73.14: the irreplaceable part goes first, where no length limit can reach it.
+const rkImagePrompt = (userPrompt, visual) => {
+    const u = String(userPrompt || '').trim().slice(0, 450);
+    const v = String(visual || '').trim().slice(0, 450);
+    // The costing fallback sets the script to the start of the prompt itself; say it once.
+    const body = !v ? u : !u ? v : (u.indexOf(v) === 0 || v.indexOf(u) === 0) ? (u.length >= v.length ? u : v) : (u + '. ' + v);
+    return body + '. Detailed product photo, studio lighting.';
+};
+
 const generateCustomKandi = async (prompt, onProgress = () => {}) => {
     try {
         const safePrompt = encodeURIComponent(prompt.substring(0, 300));
@@ -1939,10 +1956,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
         onProgress(80);
         let imageUrl = '';
         try {
-            imageUrl = await rkGenerateImage(
-                (analysis.visual_description || prompt || '').substring(0, 400)
-                + ', vibrant rave kandi product render, neon festival aesthetic, studio lighting'
-            );
+            imageUrl = await rkGenerateImage(rkImagePrompt(prompt, analysis.visual_description));
         } catch (imgErr) {
             // V73.4: report it. This catch set a note on screen and told the log nothing, so an
             // image failing after a successful analysis left no trace at all — which is exactly
@@ -4342,6 +4356,18 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
     const [c2, setC2] = useState(saved.c2 || '#2db3ff');
     const [bright, setBright] = useState(saved.bright || 100);
     const [saving, setSaving] = useState(false);
+    // V84.151 (309): re-read the saved style every time the window opens, and again if the saved
+    // style arrives while it is open. These states were seeded ONCE, at mount, and ProfileView
+    // mounts this window before its own profile listener has delivered anything. So every visit to
+    // the profile seeded Default, the window opened showing Default, and saving from it wrote
+    // Default over the raver's real font: queue item 3, "name font resets to default" (264).
+    // Keyed on the saved value's content, so an unrelated profile update never resets an edit.
+    const savedKey = JSON.stringify((profile && profile[field]) || null);
+    useEffect(() => {
+        if (!isOpen) return;
+        const s = (profile && profile[field]) || {};
+        setFont(s.font || 'default'); setFx(s.fx || 'none'); setC(s.c || '#ff2db3'); setC2(s.c2 || '#2db3ff'); setBright(s.bright || 100);
+    }, [isOpen, savedKey]);
     if (!isOpen) return null;
     const ts = { font, fx, c, c2, bright };
     const prev = getUserTextStyle(ts);
@@ -4407,6 +4433,9 @@ const FontSelectorModal = ({ user, profile, isOpen, onClose, field = 'textStyle'
 const ThemeSelectorModal = ({ user, profile, isOpen, onClose }) => {
     const [url, setUrl] = useState(profile?.customBackground || '');
     const [uploading, setUploading] = useState(false);
+    // V84.151 (309): same fault as the font window. Seeded once at mount, while ProfileView's profile
+    // was still empty, so the box opened blank and Save wrote an empty background over a custom one.
+    useEffect(() => { if (isOpen) setUrl(profile?.customBackground || ''); }, [isOpen, profile?.customBackground]);
     
     const handleFile = async (e) => {
         const file = e.target.files[0];
@@ -5325,10 +5354,15 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
             <AchievementsModal profile={profile} isOpen={open} onClose={() => setOpen(false)} editable={editable} userUid={userUid} />
             <Card glow="goldGlow" className="cursor-pointer hover:bg-white/10 transition-colors" >
                 <div onClick={() => setOpen(true)}>
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-lg underline decoration-yellow-500/50">Achievements</h3>
-                        <button onClick={(e) => { e.stopPropagation(); setDiffChart(true); }} className="text-[10px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-400/40 rounded px-1.5 py-0.5">📊 REWARDS</button>
-                        <span className="text-[10px] text-cyan-400">{unlocked.length}/{all.length} · tap to view all</span>
+                    {/* V84.151 (309): the title is centred on its own line, and REWARDS and the view-all
+                        count sit together below it as two matching pills of the same height. All three
+                        used to be squeezed into one row beside the title at 10px. */}
+                    <div className="mb-4">
+                        <h3 className="font-bold text-lg underline decoration-yellow-500/50 text-center">Achievements</h3>
+                        <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                            <button onClick={(e) => { e.stopPropagation(); setDiffChart(true); }} className="h-8 inline-flex items-center px-3 rounded-full text-xs font-black whitespace-nowrap text-cyan-300 bg-cyan-500/10 border border-cyan-400/40">📊 REWARDS</button>
+                            <span className="h-8 inline-flex items-center px-3 rounded-full text-xs font-bold whitespace-nowrap text-cyan-300 bg-cyan-500/10 border border-cyan-400/40">{unlocked.length}/{all.length} · tap to view all</span>
+                        </div>
                     <Modal isOpen={diffChart} onClose={() => setDiffChart(false)} zClass="z-[170]" title="📊 Difficulty & Rewards"><p className="text-base font-black text-cyan-300 mb-2">📊 Difficulty & Permanent Rewards</p>
                             <p className="text-xs text-white/80 mb-3 leading-relaxed">Every achievement you complete permanently improves your rates — forever. Standard achievements trim your seller commission; referral achievements raise your referral bonus % instead. Complete <strong className="text-yellow-300">80% of all achievements</strong> and you earn <strong className="text-yellow-300">permanent free VIP</strong>. 👑</p>
                             {[1,2,3,4,5].map(d => (<div key={d} className="flex items-center justify-between bg-white/5 border rounded-lg p-2 mb-1.5" style={{ borderColor: RK_DIFF_META[d].c }}>
@@ -5703,7 +5737,9 @@ const ReferredUsersPanel = ({ user, profile, onViewProfile }) => {
     );
 };
 
-const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet }) => {
+// V84.151 (309): onViewProfile was used inside (the referred-users list) but never accepted as a
+// prop, so tapping a referred raver threw a ReferenceError and went nowhere. Found by the name gate.
+const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onViewProfile }) => {
     const [showTiers, setShowTiers] = useState(false);
     const [showRefUsers, setShowRefUsers] = useState(false);
     const [storyOpen, setStoryOpen] = useState(false);
@@ -8266,50 +8302,80 @@ EOF
 
 # Block 12
 cat << 'EOF' >> src/App.js
-// V65.26: the concept render, loaded as a plain <img> so no CORS or rate-limit wall applies.
-// Pollinations queues generation, so the FIRST hit often 404s while the image is still being
-// made. The browser fires onError; we wait and retry the same seed (same picture), then offer a
-// reroll on a fresh seed. Nothing here blocks the cost breakdown from showing.
-const AIConceptImage = ({ res, onReady }) => {
-    const [seed, setSeed] = useState(null);
+// V65.26 wrote this for Pollinations, whose image URLs carried a seed= parameter: retry and reroll
+// both worked by swapping that number, which changed the URL and made the <img> load again.
+//
+// V84.151 (309): since V72 the image is a Firebase Storage file, and its URL has no seed in it. The
+// swap changed nothing, so a reroll set "loading", the <img> never reloaded, onLoad never fired and
+// "Painting your concept…" spun forever: queue item 2, raised at 256 and again at 264. A failed
+// load stopped at "Still painting (1/4)" the same way.
+//
+// Now a retry REMOUNTS the <img> through its key, which reloads any URL, and a reroll asks the
+// server for a genuinely new picture through `onReroll`, supplied by the Lab. A reroll is a real
+// generation, so it counts as one of the day's designs, and the button says so before it is
+// tapped. Every path ends in a definite state: a reroll that fails keeps the image you had.
+const AIConceptImage = ({ res, onReady, onReroll, rerollsLeft }) => {
+    const [attempt, setAttempt] = useState(0);
     const [tries, setTries] = useState(0);
-    const [state, setState] = useState('loading');   // loading | ok | failed
-    const base = res.displayUrl || res.imageUrl || '';
-    const src = seed === null ? base : base.replace(/([?&])seed=\d+/, '$1seed=' + seed);
-    useEffect(() => { setTries(0); setState('loading'); setSeed(null); }, [res]);
+    const [state, setState] = useState('loading');   // loading | ok | failed | rerolling
+    const [note, setNote] = useState('');
+    const timer = useRef(null);
+    const src = res.displayUrl || res.imageUrl || '';
+    useEffect(() => { clearTimeout(timer.current); setTries(0); setAttempt(0); setState('loading'); }, [src]);
+    useEffect(() => () => clearTimeout(timer.current), []);
     const retry = () => {
         if (tries >= 4) { setState('failed'); return; }
-        const wait = 3000 + tries * 2500;   // 3s, 5.5s, 8s, 10.5s — clears the throttle window
-        setTimeout(() => { setTries(t => t + 1); setSeed(s => (s === null ? 1 : s) + 1); }, wait);
+        const wait = 3000 + tries * 2500;   // 3s, 5.5s, 8s, 10.5s
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => { setTries(t => t + 1); setAttempt(a => a + 1); }, wait);
     };
-    const reroll = () => { setState('loading'); setTries(0); setSeed(Math.floor(Math.random() * 999999)); };
+    const reload = () => { setNote(''); setTries(0); setState('loading'); setAttempt(a => a + 1); };
+    const FAIL_NOTE = 'A new image could not be made this time. This one stays, and nothing was used.';
+    const reroll = async () => {
+        if (!onReroll || state === 'rerolling') return;
+        setNote(''); setState('rerolling');
+        let url = '';
+        try { url = await onReroll(); }
+        catch (e) {
+            setState('ok');
+            setNote(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up, so this image stays. They reset at midnight UTC." : FAIL_NOTE);
+            return;
+        }
+        // A new URL resets everything through the effect above. No URL, or the same one, would
+        // otherwise leave the spinner up, which is the exact fault being fixed.
+        if (!url || url === src) { setState('ok'); setNote(FAIL_NOTE); }
+    };
+    const busy = state === 'loading' || state === 'rerolling';
     return (
         <div className="mb-4">
             {state !== 'failed' ? (
                 <div className="relative">
-                    <img key={src} src={src} alt="AI concept render"
-                        onLoad={() => { setState('ok'); if (onReady) onReady(true); }}
+                    <img key={src + '#' + attempt} src={src} alt="AI concept render"
+                        onLoad={() => { setState(st => st === 'rerolling' ? st : 'ok'); if (onReady) onReady(true); }}
                         onError={() => retry()}
-                        className={'w-full rounded-lg border-2 border-cyan-400/60 shadow-[0_0_18px_rgba(0,220,255,0.35)] ' + (state === 'loading' ? 'opacity-40' : '')}/>
-                    {state === 'loading' && (
+                        className={'w-full rounded-lg border-2 border-cyan-400/60 shadow-[0_0_18px_rgba(0,220,255,0.35)] ' + (busy ? 'opacity-40' : '')}/>
+                    {busy && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
                             <div className="w-8 h-8 border-4 border-cyan-300 border-t-transparent rounded-full animate-spin"/>
-                            <p className="text-[10px] text-cyan-200 font-bold">{tries === 0 ? 'Painting your concept…' : 'Still painting… (' + tries + '/4)'}</p>
+                            <p className="text-[11px] text-cyan-200 font-bold">{state === 'rerolling' ? 'Painting a new version…' : tries === 0 ? 'Painting your concept…' : 'Still loading… (' + tries + '/4)'}</p>
                         </div>
                     )}
                 </div>
             ) : (
                 <div className="rounded-lg border-2 border-white/20 bg-black/40 p-4 text-center">
-                    <p className="text-xs text-white mb-2">🎨 The free art service is busy right now — your full breakdown below is unaffected.</p>
-                    <Button onClick={reroll} color="cyan" className="text-[10px]">Try the image again</Button>
+                    <p className="text-xs text-white mb-2">🎨 The image did not load. Your full breakdown below is unaffected.</p>
+                    <Button onClick={reload} color="cyan" className="text-xs">Try loading it again</Button>
                 </div>
             )}
             {state === 'ok' && (
                 <div className="flex items-center justify-between gap-2 mt-1">
-                    <p className="text-[10px] text-white/70">AI concept render — a starting point, not the finished piece.</p>
-                    <button onClick={reroll} className="text-[10px] font-bold text-cyan-300 underline shrink-0">🎲 Reroll</button>
+                    <p className="text-[11px] text-white">AI concept render — a starting point, not the finished piece.</p>
+                    {onReroll && (rerollsLeft > 0
+                        ? <button onClick={reroll} className="shrink-0 text-right text-[11px] font-bold text-cyan-300 leading-tight"><span className="underline">🎲 Reroll</span><br/><span className="font-normal text-white">uses 1 of {rerollsLeft} left today</span></button>
+                        : <span className="shrink-0 text-right text-[11px] text-white leading-tight">No rerolls left today</span>)}
                 </div>
             )}
+            {note && <p className="text-[11px] text-yellow-300 mt-1 leading-snug">{note}</p>}
         </div>
     );
 };
@@ -8361,9 +8427,19 @@ const RkStatRowDetail = ({ item, statKey, comments, onClose, onViewProfile, onVi
 
 // V71.1: recent AI jobs with their outcome. Reads the same documents the generator writes, so a
 // run that finished while you were elsewhere is listed here rather than lost.
-const RkAiQueue = ({ user, onOpen }) => {
+//
+// V84.151 (309), the Design Lab batch raised at 256:
+//  - A run still marked "running" after ten minutes is shown as stopped, with Try again. A run that
+//    died with the app never wrote an outcome, so it said "Working…" forever with nothing to do.
+//  - The list says plainly that it only holds the 10 most recent runs.
+//  - The sheet saves straight to the collection, and no longer sends people out to a browser by
+//    default: the picture is already on the sheet, and the browser is an explicit second option.
+//  - Each row shows the date as well as the time.
+const RK_AI_STALE_MS = 10 * 60 * 1000;
+const RkAiQueue = ({ user, onOpen, onRetry, onSave }) => {
     const [jobs, setJobs] = useState([]);
     const [view, setView] = useState(null);
+    const [saving, setSaving] = useState(false);
     useEffect(() => {
         if (!user?.uid) return;
         return onSnapshot(
@@ -8373,24 +8449,38 @@ const RkAiQueue = ({ user, onOpen }) => {
     }, [user?.uid]);
 
     if (!jobs.length) return null;
-    const dot = (st) => st === 'done' ? 'bg-lime-400' : st === 'failed' ? 'bg-red-400' : 'bg-amber-400 animate-pulse';
-    const word = (j) => j.status === 'done' ? 'Ready'
+    // A generation takes about a minute. Ten minutes of "running" means the run is gone.
+    const stale = (j) => j.status === 'running' && Date.now() - Number(j.at || 0) > RK_AI_STALE_MS;
+    const dot = (j) => j.status === 'done' ? 'bg-lime-400' : (j.status === 'failed' || stale(j)) ? 'bg-red-400' : 'bg-amber-400 animate-pulse';
+    const word = (j) => j.status === 'done' ? (j.savedAt ? 'Ready · in your collection' : 'Ready')
         : j.status === 'failed' ? (j.error === 'AI_KEY_REQUIRED' ? 'Service unavailable' : 'Failed')
+        : stale(j) ? 'Stopped before it finished'
         : 'Working…';
+    const when = (t) => { try { return new Date(t || Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+    const saveView = async () => {
+        if (!view || !onSave || saving) return;
+        setSaving(true);
+        try { const ok = await onSave(view); if (ok) setView(v => v ? { ...v, savedAt: Date.now() } : v); }
+        finally { setSaving(false); }
+    };
 
     return (
         <div className="mt-4 border-t border-white/10 pt-3">
-            <p className="text-[11px] font-black text-cyan-300 mb-2">🧾 Your recent generations</p>
+            <p className="text-[11px] font-black text-cyan-300 mb-1">🧾 Your recent generations</p>
+            <p className="text-[11px] text-white mb-2 leading-snug">This list shows your 10 most recent runs, and older ones drop off it. Save the ones you want to keep to your collection.</p>
             <div className="space-y-1.5">
                 {jobs.map(j => (
                     <div key={j.id} className="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
-                        <span className={'w-2 h-2 rounded-full shrink-0 ' + dot(j.status)}/>
+                        <span className={'w-2 h-2 rounded-full shrink-0 ' + dot(j)}/>
                         <div className="flex-1 min-w-0">
                             <p className="text-[11px] text-white truncate">{j.prompt || 'Untitled'}</p>
-                            <p className="text-[9px] text-white/45">{word(j)} · {new Date(j.at || Date.now()).toLocaleTimeString()}</p>
+                            <p className="text-[10px] text-white">{word(j)} · {when(j.at)}</p>
                         </div>
                         {j.status === 'done' && j.result && (
                             <button onClick={() => setView(j)} className="shrink-0 text-[10px] font-bold text-cyan-200 border border-cyan-400/50 rounded px-2 py-1 active:scale-95">View</button>
+                        )}
+                        {(j.status === 'failed' || stale(j)) && j.prompt && onRetry && (
+                            <button onClick={() => onRetry(j.prompt)} className="shrink-0 text-[10px] font-bold text-lime-200 border border-lime-400/50 rounded px-2 py-1 active:scale-95">Try again</button>
                         )}
                     </div>
                 ))}
@@ -8413,19 +8503,55 @@ const RkAiQueue = ({ user, onOpen }) => {
                             </div>
                         )}
                         <div className="grid grid-cols-2 gap-2">
-                            {/* Opens in a new tab rather than forcing a download: the image is served
-                                cross-origin, so a download attribute is ignored and long-press to save
-                                is the reliable path on a phone anyway. */}
-                            <Button onClick={() => { const u = view.result?.displayUrl || view.result?.imageUrl; if (u) window.open(u, '_blank'); }} color="cyan" className="text-xs">Open / Save image</Button>
+                            {onSave && <Button onClick={saveView} disabled={saving || !!view.savedAt} color="lime" className="text-xs">{view.savedAt ? '✓ In your collection' : saving ? 'Saving…' : 'Save to my collection'}</Button>}
                             <Button onClick={() => { try { navigator.clipboard.writeText(view.prompt || ''); alert('Prompt copied.'); } catch (e) {} }} color="accent" className="text-xs">Copy prompt</Button>
                         </div>
-                        <Button onClick={() => { onOpen && onOpen(view); setView(null); }} color="lime" className="w-full text-xs">Load into the lab</Button>
+                        <Button onClick={() => { onOpen && onOpen(view); setView(null); }} color="cyan" className="w-full text-xs">Load into the lab</Button>
+                        {/* Kept as an explicit second option. The image is served cross-origin, so a
+                            download attribute is ignored; a browser tab is still the reliable way to
+                            save the full-size file to a phone. */}
+                        {(view.result?.displayUrl || view.result?.imageUrl) && (
+                            <button onClick={() => { const u = view.result?.displayUrl || view.result?.imageUrl; if (u) { try { window.open(u, '_blank'); } catch (e) {} } }} className="w-full text-[11px] font-bold text-white underline py-1">Open full size in your browser to save it to your phone</button>
+                        )}
                     </div>
                 )}
             </Modal>
         </div>
     );
 };
+
+// V84.151 (309): the record a saved AI concept becomes, built in ONE place. The Lab's own save and
+// the new save from Your recent generations both call this, so they can never write different
+// shapes. The body is submit()'s object literal moved here verbatim; the parameter names are the
+// names it already used, so not one field changed.
+const rkConceptRecord = (res, user, profile, itemName, allowBuy) => ({ status: 'completed', imageUrl: res.permanentImage || res.displayUrl || res.imageUrl || '', visual_description: res.visual_description, item_category: res.item_category || 'Custom', primary_fabric: res.primary_fabric || 'N/A', estimated_materials: res.materials || [], material_cost: res.material_cost, creation_fee: res.creation_fee, estimated_time_hours: res.estimated_time_hours, estimated_cost: res.estimated_cost, difficulty: res.difficulty, skill_notes: res.skill_notes || '', name: itemName || ("AI " + (res.item_category || 'Design')), timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, isDesignConcept: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: res.item_category || "Other", viewCount: 0,
+                // V73.2: an AI concept is NEVER for sale by the person who generated it.
+                //
+                // 256 tied price to allowBuy, which made the generator a seller of a picture they
+                // produced by typing a sentence. That is not what the toggle is for: it lets other
+                // ravers REQUEST the design from a maker, which is a DIY commission, not a
+                // purchase from the prompter.
+                //
+                // Hard zeros rather than a flag, so no future code path can price it by accident.
+                // The ESTIMATE is kept separately: it is information, not an offer. Three people
+                // need it — the raver deciding whether to request one, the maker quoting the work,
+                // and the generator understanding what they have designed. None of that requires a
+                // price field, and using one would put it into cart and checkout logic.
+                price: 0,
+                stockQty: 0,
+                isShowingOff: true,
+                notForSale: true,
+                estValue: parseFloat(res.estimated_cost) || 0,
+                estMaterialCost: parseFloat(res.material_cost) || 0,
+                estCreationFee: parseFloat(res.creation_fee) || 0,
+                estTimeHours: parseFloat(res.estimated_time_hours) || 0,
+                estDifficulty: parseInt(res.difficulty) || 0,
+                estMaterials: Array.isArray(res.materials) ? res.materials : [],
+                // Renamed in meaning, kept in name: true = other ravers may request this be made.
+                allowRequest: !!allowBuy,
+                ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null,
+                ownerBadge: profile?.featuredBadge || null,
+                brandId: '' });
 
 const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [prompt, setPromptRaw] = useState(() => { try { return localStorage.getItem('rk_ailab_draft') || ''; } catch (e) { return ''; } });
@@ -8436,6 +8562,12 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     // V73.4: one submission per generated design, so the DIY queue cannot be spammed from one run.
     const [sentToCreators, setSentToCreators] = useState(false);
     const [savedToCollection, setSavedToCollection] = useState(false);
+    // V84.151 (309): which job the design on screen came from, and the prompt that produced it. The
+    // box above is editable now, so its text is no longer a record of what made this design.
+    const [jobId, setJobId] = useState(null);
+    const [resPrompt, setResPrompt] = useState('');
+    const [previewUrl, setPreviewUrl] = useState('');
+    const [imgBusy, setImgBusy] = useState(false);
     // V70.4: pick up the most recent finished job on mount, so a generation you walked away
     // from is waiting for you rather than silently discarded.
     useEffect(() => {
@@ -8447,6 +8579,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                 const j = s.docs[0].data();
                 if (j.status === 'done' && j.result) {
                     setRes(j.result);
+                    setJobId(s.docs[0].id); setResPrompt(j.prompt || ''); setSavedToCollection(!!j.savedAt);
                     setImageReady(!!(j.result.displayUrl || j.result.imageUrl));
                     setGenPct(100);
                 }
@@ -8488,6 +8621,11 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         if (!RK_CFG.aiLabEnabled) return alert("The AI Design Lab is temporarily disabled by the admin team — check back soon!");
         setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
+        // V84.151 (309): declared HERE, outside the try. It was a const inside the try, so the catch
+        // below could not see it: its setDoc threw a ReferenceError, the empty catch swallowed it,
+        // and a failed run was never marked failed. That is why runs sat at "Working…" forever
+        // (raised at 256). Found by the new name gate.
+        let jobRef = null;
         // V49: generate FIRST, and only write a collection doc once we have a real image.
         // This guarantees a failed generation never leaves a broken/placeholder item behind.
         try { 
@@ -8505,7 +8643,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // whatever you did in between.
             // Each run is a new design, so both one-shot rules reset with it.
         setSentToCreators(false); setSavedToCollection(false);
-        const jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
+        jobRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'aiJobs'));
             try { await setDoc(jobRef, { prompt, status: 'running', at: Date.now() }); } catch (e) { rkReport('ai job create', e); }
 
             try {
@@ -8525,6 +8663,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // design is only an aiJob and becomes a tradeItem when the user saves it — so it gets
             // its own type that reopens the Design Lab, where the finished result is waiting.
             try { pushNotif(user.uid, 'ailab', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"'); } catch (e) {}
+            setJobId(jobRef.id); setResPrompt(prompt);
             setRes(r);
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
             const userRef = doc(db, 'artifacts', appId, 'users', user.uid);
@@ -8542,8 +8681,10 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // V50: text-only analysis — the result is shown for the user to review and
             // optionally submit; we don't auto-write an image-less item to the collection.
         } catch(e){ 
-            try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) {}
-            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'diy', '😔 Your AI design could not be generated. No credit was used.'); } catch (e2) {}
+            if (jobRef) { try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) { rkReport('ai job fail save', e2); } }
+            // V84.151 (309): 'ailab', not 'diy'. A failed design sent people to the feed; it now
+            // opens the Lab, where the prompt and Try again are.
+            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'ailab', '😔 Your AI design could not be generated. No credit was used.'); } catch (e2) {}
             if (e.message === 'AI_SIGNIN_REQUIRED') alert("Please sign in again — the design service needs a valid session.");
             else if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.'); } catch (e3) {} }
             else if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
@@ -8562,34 +8703,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // V65.25: was hardcoded imageUrl:'' — the concept render never reached the collection.
             // Stores the Pollinations URL, not a 700KB base64 blob. The seed is baked into the
             // URL, so it regenerates the identical image forever and costs zero Firestore space.
-            const inventoryData = { status: 'completed', imageUrl: res.permanentImage || res.displayUrl || res.imageUrl || '', visual_description: res.visual_description, item_category: res.item_category || 'Custom', primary_fabric: res.primary_fabric || 'N/A', estimated_materials: res.materials || [], material_cost: res.material_cost, creation_fee: res.creation_fee, estimated_time_hours: res.estimated_time_hours, estimated_cost: res.estimated_cost, difficulty: res.difficulty, skill_notes: res.skill_notes || '', name: itemName || ("AI " + (res.item_category || 'Design')), timestamp: Date.now(), allowBuy: allowBuy, isDIYRequest: false, isAICreation: true, isDesignConcept: true, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', type: res.item_category || "Other", viewCount: 0,
-                // V73.2: an AI concept is NEVER for sale by the person who generated it.
-                //
-                // 256 tied price to allowBuy, which made the generator a seller of a picture they
-                // produced by typing a sentence. That is not what the toggle is for: it lets other
-                // ravers REQUEST the design from a maker, which is a DIY commission, not a
-                // purchase from the prompter.
-                //
-                // Hard zeros rather than a flag, so no future code path can price it by accident.
-                // The ESTIMATE is kept separately: it is information, not an offer. Three people
-                // need it — the raver deciding whether to request one, the maker quoting the work,
-                // and the generator understanding what they have designed. None of that requires a
-                // price field, and using one would put it into cart and checkout logic.
-                price: 0,
-                stockQty: 0,
-                isShowingOff: true,
-                notForSale: true,
-                estValue: parseFloat(res.estimated_cost) || 0,
-                estMaterialCost: parseFloat(res.material_cost) || 0,
-                estCreationFee: parseFloat(res.creation_fee) || 0,
-                estTimeHours: parseFloat(res.estimated_time_hours) || 0,
-                estDifficulty: parseInt(res.difficulty) || 0,
-                estMaterials: Array.isArray(res.materials) ? res.materials : [],
-                // Renamed in meaning, kept in name: true = other ravers may request this be made.
-                allowRequest: !!allowBuy,
-                ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null,
-                ownerBadge: profile?.featuredBadge || null,
-                brandId: '' };
+            const inventoryData = rkConceptRecord(res, user, profile, itemName, allowBuy);
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), inventoryData);
             if (allowBuy) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), { ...inventoryData, ownerId: user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, isAppProduct: false, purchaseCount: 0, shareCount: 0, status: 'approved', requestStatus: 'awaiting_assignment', likes: [], comments: [] }); alert("Submitted! Your design is live and queued for a Creator to fabricate orders."); } 
             else { alert("Saved to your collection!"); }
@@ -8598,7 +8712,77 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // submit the same design to creators, which is the pairing people actually want.
             // Discard is right there for when you are finished with it.
             setSavedToCollection(true);
+            // V84.151 (309): recorded on the job too, so Your recent generations shows it as saved
+            // and its own save button cannot add a duplicate.
+            if (jobId) { try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'aiJobs', jobId), { savedAt: Date.now() }, { merge: true }); } catch (e) { rkReport('ai job saved flag', e); } }
         } catch (e) { alert("Error saving: " + e.message); } finally { setLoading(false); }
+    };
+
+    // V84.151 (309): the day's remaining designs, read from the server's own counter (V73.15).
+    const refreshRemaining = async () => {
+        try {
+            const fresh = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid));
+            const d2 = fresh.exists() ? fresh.data() : {};
+            const t2 = new Date().toISOString().slice(0, 10);
+            setRemaining(Math.max(0, DAILY_AI_LIMIT - (d2.imgDay === t2 ? (Number(d2.imgCountToday) || 0) : 0)));
+        } catch (e) { setRemaining(prev => Math.max(0, prev - 1)); }
+    };
+    // V84.151 (309): a real reroll, and the same call makes a missing image. One new picture for
+    // the design on screen, from the server; the breakdown is unchanged. The server counts it only
+    // once the image is stored, so a run that never produced one was never charged for it. The job
+    // record is updated, so Your recent generations shows the new picture.
+    const rerollImage = async () => {
+        if (!res || !user?.uid) throw new Error('NO_DESIGN');
+        if (remaining <= 0) throw new Error('IMG_DAILY_CAP');
+        const url = await rkGenerateImage(rkImagePrompt(resPrompt || prompt, res.visual_description));
+        if (!url) throw new Error('NO_IMAGE');
+        const next = { ...res, imageUrl: url, displayUrl: url, permanentImage: '', imageNote: '' };
+        if (jobId) {
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'aiJobs', jobId), { result: next, rerolledAt: Date.now(), savedAt: null }, { merge: true }); }
+            catch (e) { rkReport('ai job reroll save', e); }
+        }
+        setRes(next);
+        // A copy saved earlier has the old picture; this one is new, so it can be saved too.
+        setSavedToCollection(false);
+        refreshRemaining();
+        return url;
+    };
+    const makeImage = async () => {
+        if (imgBusy) return;
+        setImgBusy(true);
+        try { await rerollImage(); }
+        catch (e) { alert(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up. They reset at midnight UTC." : 'The image could not be made this time, and nothing was used. Try again in a moment.'); }
+        finally { setImgBusy(false); }
+    };
+    // V84.151 (309): save straight from Your recent generations. Returns true so the sheet can
+    // show it as saved.
+    const saveJobToCollection = async (j) => {
+        if (!user?.uid || !j?.result) return false;
+        if (j.savedAt) { alert('This design is already in your collection.'); return false; }
+        try {
+            const name = String(j.prompt || '').trim().slice(0, 40);
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'), rkConceptRecord(j.result, user, profile, name, false));
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'aiJobs', j.id), { savedAt: Date.now() }, { merge: true }); } catch (e) { rkReport('ai job saved flag', e); }
+            if (j.id === jobId) setSavedToCollection(true);
+            alert('Saved to your collection!');
+            return true;
+        } catch (e) { rkReport('save from recent generations', e); alert('Could not save: ' + (e?.message || 'unknown error')); return false; }
+    };
+    // V84.151 (309): Try again on a stopped or failed run puts its prompt back in the box.
+    const retryPrompt = (p) => {
+        const text = String(p || '');
+        if (!text) return;
+        if (res && !window.confirm('Put this prompt back in the box?\n\nThe design on screen stays in Your recent generations.')) return;
+        setRes(null); setPrompt(text);
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+        alert('Your prompt is back in the box. Tap Analyze Design to run it again. Runs that never made an image are not counted.');
+    };
+    // V84.151 (309): the box no longer locks while a design is on screen. Starting a new one asks
+    // first, and says where the current one goes.
+    const newDesign = () => {
+        if (!prompt.trim()) return alert('Type your new idea in the box above first.');
+        if (!window.confirm('Analyze a new design?\n\nThe one on screen stays in Your recent generations.' + (savedToCollection ? '' : ' To keep it in your collection too, tap Cancel and save it first.'))) return;
+        gen();
     };
 
     // V42.28: download the generated image straight to the user's device.
@@ -8638,8 +8822,14 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                 label and it was never true — you cannot sell a concept you generated, only invite
                 someone to have it made. */}
             {!res && <p className="text-[10px] text-white/50 text-center -mt-3 mb-4 leading-snug">Designs you generate are never for sale by you. Ravers can request one be made, and makers pick it up from the DIY queue.</p>}
-            <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="Describe ANY rave creation — e.g. 'holographic pleated festival skirt with LED trim' or 'neon cuff with alien charms'..." disabled={!!res}/>
+            <Input type="textarea" value={prompt} onChange={setPrompt} placeholder="Describe ANY rave creation — e.g. 'holographic pleated festival skirt with LED trim' or 'neon cuff with alien charms'..."/>
                 <button onClick={() => setPrompt('')} className="text-[10px] font-bold text-red-300 bg-red-500/10 border border-red-400/40 rounded px-2 py-1 mt-1">🧹 Wipe text — start fresh</button>
+            {res && !loading && (
+                <div className="mt-2">
+                    <Button onClick={newDesign} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full text-xs">{remaining > 0 ? '🔁 Analyze a new design' : 'Limit Reached'}</Button>
+                    <p className="text-[11px] text-white mt-1 leading-snug">The box above stays editable. Change the text, then tap to start a new design. The one below stays in Your recent generations.</p>
+                </div>
+            )}
             {!res && ( loading ? ( <div className="mt-4 space-y-2 text-center"><LoadingBar progress={genPct} className="h-2"/><p className="text-lime-400 font-mono text-lg font-bold">{genPct}%</p><p className="text-[10px] text-pink-300 animate-pulse">{genPct < 32 ? 'Analyzing your design…' : genPct < 92 ? 'Rendering your concept image…' : 'Finalizing your build plan…'}</p></div> ) : ( <Button onClick={gen} disabled={remaining <= 0} color={remaining > 0 ? "lime" : "accent"} className="w-full">{remaining > 0 ? "Analyze Design" : "Limit Reached"}</Button> ) )}
             {res && (
                 <div className="mt-6 border-2 border-pink-400 rounded-lg p-4 bg-black/40 text-left shadow-[0_0_20px_rgba(255,100,200,0.5)] animate-fade-in-pulse">
@@ -8647,7 +8837,17 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                         <span className="text-[10px] font-black uppercase bg-pink-500/30 text-pink-200 px-2 py-1 rounded">{res.item_category || 'Custom'}</span>
                         <span className="text-[10px] opacity-60">Difficulty {res.difficulty}/10 · ~{res.estimated_time_hours}h</span>
                     </div>
-                    {(res.displayUrl || res.imageUrl) && <AIConceptImage res={res} onReady={setImageReady} />}
+                    {(res.displayUrl || res.imageUrl) && <AIConceptImage res={res} onReady={setImageReady} onReroll={rerollImage} rerollsLeft={remaining} />}
+                    {/* V84.151 (309): imageNote was written on every image failure and never shown,
+                        so a design without a picture gave no reason and no way to get one. */}
+                    {!(res.displayUrl || res.imageUrl) && (
+                        <div className="mb-4 rounded-lg border-2 border-white/20 bg-black/40 p-3 text-center">
+                            <p className="text-xs text-white mb-2">🎨 {res.imageNote || 'This design has no image yet.'}</p>
+                            {remaining > 0
+                                ? <Button onClick={makeImage} disabled={imgBusy} color="cyan" className="text-xs">{imgBusy ? 'Painting…' : 'Make the image now · uses 1 of ' + remaining + ' left today'}</Button>
+                                : <p className="text-[11px] text-white">No designs left today. They reset at midnight UTC.</p>}
+                        </div>
+                    )}
                     <p className="text-sm mb-4 leading-relaxed text-white">{res.visual_description}</p>
 
                     {/* V73.4: not a sale. You are naming a design so it can be found in your collection and recognised in the DIY queue - nothing here is for sale by you. */}
@@ -8691,11 +8891,14 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             new tab so it can be saved with the browser's own save, which works on
                             Android where a long-press inside the app does not. */}
                         <div className="flex gap-1.5 mt-3">
-                            <button onClick={() => { try { navigator.clipboard.writeText(prompt || ''); alert('Prompt copied.'); } catch (e) { alert(prompt || ''); } }}
-                                className="flex-1 text-[10px] font-black uppercase py-2 rounded border border-white/25 bg-white/5 text-white/70">Copy prompt</button>
+                            <button onClick={() => { const t = resPrompt || prompt || ''; try { navigator.clipboard.writeText(t); alert('Prompt copied.'); } catch (e) { alert(t); } }}
+                                className="flex-1 text-[11px] font-black uppercase py-2 rounded border border-white/25 bg-white/5 text-white">Copy prompt</button>
+                            {/* V84.151 (309): previews in the app. It used to send people straight out
+                                to the storage URL in a browser; that is now an explicit choice on the
+                                preview, next to a real Save to my collection. */}
                             {(res.displayUrl || res.imageUrl) && (
-                                <a href={res.displayUrl || res.imageUrl} target="_blank" rel="noreferrer"
-                                    className="flex-1 text-center text-[10px] font-black uppercase py-2 rounded border border-cyan-400/50 bg-cyan-500/15 text-cyan-200">Open / save image</a>
+                                <button onClick={() => setPreviewUrl(res.displayUrl || res.imageUrl)}
+                                    className="flex-1 text-center text-[11px] font-black uppercase py-2 rounded border border-cyan-400/50 bg-cyan-500/15 text-cyan-200">View full size</button>
                             )}
                         </div>
                     </div>
@@ -8750,7 +8953,18 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         {/* V71.1: the queue. A generation takes about a minute and you are meant to walk away,
             so there has to be somewhere that says what happened while you were gone. Each row
             keeps the prompt that produced it, which is the thing people actually want back. */}
-        <RkAiQueue user={user} onOpen={(j) => { setRes(j.result); setImageReady(!!(j.result && (j.result.displayUrl || j.result.imageUrl))); setGenPct(100); }} />
+        <Modal isOpen={!!previewUrl} onClose={() => setPreviewUrl('')} title="Design preview" zClass="z-[140]">
+            {previewUrl && (
+                <div className="space-y-2">
+                    <img src={previewUrl} alt="AI concept render, full size" className="w-full rounded-lg border border-white/15"/>
+                    {res && <Button onClick={submit} disabled={loading || savedToCollection} color="lime" className="w-full text-xs">{loading ? 'Saving…' : savedToCollection ? '✓ Saved to your collection' : 'Save to my collection'}</Button>}
+                    <button onClick={() => { try { window.open(previewUrl, '_blank'); } catch (e) {} }} className="w-full text-[11px] font-bold text-white underline py-1">Open full size in your browser to save it to your phone</button>
+                </div>
+            )}
+        </Modal>
+        <RkAiQueue user={user}
+            onOpen={(j) => { setRes(j.result); setJobId(j.id); setResPrompt(j.prompt || ''); setSavedToCollection(!!j.savedAt); setSentToCreators(false); setImageReady(!!(j.result && (j.result.displayUrl || j.result.imageUrl))); setGenPct(100); }}
+            onRetry={retryPrompt} onSave={saveJobToCollection} />
         </Card> 
     );
 };
@@ -15865,7 +16079,10 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <FontSelectorModal user={user} profile={profile} isOpen={nameFontOpen} onClose={() => setNameFontOpen(false)} field={RK_NAME_STYLE_FIELD} titleLabel="Your Name Style" />
                 <RkInvGrants user={user} profile={profile} asModal isOpen={shareOpen} onClose={() => setShareOpen(false)} />
                 <StatDetailModal statKey={statDetail} uid={user.uid} profile={profile} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
-                <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} />
+                {/* V84.151 (309): onOpenWallet was never passed to this instance, so its wallet button,
+                    the ledger's Add My Wallet and the claim gate all did nothing (raised at 253 and
+                    278). Same route the Referral modal above uses: App owns the wallet window. */}
+                <RevShareShareModal user={user} profile={profile} isOpen={showRevShare} onClose={() => setShowRevShare(false)} onOpenWallet={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} onViewProfile={(u) => { setShowRevShare(false); onViewProfile && onViewProfile(u); }} />
                 <UserReviewsModal targetUid={user?.uid} targetName={profile?.displayName} ratingSum={profile?.ratingSum} ratingCount={profile?.ratingCount} isOpen={reviewsOpen} onClose={() => setReviewsOpen(false)} />
                 <FriendUidModal user={user} profile={profile} isOpen={uidModalOpen} onClose={() => setUidModalOpen(false)} />
                 <BannerModal user={user} profile={profile} isOpen={showBanner} onClose={() => setShowBanner(false)} onGoVip={() => setModals({...modals, vip: true})} />
@@ -16961,7 +17178,9 @@ const App = () => {
             try {
                 if (!data || !data.type) return;
                 if (data.type === 'message') setPage('inbox');
-                else if (data.type === 'ailab') setPage('shop');
+                // V84.151 (309): the Lab is the 'custom' tab. Opening the shop alone landed on
+                // whichever tab was last used, which is how a design notification opened DIY.
+                else if (data.type === 'ailab') { setPage('shop'); setTab('custom'); }
                 else setPage('inbox');
             } catch (e) {}
         });
@@ -17917,7 +18136,7 @@ cat << 'EOF' >> src/App.js
                 else if (key === 'admin') bus('admin');
                 else bus(key);
             }}/>
-            <RevShareShareModal user={user} profile={profile} isOpen={showRevSharePortal} onClose={() => setShowRevSharePortal(false)} onOpenWallet={() => { setShowRevSharePortal(false); setWalletModalOpen(true); }} onViewProfile={(u) => { setShowRevSharePortal(false); setViewingProfileId(u); }} onOpenWallet={() => setWalletModalOpen(true)} />
+            <RevShareShareModal user={user} profile={profile} isOpen={showRevSharePortal} onClose={() => setShowRevSharePortal(false)} onViewProfile={(u) => { setShowRevSharePortal(false); setViewingProfileId(u); }} onOpenWallet={() => setWalletModalOpen(true)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)} profile={profile} onNeedWallet={() => { window.__rkWalletNudged = true; setWalletNudge({ open: true, next: null }); }}/>}
@@ -18592,6 +18811,71 @@ elif [ $TDZ_RC -ne 0 ]; then
   exit 1
 else
   echo "   Dependency-order gate: $(echo "$TDZ_OUT" | tail -1)"
+fi
+
+# ============================================================================================
+# V84.151 (309) - NAME GATE
+#
+# The third gate. The hook and dependency gates read structure; this one asks TypeScript's own
+# checker a single question: is any name USED that is never DECLARED? Each one is a ReferenceError
+# waiting for the code path that reaches it. Its first run, against 308, found three that had
+# shipped: a Design Lab catch that could not see `jobRef` (so failed runs sat at "Working..."
+# forever), a RevShare panel using an `onViewProfile` it was never given, and an unimported
+# `deleteField` that broke cancelling Obliterate. None of them crashed on launch, which is why
+# none were noticed: each broke one button, silently.
+#
+# Imports are not resolved (noResolve), so it needs nothing from node_modules and runs before
+# npm install. It reports only "Cannot find name"; every other diagnostic is ignored. A checker
+# that crashes or a TypeScript without the API reports SKIPPED and never blocks the build.
+# ============================================================================================
+cat << 'NAMEEOF' > .rk_name_check.js
+// Name gate: any identifier the code uses but never declares is a ReferenceError waiting to fire.
+let ts; try { ts = require('typescript'); } catch (e) { console.log('SKIP_NO_TS'); process.exit(0); }
+if (typeof ts.createProgram !== 'function' || typeof ts.flattenDiagnosticMessageText !== 'function') { console.log('SKIP_TS_INCOMPATIBLE ' + (ts.version || 'unknown')); process.exit(0); }
+const path = require('path');
+const file = path.resolve('src/App.js');
+// Version tokens are real identifiers here and are substituted later in the build.
+const ALLOW = new Set(['__RK_VER__', '__RK_SEMVER__', '__RK_BUILD__']);
+const prog = ts.createProgram([file], {
+  allowJs: true, checkJs: true, noEmit: true, noResolve: true, skipLibCheck: true, types: [],
+  jsx: ts.JsxEmit.Preserve, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext,
+  lib: ['lib.esnext.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts']
+});
+const sf = prog.getSourceFile(file);
+if (!sf) { console.log('SKIP_NO_SOURCE'); process.exit(0); }
+const bad = {};
+for (const d of prog.getSemanticDiagnostics(sf)) {
+  if (d.start === undefined) continue;
+  if (!/^Cannot find name '/.test(ts.flattenDiagnosticMessageText(d.messageText, '\n'))) continue;
+  const name = sf.text.substr(d.start, d.length);
+  if (ALLOW.has(name)) continue;
+  (bad[name] = bad[name] || []).push(sf.getLineAndCharacterOfPosition(d.start).line + 1);
+}
+const names = Object.keys(bad).sort();
+for (const n of names) console.log('  ' + n + ' - line ' + bad[n].slice(0, 5).join(', ') + (bad[n].length > 5 ? ' ...' : ''));
+console.log('undeclared names: ' + names.length);
+process.exit(names.length ? 1 : 0);
+NAMEEOF
+
+NAME_OUT=$(node .rk_name_check.js 2>/dev/null)
+NAME_RC=$?
+rm -f .rk_name_check.js
+if [ -z "$NAME_OUT" ] || echo "$NAME_OUT" | grep -q "^SKIP_"; then
+  echo "   Name gate SKIPPED - TypeScript missing, incompatible, or the checker crashed."
+  echo "   Fix once with:  cd ~ && npm install --save-exact typescript@6.0.3"
+elif [ $NAME_RC -ne 0 ]; then
+  echo ""
+  echo "=================================================================="
+  echo "  BUILD STOPPED - A NAME IS USED BUT NEVER DECLARED"
+  echo "=================================================================="
+  echo "$NAME_OUT"
+  echo ""
+  echo "  Each name above throws a ReferenceError when its line runs."
+  echo "  Declare it, import it, or pass it in as a prop."
+  echo "=================================================================="
+  exit 1
+else
+  echo "   Name gate: $(echo "$NAME_OUT" | tail -1)"
 fi
 
 cat << 'EOF' > package.json
@@ -19991,7 +20275,9 @@ exports.generateDesignImage = onCall(
     const uid = req.auth && req.auth.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
 
-    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 500);
+    // V84.151 (309): 1000, up from 500. The prompt now leads with the raver's own words and then
+    // the visual script, and the model accepts 2048. 500 would cut the script in half.
+    const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 1000);
     if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
 
     const db = admin.firestore();
@@ -20012,11 +20298,13 @@ exports.generateDesignImage = onCall(
                 '/ai/run/' + MODEL;
     let out;
     try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      });
+      const headers = { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' };
+      // V84.151 (309): a random seed on every call, so a reroll is always a different picture
+      // rather than depending on the model's default. If the model ever refuses the field (a 400),
+      // the call is repeated without it instead of failing the generation.
+      const seed = Math.floor(Math.random() * 1000000000);
+      let r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ prompt, seed }) });
+      if (r.status === 400) r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ prompt }) });
       out = await r.json();
       if (!r.ok || out.success === false) {
         const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
