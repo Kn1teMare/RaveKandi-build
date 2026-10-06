@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=84
-RK_MINOR=75
+RK_MINOR=77
 RK_PATCH=150
-RK_BUILD=309
+RK_BUILD=311
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -888,23 +888,139 @@ const validateTracking = (raw, carrierId) => {
     return { valid: true, value: t, carrier: carrier || null, url: carrier ? carrier.url(t) : null };
 };
 
-const RADIO_STATIONS = [
-    { id: 'house',  name: 'Deep House',     genre: 'House',                 url: 'https://ice1.somafm.com/beatblender-128-mp3',  color: '#ff50b4' },
-    { id: 'techno', name: 'Techno Trip',    genre: 'Techno / Trance',       url: 'https://ice1.somafm.com/thetrip-128-mp3',      color: '#b464ff' },
-    { id: 'edm',    name: 'EDM Mainstage',  genre: 'EDM / Big Room',        url: 'https://ice1.somafm.com/defcon-128-mp3',       color: '#64ffff' },
-    { id: 'chill',  name: 'Chill Vibes',    genre: 'Downtempo / Ambient',   url: 'https://ice1.somafm.com/groovesalad-128-mp3',  color: '#b4ff64' },
-    { id: 'dnb',    name: 'Bass & DnB',     genre: 'Drum & Bass / Dubstep', url: 'https://ice1.somafm.com/dubstep-128-mp3',      color: '#ffd700' },
-    { id: 'idm',    name: 'Glitch Lab',     genre: 'IDM / Glitch',          url: 'https://ice1.somafm.com/cliqhop-128-mp3',      color: '#ff8050' },
-    { id: 'space',  name: 'Space Station',  genre: 'Spaced-Out Beats',      url: 'https://ice1.somafm.com/spacestation-128-mp3', color: '#80ffff' },
-    { id: 'lush',   name: 'Lush Lounge',    genre: 'Chill Vocal Electronica', url: 'https://ice1.somafm.com/lush-128-mp3',       color: '#ff80bf' },
-    { id: 'trap',   name: 'Trap Temple',    genre: 'Trap EDM',              url: 'https://radiorecord.hostingradio.ru/trap96.aacp',    color: '#ff3864' },
-    { id: 'edmhh',  name: 'Beat Bodega',    genre: 'EDM Hip-Hop',           url: 'https://ice1.somafm.com/fluid-128-mp3',        color: '#9d4edd' },
-    { id: 'top100', name: 'Top 100 EDM',    genre: 'Top Dance Hits',        url: 'https://radiorecord.hostingradio.ru/rr_main96.aacp', color: '#00f5d4' },
-    { id: 'hardstyle', name: 'Hardstyle HQ', genre: 'Hardstyle / Hardcore',  url: 'https://radiorecord.hostingradio.ru/hardstyle96.aacp', color: '#ff2079' },
-    { id: 'psy',    name: 'Psytrance',      genre: 'Psy / Goa Trance',      url: 'https://radiorecord.hostingradio.ru/goa96.aacp',     color: '#39ff14' },
-    { id: 'future', name: 'Future House',   genre: 'Future / Bass House',   url: 'https://radiorecord.hostingradio.ru/fbass96.aacp',    color: '#7b2fff' },
-    { id: 'trance2',name: 'Trance Mission', genre: 'Uplifting Trance',      url: 'https://radiorecord.hostingradio.ru/tm96.aacp',       color: '#00bfff' },
+// V84.77.150.311: THE STATION LIST, REBUILT (your request at 310, and queue item 23).
+//
+// Names. Every station is named for what it actually plays. Six were not:
+//   - "Top 100 EDM" played Radio Record's main station. It is now "Radio Record", and the real
+//     TOP 100 EDM station is added.
+//   - "Future House" played their Future Bass. It is now "Future Bass", and their real Future
+//     House is added.
+//   - "EDM Mainstage" played SomaFM's DEF CON Radio, a chill-room hacker channel. Renamed, and a
+//     real stadium EDM station (Radio Record "EDM") takes the name.
+//   - "Techno Trip" played SomaFM's The Trip, which is progressive house and trance. Renamed and
+//     moved to Trance; a real techno station is added.
+//   - "Bass & DnB" played SomaFM's Dub Step Beyond, which has no drum & bass in it. Renamed and
+//     moved to Bass; six drum & bass stations are added.
+//   - "Deep House" played SomaFM's Beat Blender, which is midtempo electronica. Renamed; a real
+//     deep house station is added.
+// Station ids stay with their streams, so chat rooms and the EQ/mirror memory carry over. That is
+// why id 'techno' is The Trip and the new techno station is 'hardtechno'.
+//
+// Streams. Radio Record streams are radiorecord.hostingradio.ru/<rr>96.aacp, with <rr> taken from
+// their own station list (captured 2026-10-04). `rr` is also how radioRecordNow knows the station.
+// Hardstyle HQ now uses that list's address (teo96) instead of the older hardstyle96 alias.
+//
+// Colour. `bpm` is the genre's typical tempo; `nrg` is intensity from 0 (ambient) to 100 (hard
+// bass), judged from tempo and feel, because tempo alone misleads: dubstep sits at 140 but hits
+// harder than 174 liquid drum & bass. Intensity sets the hue, from cool blue through green and
+// yellow to warm pink. Inside each genre the stations run from calm to intense and each button
+// steps the hue on a little, so a genre reads as one pastel gradient.
+const RK_RADIO_GROUPS = [
+    { k: 'chill',  label: 'Chill & Leftfield' },
+    { k: 'house',  label: 'House' },
+    { k: 'techno', label: 'Techno' },
+    { k: 'edm',    label: 'EDM & Mainstage' },
+    { k: 'breaks', label: 'Breaks & Garage' },
+    { k: 'trance', label: 'Trance' },
+    { k: 'bass',   label: 'Bass Music' },
+    { k: 'dnb',    label: 'Drum & Bass' },
+    { k: 'hard',   label: 'Hard Dance' },
 ];
+const RK_SOMA = (ch) => 'https://ice1.somafm.com/' + ch + '-128-mp3';
+const RK_RADIO_RAW = [
+    // Chill & Leftfield
+    { id: 'ambient',     name: 'Ambient',           genre: 'Ambient · Atmospheric',          g: 'chill',  bpm: 70,  nrg: 5,  rr: 'ambient' },
+    { id: 'lofi',        name: 'Lo-Fi Beats',       genre: 'Lo-Fi Hip-Hop',                  g: 'chill',  bpm: 80,  nrg: 10, rr: 'lofi' },
+    { id: 'lush',        name: 'Lush Lounge',       genre: 'Mellow Vocal Electronica',       g: 'chill',  bpm: 95,  nrg: 14, url: RK_SOMA('lush') },
+    { id: 'chill',       name: 'Chill Vibes',       genre: 'Ambient & Downtempo Grooves',    g: 'chill',  bpm: 95,  nrg: 17, url: RK_SOMA('groovesalad') },
+    { id: 'chillout',    name: 'ChillOut',          genre: 'Chillout',                       g: 'chill',  bpm: 95,  nrg: 19, rr: 'chil' },
+    { id: 'edmhh',       name: 'Beat Bodega',       genre: 'Instrumental Hip-Hop · Liquid Trap', g: 'chill', bpm: 85, nrg: 21, url: RK_SOMA('fluid') },
+    { id: 'space',       name: 'Space Station',     genre: 'Spaced-Out Ambient · Midtempo',  g: 'chill',  bpm: 100, nrg: 24, url: RK_SOMA('spacestation') },
+    { id: 'edm',         name: 'DEF CON Radio',     genre: 'Hacker Chill-Room Electronica',  g: 'chill',  bpm: 100, nrg: 27, url: RK_SOMA('defcon') },
+    { id: 'house',       name: 'Beat Blender',      genre: 'Midtempo & Upbeat Electronica',  g: 'chill',  bpm: 105, nrg: 31, url: RK_SOMA('beatblender') },
+    { id: 'idm',         name: 'Glitch Lab',        genre: 'IDM · Experimental Beats',       g: 'chill',  bpm: 120, nrg: 35, url: RK_SOMA('cliqhop') },
+    // House
+    { id: 'tropical',    name: 'Tropical House',    genre: 'Tropical House',                 g: 'house',  bpm: 108, nrg: 36, rr: 'trop' },
+    { id: 'chillhouse',  name: 'Chill House',       genre: 'Light Melodic House',            g: 'house',  bpm: 115, nrg: 38, rr: 'chillhouse' },
+    { id: 'lofihouse',   name: 'Lo-Fi House',       genre: 'Lo-Fi House',                    g: 'house',  bpm: 120, nrg: 40, rr: 'lofihouse' },
+    { id: 'organic',     name: 'Organic House',     genre: 'Organic House',                  g: 'house',  bpm: 120, nrg: 42, rr: 'organic' },
+    { id: 'deephouse',   name: 'Deep House',        genre: 'Deep House',                     g: 'house',  bpm: 122, nrg: 44, rr: 'deep' },
+    { id: 'afro',        name: 'Afro House',        genre: 'Afro House',                     g: 'house',  bpm: 122, nrg: 46, rr: 'afro' },
+    { id: 'disco',       name: 'Disco & Funk',      genre: 'Nu-Disco · Funky House',         g: 'house',  bpm: 122, nrg: 47, rr: 'discofunk' },
+    { id: 'techhouse',   name: 'Tech House',        genre: 'Tech House',                     g: 'house',  bpm: 126, nrg: 52, rr: 'techouse' },
+    { id: 'futurehouse', name: 'Future House',      genre: 'Future House',                   g: 'house',  bpm: 126, nrg: 54, rr: 'fut' },
+    { id: 'basshouse',   name: 'Bass House',        genre: "Bass House · Jackin'",           g: 'house',  bpm: 127, nrg: 57, rr: 'jackin' },
+    { id: 'electro',     name: 'Electro House',     genre: 'Electro House',                  g: 'house',  bpm: 128, nrg: 59, rr: 'elect' },
+    // Techno
+    { id: 'melodic',     name: 'Melodic Techno',    genre: 'Melodic Techno',                 g: 'techno', bpm: 124, nrg: 50, rr: 'melodic' },
+    { id: 'minimal',     name: 'Minimal / Tech',    genre: 'Minimal · Tech',                 g: 'techno', bpm: 125, nrg: 53, rr: 'mini' },
+    { id: 'hardtechno',  name: 'Techno',            genre: 'Peak-Time Techno',               g: 'techno', bpm: 135, nrg: 68, rr: 'techno' },
+    // EDM & Mainstage
+    { id: 'moombahton',  name: 'Moombahton',        genre: 'Moombahton',                     g: 'edm',    bpm: 110, nrg: 50, rr: 'mmbt' },
+    { id: 'top100',      name: 'Radio Record',      genre: 'Dance Mainstream',               g: 'edm',    bpm: 124, nrg: 52, rr: 'rr_main' },
+    { id: 'top100edm',   name: 'Top 100 EDM',       genre: 'Current EDM Chart',              g: 'edm',    bpm: 126, nrg: 56, rr: 'top100edm' },
+    { id: 'edmclassics', name: 'EDM Classics',      genre: 'Festival Anthems',               g: 'edm',    bpm: 128, nrg: 58, rr: 'edmhits' },
+    { id: 'mainstage',   name: 'EDM Mainstage',     genre: 'Big Room · Stadium EDM',         g: 'edm',    bpm: 128, nrg: 61, rr: 'club' },
+    { id: 'futurerave',  name: 'Future Rave',       genre: 'Future Rave',                    g: 'edm',    bpm: 130, nrg: 64, rr: 'futurerave' },
+    { id: 'complextro',  name: 'Complextro',        genre: 'Complextro · Electro Bass',      g: 'edm',    bpm: 128, nrg: 67, rr: 'complextro' },
+    // Breaks & Garage
+    { id: 'ukgarage',    name: 'UK Garage',         genre: 'UK Garage',                      g: 'breaks', bpm: 132, nrg: 58, rr: 'ukgarage' },
+    { id: 'twostep',     name: '2-Step',            genre: '2-Step Garage',                  g: 'breaks', bpm: 132, nrg: 59, rr: '2step' },
+    { id: 'breaks',      name: 'Breaks',            genre: 'Breakbeat · Nu Breaks',          g: 'breaks', bpm: 132, nrg: 63, rr: 'brks' },
+    // Trance
+    { id: 'techno',      name: 'The Trip',          genre: 'Progressive House & Trance',     g: 'trance', bpm: 128, nrg: 55, url: RK_SOMA('thetrip') },
+    { id: 'progressive', name: 'Progressive',       genre: 'Progressive Trance & House',     g: 'trance', bpm: 128, nrg: 57, rr: 'progr' },
+    { id: 'dreamdance',  name: 'Dream Dance',       genre: "'90s–'00s Melodic Trance",       g: 'trance', bpm: 136, nrg: 62, rr: 'dream' },
+    { id: 'trance2',     name: 'Trance Mission',    genre: 'Trance',                         g: 'trance', bpm: 138, nrg: 65, rr: 'tm' },
+    { id: 'tranceclassics', name: 'Trance Classics', genre: 'Classic Trance Anthems',        g: 'trance', bpm: 138, nrg: 66, rr: 'trancehits' },
+    { id: 'asot',        name: 'A State of Trance', genre: "Armin van Buuren's Radio Show",  g: 'trance', bpm: 138, nrg: 67, rr: 'asot' },
+    { id: 'uplifting',   name: 'Uplifting Trance',  genre: 'Uplifting · Euphoric',           g: 'trance', bpm: 140, nrg: 70, rr: 'uplift' },
+    { id: 'psy',         name: 'Psytrance',         genre: 'Psy · Goa Trance',               g: 'trance', bpm: 145, nrg: 76, rr: 'goa' },
+    // Bass Music
+    { id: 'midtempo',    name: 'Midtempo',          genre: 'Midtempo Bass',                  g: 'bass',   bpm: 105, nrg: 60, rr: 'mt' },
+    { id: 'future',      name: 'Future Bass',       genre: 'Future Bass',                    g: 'bass',   bpm: 150, nrg: 66, rr: 'fbass' },
+    { id: 'dnb',         name: 'Dub Step Beyond',   genre: 'Dubstep, Dub & Deep Bass',       g: 'bass',   bpm: 140, nrg: 70, url: RK_SOMA('dubstep') },
+    { id: 'phonk',       name: 'Phonk',             genre: 'Drift Phonk',                    g: 'bass',   bpm: 140, nrg: 73, rr: 'phonk' },
+    { id: 'trap',        name: 'Trap Temple',       genre: 'EDM Trap',                       g: 'bass',   bpm: 145, nrg: 76, rr: 'trap' },
+    { id: 'dubstep',     name: 'Dubstep',           genre: 'Heavy Dubstep',                  g: 'bass',   bpm: 145, nrg: 82, rr: 'dub' },
+    // Drum & Bass
+    { id: 'liquid',      name: 'Liquid Funk',       genre: 'Liquid Drum & Bass',             g: 'dnb',    bpm: 174, nrg: 72, rr: 'liquidfunk' },
+    { id: 'dnbclassics', name: 'DnB Classics',      genre: 'Classic Drum & Bass',            g: 'dnb',    bpm: 174, nrg: 78, rr: 'drumhits' },
+    { id: 'drumandbass', name: 'Drum & Bass',       genre: 'Drum & Bass',                    g: 'dnb',    bpm: 174, nrg: 82, rr: 'ps' },
+    { id: 'jungle',      name: 'Jungle',            genre: 'Jungle',                         g: 'dnb',    bpm: 168, nrg: 84, rr: 'jungle' },
+    { id: 'neurofunk',   name: 'Neurofunk',         genre: 'Neurofunk',                      g: 'dnb',    bpm: 174, nrg: 89, rr: 'neurofunk' },
+    { id: 'darkside',    name: 'Darkside',          genre: 'Dark Drum & Bass',               g: 'dnb',    bpm: 174, nrg: 92, rr: 'darkside' },
+    // Hard Dance
+    { id: 'dancecore',   name: 'Dancecore',         genre: 'Dancecore',                      g: 'hard',   bpm: 150, nrg: 86, rr: 'dc' },
+    { id: 'hardstyle',   name: 'Hardstyle HQ',      genre: 'Hardstyle',                      g: 'hard',   bpm: 150, nrg: 93, rr: 'teo' },
+    { id: 'hardbass',    name: 'Hard Bass',         genre: 'Hard Bass',                      g: 'hard',   bpm: 155, nrg: 97, rr: 'hbass' },
+];
+// hsl -> #rrggbb, so `color` stays a hex string like every station colour before it.
+const rkHslHex = (h, s, l) => {
+    h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+    const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return '#' + [f(0), f(8), f(4)].map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+};
+// Intensity 0 -> hue 232 (cool blue) ... 100 -> hue -28, i.e. 332 (warm pink).
+const rkNrgHue = (n) => 232 - 2.6 * Math.max(0, Math.min(100, Number(n) || 0));
+const RADIO_STATIONS = (() => {
+    const out = [];
+    RK_RADIO_GROUPS.forEach(g => {
+        let prev = null;
+        RK_RADIO_RAW.filter(r => r.g === g.k).sort((a, b) => a.nrg - b.nrg).forEach(r => {
+            let h = rkNrgHue(r.nrg);
+            if (prev !== null && h > prev - 5) h = prev - 5;   // every button steps the hue on a little
+            prev = h;
+            out.push({ id: r.id, name: r.name, genre: r.genre, group: g.k, bpm: r.bpm, nrg: r.nrg, rr: r.rr || null,
+                url: r.url || ('https://radiorecord.hostingradio.ru/' + r.rr + '96.aacp'),
+                hue: ((h % 360) + 360) % 360, pastel: rkHslHex(h, 85, 82), pastel2: rkHslHex(h - 8, 85, 75), color: rkHslHex(h, 95, 68) });
+        });
+    });
+    return out;
+})();
+// The calm-to-intense key shown above the list.
+const RK_RADIO_LEGEND = 'linear-gradient(90deg, ' + [0, 20, 40, 60, 80, 100].map(n => rkHslHex(rkNrgHue(n), 85, 80)).join(', ') + ')';
 // V42.19 Phase 4: curated well-known YouTube genre live-streams / playlists. YouTube
 // can't be piped through the <audio> EQ player, so these open the stream on YouTube
 // in a new tab (full visuals + chat). Surfaced in the radio modal as a separate list.
@@ -942,14 +1058,48 @@ const RK_DIFF_META = [null,
 ];
 const RK_ACH_COMM_CUT = [0, 0.0005, 0.001, 0.002, 0.0035, 0.005];   // 0.05% … 0.5% per achievement
 const RK_ACH_REF_ADD = [0, 0.001, 0.002, 0.004, 0.007, 0.01];        // referral-type achievements
-const RK_ACH_DIFF_OVERRIDES = { contact_full: 1, notifs_full: 1, ach_5: 1, ach_15: 3, kandi_creator: 3 };
-const rkAchDiff = (a) => RK_ACH_DIFF_OVERRIDES[a.id] || Math.min(5, (a.tier || 1) + 1);
+// V84.152 (310): the key was 'notifs_full'; the achievement's id is 'notif_all', so the override never applied.
+const RK_ACH_DIFF_OVERRIDES = { contact_full: 1, notif_all: 1, ach_5: 1, ach_15: 3, kandi_creator: 3 };
+const rkAchDiff = (a) => RK_ACH_DIFF_OVERRIDES[a.id] || a.diff || Math.min(5, (a.tier || 1) + 1);
 const rkAchIsReferral = (a) => /refer/i.test(String(a.metric || '') + String(a.id || ''));
 const rkAchBonuses = (unlockedList) => {
     let comm = 0, ref = 0;
     (unlockedList || []).forEach(a => { const d = rkAchDiff(a); if (rkAchIsReferral(a)) ref += RK_ACH_REF_ADD[d]; else comm += RK_ACH_COMM_CUT[d]; });
     return { comm: Math.min(0.05, comm), ref: Math.min(0.05, ref) };   // caps: 5% commission trim, 5% referral add
 };
+// V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
+// V84.77.150.311: moved up from below the achievement list, because that list now builds one rank
+// achievement per tier and a const cannot be read before its line runs. Each tier also gains a
+// `hex`, so its badge can glow in the tier's own colour. Dark Matter's text was grey, which is hard
+// to read on this theme; it is violet now.
+const REFERRAL_TIERS = [
+    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 2, color: 'text-pink-500', hex: '#ff6ec7' },
+    { min: 5, max: 9, badge: 'Slime Green', sharePct: 3.5, color: 'text-lime-400', hex: '#a3e635' },
+    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 5, color: 'text-cyan-400', hex: '#67e8f9' },
+    { min: 25, max: 49, badge: 'Holographic', sharePct: 7, color: 'text-purple-400', hex: '#c084fc' },
+    { min: 50, max: 99, badge: 'Laser Core', sharePct: 9, color: 'text-yellow-400', hex: '#facc15' },
+    { min: 100, max: 249, badge: 'Plasma', sharePct: 11.5, color: 'text-red-500', hex: '#ff5d73' },
+    { min: 250, max: 499, badge: 'Supernova', sharePct: 14, color: 'text-orange-400', hex: '#fb923c' },
+    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 17, color: 'text-violet-300', hex: '#b9a7ff' },
+    { min: 1000, max: 2499, badge: 'PLUR God', sharePct: 20, color: 'text-white', hex: '#ffffff' },
+    { min: 2500, max: 4999, badge: 'Cosmic Forge', sharePct: 22.5, color: 'text-fuchsia-400', hex: '#e879f9' },
+    { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300', hex: '#fcd34d' }
+];
+export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
+// V84.77.150.311: RANKS. Every RevShare tier is now an achievement and a badge (your request at
+// 310). The rank number, 1 to 11, sets the badge's look (rkRankStyle) and the achievement's
+// difficulty, and the difficulty sets its reward. Like every referral achievement, a rank adds to
+// the referral share rather than trimming the commission. Ranks are a bonus track: they do not
+// count toward the 80% free-VIP goal, so adding eleven of them did not move that goal.
+const rkRankOf = (refs) => { const n = Number(refs) || 0; let r = 0; REFERRAL_TIERS.forEach((t, i) => { if (n >= t.min) r = i + 1; }); return r; };
+const RK_RANK_DIFF = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5];
+const RK_RANK_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+const RK_RANK_ACHS = REFERRAL_TIERS.map((t, i) => ({
+    id: 'rank_' + t.badge.toLowerCase().replace(/[^a-z0-9]+/g, '_'), name: t.badge + ' Rank', tier: 1,
+    rank: i + 1, diff: RK_RANK_DIFF[i], metric: 'referrals', threshold: t.min,
+    icon: i >= 8 ? Crown : i >= 4 ? Zap : Award,
+    desc: 'RevShare rank ' + RK_RANK_ROMAN[i] + ': refer ' + t.min.toLocaleString() + ' raver' + (t.min === 1 ? '' : 's') + '. Pays ' + t.sharePct + '% of the commission on everything they buy, and unlocks the ' + t.badge + ' badge.'
+}));
 const ACHIEVEMENT_TIERS = [
     // Creator / status
     { id: 'kandi_creator', name: 'Official Creator', tier: 1, metric: 'isKandiCreator', threshold: 1, icon: Hammer, desc: "Get approved as a Verified Creator." },
@@ -984,6 +1134,8 @@ const ACHIEVEMENT_TIERS = [
     { id: 'biolink', name: 'Link in Bio Hero', tier: 1, metric: 'bioLinkAdded', threshold: 1, icon: Link, desc: "Add your RaveKandi invite link to your social bio." },
     { id: 'ref_2', name: 'Recruiter', tier: 1, metric: 'referrals', threshold: 10, icon: Users, desc: "Refer 10 ravers." },
     { id: 'ref_3', name: 'Rave Evangelist', tier: 1, metric: 'referrals', threshold: 50, icon: Users, desc: "Refer 50 ravers." },
+    // V84.77.150.311: the eleven RevShare ranks, Neon Pink to Eternal Rave (RK_RANK_ACHS above).
+    ...RK_RANK_ACHS,
     // Trades
     { id: 'trade_1', name: 'Trader', tier: 1, metric: 'completedTrades', threshold: 1, icon: Gift, desc: "Complete your first trade." },
     { id: 'trade_2', name: 'Trade Master', tier: 1, metric: 'completedTrades', threshold: 25, icon: Gift, desc: "Complete 25 trades." },
@@ -1031,26 +1183,12 @@ const ACHIEVEMENT_TIERS = [
     { id: 'ach_5', name: 'Achiever', tier: 1, metric: 'achievementsUnlocked', threshold: 5, icon: Award, desc: "Unlock 5 achievements." },
     { id: 'ach_15', name: 'Completionist', tier: 1, metric: 'achievementsUnlocked', threshold: 15, icon: Award, desc: "Unlock 15 achievements." },
     // V64.02: account-completeness
-    { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, icon: Smartphone, desc: "Add both a phone number and an email to your account." },
-    { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, icon: Bell, desc: "Elect every notification type — phone & email — in the notifications wizard." },
+    { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, icon: Smartphone, desc: "Add a phone number in Settings → Contact Info. The email you sign in with counts as your email." },
+    { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, icon: Bell, desc: "Turn on every notification type for both Phone and Email in Settings → Notifications, then Save Changes." },
 ];
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
 
-// V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
-const REFERRAL_TIERS = [
-    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 2, color: 'text-pink-500' },
-    { min: 5, max: 9, badge: 'Slime Green', sharePct: 3.5, color: 'text-lime-400' },
-    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 5, color: 'text-cyan-400' },
-    { min: 25, max: 49, badge: 'Holographic', sharePct: 7, color: 'text-purple-400' },
-    { min: 50, max: 99, badge: 'Laser Core', sharePct: 9, color: 'text-yellow-400' },
-    { min: 100, max: 249, badge: 'Plasma', sharePct: 11.5, color: 'text-red-500' },
-    { min: 250, max: 499, badge: 'Supernova', sharePct: 14, color: 'text-orange-400' },
-    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 17, color: 'text-gray-400' },
-    { min: 1000, max: 2499, badge: 'PLUR God', sharePct: 20, color: 'text-white' },
-    { min: 2500, max: 4999, badge: 'Cosmic Forge', sharePct: 22.5, color: 'text-fuchsia-400' },
-    { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300' }
-];
-export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
+// V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
 
 // V62: Radio chat constants. Each in-app station has its own chat channel keyed by station id;
 // 'global' is the shared all-stations room (default).
@@ -2185,9 +2323,15 @@ const rkDeriveEffort = (a) => {
     };
 };
 
+// V84.152 (310): every notification type ticked for both channels. Shared by the achievement and
+// by the self-heal in App, so the two can never disagree about what "every" means.
+const rkNotifsMaxed = (prefs) => { try { return NOTIFICATION_TYPES.every(t => !!(prefs?.phone?.[t.id] && prefs?.email?.[t.id])); } catch (e) { return false; } };
 const getDisplayAchievements = (profile) => {
     const stats = {
-        totalItems: profile?.items?.length || profile?.itemsSold || 0,
+        // V84.152 (310): itemsListed is the raver's own listings, counted by App from the feed it
+        // already loads. `items` was set to [] at signup and never written again, so this line only
+        // ever moved through the itemsSold fallback.
+        totalItems: Math.max(profile?.itemsListed || 0, (profile?.items || []).length, profile?.itemsSold || 0),
         totalSalesValue: profile?.totalSalesValue || 0, totalBoughtValue: profile?.totalBoughtValue || 0,
         itemsSold: profile?.itemsSold || 0, itemsBought: profile?.itemsBought || 0,
         totalLikes: profile?.totalLikes || 0, totalComments: profile?.totalComments || 0,
@@ -2199,9 +2343,75 @@ const getDisplayAchievements = (profile) => {
         achievementsUnlocked: profile?.achievementsUnlocked||0,
         friendsCount: (profile?.friends || []).length,
         tribesJoined: profile?.tribesJoined||0, tribeMessages: profile?.tribeMessages||0, biggestTribe: profile?.biggestTribe||0,
-        contactComplete: profile?.contactComplete?1:0, notifsMaxed: profile?.notifsMaxed?1:0
+        // V84.152 (310): Full Signal reads the saved preferences directly, so it unlocks the moment
+        // the boxes are saved instead of waiting for a flag only Settings ever wrote.
+        contactComplete: profile?.contactComplete?1:0,
+        notifsMaxed: (profile?.notifsMaxed || rkNotifsMaxed(profile?.notificationPreferences)) ? 1 : 0,
+        // V84.152 (310): the 16 music and content achievements (Underground Hit through The Vault)
+        // were missing from this list, so `stats[metric]` was undefined and they could never
+        // unlock, although the counters themselves have been written since V63.19.
+        musicPlays: profile?.musicPlays||0, musicDownloads: profile?.musicDownloads||0,
+        contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0
     };
-    return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: (stats[ach.metric]||0) >= ach.threshold }));
+    // Any metric a future achievement names but this list forgets falls back to the profile field
+    // of the same name, instead of silently reading 0 forever.
+    const val = (m) => (m in stats) ? stats[m] : (Number(profile?.[m]) || 0);
+    return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: val(ach.metric) >= ach.threshold }));
+};
+// V84.77.150.311: ACHIEVEMENT REWARDS, APPLIED (queue item 22).
+// Since V65.19 the REWARDS chart has promised that each achievement permanently trims the seller's
+// commission, or for referral achievements raises their referral share. Both bonuses were worked
+// out and saved (achCommBonus, achRefBonus), but nothing that charges or pays ever read them.
+// These helpers are now the ONLY place a rate comes from. Checkout, the analytics card, the RevShare
+// panel, the avatar badge, the inventory profit line and the admin panel all call them, so the
+// figure a raver is shown is the figure they are charged or paid.
+//  - The 5% caps are enforced here, at the point of use, so a hand-edited field cannot pass them.
+//  - "Permanent", as the chart promises: the larger of what is earned today and what was saved
+//    before, so a figure that later drops (an unfriend) never takes a reward back.
+//  - Rewards stack on top of any custom rate an admin sets. The seller rate never goes below 0%,
+//    and the referral share never above 100% of the commission.
+const RK_ACH_CAP = 0.05;
+const rkCapBonus = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.min(RK_ACH_CAP, n) : 0; };
+const rkAchRewards = (p) => {
+    if (!p) return { comm: 0, ref: 0 };
+    let live = { comm: 0, ref: 0 };
+    try { live = rkAchBonuses(getDisplayAchievements(p).filter(a => a.unlocked)); } catch (e) {}
+    return { comm: rkCapBonus(Math.max(live.comm, Number(p.achCommBonus) || 0)), ref: rkCapBonus(Math.max(live.ref, Number(p.achRefBonus) || 0)) };
+};
+// Seller commission before achievements: custom rate, launch perks and launch lock, as before.
+const rkBaseSellerRate = (p) => effCommissionRate(p?.customCommissionRate, p?.lockedCommissionRate);
+const rkSellerRate = (p) => Math.max(0, rkBaseSellerRate(p) - rkAchRewards(p).comm);
+// Referral share before achievements, in percent: an admin's custom rate if one is set, else the tier.
+const rkRefBasePct = (p) => { const o = p?.customRevSharePct; return (o !== null && o !== undefined && o !== '' && Number.isFinite(Number(o))) ? Number(o) : getReferralTier(Number(p?.referrals) || 0).sharePct; };
+const rkRefSharePct = (p) => Math.min(100, Math.round((rkRefBasePct(p) + rkAchRewards(p).ref * 100) * 100) / 100);
+// 0.0965 -> "9.65%", 0.1 -> "10%". Never rounded into a figure the raver is not actually charged.
+const rkRatePct = (r) => { const v = Math.round((Number(r) || 0) * 10000) / 100; return (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0$/, '')) + '%'; };
+// A figure that is already a percentage: 2.3 -> "2.3%".
+const rkPctTxt = (v) => { const n = Math.round((Number(v) || 0) * 100) / 100; return (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, '')) + '%'; };
+// The App effect that saves rewards announces each change once, even if it runs twice before the
+// saved values come back.
+let rkAchNoticeSig = '';
+// V84.152 (310): see the App effect that calls this. Trades are queried one side at a time because
+// the rules only let you read offers you are part of, and a query has to PROVE that.
+const RK_ACH_SYNC_MS = 6 * 60 * 60 * 1000;
+const rkSyncTradeTribeStats = async (uid, profile) => {
+    const key = 'rk_ach_sync_' + uid;
+    try { const last = Number(localStorage.getItem(key) || 0); if (last && Date.now() - last < RK_ACH_SYNC_MS) return; } catch (e) {}
+    const col = (n) => collection(db, 'artifacts', appId, 'public', 'data', n);
+    const upd = {};
+    const hi = (f, v) => { if (Number.isFinite(v) && v > (Number(profile?.[f]) || 0)) upd[f] = v; };
+    const seen = new Set();
+    for (const f of ['itemOwnerId', 'offererId']) {
+        const snap = await getDocs(query(col('tradeOffers'), where(f, '==', uid)));
+        snap.forEach(d => { if (d.data().status === 'completed') seen.add(d.id); });
+    }
+    hi('completedTrades', seen.size);
+    const tribes = await getDocs(query(col('tribes'), where('members', 'array-contains', uid)));
+    let biggest = 0;
+    tribes.forEach(d => { const t = d.data(); biggest = Math.max(biggest, Number(t.memberCount) || (t.members || []).length); });
+    hi('tribesJoined', tribes.size); hi('biggestTribe', biggest);
+    if (Object.keys(upd).length) await setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true });
+    try { localStorage.setItem(key, String(Date.now())); } catch (e) {}
 };
 EOF
 
@@ -2518,6 +2728,9 @@ const CommentModal = ({ item, user, profile, isOpen, onClose, onViewProfile }) =
             // Best-effort counter. If this fails the comment still stands — a wrong count is a
             // cosmetic problem, a lost comment is not.
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { commentCount: increment(1) }); } catch (e2) { rkReport('comment count +1', e2); }
+            // V84.152 (310): counts toward Vibe Spreader and Social Butterfly ("interact with the
+            // community"), which nothing had ever counted.
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { commentsPosted: increment(1) }, { merge: true }); } catch (e3) { rkReport('comments posted +1', e3); }
         } catch (e) { alert('Could not post: ' + e.message); return; }
         if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'comment', (profile?.displayName || 'Someone') + ' commented on "' + item.name + '"', item.id);
         setComment('');
@@ -4685,7 +4898,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                         <div className="relative mt-1">
                             <select value={chanId} onChange={e => onChangeStation(e.target.value)} className="w-full appearance-none bg-black border border-white/25 rounded-lg pl-2 pr-7 py-1.5 text-xs font-bold text-cyan-300">
                                 <option value={CHAT_GLOBAL_ID}>🌐 Global Chat (all stations)</option>
-                                {stations.map(st => <option key={st.id} value={st.id}>{st.name}</option>)}
+                                {RK_RADIO_GROUPS.map(g => <optgroup key={g.k} label={g.label}>{stations.filter(st => st.group === g.k).map(st => <option key={st.id} value={st.id}>{st.name}</option>)}</optgroup>)}
                             </select>
                             <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none"/>
                         </div>
@@ -4781,9 +4994,14 @@ const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
     </div>
 );
 
+// V84.152 (310): a Radio Record lookup that fails says why in the diagnostic log, once per session
+// rather than every 25 seconds while the station plays.
+let rkRadioReported = false;
+const rkRadioReportOnce = (why) => { if (rkRadioReported) return; rkRadioReported = true; rkReport('radio record now', new Error(why)); };
 const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying, onViewProfileFromRadio, onResetButton, dockMode, onDockMode }) => {
     const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
-    const [station, setStation] = useState(RADIO_STATIONS[0]);
+    // V84.77.150.311: the list is now ordered by genre, so the default is named rather than first.
+    const [station, setStation] = useState(() => RADIO_STATIONS.find(s => s.id === 'house') || RADIO_STATIONS[0]);
     const [playing, setPlaying] = useState(false);
     const [status, setStatus] = useState('Select a station and press play.');
     const [radioTab, setRadioTab] = useState('inapp'); // 'inapp' | 'youtube'
@@ -4893,6 +5111,13 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         let alive = true;
         const isSoma = station.url.includes('somafm.com/');
         const channel = isSoma ? station.url.split('somafm.com/')[1].split('-')[0] : null;
+        // V84.152 (310): Radio Record stations, through the radioRecordNow function (their feed has
+        // no CORS headers, so a page cannot read it directly). The name in the stream address
+        // (trap96.aacp -> "trap") is how the function knows which station this is.
+        // V84.77.150.311: each Radio Record station names its stream key (`rr`). Reading it out of the
+        // address broke on names containing digits: "top100edm96.aacp" came out as "edm".
+        const rrMatch = station.rr ? null : station.url.match(/radiorecord\.hostingradio\.ru\/([a-z0-9_]+?)(?:32|64|96|128|320)?\.aacp/i);
+        const rrName = station.rr || (rrMatch ? rrMatch[1].toLowerCase() : null);
         const pull = async () => {
             let song = '';
             if (channel) {
@@ -4900,6 +5125,13 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                     const r = await fetch('https://somafm.com/songs/' + channel + '.json', { cache: 'no-store' });
                     if (r.ok) { const j = await r.json(); const s0 = j.songs && j.songs[0]; if (s0) song = (s0.artist ? s0.artist + ' — ' : '') + (s0.title || ''); }
                 } catch (e) {}
+            } else if (rrName) {
+                try {
+                    const r = (await httpsCallable(getFunctions(app), 'radioRecordNow')({ name: rrName })).data || {};
+                    const t = r.tracks && r.tracks[rrName];
+                    if (t) song = (t.artist ? t.artist + ' — ' : '') + (t.song || '');
+                    else rkRadioReportOnce(r.ok ? ('no track for "' + rrName + '" (' + (r.idSource || 'ids unknown') + ')') : (r.reason || 'no data'));
+                } catch (e) { if (!rkIsOffline(e)) rkRadioReportOnce(((e && e.code) ? '[' + e.code + '] ' : '') + ((e && e.message) || String(e))); }
             }
             if (alive) { setNowSong(song || 'Live Stream'); onNowPlaying({ name: station.name, song: song || 'Live Stream', color: station.color }); }
         };
@@ -4940,8 +5172,12 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const mirrorSet = (id, url) => { try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); m[id] = url; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {} };
     const streamCandidates = (st) => {
         const out = [];
+        // V84.77.150.311: a remembered address is reused only if it is the same stream on another
+        // mirror. Hardstyle HQ changed address in this build, and a remembered old address would
+        // otherwise be tried first, forever.
+        const pathOf = (u) => String(u || '').replace(/^https?:\/\/[^/]+/, '');
         const known = mirrorGet(st.id);
-        if (known) out.push(known);
+        if (known && pathOf(known) === pathOf(st.url)) out.push(known);
         const m = String(st.url).match(/^https:\/\/ice\d\.somafm\.com\/(.+)$/);
         if (m) RK_SOMA_MIRRORS.forEach(h => { const u = 'https://' + h + '.somafm.com/' + m[1]; if (!out.includes(u)) out.push(u); });
         if (!out.includes(st.url)) out.push(st.url);
@@ -5065,8 +5301,9 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                         header ticker but NOT in the player itself — the one screen
                                         somebody has open while listening. SomaFM publishes
                                         now-playing JSON with CORS, so this is real track data, not
-                                        a placeholder. Radio Record has no browser-readable feed and
-                                        stays "Live Stream"; that needs a server-side proxy, queued. */}
+                                        a placeholder. V84.152 (310): Radio Record now comes through
+                                        the radioRecordNow function; if their server refuses it, the
+                                        station shows "Live Stream" and the reason is logged. */}
                                     {playing && nowSong && nowSong !== 'Live Stream' && (
                                         <p className="text-[13px] font-bold text-white truncate mt-0.5">♪ {nowSong}</p>
                                     )}
@@ -5083,13 +5320,37 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 ) : radioTab === 'inapp' ? (
                                     <div className="relative border-2 border-pink-500/60 rounded-xl bg-black/40 p-2" style={{ boxShadow: '0 0 12px rgba(236,72,153,0.6), inset 0 0 12px rgba(0,0,0,0.5)' }}>
                                         <p className="text-[10px] uppercase font-bold text-pink-300/70 mb-1 px-1 flex items-center justify-between"><span>📻 Pick a station — scroll for more</span><ChevronDown size={11} className="animate-bounce"/></p>
-                                        <div ref={stationListRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(15, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-3 rk-scrollbox">
-                                            {RADIO_STATIONS.map(st => (
-                                                <button key={st.id} onClick={() => playStation(st)} className={'p-2 rounded-lg border text-left transition-all ' + (station.id === st.id ? 'bg-white/10' : 'bg-black/40 hover:bg-white/5')} style={{ borderColor: station.id === st.id ? st.color : 'rgba(255,255,255,0.15)', boxShadow: station.id === st.id ? '0 0 10px ' + st.color : 'none' }}>
-                                                    <p className="text-xs font-black" style={{ color: st.color }}>{st.name}</p>
-                                                    <p className="text-[10px] text-white/60 uppercase">{st.genre}</p>
-                                                </button>
-                                            ))}
+                                        {/* V84.77.150.311: stations grouped by genre. Each button is a pastel coloured by intensity,
+                                            stepping a little warmer down each genre; the key above shows the scale. */}
+                                        <div className="flex items-center gap-2 px-1 mb-2">
+                                            <span className="text-[11px] font-black text-white">Chill</span>
+                                            <div className="flex-1 h-2 rounded-full" style={{ backgroundImage: RK_RADIO_LEGEND }}/>
+                                            <span className="text-[11px] font-black text-white">Intense</span>
+                                        </div>
+                                        <div ref={stationListRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(15, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="max-h-[46vh] overflow-y-auto pr-3 rk-scrollbox">
+                                            {RK_RADIO_GROUPS.map(g => {
+                                                const list = RADIO_STATIONS.filter(st => st.group === g.k);
+                                                if (!list.length) return null;
+                                                const lo = Math.min(...list.map(st => st.bpm)), hi = Math.max(...list.map(st => st.bpm));
+                                                return (
+                                                    <div key={g.k} className="mb-3">
+                                                        <p className="sticky top-0 z-[1] bg-[#14001f] text-[11px] font-black uppercase tracking-widest py-1 px-1 mb-1.5 flex items-center justify-between gap-2" style={{ color: list[Math.floor(list.length / 2)].color }}>
+                                                            <span>{g.label}</span><span className="text-white text-[11px] font-bold normal-case tracking-normal">{lo === hi ? lo : lo + '–' + hi} BPM</span>
+                                                        </p>
+                                                        <div className="grid grid-cols-2 gap-1.5">
+                                                            {list.map(st => {
+                                                                const on = station.id === st.id;
+                                                                return (
+                                                                    <button key={st.id} onClick={() => playStation(st)} className="p-2 rounded-lg text-left transition-all active:scale-[0.97]" style={{ backgroundImage: 'linear-gradient(135deg, ' + st.pastel + ', ' + st.pastel2 + ')', color: '#1a0626', border: on ? '2px solid #ffffff' : '2px solid transparent', boxShadow: on ? '0 0 14px ' + st.color : 'none' }}>
+                                                                        <p className="text-[13px] font-black leading-tight">{on && playing ? '▶ ' : ''}{st.name}</p>
+                                                                        <p className="text-[11px] font-bold leading-tight mt-0.5" style={{ color: '#3b1d52' }}>{st.genre} · ~{st.bpm} BPM</p>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                         {/* visible scroll-wheel track on the right — thumb tracks scroll position */}
                                         <div className="absolute right-1 top-7 bottom-2 w-1.5 rounded-full bg-white/10 pointer-events-none">
@@ -5134,7 +5395,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
 
                                 {/* Sound (volume + EQ) button opens a popup */}
                                 <button onClick={() => setSoundOpen(true)} className="w-full bg-white/5 border-2 border-purple-400/60 rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-cyan-300 hover:bg-white/10 transition" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.5)' }}><Volume size={18}/> Volume &amp; Sound Controls</button>
-                                <p className="text-[10px] text-center text-white/40">Live streams powered by SomaFM.com</p>
+                                <p className="text-[11px] text-center text-white">Live streams from SomaFM.com and Radio Record (radiorecord.ru)</p>
                             </div>
                         )}
                     </Card>
@@ -5193,10 +5454,43 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     );
 };
 
+// V84.77.150.311: RANK BADGES. One look per RevShare rank, in four bands that build on each other:
+//   I-III   Glow     the tier's colour, tinted
+//   IV-VI   Neon     plus an outer glow
+//   VII-IX  Prism    plus a slow colour shift
+//   X-XI    Legend   plus a moving shimmer
+const rkRankBand = (rank) => rank >= 10 ? 4 : rank >= 7 ? 3 : rank >= 4 ? 2 : 1;
+const RK_RANK_BAND_NAMES = [null, 'Glow', 'Neon', 'Prism', 'Legend'];
+const rkRankStyle = (rank) => {
+    const t = REFERRAL_TIERS[rank - 1]; if (!t) return {};
+    const c = t.hex, band = rkRankBand(rank);
+    const st = { color: c, borderColor: c, background: c + '22', textShadow: '0 0 6px ' + c + '88' };
+    if (band >= 2) st.boxShadow = '0 0 10px ' + c + '88';
+    if (band === 3) st.animation = 'rkAchHue 6s ease-in-out infinite';
+    if (band >= 4) { st.backgroundImage = 'linear-gradient(120deg, ' + c + '40, #ffffff26, ' + c + '40)'; st.backgroundSize = '300% 300%'; st.animation = 'rkAchBg 4s ease infinite'; st.boxShadow = '0 0 14px ' + c + 'aa'; }
+    return st;
+};
+// The light highlight on a reached rank's row. The current rank gets a stronger one.
+const rkRankRowStyle = (rank, current) => {
+    const t = REFERRAL_TIERS[rank - 1]; if (!t) return undefined;
+    return current ? { borderColor: t.hex, background: t.hex + '2e', boxShadow: '0 0 12px ' + t.hex + '77' } : { borderColor: t.hex + '99', background: t.hex + '14' };
+};
+const RkRankBadge = ({ rank, size = 'sm', className = '' }) => {
+    const t = REFERRAL_TIERS[rank - 1]; if (!t) return null;
+    const big = size === 'lg', band = rkRankBand(rank), ic = big ? 12 : 9;
+    return (
+        <span title={RK_RANK_BAND_NAMES[band] + ' badge'} className={'inline-flex items-center gap-1 border rounded-full font-black uppercase tracking-wide whitespace-nowrap align-middle ' + (big ? 'text-xs px-2.5 py-1' : 'text-[10px] px-1.5 py-0.5') + (className ? ' ' + className : '')} style={rkRankStyle(rank)}>
+            {band >= 4 ? <Crown size={ic}/> : band >= 2 ? <Zap size={ic}/> : <Award size={ic}/>}{t.badge} · {RK_RANK_ROMAN[rank - 1]}
+        </span>
+    );
+};
+
 const BadgeChip = ({ badge }) => {
     if (!badge || !badge.id) return null;
     const ach = ACHIEVEMENT_TIERS.find(a => a.id === badge.id);
     if (!ach) return null;
+    // V84.77.150.311: a rank badge wears its tier's colour and band effects wherever it is shown.
+    if (ach.rank) return <RkRankBadge rank={ach.rank} className="ml-1"/>;
     const Icon = ach.icon;
     return (
         <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[10px] font-bold px-1 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
@@ -5283,6 +5577,7 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
     const all = getDisplayAchievements(profile);
     const unlocked = all.filter(a => a.unlocked);
     const top = profile?.topAchievements || [];
+    const curRank = rkRankOf(profile?.referrals);
     const toggleTop = async (ach) => {
         if (!editable) return;
         if (!ach.unlocked) return alert("Locked — complete the requirement first to feature it.");
@@ -5298,15 +5593,18 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
                 {editable && <p className="text-[10px] text-cyan-300 bg-cyan-900/20 border border-cyan-500/30 rounded p-2">Tap the ⭐ on any unlocked achievement to feature it on your profile (up to 5).</p>}
                 {all.map((ach, idx) => {
                     const isTop = top.includes(ach.id);
+                    // V84.77.150.311: a reached rank wears its tier colour; the current rank is highlighted.
+                    const isCurRank = !!ach.rank && ach.unlocked && ach.rank === curRank;
                     return (
-                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10 ' + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
-                            <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} />
+                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10 ') + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/5 bg-black/40 opacity-40 grayscale'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, isCurRank) : undefined}>
+                            <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} style={ach.rank && ach.unlocked ? { color: REFERRAL_TIERS[ach.rank - 1].hex } : undefined} />
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-center gap-2">
                                     <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
                                     <p className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p>
                                 </div>
                                 <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                                {ach.rank && <div className="mt-1 flex items-center gap-1.5 flex-wrap"><RkRankBadge rank={ach.rank}/>{isCurRank && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">CURRENT RANK</span>}</div>}
                             </div>
                             {editable && ach.unlocked && (
                                 <button disabled={saving} onClick={() => toggleTop(ach)} className="ml-2 shrink-0 p-1" title="Feature on profile">
@@ -5326,24 +5624,10 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
     const [diffChart, setDiffChart] = useState(false);
     const all = getDisplayAchievements(profile);
     const unlocked = all.filter(a => a.unlocked);
-    // V65.19: persist the permanent achievement rewards on the owner's doc + grant free
-    // permanent VIP at 80% completion. Runs only on the owner's own editable card.
-    useEffect(() => {
-        if (!editable || !userUid || !all.length) return;
-        try {
-            const b = rkAchBonuses(unlocked);
-            const pct = unlocked.length / all.length;
-            const upd = {};
-            if ((profile?.achCommBonus || 0) !== b.comm) upd.achCommBonus = b.comm;
-            if ((profile?.achRefBonus || 0) !== b.ref) upd.achRefBonus = b.ref;
-            if (pct >= 0.8 && !profile?.achFreeVip) { upd.achFreeVip = true; upd.isVIP = true; upd.vipPermanent = true; }
-            if (Object.keys(upd).length) {
-                updateDoc(doc(db, 'artifacts', appId, 'users', userUid), upd).then(() => {
-                    if (upd.achFreeVip) pushNotif(userUid, 'achievement', '👑 LEGENDARY: you completed 80% of all achievements — PERMANENT FREE VIP unlocked. Thank you for being the heartbeat of RaveKandi!');
-                }).catch(() => {});
-            }
-        } catch (e) {}
-    }, [editable, userUid, unlocked.length, all.length]);
+    // V84.77.150.311: saving the rewards and the 80% free-VIP grant moved to App, beside the
+    // achievement counter. Here they only ran while this card was on screen, and they wrote the
+    // reward down without anything ever charging it. They are now applied at checkout.
+    const curRank = rkRankOf(profile?.referrals);
     const top = profile?.topAchievements || [];
     // chosen top-5 if set, else first 5 unlocked, else show locked teasers
     let featured = all.filter(a => top.includes(a.id) && a.unlocked).slice(0, 5);
@@ -5364,24 +5648,47 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
                             <span className="h-8 inline-flex items-center px-3 rounded-full text-xs font-bold whitespace-nowrap text-cyan-300 bg-cyan-500/10 border border-cyan-400/40">{unlocked.length}/{all.length} · tap to view all</span>
                         </div>
                     <Modal isOpen={diffChart} onClose={() => setDiffChart(false)} zClass="z-[170]" title="📊 Difficulty & Rewards"><p className="text-base font-black text-cyan-300 mb-2">📊 Difficulty & Permanent Rewards</p>
-                            <p className="text-xs text-white/80 mb-3 leading-relaxed">Every achievement you complete permanently improves your rates — forever. Standard achievements trim your seller commission; referral achievements raise your referral bonus % instead. Complete <strong className="text-yellow-300">80% of all achievements</strong> and you earn <strong className="text-yellow-300">permanent free VIP</strong>. 👑</p>
-                            {[1,2,3,4,5].map(d => (<div key={d} className="flex items-center justify-between bg-white/5 border rounded-lg p-2 mb-1.5" style={{ borderColor: RK_DIFF_META[d].c }}>
-                                <span className="text-xs font-black" style={{ color: RK_DIFF_META[d].c, textShadow: '0 0 8px ' + RK_DIFF_META[d].glow }}>{RK_DIFF_META[d].n}</span>
-                                <span className="text-[10px] text-white/90 text-right">−{(RK_ACH_COMM_CUT[d]*100).toFixed(2)}% commission<br/><span className="text-white/60">or +{(RK_ACH_REF_ADD[d]*100).toFixed(1)}% referral (referral achievements)</span></span>
-                            </div>))}
-                            <p className="text-[10px] text-white/50 mt-1.5">Caps: 5% total commission trim · 5% total referral add. Your current trim: {(((profile?.achCommBonus)||0)*100).toFixed(2)}% · referral add: {(((profile?.achRefBonus)||0)*100).toFixed(1)}%.</p>
+                            <p className="text-xs text-white mb-3 leading-relaxed">Every achievement you complete permanently improves your rates, and they are applied at checkout. Standard achievements trim your seller commission; referral achievements, including your RevShare ranks, raise your referral share instead. Complete <strong className="text-yellow-300">80% of all achievements</strong> (ranks not counted) and you earn <strong className="text-yellow-300">permanent free VIP</strong>. 👑</p>
+                            {(() => {
+                                // V84.77.150.311: each row now shows what this raver has earned at that difficulty. Rows
+                                // with at least one achievement get a light highlight, and the highest one reached is
+                                // marked. The rates underneath are the ones checkout actually uses.
+                                const rw = rkAchRewards(profile);
+                                const best = unlocked.reduce((m, a) => Math.max(m, rkAchDiff(a)), 0);
+                                return (<>
+                                    {[1,2,3,4,5].map(d => {
+                                        const got = unlocked.filter(a => rkAchDiff(a) === d);
+                                        const nRef = got.filter(a => rkAchIsReferral(a)).length, nComm = got.length - nRef;
+                                        const m = RK_DIFF_META[d];
+                                        return (<div key={d} className="border rounded-lg p-2 mb-1.5" style={{ borderColor: m.c, background: got.length ? m.glow.replace(/[\d.]+\)$/, '0.16)') : 'rgba(255,255,255,0.04)', boxShadow: d === best ? '0 0 12px ' + m.glow : 'none' }}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-xs font-black flex items-center gap-1.5 flex-wrap" style={{ color: m.c, textShadow: '0 0 8px ' + m.glow }}>{m.n}{d === best && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black" style={{ textShadow: 'none' }}>★ {editable ? 'YOUR' : 'THEIR'} HIGHEST</span>}</span>
+                                                <span className="text-[11px] text-white text-right leading-snug">−{(RK_ACH_COMM_CUT[d]*100).toFixed(2)}% commission each<br/>or +{(RK_ACH_REF_ADD[d]*100).toFixed(1)}% referral share each</span>
+                                            </div>
+                                            {got.length > 0 && <p className="text-[11px] font-bold text-white mt-1">✓ {got.length} earned{nComm ? ' · −' + (nComm * RK_ACH_COMM_CUT[d] * 100).toFixed(2) + '% commission' : ''}{nRef ? ' · +' + (nRef * RK_ACH_REF_ADD[d] * 100).toFixed(1) + '% referral share' : ''}</p>}
+                                        </div>);
+                                    })}
+                                    <div className="mt-2 bg-black/50 border border-lime-400/50 rounded-lg p-2.5 space-y-1">
+                                        <p className="text-[11px] font-black text-lime-300 uppercase tracking-wide">{editable ? 'Your' : 'Their'} rates now · applied at checkout</p>
+                                        <p className="text-xs text-white">Seller commission: <strong>{rkRatePct(rkSellerRate(profile))}</strong>{rw.comm > 0 ? ' (' + rkRatePct(rkBaseSellerRate(profile)) + ' − ' + rkRatePct(rw.comm) + ' earned)' : ''}</p>
+                                        <p className="text-xs text-white">Referral share: <strong>{rkPctTxt(rkRefSharePct(profile))}</strong> of the commission{rw.ref > 0 ? ' (' + rkPctTxt(rkRefBasePct(profile)) + ' + ' + rkPctTxt(rw.ref * 100) + ' earned)' : ''}</p>
+                                        <p className="text-[11px] text-white">Caps: 5% total commission trim · 5% total referral add.</p>
+                                    </div>
+                                </>);
+                            })()}
                         </Modal>
                     </div>
                     <div className="space-y-3">
                         {display.map((ach, idx) => (
-                            <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? 'border-lime-500/50 bg-lime-900/10' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
-                                <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} />
+                            <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10') : 'border-white/5 bg-black/40 opacity-40 grayscale'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, ach.rank === curRank) : undefined}>
+                                <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} style={ach.rank && ach.unlocked ? { color: REFERRAL_TIERS[ach.rank - 1].hex } : undefined} />
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center gap-2">
                                         <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
                                         {(profile?.topAchievements || []).includes(ach.id) && ach.unlocked && <Star size={12} className="text-yellow-400 shrink-0" fill="currentColor"/>}
                                     </div>
                                     <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                                    {ach.rank && <div className="mt-1"><RkRankBadge rank={ach.rank}/></div>}
                                 </div>
                             </div>
                         ))}
@@ -5441,6 +5748,7 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
                             <div className="flex-1">
                                 <p className="font-bold text-sm flex items-center gap-2">{ach.name} {isFeatured && <span className="text-[10px] bg-yellow-400 text-black px-1 rounded font-black uppercase">Featured</span>}</p>
                                 <p className="text-[10px] opacity-70">{ach.desc}</p>
+                                {ach.rank && <div className="mt-1"><RkRankBadge rank={ach.rank}/></div>}
                             </div>
                             <span className={`text-[10px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Owned' : 'Locked'}</span>
                         </button>
@@ -5773,8 +6081,12 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
         catch (e) { try { navigator.clipboard.writeText(shareText + ' #RaveKandi #PLUR'); alert("Story caption + link copied! Open your social app and paste it into a new Story."); } catch(e2) {} }
     };
     const refCount = profile?.referrals || 0;
-    const tier = getReferralTier(refCount);
-    const pct = profile?.customRevSharePct ?? tier.sharePct;
+    // V84.77.150.311: the share actually paid, achievement add included, and the raver's rank.
+    const pct = rkRefSharePct(profile);
+    const pctBase = rkRefBasePct(profile);
+    const pctAdd = Math.round((pct - pctBase) * 100) / 100;
+    const curRank = rkRankOf(refCount);
+    const hasCustom = profile?.customRevSharePct !== null && profile?.customRevSharePct !== undefined && profile?.customRevSharePct !== '';
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="RevShare Program">
             <div className="space-y-4">
@@ -5785,9 +6097,10 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
                     <p className="text-[10px] uppercase opacity-60 mb-1">Your Friend UID</p>
                     <p className="font-mono text-2xl font-black text-lime-400 break-all">{code}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                        <span className={`text-sm font-black ${tier.color}`}>{tier.badge} Tier</span>
-                        <span className="text-[10px] text-cyan-400">· {pct}% RevShare · {refCount} referral{refCount === 1 ? '' : 's'}</span>
+                        {curRank > 0 ? <RkRankBadge rank={curRank} size="lg"/> : <span className="text-xs font-black text-white">No rank yet: your first referral unlocks Neon Pink</span>}
+                        <span className="text-xs text-cyan-300 font-bold">{rkPctTxt(pct)} RevShare · {refCount} referral{refCount === 1 ? '' : 's'}</span>
                     </div>
+                    {pctAdd > 0 && <p className="text-xs text-lime-300 font-bold mt-1">{rkPctTxt(pctBase)} {hasCustom ? 'custom rate' : 'rank rate'} + {rkPctTxt(pctAdd)} from your achievements</p>}
                 </div>
                 <Button onClick={doCopyLink} color="lime" className="w-full text-xs flex items-center justify-center gap-2 mb-1"><Link size={16}/> Copy My Invite Link</Button>
                 {!profile?.publicUidChanged && (
@@ -5821,21 +6134,28 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
                 <div className="space-y-3">
                     <p className="text-sm text-gray-100 leading-relaxed">Every friend who signs up with your Friend UID earns you a cut of the app's commission on <strong>everything they buy — forever</strong>. The more ravers you bring, the higher your tier climbs and the bigger your cut, all the way to <strong className="text-amber-300">25%</strong>.</p>
                     <div className="bg-black/50 p-3 rounded border border-white/10 max-h-[55vh] overflow-y-auto">
+                        {/* V84.77.150.311: each rank is shown as its badge. Ranks already reached get a light
+                            highlight and a tick; the current one a stronger highlight and YOU. It used to
+                            highlight nothing at all whenever a custom rate was set. */}
                         <table className="w-full text-xs">
-                            <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Referrals</th><th className="pb-1">RevShare</th></tr></thead>
+                            <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Rank &amp; badge</th><th className="pb-1">Referrals</th><th className="pb-1">RevShare</th></tr></thead>
                             <tbody>
-                                {REFERRAL_TIERS.map(t => {
-                                    const isCurrent = refCount >= t.min && refCount <= t.max && !profile?.customRevSharePct;
+                                {REFERRAL_TIERS.map((t, i) => {
+                                    const r = i + 1, reached = curRank >= r, isCurrent = curRank === r;
                                     return (
-                                        <tr key={t.badge} className={`border-b border-white/5 ${isCurrent ? 'bg-white/10' : ''}`}>
-                                            <td className={`py-1.5 font-bold ${t.color}`}>{t.badge}{isCurrent && <span className="text-[10px] text-white/70 ml-1">← YOU</span>}</td>
-                                            <td className="py-1.5">{t.min.toLocaleString()}-{t.max >= 999999 ? '∞' : t.max.toLocaleString()}</td>
+                                        <tr key={t.badge} className="border-b border-white/5" style={isCurrent ? { background: t.hex + '29', boxShadow: 'inset 3px 0 0 ' + t.hex } : reached ? { background: t.hex + '12' } : undefined}>
+                                            <td className="py-1.5 pl-1.5"><span style={reached ? undefined : { opacity: 0.8 }}><RkRankBadge rank={r}/></span>{isCurrent && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black align-middle">YOU</span>}{reached && !isCurrent && <span className="ml-1 text-xs text-lime-300 font-black">✓</span>}</td>
+                                            <td className="py-1.5 text-white">{t.min.toLocaleString()}–{t.max >= 999999 ? '∞' : t.max.toLocaleString()}</td>
                                             <td className="py-1.5 text-lime-300 font-bold">{t.sharePct}%</td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                    <div className="bg-black/40 border border-white/15 rounded p-2.5 text-xs text-white leading-relaxed space-y-1">
+                        <p>Every rank you reach is also an <strong>achievement and a badge</strong>. Feature it from My Badges and it shows beside your name across the app.</p>
+                        <p>You earn <strong className="text-lime-300">{rkPctTxt(pct)}</strong>{pctAdd > 0 ? ' — that includes +' + rkPctTxt(pctAdd) + ' from your achievements' : ''}.{hasCustom ? ' A custom rate of ' + rkPctTxt(pctBase) + ' is set on your account and replaces the rank rate.' : ''}</p>
                     </div>
                     <div className="bg-cyan-900/20 p-3 rounded text-xs border border-cyan-500/30">
                         <span className="font-bold text-cyan-400 block mb-1">How it works</span>
@@ -6982,11 +7302,18 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
     const hasPassword = !!(user?.providerData || []).find(p => p.providerId === 'password');
     const hasGoogle = !!(user?.providerData || []).find(p => p.providerId === 'google.com');
 
+    // V84.152 (310): synced when the window opens and when the SAVED values change, not on every
+    // profile update. It was keyed on the whole profile object, and the presence heartbeat writes
+    // lastActive every 3 minutes, so ticked notification boxes reverted on their own while the
+    // window was open, and the Save that followed wrote the reverted set. That is one way Full
+    // Signal was missed by people who had ticked everything.
+    const savedPrefsKey = JSON.stringify(profile?.notificationPreferences || null);
     useEffect(() => { 
+        if (!isOpen) return;
         if(profile?.notificationPreferences) setPrefs(profile.notificationPreferences); 
         if(profile?.phoneNumber) setPhone(profile.phoneNumber); 
         if(user?.email) setEmail(user.email); 
-    }, [profile, user]);
+    }, [isOpen, savedPrefsKey, profile?.phoneNumber, user?.email]);
 
     const changePassword = async () => {
         if (user?.isAnonymous) { alert("Guest accounts can't set a password. Create a full account first."); return; }
@@ -7060,7 +7387,9 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
         // a phone number lost their whole settings save with no error shown. The audit write is
         // now deferred until after the save succeeds and can no longer take it down.
         if(phone) { updates.phoneNumber = phone; } 
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), updates, { merge: true });
+        // V84.152 (310): a refused save used to fail silently (no catch), which reads as "saved".
+        try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), updates, { merge: true }); }
+        catch (e) { rkReport('settings save', e); alert('Could not save your settings: ' + (e?.message || 'unknown error')); return; }
         // Audit trail, deliberately AFTER the save and deliberately swallowed: a failed log
         // must never cost the user their settings. rkReport still records it for us.
         if(phone) { try { await addDoc(collection(db, 'artifacts', appId, 'promo_logs'), { type: 'phone_update', phone, uid: user.uid, timestamp: Date.now() }); } catch(e) { rkReport('promo_logs phone_update', e); } }
@@ -7423,7 +7752,9 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                 batch.set(orderRef, { itemId: item.originalId, itemName: item.name || 'Item', itemImage: item.mediaUrls?.[0]?.url || item.imageUrl || item.image || '', buyerId: user.uid, buyerName: profile?.displayName || 'Raver', sellerId: item.ownerId, sellerName: item.ownerName || 'Raver', amountUsd: Math.round((item.price || 0) * 100) / 100, payMethod: pay.method === 'crypto' ? 'crypto' : 'card', txSig: pay.txSig || '', status: 'paid_unfinished', trackingNumber: '', createdAt: Date.now(), updatedAt: Date.now(), walletVerified: false, ledgerVerified: false });
 
                 const sellerSnap = await getDoc(sellerRef);
-                const sellerRate = effCommissionRate(sellerSnap.data()?.customCommissionRate, sellerSnap.data()?.lockedCommissionRate);
+                // V84.77.150.311: the seller's achievement trim is applied here, capped at 5%. It was
+                // promised from V65.19 on and never charged (queue item 22).
+                const sellerRate = rkSellerRate(sellerSnap.data() || {});
                 const appCommission = item.price * sellerRate;
                 netProfit += appCommission;
                 const g = sellerOwed[item.ownerId] = sellerOwed[item.ownerId] || { amount: 0, count: 0 };
@@ -7434,8 +7765,9 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                     const refSnap = await getDoc(refRef);
                     if (refSnap.exists()) {
                         const refData = refSnap.data();
-                        const tier = getReferralTier(refData?.referrals || 0);
-                        const pct = refData?.customRevSharePct ?? tier.sharePct;
+                        // V84.77.150.311: the rank rate (or custom rate) plus the referrer's achievement add.
+                        const pct = rkRefSharePct(refData);
+                        const achPct = Math.round((pct - rkRefBasePct(refData)) * 100) / 100;
                         const revShare = appCommission * (pct / 100);
                         netProfit -= revShare;
                         batch.update(refRef, { totalRevShareEarned: increment(revShare) });
@@ -7443,7 +7775,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                         batch.set(refListRef, { earnedFromThisUser: increment(revShare) }, { merge: true });
                         // Immutable ledger entry — committed atomically WITH the sale (zero-loss by design).
                         const ledgerRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'revLedger'));
-                        batch.set(ledgerRef, { entryType: 'referral', refUid: referrerUid, fromUid: user.uid, fromName: profile?.displayName || 'Raver', saleId: item.id, itemName: item.name || '', amountUsd: round2(revShare), pct, status: 'accrued', createdAt: Date.now(), paidAt: null, txSig: pay.txSig || '', method: pay.method });
+                        batch.set(ledgerRef, { entryType: 'referral', refUid: referrerUid, fromUid: user.uid, fromName: profile?.displayName || 'Raver', saleId: item.id, itemName: item.name || '', amountUsd: round2(revShare), pct, achPct, status: 'accrued', createdAt: Date.now(), paidAt: null, txSig: pay.txSig || '', method: pay.method });
                     }
                 }
                 batch.delete(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, item.id));
@@ -7512,8 +7844,11 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
 
     return ( 
         <Modal isOpen={isOpen} onClose={onClose} title="Shopping Cart">
+            {/* V84.152 (310): the wallet, opened over the cart (Milli's request). App owns the wallet
+                window (z-[130], above this one); closing it returns you to the cart. */}
+            <Button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} color="cyan" className="w-full mb-2 text-xs flex items-center justify-center gap-2"><Wallet size={15}/> {profile?.walletReady ? 'My Crypto Wallet' : 'Add My Crypto Wallet'}</Button>
             <div className="bg-black/50 border border-white/15 rounded p-2 mb-2 text-[10px] text-white/70 leading-relaxed space-y-1">
-                {!profile?.walletReady && <p className="text-amber-200 font-bold">👛 Add a crypto wallet (Referral Portal or Settings) to receive payouts &amp; pay with USDC — no bank needed.</p>}
+                {!profile?.walletReady && <p className="text-amber-200 font-bold">👛 Add a crypto wallet with the button above to receive payouts &amp; pay with USDC — no bank needed.</p>}
                 <p>{RK_FEE_NOTE}</p>
                 <p>{RK_TAX_NOTE}</p>
             </div>
@@ -11155,7 +11490,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         if (val !== null && val !== '' && isNaN(pct)) return alert("Enter a valid percentage (0-100).");
         await updateDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { customRevSharePct: pct });
         setManagedUser({ ...managedUser, customRevSharePct: pct });
-        alert(pct === null ? "Override removed - user returns to standard tier rates." : `RevShare locked at ${pct}% for ${managedUser.displayName}.`);
+        alert(pct === null ? "Override removed - user returns to standard tier rates." : `RevShare set to ${pct}% for ${managedUser.displayName}. Their achievement add still applies on top.`);
     };
 
     const banUser = async (durationMs, label) => {
@@ -11249,7 +11584,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                 <Button onClick={() => saveRevShare(revPct)} color="lime" className="text-[10px]">Set</Button>
                                 <Button onClick={() => saveRevShare(null)} color="accent" className="text-[10px]">Reset</Button>
                             </div>
-                            {managedUser.customRevSharePct != null && <p className="text-[10px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces tier rate on all future RevShare payouts.</p>}
+                            {managedUser.customRevSharePct != null && <p className="text-[10px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces the tier rate on all future RevShare payouts. Their achievement add still applies on top.</p>}
 
                             <div className="mt-3 pt-3 border-t border-white/10">
                                 <p className="text-[10px] font-black uppercase text-pink-300 mb-1">Seller Commission Rate</p>
@@ -11267,6 +11602,10 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                     <Button onClick={() => saveCommission(null)} color="accent" className="text-[10px]">Reset</Button>
                                 </div>
                                 <p className="text-[10px] opacity-50 mt-1">Current: {managedUser.customCommissionRate != null ? (managedUser.customCommissionRate * 100).toFixed(0) + '% (override)' : 'standard 20%'}{managedUser.lockedCommissionRate != null ? ' · 🔒 launch-locked at ' + (managedUser.lockedCommissionRate * 100).toFixed(0) + '%' : ''}. Enter 0.10 for 10% (or just 10).</p>
+                                {/* V84.77.150.311: what checkout actually uses for this raver, achievement rewards included. */}
+                                {(() => { const aw = rkAchRewards(managedUser); return (
+                                    <p className="text-[11px] text-white mt-1">Charged now: <strong>{rkRatePct(rkSellerRate(managedUser))}</strong>{aw.comm > 0 ? ' (achievements −' + rkRatePct(aw.comm) + ')' : ''} · RevShare paid: <strong>{rkPctTxt(rkRefSharePct(managedUser))}</strong>{aw.ref > 0 ? ' (achievements +' + rkPctTxt(aw.ref * 100) + ')' : ''}. Achievement rewards apply on top of any custom rate.</p>
+                                ); })()}
                             </div>
 
                             <div className="mt-3 pt-3 border-t border-white/10">
@@ -11991,7 +12330,10 @@ const InventoryManager = ({ user, profile }) => {
         setCapturePreview(null); setHint(null);
     };
     
-    const profit = (parseFloat(newItem.sell || 0) - parseFloat(newItem.cost || 0) - (parseFloat(newItem.sell || 0) * effCommissionRate(null))).toFixed(2);
+    // V84.77.150.311: the raver's own commission (custom rate, launch lock and achievements), not the
+    // standard one.
+    const myRate = rkSellerRate(profile);
+    const profit = (parseFloat(newItem.sell || 0) - parseFloat(newItem.cost || 0) - (parseFloat(newItem.sell || 0) * myRate)).toFixed(2);
     
     return ( 
         <Card className="mt-8 border-cyan-500/40">
@@ -12069,7 +12411,7 @@ const InventoryManager = ({ user, profile }) => {
             <Input label="Or paste an image URL" value={newItem.imageUrl} onChange={v => setNewItem({...newItem, imageUrl: v})} placeholder="https://…"/>
             <Input label="Description" type="textarea" value={newItem.description} onChange={v => setNewItem({...newItem, description: v})}/>
             
-            <div className="flex justify-between items-center border-t border-white/10 pt-4"><p className="text-xs">Est. Unit Profit: <span className="text-lime-400 font-bold">${profit}</span></p><Button onClick={handleAdd} color="lime">Add to Stock</Button></div>
+            <div className="flex justify-between items-center border-t border-white/10 pt-4"><p className="text-xs">Est. Unit Profit: <span className="text-lime-400 font-bold">${profit}</span> <span className="text-white">after your {rkRatePct(myRate)} commission</span></p><Button onClick={handleAdd} color="lime">Add to Stock</Button></div>
         </Card> 
     );
 };
@@ -12638,8 +12980,9 @@ const CreatorProjectHub = ({ user, profile, onClose, onMessageUser, onViewProfil
 };
 const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     if (!isOpen) return null;
-    const refStats = getReferralTier(profile.referrals || 0);
-    const activeCommRate = effCommissionRate(profile.customCommissionRate, profile.lockedCommissionRate);
+    // V84.77.150.311: the rates actually charged and paid, achievement rewards included.
+    const activeCommRate = rkSellerRate(profile);
+    const achRw = rkAchRewards(profile);
     
     const totalRevenue = profile.totalSalesValue || 0;
     const totalFees = totalRevenue * activeCommRate;
@@ -12705,13 +13048,14 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/5 p-3 rounded border border-white/10">
                         <p className="text-[10px] opacity-70 uppercase mb-1">Active Comm. Fee</p>
-                        <p className="text-lg font-bold text-red-400">{(activeCommRate * 100).toFixed(1)}%</p>
+                        <p className="text-lg font-bold text-red-400">{rkRatePct(activeCommRate)}</p>
+                        {achRw.comm > 0 && <p className="text-[11px] text-lime-300 font-bold">−{rkRatePct(achRw.comm)} from achievements</p>}
                         <p className="text-[10px] opacity-50 mt-1">Total Paid: ${totalFees.toFixed(2)}</p>
                     </div>
                     <div className="bg-white/5 p-3 rounded border border-white/10">
                         <p className="text-[10px] opacity-70 uppercase mb-1">RevShare Earned</p>
                         <p className="text-lg font-bold text-cyan-400">${totalRevShare.toFixed(2)}</p>
-                        <p className="text-[10px] opacity-50 mt-1">Current Tier: {refStats.sharePct}%</p>
+                        <p className="text-[11px] text-white mt-1">Your share: {rkPctTxt(rkRefSharePct(profile))}{achRw.ref > 0 ? ' (+' + rkPctTxt(achRw.ref * 100) + ' achievements)' : ''}</p>
                     </div>
                 </div>
 
@@ -12752,19 +13096,20 @@ const HELP_TOPICS = [
     { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item." },
     { cat: 'Buying', title: '📦 Tracking & Delivery', content: "For physical items, sellers must add a tracking number, which is permanently locked once entered and visible only to you and the seller. Check your Collection to follow an order: Pending → Active → Completed." },
     { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight." },
-    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Sellers manage payouts through their secure Stripe Connect portal." },
+    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Every achievement you complete trims your commission a little more, permanently (up to 5% off in total), and checkout applies it automatically. Your current rate is in your Analytics Dashboard and in Achievements → 📊 REWARDS. Sellers manage payouts through their secure Stripe Connect portal." },
     { cat: 'Selling', title: '👑 Becoming a Creator', content: "Apply to become a verified Creator from your profile. Creators get an Official badge, can take DIY commission requests, post official drops, and pin featured items to their profile. Top creators climb the leaderboard." },
     { cat: 'Creating (DIY)', title: '🎨 DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone." },
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
     { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
-    { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all." },
+    { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Each one permanently improves your rates: standard achievements trim your seller commission, referral achievements raise your referral share, and checkout applies both (capped at 5% each). Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all; 📊 REWARDS shows what you have earned at each difficulty and the rates you are charged and paid right now." },
     { cat: 'Marketplace', title: '💜 Paying with Crypto (USDC)', content: "RaveKandi checkout runs on USDC — a digital dollar (1 USDC = $1) on Solana. At checkout, tap Pay with Crypto: a QR + one-tap Phantom button appears with the exact amount pre-filled. Pay, and the app watches the blockchain and confirms your order automatically — usually within seconds. You need: the free Phantom app, USDC for the total, and about $0.25 of SOL for network fees. Your payment carries a unique order code, so it can never be lost or confused — if the app ever misses it, tap 'check now' and the chain answers. Sellers, referrers & partners are credited on the ledger the instant your order confirms." },
     { cat: 'Community', title: '🎵 Music Creators', content: "Approved Music Creators add tracks from their profile (under pinned items): YouTube/SoundCloud/Twitch links, LIVE stream links, or 30-second samples — pick exactly which 30 seconds with the chop slider and preview it before saving. Music shows on their profile, in the Radio hub's RaveKandi Artists browser, and the feed's 🎵 Music tab. Selling: prices display now; purchases unlock when payments go live. Free tracks deliver TODAY via a link — Dropbox (end the link with ?dl=1 for instant download; ?dl=0 opens a preview), Google Drive (set 'Anyone with the link'), or SoundCloud (turn ON 'Enable downloads' on the track). Note: anyone with a delivery link can grab the file — fine for free tracks; buy-to-reveal gating comes with payments. Apply via the Creator application — pick 'Music Creator'." },
     { cat: 'Community', title: '🎬 Spotlight Yourself', content: "Share a rave clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
-    { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your tier (up to 25%). Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
+    { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your rank (up to 25%), and referral achievements add up to 5% more on top. Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
+    { cat: 'Rewards', title: '🏆 RevShare Ranks & Badges', content: "There are 11 RevShare ranks, from Neon Pink (1 referral) to Eternal Rave (5,000). Every rank you reach is an achievement and a badge. The badges grow brighter in four bands: Glow (ranks I–III), Neon (IV–VI), Prism (VII–IX) and Legend (X–XI). Feature one from My Badges and it shows beside your name across the app. Your current rank is highlighted in RevShare Tiers & Benefits." },
     { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
     { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. In Rave Radio chat, VIP also removes the message cooldown, lets you share your social links (limited per day), and lets you share collection items in chat. During launch perks, VIP is free for everyone." },
-    { cat: 'Radio', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone — stream live electronic stations across every genre — house, techno, trance, dnb, dubstep, hardstyle, psytrance and more — with a built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
+    { cat: 'Radio', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone: 57 live stations from SomaFM and Radio Record, grouped by genre (chill, house, techno, EDM, breaks, trance, bass, drum & bass and hard dance). Each button's colour shows its intensity, from cool blues for chill through greens and yellows to warm pinks for the hardest, and each shows its typical BPM. SomaFM stations work with the built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
     { cat: 'Payments', title: '🛡️ Checkout Options', content: "Pay by card through Stripe's encrypted portal, or with Solana crypto (Phantom, Coinbase, MetaMask) for near-zero fees. Your payment details are never stored by RaveKandi." },
 ];
 
@@ -12898,7 +13243,7 @@ export const CreatorPerksSection = ({ onApply }) => {
     );
 };
 
-export const ReferralProgramSection = ({ onNavigateToProfile }) => (
+export const ReferralProgramSection = ({ onNavigateToProfile, profile }) => (
     <div className="mt-8 text-left max-w-md mx-auto mb-10">
         <h2 className="text-2xl font-black mb-4 italic tracking-tighter text-cyan-400">The PLUR RevShare Program</h2>
         <Card glow="accentGlow" className="p-5">
@@ -12907,9 +13252,10 @@ export const ReferralProgramSection = ({ onNavigateToProfile }) => (
                 <table className="w-full text-xs">
                     <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Refs</th><th className="pb-1">RevShare</th></tr></thead>
                     <tbody>
-                        {REFERRAL_TIERS.map(t => (
-                            <tr key={t.badge} className="border-b border-white/5"><td className={`py-1 font-bold ${t.color}`}>{t.badge}</td><td className="py-1">{t.min}-{t.max}</td><td className="py-1 text-lime-300">{t.sharePct}%</td></tr>
-                        ))}
+                        {/* V84.77.150.311: the signed-in raver's current rank is highlighted, ranks below it lightly. */}
+                        {REFERRAL_TIERS.map((t, i) => { const r = i + 1, cur = rkRankOf(profile?.referrals); return (
+                            <tr key={t.badge} className="border-b border-white/5" style={r === cur ? { background: t.hex + '29', boxShadow: 'inset 3px 0 0 ' + t.hex } : cur > r ? { background: t.hex + '12' } : undefined}><td className={`py-1 pl-1 font-bold ${t.color}`}>{t.badge}{r === cur && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">YOU</span>}</td><td className="py-1">{t.max >= 999999 ? t.min.toLocaleString() + '+' : t.min + '-' + t.max}</td><td className="py-1 text-lime-300">{t.sharePct}%</td></tr>
+                        ); })}
                     </tbody>
                 </table>
             </div>
@@ -15360,7 +15706,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                             {(targ.referrals > 0) && refStats && (
                                 <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
                                     <span>{refStats.badge}</span>
-                                    <span className="text-[10px] opacity-80">{targ.customRevSharePct ?? refStats.sharePct}% RevShare</span>
+                                    <span className="text-[10px] opacity-80">{rkPctTxt(rkRefSharePct(targ))} RevShare</span>
                                 </div>
                             )}
                             {isEffVIP(targ) && (
@@ -16094,7 +16440,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                         {(profile.referrals > 0) && (
                             <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
                                 <span>{refStats.badge}</span>
-                                <span className="text-[10px] opacity-80">{profile.customRevSharePct ?? refStats.sharePct}% RevShare</span>
+                                <span className="text-[10px] opacity-80">{rkPctTxt(rkRefSharePct(profile))} RevShare</span>
                             </div>
                         )}
                         {isEffVIP(profile) && (
@@ -17547,9 +17893,16 @@ const App = () => {
 
     // V37.13: self-sync computed stats so the marquee leaderboards can query them,
     // and self-notify on newly unlocked achievements.
+    // V84.152 (310): keyed on WHICH achievements are unlocked, and on the rating fields it reads. It
+    // listed nine fields while the count depends on about thirty, so an achievement earned through
+    // friends, radio time, tribes or music never updated achievementsUnlocked, and never sent its
+    // notification, until one of the nine happened to change.
+    const rkAchKey = profile?.joined ? getDisplayAchievements(profile).filter(a => a.unlocked).map(a => a.id).join(',') : '';
     useEffect(() => {
         if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        const unlocked = getDisplayAchievements(profile).filter(a => a.unlocked).length;
+        const allAch = getDisplayAchievements(profile);
+        const unlockedList = allAch.filter(a => a.unlocked);
+        const unlocked = unlockedList.length;
         const pts = profile.isKandiCreator ? Math.round((profile.itemsSold || 0) * 5 + (profile.totalSalesValue || 0) * 0.5 + (profile.totalLikes || 0) + (profile.completedTrades || 0) * 3) : 0;
         const upd = {};
         if ((profile.achievementsUnlocked || 0) !== unlocked) upd.achievementsUnlocked = unlocked;
@@ -17559,10 +17912,92 @@ const App = () => {
         const avgX100 = Math.round(avg * 100);
         if ((profile.avgRatingX100 || 0) !== avgX100) upd.avgRatingX100 = avgX100;
         if ((profile.ratingTxns || 0) !== rc) upd.ratingTxns = rc;
+        // V84.77.150.311: achievement rewards, saved as high-water marks and announced when they rise.
+        // This used to live in the Achievements card, which saved them only while the raver was looking
+        // at their own profile, and nothing ever charged them. Checkout now applies them through
+        // rkSellerRate and rkRefSharePct, which also read today's achievements directly, so a reward
+        // counts at checkout even before this save lands.
+        const live = rkAchBonuses(unlockedList);
+        const roseComm = live.comm > (Number(profile.achCommBonus) || 0) + 1e-9;
+        const roseRef = live.ref > (Number(profile.achRefBonus) || 0) + 1e-9;
+        if (roseComm) upd.achCommBonus = live.comm;
+        if (roseRef) upd.achRefBonus = live.ref;
+        const firstLive = !profile.achRewardsLive;
+        if (firstLive) upd.achRewardsLive = true;
+        // 80% of the achievements earns permanent free VIP (moved here from the card too). The
+        // RevShare ranks are a bonus track and do not count, so adding them did not move the goal.
+        const core = allAch.filter(a => !a.rank);
+        const vipNow = !profile.achFreeVip && core.length > 0 && core.filter(a => a.unlocked).length / core.length >= 0.8;
+        if (vipNow) { upd.achFreeVip = true; upd.isVIP = true; upd.vipPermanent = true; }
+        // A RevShare rank reached. Its achievement and badge unlock through the list above; this
+        // only makes sure the raver hears about it once.
+        const rank = rkRankOf(profile.referrals);
+        const prevRank = Number(profile.rankNotified) || 0;
+        if (rank > prevRank) upd.rankNotified = rank;
         if (Object.keys(upd).length === 0) return;
-        if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) pushNotif(user.uid, 'achievement', '🏅 You unlocked a new achievement! (' + unlocked + ' total)');
-        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(() => {});
-    }, [user, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined, profile?.contactComplete, profile?.notifsMaxed]);
+        const p2 = { ...profile, ...upd };
+        const aw = rkAchRewards(p2);
+        const msgs = [];
+        if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
+        if (rank > prevRank) { const t = REFERRAL_TIERS[rank - 1]; msgs.push('🏆 ' + (profile.rankNotified === undefined ? 'Your RevShare rank: ' : 'New RevShare rank: ') + t.badge + ' (rank ' + RK_RANK_ROMAN[rank - 1] + '). You earn ' + rkPctTxt(rkRefSharePct(p2)) + ' of the commission on everything your referrals buy, and the ' + t.badge + ' badge is yours: feature it from My Badges.'); }
+        if (roseComm || roseRef || (firstLive && (aw.comm > 0 || aw.ref > 0))) msgs.push((firstLive ? '💸 Your achievement rewards are now applied at checkout: ' : '💸 Achievement reward earned: ') + 'seller commission ' + rkRatePct(rkSellerRate(p2)) + (aw.comm > 0 ? ' (−' + rkRatePct(aw.comm) + ' earned)' : '') + ', referral share ' + rkPctTxt(rkRefSharePct(p2)) + (aw.ref > 0 ? ' (+' + rkPctTxt(aw.ref * 100) + ' earned)' : '') + '.');
+        if (vipNow) msgs.push('👑 LEGENDARY: you completed 80% of all achievements — PERMANENT FREE VIP unlocked. Thank you for being the heartbeat of RaveKandi!');
+        // Notify only once the save has landed, and only once per change (rkAchNoticeSig), so a
+        // second run before the saved values come back cannot send the same news twice.
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true })
+            .then(() => {
+                if (!msgs.length) return;
+                const sig = user.uid + '|' + msgs.join('|');
+                if (sig === rkAchNoticeSig) return;
+                rkAchNoticeSig = sig;
+                pushNotif(user.uid, 'achievement', msgs.join(' '));
+            })
+            .catch(e => rkReport('achievement sync', e));
+    }, [user, rkAchKey, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined, profile?.ratingSum, profile?.ratingCount, profile?.referrals, profile?.achCommBonus, profile?.achRefBonus, profile?.achRewardsLive, profile?.achFreeVip, profile?.rankNotified]);
+
+    // V84.152 (310): achievement counters that NOTHING maintained, now computed from data the app
+    // already holds. Each was declared at signup, read by the achievements and by the profile's stat
+    // tiles, and never written again: Crowd Favorite, Kandi Famous, Conversation Starter, Vibe
+    // Spreader and Social Butterfly could never unlock, the Kandi Collector line only moved through
+    // sales, and the profile's Likes and Comments tiles always read 0.
+    //  - itemsListed, totalLikes, totalComments: the raver's own posts, which the feed already
+    //    loads (its query 2), so this costs no reads.
+    //  - socialInteractions: likes given across the loaded feed, plus comments posted. Comments
+    //    are counted from 310 on; older ones cannot be attributed without a new index.
+    // High-water marks: written only when a figure goes UP, so a deleted post or a withdrawn like
+    // never takes an achievement back, and a feed that is still loading can only under-count.
+    const rkAchFlagsKey = JSON.stringify(profile?.notificationPreferences || null) + '|' + (profile?.phoneNumber || '');
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        const uid = user.uid;
+        const upd = {};
+        const hi = (f, v) => { if (Number.isFinite(v) && v > (Number(profile[f]) || 0)) upd[f] = v; };
+        let listed = 0, likesIn = 0, commentsIn = 0, likesOut = 0;
+        (items || []).forEach(i => {
+            if (!i) return;
+            const likes = Array.isArray(i.likes) ? i.likes : [];
+            if (i.ownerId === uid) {
+                likesIn += likes.filter(x => x !== uid).length;
+                commentsIn += rkCommentCount(i);
+                if (!i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept) listed++;
+            } else if (likes.includes(uid)) likesOut++;
+        });
+        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn);
+        hi('socialInteractions', likesOut + (Number(profile.commentsPosted) || 0));
+        // Fully Wired and Full Signal. Both flags were only ever computed when Settings was SAVED, so
+        // anyone who added a phone or ticked every box before V64.02 introduced them, or whose ticks
+        // were wiped before saving (see MainSettingsModal), never got them.
+        if (!profile.contactComplete && profile.phoneNumber && auth.currentUser?.email) upd.contactComplete = true;
+        if (!profile.notifsMaxed && rkNotifsMaxed(profile.notificationPreferences)) upd.notifsMaxed = true;
+        if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true }).catch(e => rkReport('achievement stats', e));
+    }, [user?.uid, profile?.joined, items, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, rkAchFlagsKey]);
+    // V84.152 (310): completed PLUR trades were never counted at all (Trader, Trade Master, and the
+    // trades share of creator points), and the tribe figures only updated while the Vibe Tribe
+    // window was open. Both need a few reads, so they run at most every 6 hours per device.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        rkSyncTradeTribeStats(user.uid, profile).catch(e => rkReport('trade/tribe stats', e));
+    }, [user?.uid, profile?.joined]);
 
     // V42.23 Phase 7: PERMANENT early-adopter VIP. While Launch Perks are ON, grant every
     // active raver real lifetime VIP exactly once. Because this writes isVIP:true (not just
@@ -18003,7 +18438,7 @@ const App = () => {
         topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? { t: '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)', uid: uref(topStats.listener) } : null,
         topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? { t: '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')', uid: uref(topStats.buyer) } : null,
         topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - effCommissionRate(topStats.seller.customCommissionRate))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - rkSellerRate(topStats.seller))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
         topStats.rated && (topStats.rated.avgRatingX100 > 0) ? { t: '⭐ TOP RATED: @' + topStats.rated.displayName + ' (' + (topStats.rated.avgRatingX100 / 100).toFixed(1) + '★ · ' + (topStats.rated.ratingTxns || 0) + ' reviews)', uid: uref(topStats.rated) } : null,
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
@@ -18414,7 +18849,7 @@ cat << 'EOF' >> src/App.js
                         <div className="w-full border-t border-white/10 pt-4 -mt-4 px-1 text-left">
                             <InfoSection />
                             <CreatorPerksSection onApply={(t) => setCreatorAppOpen(t || true)} />
-                            <ReferralProgramSection onNavigateToProfile={() => setShowRevSharePortal(true)} />
+                            <ReferralProgramSection profile={profile} onNavigateToProfile={() => setShowRevSharePortal(true)} />
                         </div>
 
                         <div className="max-w-md mx-auto w-full bg-black/60 border-2 border-dashed border-purple-400/50 rounded-xl p-4 text-center" style={{ boxShadow: '0 0 18px rgba(216,180,254,0.35)' }}>
@@ -20619,6 +21054,165 @@ module.exports = {};
 SOCEOF
 echo "  functions/rk_social.js written (script-owned)."
 
+# ============================================================================================
+# V84.152 (310) - RADIO RECORD NOW-PLAYING (queue item 1)
+# rk_radio.js is script-owned and regenerated every build, like rk_push / rk_image / rk_pin.
+# ============================================================================================
+cat << 'RADIOEOF' > "$RK_FN_DIR/rk_radio.js"
+// V84.152 (310): Radio Record now-playing, fetched server-side (queue item 1, raised at 261).
+//
+// The feed is https://www.radiorecord.ru/api/stations/now/ : JSON of the form
+//   { "result": [ { "id": 493, "track": { "artist": "...", "song": "...", "image200": "...", ... } }, ... ] }
+// one entry per station (117 on 2026-10-04), keyed by a numeric station id. Confirmed from Milli's
+// capture of the live page. A browser cannot read it from our pages (no CORS headers), so the app
+// asks this function instead.
+//
+// Station ids. The now feed carries only the number; the station list at /api/stations/ links each
+// number to its prefix and stream addresses. Milli captured both on 2026-10-04, which gives the six
+// ids below. This function also re-reads the list (at most every 12 hours) and lets it override
+// them, so a renumbering on their side is picked up rather than silently showing the wrong song.
+//
+// Their server bounced a plain server request around in a redirect loop when tested, which usually
+// means a cookie set on the first response is expected on the next one. So redirects are followed
+// by hand, carrying cookies forward, with a browser-like User-Agent. If it still refuses, the reply
+// says why, the app keeps showing "Live Stream", and the reason lands in the diagnostic log.
+const { onCall } = require('firebase-functions/v2/https');
+
+const RR_BASES = ['https://www.radiorecord.ru', 'https://radiorecord.ru'];
+// V84.77.150.311: every Radio Record station in the app (48 of them, up from 6), by the name in its
+// stream address (radiorecord.hostingradio.ru/<name>96.aacp), with its id from their station list
+// captured on 2026-10-04. `hardstyle` stays for app builds before 311, whose Hardstyle HQ used the
+// older hardstyle96 address; it is the same station as `teo`.
+const RR_IDS_FALLBACK = {
+    rr_main: '15016', top100edm: '43172', club: '529', edmhits: '506', futurerave: '43454', complextro: '517', mmbt: '540',
+    deep: '528', techouse: '42509', fut: '532', jackin: '541', elect: '496', afro: '43927', organic: '42715',
+    lofihouse: '43925', chillhouse: '515', trop: '530', discofunk: '527',
+    melodic: '44688', mini: '535', techno: '547',
+    tm: '533', trancehits: '510', uplift: '504', asot: '44166', dream: '502', progr: '498', goa: '531',
+    ukgarage: '43171', '2step': '509', brks: '544',
+    mt: '497', fbass: '549', phonk: '43174', trap: '552', dub: '545',
+    liquidfunk: '522', drumhits: '523', ps: '536', jungle: '521', neurofunk: '507', darkside: '503',
+    dc: '546', teo: '550', hbass: '551', hardstyle: '550',
+    chil: '534', lofi: '42532', ambient: '42650',
+};
+const RR_PREFIXES = Object.keys(RR_IDS_FALLBACK);
+// Where our stream name differs from the prefix in their station list.
+const RR_ALIASES = { rr_main: 'record', top100edm: 'top-100-edm', asot: 'a-state-of-trance', ukgarage: 'uk-garage', lofihouse: 'lo-fi-house', hardstyle: 'teo' };
+const UA = 'Mozilla/5.0 (Linux; Android 14; SM-A165F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36';
+const NOW_TTL = 20 * 1000, FAIL_TTL = 60 * 1000, LIST_TTL = 12 * 60 * 60 * 1000;
+let nowCache = { at: 0, data: null };
+let idCache = { at: 0, ids: null };
+
+// fetch() with redirects followed by hand so cookies survive each hop.
+const getFollowingCookies = async (url) => {
+    const jar = {};
+    let current = url;
+    for (let hop = 0; hop < 8; hop++) {
+        const cookie = Object.keys(jar).map(k => k + '=' + jar[k]).join('; ');
+        const headers = { 'User-Agent': UA, 'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9' };
+        if (cookie) headers.Cookie = cookie;
+        const r = await fetch(current, { redirect: 'manual', headers, signal: AbortSignal.timeout(8000) });
+        const set = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [];
+        for (const c of set) { const kv = String(c).split(';')[0]; const i = kv.indexOf('='); if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1).trim(); }
+        const loc = r.headers.get('location');
+        if (r.status >= 300 && r.status < 400 && loc) { current = new URL(loc, current).toString(); continue; }
+        return { r, hops: hop };
+    }
+    throw new Error('redirect loop (8 hops, cookies carried)');
+};
+
+// GET a JSON path from whichever base answers. Returns { json } or { error }.
+const getJson = async (path) => {
+    const errors = [];
+    for (const base of RR_BASES) {
+        try {
+            const { r, hops } = await getFollowingCookies(base + path);
+            const text = await r.text();
+            if (!r.ok) { errors.push(base + path + ': HTTP ' + r.status + ' after ' + hops + ' redirect(s)'); continue; }
+            try { return { json: JSON.parse(text) }; }
+            catch (e) { errors.push(base + path + ': not JSON (' + text.slice(0, 60).replace(/\s+/g, ' ') + ')'); }
+        } catch (e) { errors.push(base + path + ': ' + ((e && e.message) || e)); }
+    }
+    return { error: errors.join(' | ').slice(0, 500) };
+};
+
+// Walk any JSON shape and collect every object that has an id. The list's exact layout is not
+// assumed: a station is recognised by its stream address or its prefix, wherever they sit.
+const objectsWithId = (node, out = []) => {
+    if (Array.isArray(node)) node.forEach(n => objectsWithId(n, out));
+    else if (node && typeof node === 'object') {
+        if (node.id !== undefined && node.id !== null) out.push(node);
+        Object.keys(node).forEach(k => { const v = node[k]; if (v && typeof v === 'object') objectsWithId(v, out); });
+    }
+    return out;
+};
+const stringsOf = (o) => Object.keys(o).map(k => o[k]).filter(v => typeof v === 'string');
+// V84.77.150.311: an exact prefix wins, and the address match is only a fallback that looks at
+// stream addresses alone. With 48 stations the old rule (any string on the object) picked the wrong
+// station once: the display title "Innocence/Techno" matched `techno` before the Techno station did.
+const prefixMatches = (o, p) => o.prefix === p || (RR_ALIASES[p] !== undefined && o.prefix === RR_ALIASES[p]);
+const streamMatches = (o, p) => {
+    // e.g. ".../trap96.aacp", ".../trap_320", ".../trap.mp3", ".../trap/"
+    const re = new RegExp('/' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:_?\\d+)?(?:\\.[a-z0-9]+|/|$)', 'i');
+    return stringsOf(o).some(s => /hostingradio|\.(?:aacp|mp3|m3u8)(?:$|\?)/i.test(s) && re.test(s));
+};
+const stationIds = async () => {
+    if (idCache.ids && Date.now() - idCache.at < LIST_TTL) return { ids: idCache.ids, source: 'list (cached)' };
+    const got = await getJson('/api/stations/');
+    if (got.json) {
+        // Start from the known ids and let the live list override them, so a station the list does
+        // not mention still has an id and a renumbered one gets its new id.
+        const objs = objectsWithId(got.json);
+        const ids = Object.assign({}, RR_IDS_FALLBACK);
+        let found = 0;
+        for (const p of RR_PREFIXES) { const hit = objs.find(o => prefixMatches(o, p)) || objs.find(o => streamMatches(o, p)); if (hit) { ids[p] = String(hit.id); found++; } }
+        idCache = { at: Date.now(), ids };
+        return { ids, source: 'list (' + found + ' of ' + RR_PREFIXES.length + ' matched)' };
+    }
+    // The list could not be read: use the known ids, and try the list again after the TTL.
+    return { ids: RR_IDS_FALLBACK, source: 'known ids (list unreadable: ' + String(got.error).slice(0, 120) + ')' };
+};
+
+const loadNow = async () => {
+    const { ids, source } = await stationIds();
+    if (!Object.keys(ids).length) return { ok: false, reason: 'no station ids: ' + source };
+    const got = await getJson('/api/stations/now/');
+    if (!got.json) return { ok: false, reason: got.error };
+    const list = Array.isArray(got.json && got.json.result) ? got.json.result : [];
+    const byId = {};
+    list.forEach(e => { if (e && e.id !== undefined && e.id !== null) byId[String(e.id)] = e.track || null; });
+    const tracks = {};
+    for (const p of Object.keys(ids)) {
+        const t = byId[ids[p]];
+        if (t && (t.artist || t.song)) tracks[p] = { artist: String(t.artist || '').trim(), song: String(t.song || '').trim(), image: String(t.image200 || t.image100 || '') };
+    }
+    return { ok: true, tracks, stations: list.length, idSource: source };
+};
+
+// No sign-in required: the data is public, and the cache below means callers cannot drive more
+// than one upstream request per 20 seconds per instance, whatever they do.
+exports.radioRecordNow = onCall({ timeoutSeconds: 30, memory: '256MiB' }, async (req) => {
+    const ttl = nowCache.data && nowCache.data.ok ? NOW_TTL : FAIL_TTL;
+    let data;
+    if (nowCache.data && Date.now() - nowCache.at < ttl) data = nowCache.data;
+    else {
+        try { data = await loadNow(); } catch (e) { data = { ok: false, reason: String((e && e.message) || e).slice(0, 300) }; }
+        if (!data.ok) console.warn('radioRecordNow failed', data.reason);
+        nowCache = { at: Date.now(), data };
+    }
+    // V84.77.150.311: the app names the station it is playing and gets only that track back; 48
+    // stations' tracks every 25 seconds per listener would be mostly waste. With no name, every
+    // track comes back, as app builds before 311 expect.
+    const want = (req && req.data && typeof req.data.name === 'string') ? req.data.name.toLowerCase().slice(0, 40) : '';
+    if (want && data.ok) {
+        const t = data.tracks && Object.prototype.hasOwnProperty.call(data.tracks, want) ? data.tracks[want] : null;
+        return Object.assign({}, data, { tracks: t ? { [want]: t } : {} });
+    }
+    return data;
+});
+RADIOEOF
+echo "  functions/rk_radio.js written (script-owned)."
+
 # index.js: created if absent, otherwise appended to. Never overwritten.
 if [ ! -f "$RK_FN_DIR/index.js" ]; then
 cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
@@ -20633,6 +21227,7 @@ module.exports = Object.assign(module.exports, require('./rk_push'));
 module.exports = Object.assign(module.exports, require('./rk_image'));
 module.exports = Object.assign(module.exports, require('./rk_pin'));
 module.exports = Object.assign(module.exports, require('./rk_social'));
+module.exports = Object.assign(module.exports, require('./rk_radio'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -20658,6 +21253,10 @@ elif grep -q "rk_push" "$RK_FN_DIR/index.js"; then
     if ! grep -q "rk_social" "$RK_FN_DIR/index.js"; then
         printf '\n// V84: social follower refresh, generated by the build script into rk_social.js.\nmodule.exports = Object.assign(module.exports, require("./rk_social"));\n' >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: rk_social re-export appended."
+    fi
+    if ! grep -q "rk_radio" "$RK_FN_DIR/index.js"; then
+        printf '\n// V84.152: Radio Record now-playing, generated by the build script into rk_radio.js.\nmodule.exports = Object.assign(module.exports, require("./rk_radio"));\n' >> "$RK_FN_DIR/index.js"
+        echo "  functions/index.js: rk_radio re-export appended."
     fi
 else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
@@ -20746,11 +21345,13 @@ echo "        firebase functions:secrets:set CF_API_TOKEN"
 echo "     Paste each value when prompted, then deploy functions again."
 echo "     Verify with:  firebase functions:secrets:access CF_ACCOUNT_ID"
 echo ""
-echo "     Deploy pushes EVERY export in index.js, payments included. Confirm"
-echo "     all four survive:"
-echo "       firebase functions:list"
-echo "     Expect: sendPushOnNotification, generateDesignImage, createStripePaymentIntent,"
-echo "             stripeWebhook, verifySolanaPayment"
+echo "     Deploy pushes EVERY export in index.js, payments included. Confirm all"
+echo "     ELEVEN in the console (functions:list is unreliable on this project):"
+echo "       https://console.firebase.google.com/project/ravekandi/functions"
+echo "     Expect: createStripePaymentIntent, stripeWebhook, verifySolanaPayment,"
+echo "             sendPushOnNotification, generateDesignAnalysis, scanInventoryPhoto,"
+echo "             generateDesignImage, setAppPin, verifyAppPin, resetAppPin,"
+echo "             radioRecordNow"
 echo ""
 echo "=================================================================="
 echo ""
