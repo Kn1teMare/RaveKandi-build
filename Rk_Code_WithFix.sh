@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=84
-RK_MINOR=77
+RK_MINOR=78
 RK_PATCH=150
-RK_BUILD=311
+RK_BUILD=312
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -292,6 +292,30 @@ class ErrorBoundary extends React.Component {
     } catch(e) {}
   }
   handleGlobalError = (event) => {
+    // V84.78.150.312: resource failures (an <img> or <audio> that did not load).
+    try {
+      const t = event && event.target;
+      if (t && t !== window && t.tagName && !event.message) {
+        // Elements that retry and report for themselves stay out of this log (the radio).
+        if (t.dataset && t.dataset.rkQuiet) return;
+        // An image gets ONE quiet retry before anything else hears about it, so a dropped packet
+        // on a phone connection no longer swaps in a placeholder or adds a log line. This runs
+        // in the capture phase, before the image's own onError, and holds that back until the
+        // retry has failed too. Storage links get a cache-buster; other hosts are reloaded
+        // as they are, since an extra parameter could break a signed link.
+        if (t.tagName === 'IMG') {
+          const src = t.currentSrc || t.src || '';
+          if (/^https?:/i.test(src) && t.dataset && t.dataset.rkRetried !== src) {
+            const again = /^https:\/\/(firebasestorage|storage)\.googleapis\.com\//i.test(src) ? src + (src.indexOf('?') >= 0 ? '&' : '?') + 'rkr=' + Date.now() : src;
+            t.dataset.rkRetried = again;
+            event.stopImmediatePropagation();
+            try { t.removeAttribute('src'); } catch (e) {}
+            setTimeout(() => { try { if (t.isConnected) t.setAttribute('src', again); } catch (e) {} }, 1500);
+            return;
+          }
+        }
+      }
+    } catch (e) {}
     const m = event.message || (event.target && event.target.tagName ? event.target.tagName.toLowerCase() + ' failed to load: ' + (event.target.src || event.target.href || 'unknown source') : null);
     if (!m || m === 'undefined') return; // V37.14: skip contextless resource events (was logging "Global: undefined")
     // V69.2: record WHERE, not just what. "TypeError: b is not a function" from a minified bundle
@@ -711,6 +735,29 @@ const BIO_CHAR_LIMIT = 200;
 // worked but nothing changed".
 //
 // Deliberately never throws and never blocks — reporting a problem must not become one.
+// V84.78.150.312: PLACEHOLDER IMAGES, DRAWN LOCALLY. All 57 placeholders were fetched from
+// placehold.co, so a weak connection or an outage there showed broken images and filled the
+// diagnostic log ("img failed to load: https://placehold.co/400x300/..."). This draws the same
+// thing as an SVG data URI, with no network at all. The SVG carries id="placehold", so the
+// existing `src.indexOf('placehold') < 0` guards still stop an onError handler from looping.
+// A function declaration, so it is usable from module-level constants above this line too.
+function rkPh(w, h, bg, fg, text) {
+    const W = Math.max(1, Math.round(Number(w) || 100)), H = Math.max(1, Math.round(Number(h) || W));
+    const hex = (v, d) => (/^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(v || '')) ? String(v) : d);
+    const B = hex(bg, '2a0a3a'), F = hex(fg, 'f5e9ff');
+    const T = String(text === null || text === undefined ? '' : text).slice(0, 24);
+    const key = W + 'x' + H + '|' + B + '|' + F + '|' + T;
+    const cache = rkPh.cache || (rkPh.cache = {});
+    if (cache[key]) return cache[key];
+    const esc = T.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const m = Math.min(W, H);
+    const fs = Math.max(8, Math.round(T.length <= 2 ? m * 0.45 : Math.min(m * 0.28, (W * 1.5) / T.length)));
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" id="placehold" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">'
+        + '<rect width="100%" height="100%" fill="#' + B + '"/>'
+        + (T ? '<text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-weight="700" font-size="' + fs + '" fill="#' + F + '">' + esc + '</text>' : '')
+        + '</svg>';
+    return (cache[key] = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
+}
 const rkReport = (where, e) => {
     try {
         const code = (e && (e.code || e.name)) || '';
@@ -1037,12 +1084,12 @@ const YOUTUBE_STATIONS = [
 
 const NEON_COLORS = { 'primaryGlow': 'rgb(255, 80, 180)', 'accentGlow': 'rgb(100, 255, 255)', 'purpleGlow': 'rgb(180, 100, 255)', 'limeGlow': 'rgb(180, 255, 100)', 'goldGlow': 'rgb(255, 215, 0)' };
 const DEFAULT_INVENTORY = [
-    { id: 'b_neon_pink', name: 'Neon Pink', type: 'bead', cost: 0.02, sell: 0.05, image: 'https://placehold.co/50x50/ff00ff/ffffff?text=Pink' },
-    { id: 'b_neon_green', name: 'Slime Green', type: 'bead', cost: 0.02, sell: 0.05, image: 'https://placehold.co/50x50/00ff00/000000?text=Green' },
-    { id: 'b_black', name: 'Midnight Blk', type: 'bead', cost: 0.02, sell: 0.05, image: 'https://placehold.co/50x50/000000/ffffff?text=Blk' },
-    { id: 'b_letter', name: 'Letter Block', type: 'letter', cost: 0.10, sell: 0.25, image: 'https://placehold.co/50x50/eeeeee/000000?text=ABC' },
-    { id: 'c_star', name: 'Holo Star', type: 'charm', cost: 0.50, sell: 1.25, image: 'https://placehold.co/50x50/ffff00/000000?text=Star' },
-    { id: 's_elastic', name: 'Clear Cord', type: 'string', cost: 0.20, sell: 0.50, image: 'https://placehold.co/50x50/ffffff/000000?text=Cord' },
+    { id: 'b_neon_pink', name: 'Neon Pink', type: 'bead', cost: 0.02, sell: 0.05, image: rkPh(50, 50, 'ff00ff', 'ffffff', 'Pink') },
+    { id: 'b_neon_green', name: 'Slime Green', type: 'bead', cost: 0.02, sell: 0.05, image: rkPh(50, 50, '00ff00', '000000', 'Green') },
+    { id: 'b_black', name: 'Midnight Blk', type: 'bead', cost: 0.02, sell: 0.05, image: rkPh(50, 50, '000000', 'ffffff', 'Blk') },
+    { id: 'b_letter', name: 'Letter Block', type: 'letter', cost: 0.10, sell: 0.25, image: rkPh(50, 50, 'eeeeee', '000000', 'ABC') },
+    { id: 'c_star', name: 'Holo Star', type: 'charm', cost: 0.50, sell: 1.25, image: rkPh(50, 50, 'ffff00', '000000', 'Star') },
+    { id: 's_elastic', name: 'Clear Cord', type: 'string', cost: 0.20, sell: 0.50, image: rkPh(50, 50, 'ffffff', '000000', 'Cord') },
 ];
 const NOTIFICATION_TYPES = [{ id: 'promos', label: 'Promos' }, { id: 'app_updates', label: 'App Updates' }, { id: 'merch', label: 'Merch Drops' }, { id: 'discounts', label: 'Discounts' }, { id: 'projects', label: 'Project Updates' }];
 // V65.19 DIFFICULTY SYSTEM — every achievement gets a difficulty (1 Easy → 5 Legendary).
@@ -1648,7 +1695,76 @@ export const performObliterate = async (tid) => {
 
 // V53.2 Vibe Tribe groups: friends form a named group with a shared chat. New members need
 // a 2/3 vote of existing members to join. Tribes live at public/data/tribes/{tribeId}.
-export const createTribe = async (creatorUid, creatorName, tribeName) => {
+//
+// V84.78.150.312: OPEN AND CLOSED TRIBES, AND VOTES THAT SETTLE (Milli, at 312).
+//  - `status`: 'open' tribes are listed in Find Tribes, where any raver can ask to join; the
+//    members still vote them in. 'closed' tribes are not listed. A tribe with no status is
+//    closed, so every tribe made before 312 stays unlisted until its members vote to open it.
+//    After creation, changing the status takes 2/3 of the members, like admitting someone.
+//  - The 2/3 is taken from the members at the moment of each vote, and only votes from people
+//    still in the tribe count.
+//  - A tribe of one could never grow. 2/3 of 1 member is 1 vote, the founder's proposal was that
+//    vote, and nothing ever counted it, so the proposal sat at 1/1 for good. Every proposal,
+//    vote and leave now settles whatever has passed, and opening Vibe Tribe settles the votes
+//    already stuck that way.
+//  - Votes run in transactions, so two members voting at the same moment no longer erase each
+//    other's vote.
+//  - The last member could not leave unless they had founded the tribe: the rules only let the
+//    founder delete it, and the failure was swallowed. The 312 rules let the last member do it.
+// The votes are counted by the app. The rules still let any member write the tribe document,
+// as before; queued at 312.
+const RK_TRIBE_STATUS = ['open', 'closed'];
+const rkTribeNeeded = (n) => Math.max(1, Math.ceil(((Number(n) || 0) * 2) / 3));
+const rkTribeStatus = (t) => (t && t.status === 'open') ? 'open' : 'closed';
+const rkTribeRef = (tribeId) => doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
+// Settles a tribe's votes against its current members. Pure: returns the new state and what passed.
+const rkTribeSettle = (t0) => {
+    const before = (t0.members || []).slice();
+    const members = before.slice();
+    const need = rkTribeNeeded(before.length);
+    const names = { ...(t0.memberNames || {}) };
+    const pending = { ...(t0.pendingVotes || {}) };
+    const requests = { ...(t0.joinRequests || {}) };
+    const admitted = [];
+    Object.keys(pending).forEach((cid) => {
+        const e = pending[cid] || {};
+        if (before.includes(cid)) { delete pending[cid]; return; }
+        const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
+        if (votes.length >= need) { admitted.push({ uid: cid, name: e.name || 'Raver' }); delete pending[cid]; }
+        else pending[cid] = { ...e, votes, needed: need };
+    });
+    admitted.forEach(a => { members.push(a.uid); names[a.uid] = a.name; });
+    Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
+    let status = rkTribeStatus(t0), statusVote = t0.statusVote || null, statusChanged = false;
+    if (statusVote) {
+        const votes = Array.from(new Set(statusVote.votes || [])).filter(v => before.includes(v));
+        if (!RK_TRIBE_STATUS.includes(statusVote.to) || statusVote.to === status) statusVote = null;
+        else if (votes.length >= need) { status = statusVote.to; statusVote = null; statusChanged = true; }
+        else statusVote = { ...statusVote, votes };
+    }
+    return { members, names, pending, requests, admitted, status, statusVote, statusChanged };
+};
+const rkTribePatch = (st) => ({
+    members: st.members, memberNames: st.names, memberCount: st.members.length,
+    pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
+    statusVote: st.statusVote ? st.statusVote : deleteField()
+});
+// Notifications for what a settle did. `skipUid` is whoever acted; they already saw it on screen.
+const rkTribeAnnounce = (tribeId, t0, st, skipUid) => {
+    const nm = (t0 && t0.name) || 'your tribe';
+    const before = (t0 && t0.members) || [];
+    st.admitted.forEach(a => {
+        pushNotif(a.uid, 'tribe', '🎉 You were voted into the "' + nm + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
+        before.filter(m => m && m !== skipUid && m !== a.uid).forEach(m => pushNotif(m, 'tribe', '🎉 @' + a.name + ' passed the vote and joined "' + nm + '".', tribeId));
+    });
+    if (st.statusChanged) {
+        const txt = st.status === 'open'
+            ? '🔓 "' + nm + '" is now OPEN: it shows in Find Tribes, and ravers can ask to join.'
+            : '🔒 "' + nm + '" is now CLOSED: it no longer shows in Find Tribes.';
+        st.members.filter(m => m && m !== skipUid).forEach(m => pushNotif(m, 'tribe', txt, tribeId));
+    }
+};
+export const createTribe = async (creatorUid, creatorName, tribeName, status) => {
     if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
     const ref = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), {
         name: tribeName.trim().slice(0, 40),
@@ -1657,68 +1773,162 @@ export const createTribe = async (creatorUid, creatorName, tribeName) => {
         memberNames: { [creatorUid]: creatorName || 'Raver' },
         createdAt: Date.now(),
         memberCount: 1,
+        status: status === 'open' ? 'open' : 'closed',
         pendingVotes: {} // { candidateUid: { name, votes: [uid,...], needed: N } }
     });
     return ref.id;
 };
-// Propose a friend to join. Records the proposer's vote immediately.
+// Propose a raver, or vote in one who asked to join. The proposer's vote counts at once, so in a
+// tribe of one (or two, with a second yes already in) it admits them straight away.
+// Returns { result: 'approved' | 'proposed', needed, votes }.
 export const proposeToTribe = async (tribeId, candidateUid, candidateName, proposerUid) => {
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) throw new Error('Tribe not found');
-    const t = snap.data();
-    if ((t.members || []).includes(candidateUid)) throw new Error('Already a member');
-    const memberCount = (t.members || []).length;
-    const needed = Math.ceil((memberCount * 2) / 3); // 2/3 of existing members
-    const pending = { ...(t.pendingVotes || {}) };
-    pending[candidateUid] = { name: candidateName || 'Raver', votes: [proposerUid], needed };
-    await updateDoc(ref, { pendingVotes: pending });
-    // notify other members to vote
-    // V79.5: was 'friendreq', whose refId is a USER id and now opens that profile. These carry a
-    // TRIBE id, so they would have opened a profile that does not exist.
-    // V79.6: the CANDIDATE was never told. They were entered into a vote about themselves and
-    // heard nothing unless it passed — so a stalled proposal looked to them like nothing had
-    // happened, and to the proposer like the app had eaten it.
-    pushNotif(candidateUid, 'tribe', '\ud83d\uddf3\ufe0f You have been put forward to join the "' + t.name + '" Vibe Tribe \u2014 members are voting now.', tribeId);
-    (t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'tribe', '🗳️ Vote: should @' + (candidateName || 'a raver') + ' join your "' + t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
-    return needed;
-};
-// Cast a vote; if the threshold is met, the candidate is added + joins the group chat.
-export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) throw new Error('Tribe not found');
-    const t = snap.data();
-    const pending = { ...(t.pendingVotes || {}) };
-    const entry = pending[candidateUid];
-    if (!entry) throw new Error('No pending vote for this raver');
-    if (!entry.votes.includes(voterUid)) entry.votes.push(voterUid);
-    if (entry.votes.length >= entry.needed) {
-        // approved — add member
-        const newMembers = [...(t.members || []), candidateUid];
-        const newNames = { ...(t.memberNames || {}), [candidateUid]: entry.name };
-        delete pending[candidateUid];
-        await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length, pendingVotes: pending });
-        // V79.6: the existing members were never told either — someone simply appeared in the
-        // chat. `entry.name`, not `nm`: there is no such variable in this scope.
-        (t.members || []).filter(m => m && m !== candidateUid).forEach(m => pushNotif(m, 'tribe', '\ud83c\udf89 @' + (entry.name || 'A raver') + ' passed the vote and joined "' + t.name + '".', tribeId));
-        pushNotif(candidateUid, 'tribe', '🎉 You were voted into the "' + t.name + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
-        return 'approved';
-    } else {
-        pending[candidateUid] = entry;
-        await updateDoc(ref, { pendingVotes: pending });
-        return 'voted';
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data();
+        const members = t.members || [];
+        if (!members.includes(proposerUid)) throw new Error('Only members can propose someone.');
+        if (members.includes(candidateUid)) throw new Error('Already a member');
+        const prev = (t.pendingVotes || {})[candidateUid];
+        const req = (t.joinRequests || {})[candidateUid];
+        const nm = (prev && prev.name) || candidateName || (req && req.name) || 'Raver';
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [...((prev && prev.votes) || []), proposerUid], needed: rkTribeNeeded(members.length) } };
+        const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
+        const st = rkTribeSettle({ ...t, pendingVotes: pending, joinRequests: requests });
+        tx.update(ref, rkTribePatch(st));
+        const left = st.pending[candidateUid];
+        return { t, st, nm, asked: !!req, fresh: !prev, approved: st.admitted.some(a => a.uid === candidateUid), needed: rkTribeNeeded(members.length), votes: left ? left.votes.length : 0 };
+    });
+    rkTribeAnnounce(tribeId, out.t, out.st, proposerUid);
+    if (!out.approved && out.fresh) {
+        // V79.5: these carry a TRIBE id with type 'tribe' ('friendreq' would open a profile).
+        // V79.6: the candidate is told too, so a stalled vote doesn't look like nothing happened.
+        pushNotif(candidateUid, 'tribe', out.asked
+            ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join.'
+            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now.', tribeId);
+        (out.t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'tribe', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
     }
+    return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.votes };
 };
+// Cast a vote; once 2/3 of the current members have said yes, the candidate joins the group chat.
+export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data();
+        if (!(t.members || []).includes(voterUid)) throw new Error('Only members can vote.');
+        if ((t.members || []).includes(candidateUid)) return { done: true };
+        const e = (t.pendingVotes || {})[candidateUid];
+        if (!e) throw new Error('No pending vote for this raver');
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...e, votes: [...(e.votes || []), voterUid] } };
+        const st = rkTribeSettle({ ...t, pendingVotes: pending });
+        tx.update(ref, rkTribePatch(st));
+        return { t, st, approved: st.admitted.some(a => a.uid === candidateUid) };
+    });
+    if (out.done) return 'approved';
+    rkTribeAnnounce(tribeId, out.t, out.st, voterUid);
+    return out.approved ? 'approved' : 'voted';
+};
+// Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the
+// last member out removes the tribe.
 export const leaveTribe = async (tribeId, myUid) => {
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return;
-    const t = snap.data();
-    const newMembers = (t.members || []).filter(m => m !== myUid);
-    const newNames = { ...(t.memberNames || {}) }; delete newNames[myUid];
-    if (newMembers.length === 0) { await deleteDoc(ref); return; }
-    await updateDoc(ref, { members: newMembers, memberNames: newNames, memberCount: newMembers.length });
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return null;
+        const t = snap.data();
+        if (!(t.members || []).includes(myUid)) return null;
+        const rest = (t.members || []).filter(m => m !== myUid);
+        if (rest.length === 0) { tx.delete(ref); return null; }
+        const names = { ...(t.memberNames || {}) }; delete names[myUid];
+        const st = rkTribeSettle({ ...t, members: rest, memberNames: names });
+        tx.update(ref, rkTribePatch(st));
+        return { t: { ...t, members: rest }, st };
+    });
+    if (out) rkTribeAnnounce(tribeId, out.t, out.st, myUid);
+};
+// Settles votes that already passed: the proposals stuck at 1/1 in a tribe of one, or a vote
+// that reached 2/3 when someone left. Writes only when something passes.
+export const settleTribe = async (tribeId, byUid) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return null;
+        const t = snap.data();
+        if (!(t.members || []).includes(byUid)) return null;
+        const st = rkTribeSettle(t);
+        if (!st.admitted.length && !st.statusChanged) return null;
+        tx.update(ref, rkTribePatch(st));
+        return { t, st };
+    });
+    if (out) rkTribeAnnounce(tribeId, out.t, out.st, null);
+    return !!out;
+};
+// Status. Proposing counts as the proposer's yes; in a tribe of one it applies at once.
+// Returns { result: 'same' | 'changed' | 'proposed', need, votes }.
+export const proposeTribeStatus = async (tribeId, to, uid, name) => {
+    if (!RK_TRIBE_STATUS.includes(to)) throw new Error('Unknown status');
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data();
+        const members = t.members || [];
+        if (!members.includes(uid)) throw new Error('Only members can change this.');
+        if (rkTribeStatus(t) === to) return { same: true };
+        const running = t.statusVote && t.statusVote.to === to ? t.statusVote : null;
+        const sv = running ? { ...running, votes: [...(running.votes || []), uid] } : { to, votes: [uid], by: uid, byName: name || 'Raver', at: Date.now() };
+        const st = rkTribeSettle({ ...t, statusVote: sv });
+        tx.update(ref, rkTribePatch(st));
+        return { t, st, fresh: !running, need: rkTribeNeeded(members.length), votes: st.statusVote ? st.statusVote.votes.length : 0 };
+    });
+    if (out.same) return { result: 'same' };
+    rkTribeAnnounce(tribeId, out.t, out.st, uid);
+    if (!out.st.statusChanged && out.fresh) {
+        const what = to === 'open' ? 'OPEN (listed in Find Tribes)' : 'CLOSED (hidden from Find Tribes)';
+        const n = (out.t.members || []).length;
+        (out.t.members || []).filter(m => m !== uid).forEach(m => pushNotif(m, 'tribe', '🗳️ @' + (name || 'A member') + ' wants to make "' + out.t.name + '" ' + what + '. Open Vibe Tribe to vote: ' + out.need + ' of ' + n + ' members must say yes.', tribeId));
+    }
+    return { result: out.st.statusChanged ? 'changed' : 'proposed', need: out.need, votes: out.votes };
+};
+export const voteTribeStatus = async (tribeId, uid) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data();
+        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
+        if (!t.statusVote) throw new Error('This vote has already closed.');
+        const st = rkTribeSettle({ ...t, statusVote: { ...t.statusVote, votes: [...(t.statusVote.votes || []), uid] } });
+        tx.update(ref, rkTribePatch(st));
+        return { t, st };
+    });
+    rkTribeAnnounce(tribeId, out.t, out.st, uid);
+    return out.st.statusChanged ? 'changed' : 'voted';
+};
+// Only the member who proposed a status change can withdraw it.
+export const withdrawTribeStatus = async (tribeId, uid) => {
+    const ref = rkTribeRef(tribeId);
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const t = snap.data();
+        if (!t.statusVote) return;   // nothing running: nothing to withdraw
+        if (t.statusVote.by !== uid) throw new Error('Only the member who proposed it can withdraw it.');
+        tx.update(ref, { statusVote: deleteField() });
+    });
+};
+// Asking to join an OPEN tribe. The rules let a non-member write only their own entry in
+// joinRequests, and only while the tribe is open. Withdrawing is always allowed.
+export const requestToJoinTribe = async (tribe, uid, name) => {
+    const nm = String(name || 'Raver').slice(0, 40);
+    await updateDoc(rkTribeRef(tribe.id), { ['joinRequests.' + uid]: { name: nm, at: Date.now() } });
+    (tribe.members || []).slice(0, 50).forEach(m => pushNotif(m, 'tribe', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Open Vibe Tribe to vote.', tribe.id));
+};
+export const withdrawTribeRequest = async (tribeId, uid) => {
+    await updateDoc(rkTribeRef(tribeId), { ['joinRequests.' + uid]: deleteField() });
 };
 // Send a message to the tribe group chat (stored as a subcollection).
 export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj, extra) => {
@@ -2368,8 +2578,9 @@ const getDisplayAchievements = (profile) => {
 //  - The 5% caps are enforced here, at the point of use, so a hand-edited field cannot pass them.
 //  - "Permanent", as the chart promises: the larger of what is earned today and what was saved
 //    before, so a figure that later drops (an unfriend) never takes a reward back.
-//  - Rewards stack on top of any custom rate an admin sets. The seller rate never goes below 0%,
-//    and the referral share never above 100% of the commission.
+//  - V84.78.150.312: a custom rate set in the admin panel REPLACES the achievement rewards (Milli,
+//    at 312); 311 stacked them. The seller rate never goes below 0%, and the referral share
+//    never above 100% of the commission.
 const RK_ACH_CAP = 0.05;
 const rkCapBonus = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.min(RK_ACH_CAP, n) : 0; };
 const rkAchRewards = (p) => {
@@ -2380,10 +2591,34 @@ const rkAchRewards = (p) => {
 };
 // Seller commission before achievements: custom rate, launch perks and launch lock, as before.
 const rkBaseSellerRate = (p) => effCommissionRate(p?.customCommissionRate, p?.lockedCommissionRate);
-const rkSellerRate = (p) => Math.max(0, rkBaseSellerRate(p) - rkAchRewards(p).comm);
+const rkHasCustom = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+const rkSellerRate = (p) => rkHasCustom(p?.customCommissionRate) ? rkBaseSellerRate(p) : Math.max(0, rkBaseSellerRate(p) - rkAchRewards(p).comm);
 // Referral share before achievements, in percent: an admin's custom rate if one is set, else the tier.
 const rkRefBasePct = (p) => { const o = p?.customRevSharePct; return (o !== null && o !== undefined && o !== '' && Number.isFinite(Number(o))) ? Number(o) : getReferralTier(Number(p?.referrals) || 0).sharePct; };
-const rkRefSharePct = (p) => Math.min(100, Math.round((rkRefBasePct(p) + rkAchRewards(p).ref * 100) * 100) / 100);
+const rkRefSharePct = (p) => rkHasCustom(p?.customRevSharePct) ? Math.min(100, Math.max(0, Number(p.customRevSharePct))) : Math.min(100, Math.round((rkRefBasePct(p) + rkAchRewards(p).ref * 100) * 100) / 100);
+// The rewards actually APPLIED: earned rewards, except where a custom rate replaces them.
+const rkAchApplied = (p) => { const aw = rkAchRewards(p); return { comm: rkHasCustom(p?.customCommissionRate) ? 0 : aw.comm, ref: rkHasCustom(p?.customRevSharePct) ? 0 : aw.ref }; };
+// V84.78.150.312: WHERE A RAVER STANDS ON THE REVSHARE CHART. Without a custom rate it is their
+// rank by referrals. With one, it is that rate: a line of its own placed by %, and at the end of
+// the chart when it is above the top rank. Milli: "revshare % over 25 doesn't have a badge".
+const RK_CUSTOM_SHARE_NAMES = { 10: 'Promoter', 25: 'Partner', 50: 'Equity', 100: 'Full Share' };
+const rkShareStanding = (p) => {
+    const earnedRank = rkRankOf(p?.referrals);
+    const pct = rkRefSharePct(p);
+    if (!rkHasCustom(p?.customRevSharePct)) return { custom: false, rank: earnedRank, earnedRank, pct };
+    const top = REFERRAL_TIERS[REFERRAL_TIERS.length - 1].sharePct;
+    return { custom: true, rank: 0, earnedRank, pct, above: pct > top, name: RK_CUSTOM_SHARE_NAMES[pct] || (pct > top ? 'Beyond the Chart' : 'Custom Rate') };
+};
+// The chart's rows: the 11 ranks, plus a custom rate in its place by %.
+const rkShareRows = (standing) => {
+    const rows = REFERRAL_TIERS.map((t, i) => ({ kind: 'rank', r: i + 1, t }));
+    if (standing && standing.custom) {
+        let at = rows.length;
+        for (let i = 0; i < rows.length; i++) if (rows[i].t.sharePct > standing.pct) { at = i; break; }
+        rows.splice(at, 0, { kind: 'custom' });
+    }
+    return rows;
+};
 // 0.0965 -> "9.65%", 0.1 -> "10%". Never rounded into a figure the raver is not actually charged.
 const rkRatePct = (r) => { const v = Math.round((Number(r) || 0) * 10000) / 100; return (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0$/, '')) + '%'; };
 // A figure that is already a percentage: 2.3 -> "2.3%".
@@ -2649,14 +2884,14 @@ const UserRating = ({ sum, count, size = 'sm', center = false }) => {
 const MediaCarousel = ({ media, fallback }) => {
     const [idx, setIdx] = useState(0);
     const [zoom, setZoom] = useState(false);
-    if (!media || media.length === 0) return <img src={fallback} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="w-full h-full object-cover" />;
+    if (!media || media.length === 0) return <img src={fallback} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(400, 300, '1a0033', 'ff50b4', 'RaveKandi'); }} className="w-full h-full object-cover" />;
     const current = media[idx];
     return (
         <div className="relative group w-full h-full bg-black overflow-hidden flex items-center justify-center">
             {current.type === 'video' ? (
                 <video src={current.url} controls autoPlay muted loop className="max-w-full max-h-full object-contain" />
             ) : (
-                <img src={current.url} onClick={() => setZoom(true)} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'; }} className="max-w-full max-h-full object-contain cursor-zoom-in" />
+                <img src={current.url} onClick={() => setZoom(true)} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(400, 300, '1a0033', 'ff50b4', 'RaveKandi'); }} className="max-w-full max-h-full object-contain cursor-zoom-in" />
             )}
             {current.type !== 'video' && <div className="absolute top-1.5 right-1.5 z-20 bg-black/60 rounded-full px-2 py-0.5 flex items-center gap-1 pointer-events-none opacity-80"><Maximize2 size={9} className="text-white"/><span className="text-[10px] text-white font-bold">tap to expand</span></div>}
             {zoom && current.type !== 'video' && (
@@ -3031,7 +3266,7 @@ const PublicProfileModal = ({ uid, onClose }) => {
             : targ === 'error' ? <p className="text-red-300 text-xs text-center py-4">Couldn't load this profile.{errMsg ? ' (' + errMsg + ')' : ''} Check your connection and try again.</p>
             : !targ ? <div className="py-6"><LoadingBar className="w-full"/><p className="text-center text-[10px] opacity-50 mt-2">Loading profile...</p></div> : (
                 <div className="text-center space-y-4">
-                    <img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
+                    <img src={targ.photoURL || rkPh(100, 100, null, null, 'User')} className="w-24 h-24 rounded-full mx-auto object-cover border-2 border-pink-500"/>
                     <div>
                         <UserRating sum={targ.ratingSum} count={targ.ratingCount} center />
                         <p className="font-black text-lg flex items-center justify-center" style={targ?.nameStyle ? undefined : getTextGlowStyle('primaryGlow')}><RkName name={targ.displayName} style={targ?.nameStyle}/></p>
@@ -3406,7 +3641,7 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
         <Modal isOpen={isOpen} onClose={onClose} zClass="z-[200]" title="🤝 PLUR Trade">
             {notice && <p className="text-[11px] text-lime-300 bg-lime-900/20 border border-lime-500/30 rounded p-2 mb-2">{notice}</p>}
             <div className="bg-black/40 border border-white/15 rounded-lg p-2.5 mb-3 flex items-center gap-3">
-                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/80?text=Item'} className="w-14 h-14 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/80?text=Item'; }}/>
+                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || rkPh(80, 80, null, null, 'Item')} className="w-14 h-14 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(80, 80, null, null, 'Item'); }}/>
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold truncate">{item.name || 'Item'}</p>
                     <p className="text-[10px] text-cyan-300">by @{item.ownerName || 'Raver'}</p>
@@ -3425,7 +3660,7 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
                         <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto rk-scroll p-1">
                             {myItems.map(it => { const on = picked.includes(it.id); return (
                                 <button key={it.id} type="button" onClick={() => toggle(it.id)} className={'rounded-lg overflow-hidden border-2 text-left transition ' + (on ? 'border-lime-400 ring-2 ring-lime-400/40' : 'border-white/15')}>
-                                    <div className="h-16 bg-black/60 relative"><img src={it.mediaUrls?.[0]?.url || it.imageUrl || it.image || 'https://placehold.co/80?text=Item'} className="w-full h-full object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/80?text=Item'; }}/>{on && <div className="absolute top-1 right-1 bg-lime-400 text-black rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-black">✓</div>}</div>
+                                    <div className="h-16 bg-black/60 relative"><img src={it.mediaUrls?.[0]?.url || it.imageUrl || it.image || rkPh(80, 80, null, null, 'Item')} className="w-full h-full object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(80, 80, null, null, 'Item'); }}/>{on && <div className="absolute top-1 right-1 bg-lime-400 text-black rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-black">✓</div>}</div>
                                     <p className="text-[10px] p-1 truncate">{it.name || 'Item'}</p>
                                 </button>
                             ); })}
@@ -3465,7 +3700,7 @@ const TradeOfferCard = ({ offer, myUid, isOwner, onMsg, onStatus, onShipped, onR
             <div className="flex flex-wrap gap-1.5 mb-2">
                 {(offer.offeredItems || []).map((it, i) => (
                     <div key={i} className="flex items-center gap-1 bg-white/5 rounded px-1.5 py-1">
-                        <img src={it.image || 'https://placehold.co/40?text=•'} className="w-7 h-7 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/40?text=•'; }}/>
+                        <img src={it.image || rkPh(40, 40, null, null, '•')} className="w-7 h-7 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(40, 40, null, null, '•'); }}/>
                         <span className="text-[10px] max-w-20 truncate">{it.name}</span>
                     </div>
                 ))}
@@ -4739,7 +4974,7 @@ const ChatCollectionShareModal = ({ user, profile, isOpen, onClose, chanId }) =>
                 <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto p-1">
                     {items.map(it => (
                         <button key={it.id} onClick={() => shareItem(it)} className="bg-black/50 border border-white/15 rounded-lg overflow-hidden text-left hover:border-pink-500/60 transition">
-                            <div className="h-24 bg-black/60"><img src={it.mediaUrls?.[0]?.url || it.imageUrl || it.image || 'https://placehold.co/120?text=Item'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/120?text=Item'; }} className="w-full h-full object-cover"/></div>
+                            <div className="h-24 bg-black/60"><img src={it.mediaUrls?.[0]?.url || it.imageUrl || it.image || rkPh(120, 120, null, null, 'Item')} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(120, 120, null, null, 'Item'); }} className="w-full h-full object-cover"/></div>
                             <div className="p-2"><p className="text-[11px] font-bold truncate">{it.name || 'Item'}</p>{it.price != null && <p className="text-[10px] text-lime-300">${Number(it.price).toFixed(2)}</p>}</div>
                         </button>
                     ))}
@@ -4924,7 +5159,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                         const mine = m.uid === myUid;
                         return (
                             <div key={m.id} className="flex items-start gap-2">
-                                <img src={m.photoURL || 'https://placehold.co/32?text=U'} onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="w-8 h-8 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
+                                <img src={m.photoURL || rkPh(32, 32, null, null, 'U')} onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="w-8 h-8 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-1 flex-wrap">
                                         <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className={`text-[11px] font-black hover:underline ${m.ns ? '' : (mine ? 'text-lime-300' : 'text-cyan-300')}`}><RkName name={m.name} style={m.ns}/></button>
@@ -4940,7 +5175,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
                                     </div>
                                     {m.kind === 'collection' && m.item ? (
                                         <button onClick={() => { if (onViewProfile && m.publicUid) { onClose(); onViewProfile(m.publicUid); } }} className="mt-1 flex items-center gap-2 bg-black/50 border border-pink-500/30 rounded-lg p-2 w-full text-left hover:bg-white/5">
-                                            <img src={m.item.image || 'https://placehold.co/48?text=Item'} className="w-12 h-12 rounded object-cover shrink-0"/>
+                                            <img src={m.item.image || rkPh(48, 48, null, null, 'Item')} className="w-12 h-12 rounded object-cover shrink-0"/>
                                             <div className="min-w-0"><p className="text-[11px] font-bold truncate text-pink-200">{m.item.name}</p>{m.item.price != null && <p className="text-[10px] text-lime-300">${Number(m.item.price).toFixed(2)}</p>}<p className="text-[10px] text-white/40">Shared from collection · tap to view</p></div>
                                         </button>
                                     ) : m.kind === 'link' ? (
@@ -5033,6 +5268,14 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // the EQ simply does not apply to them, and the player says so.
     const plainRef = useRef(null);
     const usingPlainRef = useRef(false);
+    // V84.78.150.312: connection bookkeeping (see playStation).
+    const connGenRef = useRef(0);          // each connection attempt's number; a newer one retires older ones
+    const connectingRef = useRef(false);   // a connection loop is running
+    const stationRef = useRef(null);       // the station being played or connected
+    const playingRef = useRef(false);      // `playing`, readable from media event handlers
+    const reconnectsRef = useRef(0);       // consecutive reconnects after a drop
+    const stallTimerRef = useRef(null);    // watchdog for a stream that stops delivering
+    useEffect(() => () => { connGenRef.current++; if (stallTimerRef.current) clearTimeout(stallTimerRef.current); }, []);
     const [eqBypassed, setEqBypassed] = useState(false);
     const [nowSong, setNowSong] = useState('');
     const cur = () => (usingPlainRef.current ? plainRef.current : audioRef.current);
@@ -5070,7 +5313,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     useEffect(() => { if (bassRef.current) bassRef.current.gain.value = bass; }, [bass]);
     useEffect(() => { if (midRef.current) midRef.current.gain.value = mid; }, [mid]);
     useEffect(() => { if (trebleRef.current) trebleRef.current.gain.value = treble; }, [treble]);
-    useEffect(() => { if (onPlayingChange) onPlayingChange(playing); }, [playing]);
+    useEffect(() => { playingRef.current = playing; if (onPlayingChange) onPlayingChange(playing); }, [playing]);
 
     // V63: background playback control. When ON (default), set MediaSession metadata so the OS
     // keeps the stream alive with lock-screen controls; when OFF, pause the moment the app is
@@ -5184,62 +5427,155 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         return out;
     };
 
-    // Plain path: an element Web Audio never claimed, so a server with no CORS headers is fine.
-    const playPlain = async (st, url) => {
-        const p = plainRef.current; if (!p) throw new Error('no plain element');
-        try { audioRef.current && audioRef.current.pause(); } catch (e) {}
-        usingPlainRef.current = true; setEqBypassed(true);
-        p.src = url || st.url; p.load();
-        await p.play();
-    };
+    // V84.78.150.312: CONNECTING PATIENTLY, ONE STATION AT A TIME (Milli's report and log at 312).
+    // Switching stations made them fail in cascades: "The play() request was interrupted by a new
+    // load request". Each tap started its own connection loop, and an older loop still walking its
+    // mirrors kept loading over the newer one, so both burned through every address in seconds.
+    //  - Every attempt carries a number (connGenRef). A newer tap retires older attempts at once,
+    //    and an interrupted load is never counted as a failure.
+    //  - Each address gets up to 15 s to start. A quick failure is retried after 1.5 s before the
+    //    next address, and the whole list gets a second pass before the player gives up.
+    //  - Offline, it waits up to 30 s for the connection instead of failing.
+    //  - SomaFM always takes the EQ path and Radio Record the plain one, decided by host. One
+    //    failed EQ attempt used to switch a station's EQ off on that phone for good.
+    //  - A stream that drops or stalls mid-song reconnects by itself, up to 3 times in a row.
+    //  - A failure is reported once, with what was tried. The audio elements are marked
+    //    data-rk-quiet, so each refused address no longer adds its own log line.
+    const RK_CONNECT_MS = 15000, RK_QUICK_RETRY_MS = 1500, RK_CONNECT_BUDGET_MS = 75000, RK_STALL_MS = 20000;
+    const rkWait = (ms) => new Promise(r => setTimeout(r, ms));
+    const eqCapable = (url) => /\.somafm\.com\//i.test(url) ? true : /\.hostingradio\.ru\//i.test(url) ? false : null;
+    const waitOnline = (ms) => new Promise(res => {
+        try { if (navigator.onLine !== false) { res(true); return; } } catch (e) { res(true); return; }
+        let t = null;
+        const on = () => { clearTimeout(t); window.removeEventListener('online', on); res(true); };
+        window.addEventListener('online', on);
+        t = setTimeout(() => { window.removeEventListener('online', on); res(false); }, ms);
+    });
+    // One try of one address on one element. Never throws: resolves { ok } or { err, slow }.
+    const tryStream = (el, url) => new Promise((resolve) => {
+        let done = false, timer = null;
+        const onErr = () => { const me = el.error; finish({ ok: false, err: new Error('media error' + (me ? ' ' + me.code + (me.message ? ': ' + me.message : '') : '')) }); };
+        const finish = (r) => { if (done) return; done = true; clearTimeout(timer); el.removeEventListener('error', onErr); resolve(r); };
+        el.addEventListener('error', onErr);
+        timer = setTimeout(() => finish({ ok: false, slow: true, err: new Error('no audio after ' + Math.round(RK_CONNECT_MS / 1000) + ' s') }), RK_CONNECT_MS);
+        try { el.src = url; el.load(); } catch (e) { finish({ ok: false, err: e }); return; }
+        let pr = null;
+        try { pr = el.play(); } catch (e) { finish({ ok: false, err: e }); return; }
+        if (pr && typeof pr.then === 'function') pr.then(() => finish({ ok: true }), (e) => finish({ ok: false, err: e }));
+    });
+    const stopStall = () => { if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; } };
 
-    const playStation = async (st) => {
-        const a = audioRef.current; if (!a) return;
-        setStation(st); setStatus('Connecting to ' + st.name + '...');
-        try { plainRef.current && plainRef.current.pause(); } catch (e) {}
-
-        // Every mirror, each tried on the EQ path then the plain one. A station is only declared
-        // unreachable once every host has refused it both ways.
+    const playStation = async (st, opts = {}) => {
+        const a = audioRef.current, p = plainRef.current; if (!a || !p) return;
+        const gen = ++connGenRef.current;
+        const stale = () => gen !== connGenRef.current;
+        stationRef.current = st; connectingRef.current = true; stopStall();
+        if (!opts.reconnect) reconnectsRef.current = 0;
+        setStation(st); setStatus((opts.reconnect ? 'Reconnecting to ' : 'Connecting to ') + st.name + '…');
+        try { a.pause(); } catch (e) {}
+        try { p.pause(); } catch (e) {}
         const urls = streamCandidates(st);
         const knownNoCors = noCorsGet().has(st.id);
-        let lastErr = null;
-
-        for (let i = 0; i < urls.length; i++) {
-            const url = urls[i];
-            if (!knownNoCors) {
-                try {
-                    usingPlainRef.current = false; setEqBypassed(false);
-                    initEq();
-                    if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume();
-                    a.src = url; a.load();
-                    await a.play();
-                    mirrorSet(st.id, url);
-                    setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre);
-                    return;
-                } catch (e) { lastErr = e; }
+        const started = Date.now();
+        let lastErr = null, tries = 0;
+        outer:
+        for (let round = 0; round < 2; round++) {
+            if (round > 0) { setStatus('Still connecting to ' + st.name + '…'); await rkWait(2500); if (stale()) return; }
+            for (const url of urls) {
+                if (stale()) return;
+                if (Date.now() - started > RK_CONNECT_BUDGET_MS) break outer;
+                let online = true; try { online = navigator.onLine !== false; } catch (e) {}
+                if (!online) {
+                    setStatus('Waiting for your connection…');
+                    const back = await waitOnline(30000);
+                    if (stale()) return;
+                    if (!back) { lastErr = new Error('offline for 30 s'); break outer; }
+                    setStatus('Connecting to ' + st.name + '…');
+                }
+                const cap = eqCapable(url);
+                const paths = cap === true ? ['eq'] : cap === false ? ['plain'] : (knownNoCors ? ['plain'] : ['eq', 'plain']);
+                for (const path of paths) {
+                    for (let rep = 0; rep < 2; rep++) {
+                        if (stale()) return;
+                        const el = path === 'eq' ? a : p;
+                        if (path === 'eq') {
+                            usingPlainRef.current = false; setEqBypassed(false); initEq();
+                            try { if (ctxRef.current && ctxRef.current.state === 'suspended') await ctxRef.current.resume(); } catch (e) {}
+                            try { p.pause(); } catch (e) {}
+                        } else {
+                            usingPlainRef.current = true; setEqBypassed(true);
+                            try { a.pause(); } catch (e) {}
+                        }
+                        tries++;
+                        const t0 = Date.now();
+                        const r = await tryStream(el, url);
+                        if (stale()) return;              // a newer tap took over: say nothing
+                        if (r.ok) {
+                            if (opts.reconnect) setTimeout(() => { if (gen === connGenRef.current && playingRef.current) reconnectsRef.current = 0; }, 60000);
+                            mirrorSet(st.id, url);
+                            if (path === 'plain' && cap === null && !knownNoCors) noCorsAdd(st.id);
+                            connectingRef.current = false;
+                            setPlaying(true);
+                            setStatus('LIVE: ' + st.name + ' — ' + st.genre + (path === 'plain' ? ' (EQ off for this station)' : ''));
+                            return;
+                        }
+                        lastErr = r.err;
+                        if (r.err && r.err.name === 'NotAllowedError') { connectingRef.current = false; setPlaying(false); setStatus('Tap ▶ to start ' + st.name + '.'); return; }
+                        if (r.slow || Date.now() - t0 > 4000) break;   // it had its full chance
+                        await rkWait(RK_QUICK_RETRY_MS);              // a quick failure gets one more go
+                    }
+                }
             }
-            // Plain path — a server with no CORS headers, or one the EQ route just refused.
-            try {
-                await playPlain(st, url);
-                if (!knownNoCors) noCorsAdd(st.id);
-                mirrorSet(st.id, url);
-                setPlaying(true); setStatus('LIVE: ' + st.name + ' — ' + st.genre + ' (EQ off for this station)');
-                return;
-            } catch (e2) { lastErr = e2; }
         }
-
-        // Every mirror refused, both ways. Genuinely unreachable — say so rather than blaming the
-        // listener's connection, and drop the remembered mirror so the next try starts clean.
+        if (stale()) return;
+        connectingRef.current = false;
+        // Every address refused, twice. Drop the remembered mirror so the next try starts clean.
         try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); delete m[st.id]; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {}
+        // The last address may still be loading with play() pending; it must not start later
+        // while the screen says the station is not responding. Stop and empty both elements.
+        [a, p].forEach(el => { try { el.pause(); el.removeAttribute('src'); el.load(); } catch (e) {} });
         usingPlainRef.current = false; setEqBypassed(false);
         setPlaying(false);
-        setStatus(st.name + ' is not responding right now. Try another station.');
-        rkReport('radio all mirrors failed ' + st.id + ' (' + urls.length + ' tried)', lastErr);
+        setStatus(st.name + ' is not responding right now. Try again, or pick another station.');
+        rkReport('radio could not connect ' + st.id + ' (' + tries + ' tries over ' + Math.round((Date.now() - started) / 1000) + ' s)', lastErr);
     };
+
+    // A stream that errors or stalls while playing gets up to 3 reconnects in a row before stopping.
+    const reconnect = async (why) => {
+        const st = stationRef.current;
+        if (!st || connectingRef.current || !playingRef.current) return;
+        stopStall();
+        if (reconnectsRef.current >= 3) {
+            connGenRef.current++;
+            try { cur() && cur().pause(); } catch (e) {}
+            setPlaying(false);
+            setStatus(st.name + ' keeps dropping. Tap ▶ to try again.');
+            rkReport('radio dropped ' + st.id + ' (3 reconnects in a row failed; last: ' + why + ')', null);
+            return;
+        }
+        reconnectsRef.current += 1;
+        const n = reconnectsRef.current, gen = connGenRef.current;
+        setStatus('Connection dropped. Reconnecting (' + n + ' of 3)…');
+        await rkWait(1500 * n);
+        if (gen !== connGenRef.current || !playingRef.current) return;   // the raver did something else meanwhile
+        playStation(st, { reconnect: true });
+    };
+    const onStreamError = (plain) => { if (usingPlainRef.current === plain) reconnect('stream error'); };
+    const onStreamWaiting = (plain) => {
+        if (usingPlainRef.current !== plain || connectingRef.current || !playingRef.current || stallTimerRef.current) return;
+        const el = plain ? plainRef.current : audioRef.current;
+        const t0 = el ? el.currentTime : 0;
+        stallTimerRef.current = setTimeout(() => {
+            stallTimerRef.current = null;
+            try { if (el && !el.paused && el.currentTime > t0 + 2) return; } catch (e) {}   // still playing: nothing to fix
+            reconnect('no audio for ' + Math.round(RK_STALL_MS / 1000) + ' s');
+        }, RK_STALL_MS);
+    };
+    const onStreamPlaying = (plain) => { if (usingPlainRef.current === plain) { stopStall(); if (!connectingRef.current) reconnectsRef.current = 0; } };
 
     const togglePlay = () => {
         const a = cur(); if (!a) return;
-        if (playing) { a.pause(); setPlaying(false); setStatus('Paused: ' + station.name); }
+        if (playing) { connGenRef.current++; connectingRef.current = false; stopStall(); try { a.pause(); } catch (e) {} setPlaying(false); setStatus('Paused: ' + station.name); }
         else { playStation(station); }
     };
 
@@ -5264,9 +5600,10 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
             {/* EQ element. onError is ignored while the plain element is in use — otherwise the
                 failed EQ attempt that triggered the fallback would stomp on the station that is now
                 playing successfully. */}
-            <audio ref={audioRef} crossOrigin="anonymous" playsInline preload="none" onError={() => { if (playing && !usingPlainRef.current) { setPlaying(false); setStatus('Station unreachable. Try another.'); } }} />
+            {/* V84.78.150.312: errors and stalls go to the reconnect logic; data-rk-quiet keeps each refused address out of the diagnostic log. */}
+            <audio ref={audioRef} data-rk-quiet="1" crossOrigin="anonymous" playsInline preload="none" onError={() => onStreamError(false)} onWaiting={() => onStreamWaiting(false)} onStalled={() => onStreamWaiting(false)} onPlaying={() => onStreamPlaying(false)} />
             {/* Plain element — no crossOrigin, and never passed to createMediaElementSource. */}
-            <audio ref={plainRef} playsInline preload="none" onError={() => { if (playing && usingPlainRef.current) { setPlaying(false); setStatus(station.name + ' is not responding right now. Try another station.'); } }} />
+            <audio ref={plainRef} data-rk-quiet="1" playsInline preload="none" onError={() => onStreamError(true)} onWaiting={() => onStreamWaiting(true)} onStalled={() => onStreamWaiting(true)} onPlaying={() => onStreamPlaying(true)} />
             {isOpen && (
                 <div className="fixed inset-0 bg-black/90 z-[200] flex items-start justify-center p-4 overflow-y-auto">
                     <Card className="max-w-md w-full my-8 bg-[#0f001e]/95" glow="purpleGlow">
@@ -5454,6 +5791,1080 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     );
 };
 
+// ================================================================================================
+// V84.78.150.312: BADGE EMBLEMS. Milli: "the badges are all weak emblems. Design a unique series
+// of fractal and geometric badges that form shapes similar to what the badge represents."
+// One SVG per achievement (77) plus `rate_beyond` for custom RevShare rates, each drawn as the
+// thing it rewards from fractal or geometric construction: pastel fills, neon edges, a modest
+// glow, curved outer shapes with crisp geometry inside, more detail at each tier. Locked badges
+// are the same shape as open lavender outlines. Shown as data-URI images, so each one is its own
+// document (no clashing ids) and no network is used. Design notes: RK_VERIFY_312.md.
+// ================================================================================================
+/* RaveKandi emblem set: procedural pastel-neon fractal / geometric badges.
+ * Paste-safe for App.js: no imports, no exports, no DOM access, no randomness.
+ * Public API:
+ *   rkEmblemSvg(id, { size = 64, locked = false, animate = false }) -> standalone SVG string
+ *   rkEmblemUri(id, opts) -> memoized data: URI of the same SVG
+ *   RK_EMBLEM_IDS -> every supported id (77 achievements + 'rate_beyond')
+ * Every other top-level name is a function prefixed rkEm. Output is deterministic. */
+
+// ---------- geometry helpers ----------
+function rkEmN(v) { return String(Math.round(v * 10) / 10); }
+function rkEmXY(p) { return rkEmN(p[0]) + ' ' + rkEmN(p[1]); }
+function rkEmR(v) { return Math.round(v * 10) / 10; }
+// polyline / polygon in relative coordinates (deltas between rounded points, so no drift)
+function rkEmPath(pts, open) {
+  var s = '', px = 0, py = 0;
+  for (var i = 0; i < pts.length; i++) {
+    var x = rkEmR(pts[i][0]), y = rkEmR(pts[i][1]);
+    s += i ? (i === 1 ? 'l' : ' ') + rkEmN(x - px) + ' ' + rkEmN(y - py) : 'M' + rkEmN(x) + ' ' + rkEmN(y);
+    px = x; py = y;
+  }
+  return open ? s : s + 'z';
+}
+function rkEmPol(cx, cy, r, deg) {
+  var a = (deg - 90) * Math.PI / 180;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+function rkEmNgon(cx, cy, r, n, rot) {
+  var p = [];
+  for (var i = 0; i < n; i++) p.push(rkEmPol(cx, cy, r, (rot || 0) + i * 360 / n));
+  return p;
+}
+function rkEmStarPts(cx, cy, R, r, n, rot) {
+  var p = [];
+  for (var i = 0; i < 2 * n; i++) p.push(rkEmPol(cx, cy, i % 2 ? r : R, (rot || 0) + i * 180 / n));
+  return p;
+}
+function rkEmLerp(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+function rkEmScale(pts, cx, cy, k) {
+  var o = [];
+  for (var i = 0; i < pts.length; i++) o.push([cx + (pts[i][0] - cx) * k, cy + (pts[i][1] - cy) * k]);
+  return o;
+}
+function rkEmShrink(pts, k) {
+  var cx = 0, cy = 0;
+  for (var i = 0; i < pts.length; i++) { cx += pts[i][0] / pts.length; cy += pts[i][1] / pts.length; }
+  return rkEmScale(pts, cx, cy, k);
+}
+function rkEmRot(pts, cx, cy, deg) {
+  var c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180), o = [];
+  for (var i = 0; i < pts.length; i++) {
+    var x = pts[i][0] - cx, y = pts[i][1] - cy;
+    o.push([cx + x * c - y * s, cy + x * s + y * c]);
+  }
+  return o;
+}
+function rkEmCirc(cx, cy, r) {
+  var a = 'a' + rkEmN(r) + ' ' + rkEmN(r) + ' 0 1 0 ';
+  return 'M' + rkEmN(cx - r) + ' ' + rkEmN(cy) + a + rkEmN(2 * r) + ' 0' + a + rkEmN(-2 * r) + ' 0Z';
+}
+function rkEmEll(cx, cy, rx, ry) {
+  var a = 'a' + rkEmN(rx) + ' ' + rkEmN(ry) + ' 0 1 0 ';
+  return 'M' + rkEmN(cx - rx) + ' ' + rkEmN(cy) + a + rkEmN(2 * rx) + ' 0' + a + rkEmN(-2 * rx) + ' 0Z';
+}
+// open circular arc, angles in degrees clockwise from 12 o'clock
+function rkEmArc(cx, cy, r, a0, a1) {
+  return 'M' + rkEmXY(rkEmPol(cx, cy, r, a0)) + 'A' + rkEmN(r) + ' ' + rkEmN(r) + ' 0 ' + (Math.abs(a1 - a0) > 180 ? 1 : 0) + ' ' + (a1 > a0 ? 1 : 0) + ' ' + rkEmXY(rkEmPol(cx, cy, r, a1));
+}
+// closed polygon with rounded (quadratic) corners: curved silhouettes, crisp interiors
+function rkEmRound(pts, rad) {
+  var n = pts.length, s = '', cx = 0, cy = 0;
+  for (var i = 0; i < n; i++) {
+    var p = pts[i], a = pts[(i + n - 1) % n], b = pts[(i + 1) % n], r = typeof rad === 'number' ? rad : rad[i];
+    var da = Math.hypot(a[0] - p[0], a[1] - p[1]) || 1, db = Math.hypot(b[0] - p[0], b[1] - p[1]) || 1;
+    var u = rkEmLerp(p, a, Math.min(r, da / 2) / da), v = rkEmLerp(p, b, Math.min(r, db / 2) / db), ux = rkEmR(u[0]), uy = rkEmR(u[1]), vx = rkEmR(v[0]), vy = rkEmR(v[1]);
+    s += (i ? 'l' + rkEmN(ux - cx) + ' ' + rkEmN(uy - cy) : 'M' + rkEmN(ux) + ' ' + rkEmN(uy)) + 'q' + rkEmN(rkEmR(p[0]) - ux) + ' ' + rkEmN(rkEmR(p[1]) - uy) + ' ' + rkEmN(vx - ux) + ' ' + rkEmN(vy - uy);
+    cx = vx; cy = vy;
+  }
+  return s + 'z';
+}
+// Sierpinski: the removed (negative-space) triangles down to depth d
+function rkEmSier(a, b, c, d) {
+  if (d < 1) return '';
+  var ab = rkEmLerp(a, b, 0.5), bc = rkEmLerp(b, c, 0.5), ca = rkEmLerp(c, a, 0.5);
+  return rkEmPath([ab, bc, ca]) + rkEmSier(a, ab, ca, d - 1) + rkEmSier(ab, b, bc, d - 1) + rkEmSier(ca, bc, c, d - 1);
+}
+// four-point sparkle with concave sides
+function rkEmSpark(cx, cy, s) {
+  var c = 'Q' + rkEmN(cx) + ' ' + rkEmN(cy) + ' ';
+  return 'M' + rkEmN(cx) + ' ' + rkEmN(cy - s) + c + rkEmN(cx + s) + ' ' + rkEmN(cy) + c + rkEmN(cx) + ' ' + rkEmN(cy + s) + c + rkEmN(cx - s) + ' ' + rkEmN(cy) + c + rkEmN(cx) + ' ' + rkEmN(cy - s) + 'Z';
+}
+// heart, s = half width
+function rkEmHeart(cx, cy, s) {
+  var k = s / 16, P = [[0, -6], [-3, -13], [-16, -14], [-16, -3], [-16, 5], [-6, 10], [0, 16], [6, 10], [16, 5], [16, -3], [16, -14], [3, -13], [0, -6]], o = '';
+  for (var i = 0; i < P.length; i++) o += (i ? (i % 3 === 1 ? 'C' : ' ') : 'M') + rkEmN(cx + P[i][0] * k) + ' ' + rkEmN(cy + P[i][1] * k);
+  return o + 'Z';
+}
+// rounded scalloped seal
+function rkEmScallop(cx, cy, R, k) {
+  var rr = rkEmN(2 * R * Math.sin(Math.PI / k) * 0.6), s = '';
+  for (var i = 0; i <= k; i++) s += (i ? 'A' + rr + ' ' + rr + ' 0 0 1 ' : 'M') + rkEmXY(rkEmPol(cx, cy, R, i * 360 / k));
+  return s + 'Z';
+}
+// stadium (chain link / capsule) centred at cx,cy, long axis at ang degrees
+function rkEmStad(cx, cy, L, W, ang) {
+  var r = W / 2, h = Math.max(L / 2 - r, 0), c = Math.cos(ang * Math.PI / 180), s = Math.sin(ang * Math.PI / 180), A = 'A' + rkEmN(r) + ' ' + rkEmN(r) + ' 0 0 1 ';
+  var f = function (x, y) { return rkEmN(cx + x * c - y * s) + ' ' + rkEmN(cy + x * s + y * c); };
+  return 'M' + f(-h, -r) + 'L' + f(h, -r) + A + f(h, r) + 'L' + f(-h, r) + A + f(-h, -r) + 'Z';
+}
+// elliptical speech bubble with a tail at polar angle ta
+function rkEmBub(cx, cy, rx, ry, ta, tl, tw) {
+  var f = function (a, k) { var r = (a - 90) * Math.PI / 180; return [cx + (rx + k) * Math.cos(r), cy + (ry + k) * Math.sin(r)]; };
+  return 'M' + rkEmXY(f(ta + tw, 0)) + 'A' + rkEmN(rx) + ' ' + rkEmN(ry) + ' 0 1 1 ' + rkEmXY(f(ta - tw, 0)) + 'L' + rkEmXY(f(ta, tl)) + 'Z';
+}
+// flat-top hexagon cells inside an ellipse, two shade groups
+function rkEmHexCells(cx, cy, rx, ry, hr, k) {
+  var o = ['', ''], w = hr * 1.5, h = hr * Math.sqrt(3);
+  for (var i = -7; i <= 7; i++) {
+    for (var j = -7; j <= 7; j++) {
+      var x = cx + i * w, y = cy + (j + (Math.abs(i) % 2) * 0.5) * h, dx = (x - cx) / rx, dy = (y - cy) / ry;
+      if (dx * dx + dy * dy <= 1) o[(i + j + 21) % 3 === 0 ? 0 : 1] += rkEmPath(rkEmNgon(x, y, hr * k, 6, 30));
+    }
+  }
+  return o;
+}
+// flame with pointed tip (h < 0 points down)
+function rkEmFlame(cx, by, h, w) {
+  var f = function (x, y) { return rkEmN(cx + x * w) + ' ' + rkEmN(by - y * h); };
+  return 'M' + f(0, 1) + 'C' + f(-0.25, 0.62) + ' ' + f(-1, 0.55) + ' ' + f(-1, 0.25) + 'C' + f(-1, 0.02) + ' ' + f(-0.55, 0) + ' ' + f(0, 0) + 'C' + f(0.55, 0) + ' ' + f(1, 0.02) + ' ' + f(1, 0.25) + 'C' + f(1, 0.55) + ' ' + f(0.25, 0.62) + ' ' + f(0, 1) + 'Z';
+}
+// little person: round head + rounded triangle body, rotated about its centre
+function rkEmPerson(x, y, s, ang) {
+  var hd = rkEmRot([[x, y - s * 0.95]], x, y, ang)[0], b = rkEmRot([[x, y - s * 0.38], [x + s * 0.64, y + s * 0.78], [x - s * 0.64, y + s * 0.78]], x, y, ang);
+  return rkEmCirc(hd[0], hd[1], s * 0.42) + rkEmRound(b, s * 0.22);
+}
+// smooth polar wave ring with k lobes: one quadratic Bezier per half-lobe (zero crossing -> zero crossing)
+function rkEmWave(cx, cy, R, amp, k) {
+  var st = 180 / k, s = '', px = 0, py = 0;
+  for (var i = 0; i <= 2 * k; i++) {
+    var p = rkEmPol(cx, cy, R, i * st), x = rkEmR(p[0]), y = rkEmR(p[1]);
+    if (i) {
+      var c = rkEmPol(cx, cy, R + (i % 2 ? 2 : -2) * amp, (i - 0.5) * st), qx = rkEmR(c[0]), qy = rkEmR(c[1]);
+      s += 'q' + rkEmN(qx - px) + ' ' + rkEmN(qy - py) + ' ' + rkEmN(x - px) + ' ' + rkEmN(y - py);
+    } else s = 'M' + rkEmN(x) + ' ' + rkEmN(y);
+    px = x; py = y;
+  }
+  return s + 'z';
+}
+
+// ---------- colour helpers ----------
+function rkEmMix(a, b, t) {
+  var s = '#';
+  for (var i = 1; i < 7; i += 2) {
+    var x = parseInt(a.slice(i, i + 2), 16), y = parseInt(b.slice(i, i + 2), 16), v = Math.round(x + (y - x) * t);
+    s += (v < 16 ? '0' : '') + v.toString(16);
+  }
+  return s;
+}
+// palette from one neon hex: light pastel, mid pastel, neon, deep
+function rkEmPal(n) { return { n: n, l: rkEmMix(n, '#ffffff', 0.78), m: rkEmMix(n, '#ffffff', 0.42), d: rkEmMix(n, '#1a0033', 0.55) }; }
+function rkEmLin(c, v, u) { return { t: 'l', c: c, v: v || [0.1, 0, 0.9, 1], u: u }; }
+function rkEmRad(c, v) { return { t: 'r', c: c, v: v || [0.42, 0.38, 0.75] }; }
+// element: d path, f fill, s stroke, w width, o opacity, r role
+// roles: b silhouette, d detail, k dark knockout, h highlight (earned only), x effect (earned only), o separation outline
+function rkEmE(d, f, s, w, o, r) { return { d: d, f: f, s: s, w: w, o: o, r: r }; }
+function rkEmQ(e) { e.q = 1; return e; }
+function rkEmFO(e, fo) { e.fo = fo; return e; }
+// ring of k round beads drawn as a dotted circle (zero-length dashes with round caps); start shifts the first bead by a fraction of the spacing
+function rkEmDots(cx, cy, r, k, w, col, o, role, start) {
+  var e = rkEmE(rkEmCirc(cx, cy, r), 0, col, w, o, role), c = 2 * Math.PI * r / k;
+  e.da = '0 ' + rkEmN2(c);
+  if (start) e.dof = rkEmN2(-c * start);
+  e.lw = w;
+  return e;
+}
+function rkEmN2(v) { return String(Math.round(v * 100) / 100); }
+
+// ---------- renderer ----------
+function rkEmPaint(c, P) { return !c ? 'none' : (c.charAt(0) === '#' ? c : 'url(#' + P + 'g' + c + ')'); }
+function rkEmGrad(P, k, g) {
+  var v = g.v, rad = g.t === 'r', tag = rad ? 'radialGradient' : 'linearGradient', s = '<' + tag + ' id="' + P + 'g' + k + '"';
+  s += rad ? ' cx="' + v[0] + '" cy="' + v[1] + '" r="' + v[2] + '"' : ' x1="' + v[0] + '" y1="' + v[1] + '" x2="' + v[2] + '" y2="' + v[3] + '"';
+  if (g.u) s += ' gradientUnits="userSpaceOnUse"';
+  s += '>';
+  for (var i = 0; i < g.c.length; i++) {
+    var c = g.c[i], a = typeof c === 'string';
+    s += '<stop offset="' + (a ? Math.round(100 * i / (g.c.length - 1)) / 100 : c[0]) + '" stop-color="' + (a ? c : c[1]) + '"' + (!a && c[2] < 1 ? ' stop-opacity="' + c[2] + '"' : '') + '/>';
+  }
+  return s + '</' + tag + '>';
+}
+function rkEmPathEl(e, P, st) {
+  var f = e.f, k = e.s, w = e.w || 0, o = e.o === undefined ? 1 : e.o, r = e.r || 'd', x = '';
+  if (st.S && ((r === 'd' && !f && w < 1.3) || e.q)) return '';
+  if (r === 'o') {
+    f = 0; k = '#0a0014'; o = 1;
+  } else if (st.L) {
+    var b = r === 'b';
+    x = b && f ? ' fill-opacity=".08"' : '';
+    f = b && f ? '#cfc6ee' : 0;
+    k = b ? '#cfc6ee' : '#a99fd6';
+    w = e.lw || (b ? Math.max(w, 2.2) : Math.min(Math.max(w, 1), 2.4));
+    if (st.S) w = Math.max(w * 1.45, b ? 3.6 : 2);
+    o = 1;
+  } else {
+    if (e.fo !== undefined) x = ' fill-opacity="' + e.fo + '"';
+    if (st.S && r === 'b') w *= 1.3;
+  }
+  var s = '<path d="' + e.d + '"', u = st.u[e.d];
+  if (u > 1 && e.d.length > 30) {
+    if (!st.id[e.d]) { st.id[e.d] = P + 'D' + st.k++; st.d += '<path id="' + st.id[e.d] + '" d="' + e.d + '"/>'; }
+    s = '<use href="#' + st.id[e.d] + '"';
+  }
+  s += ' fill="' + rkEmPaint(f, P) + '"' + x;
+  if (k && w > 0) s += ' stroke="' + rkEmPaint(k, P) + '" stroke-width="' + rkEmN(w) + '"';
+  if (o < 1) s += ' opacity="' + o + '"';
+  if (e.e) s += ' fill-rule="evenodd"';
+  if (e.cap) s += ' stroke-linecap="' + e.cap + '"';
+  if (e.da) s += ' stroke-dasharray="' + e.da + '"' + (e.dof ? ' stroke-dashoffset="' + e.dof + '"' : '');
+  if (e.t) s += ' transform="' + e.t + '"';
+  return s + '/>';
+}
+function rkEmDraw(list, P, st) {
+  var s = '';
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (!e || (st.S && e.q) || (st.L && (e.r === 'x' || e.r === 'h'))) continue;
+    if (e.g) {
+      var a = e.t ? ' transform="' + e.t + '"' : '';
+      if (e.c) {
+        var id = P + 'C' + st.n++;
+        st.d += '<clipPath id="' + id + '"><path d="' + e.c + '"/></clipPath>';
+        a += ' clip-path="url(#' + id + ')"';
+      }
+      if (!st.L && e.o !== undefined && e.o < 1) a += ' opacity="' + e.o + '"';
+      s += '<g' + a + '>' + rkEmDraw(e.g, P, st) + '</g>';
+    } else s += rkEmPathEl(e, P, st);
+  }
+  return s;
+}
+function rkEmCount(list, u) {
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e && e.g) rkEmCount(e.g, u);
+    else if (e) u[e.d] = (u[e.d] || 0) + 1;
+  }
+}
+function rkEmHash(s) {
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+function rkEmblemSvg(id, opts) {
+  var o = opts && typeof opts === 'object' ? opts : {}, z = Number(o.size), lock = !!o.locked, anim = !!o.animate && !lock;
+  if (!(z > 0 && z <= 4096)) z = 64;
+  var T = rkEmSpec(), key = typeof id === 'string' ? id : '', sp = Object.prototype.hasOwnProperty.call(T, key) ? T[key] : null, m = null;
+  try { m = sp ? sp.f(sp.t, sp.v) : null; } catch { m = null; }
+  if (!m) { sp = null; m = rkEmGeneric(); }
+  // id prefix is unique per emblem, state and detail level, so several emblems can be inlined in one page
+  var P = 'rk' + (sp ? sp.k : 'x' + rkEmHash(key)) + '_' + (lock ? 'l' : 'e') + (anim ? 'a' : '') + (z <= 32 ? 's' : '');
+  var st = { L: lock, S: z <= 32, n: 0, d: '', u: {}, id: {}, k: 0 };
+  rkEmCount(m.e, st.u);
+  var art = rkEmDraw(m.e, P, st), lv = sp ? sp.v : 2;
+  var h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="' + rkEmN(z) + '" height="' + rkEmN(z) + '">';
+  if (lock) return h + (st.d ? '<defs>' + st.d + '</defs>' : '') + '<g fill="none" stroke-linejoin="round" stroke-linecap="round">' + art + '</g></svg>';
+  var defs = '', gk = Object.keys(m.g || {}), hue = m.h || '#ff6ec7';
+  for (var i = 0; i < gk.length; i++) if (art.indexOf('#' + P + 'g' + gk[i] + ')') >= 0) defs += rkEmGrad(P, gk[i], m.g[gk[i]]);
+  var sd = [1.2, 1.5, 1.8, 2.1, 2.5][lv - 1] * (st.S ? 0.6 : 1), go = [0.5, 0.58, 0.66, 0.74, 0.84][lv - 1], au = [0.08, 0.11, 0.14, 0.18, 0.24][lv - 1];
+  defs += '<radialGradient id="' + P + 'U"><stop offset="0" stop-color="' + hue + '" stop-opacity="' + au + '"/><stop offset="1" stop-color="' + hue + '" stop-opacity="0"/></radialGradient>';
+  defs += '<filter id="' + P + 'F" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="' + rkEmN(sd) + '"/></filter>' + st.d;
+  defs += '<g id="' + P + 'A" stroke-linejoin="round" stroke-linecap="round">' + art + '</g>';
+  var body = '<circle cx="50" cy="50" r="48" fill="url(#' + P + 'U)"/><use href="#' + P + 'A" filter="url(#' + P + 'F)" opacity="' + go + '"' + (anim ? ' class="rkEmG"' : '') + '/><use href="#' + P + 'A"/>';
+  if (anim) {
+    // shimmer: a soft white band sweeps across, masked by the artwork itself; class/keyframe names are shared and identical across emblems
+    defs += '<mask id="' + P + 'M"><use href="#' + P + 'A"/></mask><linearGradient id="' + P + 'W" x2=".5" y2=".18" spreadMethod="reflect"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity=".5"/></linearGradient>';
+    body += '<g mask="url(#' + P + 'M)"><rect class="rkEmS" x="-60" width="54" height="100" fill="url(#' + P + 'W)"/></g>';
+    body += '<style>.rkEmG{animation:rkEmP 3.2s ease-in-out infinite}.rkEmS{animation:rkEmX 3.8s ease-in-out infinite}@keyframes rkEmP{50%{opacity:.3}}@keyframes rkEmX{0%{transform:translateX(0)}60%,100%{transform:translateX(166px)}}@media (prefers-reduced-motion:reduce){.rkEmG,.rkEmS{animation:none}}</style>';
+  }
+  return h + '<defs>' + defs + '</defs>' + body + '</svg>';
+}
+
+function rkEmblemUri(id, opts) {
+  var o = opts && typeof opts === 'object' ? opts : {}, z = Number(o.size), c = rkEmblemUri.c || (rkEmblemUri.c = {});
+  if (!(z > 0 && z <= 4096)) z = 64;
+  var k = (typeof id === 'string' ? 's:' + id : 'n:') + '|' + z + '|' + (o.locked ? 1 : 0) + (o.animate ? 1 : 0);
+  if (!Object.prototype.hasOwnProperty.call(c, k)) c[k] = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(rkEmblemSvg(id, o));
+  return c[k];
+}
+
+// ---------- shared constructions ----------
+function rkEmEO(e) { e.e = 1; return e; }
+// intersections of two equal circles
+function rkEmCross(c1, c2, r) {
+  var dx = c2[0] - c1[0], dy = c2[1] - c1[1], d = Math.hypot(dx, dy) || 1, h = Math.sqrt(Math.max(r * r - d * d / 4, 0)), mx = (c1[0] + c2[0]) / 2, my = (c1[1] + c2[1]) / 2;
+  return [[mx - dy / d * h, my + dx / d * h], [mx + dy / d * h, my - dx / d * h]];
+}
+// short arc of circle (c, r) centred on point X, half-length hf
+function rkEmArcAt(c, r, X, hf) {
+  var th = Math.atan2(X[0] - c[0], c[1] - X[1]) * 180 / Math.PI, dg = hf / r * 180 / Math.PI;
+  return rkEmArc(c[0], c[1], r, th - dg, th + dg);
+}
+// short over-strand arc on circle c1 where it crosses circle c2 at X, just long enough to cut the under-strand
+function rkEmFixAt(c1, c2, r, X, w) {
+  var ax = X[0] - c1[0], ay = X[1] - c1[1], bx = X[0] - c2[0], by = X[1] - c2[1], sn = Math.abs(ax * by - ay * bx) / (r * r);
+  return rkEmArcAt(c1, r, X, (w / 2 + 1.6) / Math.max(sn, 0.35));
+}
+// over/under weave: base strokes, then at every crossing the 'over' strand is re-laid on a cut-out
+function rkEmWeave(base, fix, gk, sw) {
+  var E = rkEmE, o = E(fix, 0, 0, sw + 3.2, 1, 'o');
+  o.cap = 'butt';
+  return [E(base, 0, gk, sw, 1, 'b'), E(base, 0, '#ffffff', sw * 0.28, 0.6, 'h'), o, E(fix, 0, gk, sw, 1, 'b'), E(fix, 0, '#ffffff', sw * 0.28, 0.6, 'h')];
+}
+// chain links [x, y, axisDeg]
+function rkEmLinks(ls, L, W, gk, sw, closed) {
+  var n = ls.length, r = W / 2, hl = L / 2 - r, base = '', fix = '', i;
+  var cap = function (A, B) {
+    var c = Math.cos(A[2] * Math.PI / 180), s = Math.sin(A[2] * Math.PI / 180), p = [A[0] + c * hl, A[1] + s * hl], q = [A[0] - c * hl, A[1] - s * hl];
+    return Math.hypot(p[0] - B[0], p[1] - B[1]) < Math.hypot(q[0] - B[0], q[1] - B[1]) ? p : q;
+  };
+  for (i = 0; i < n; i++) base += rkEmStad(ls[i][0], ls[i][1], L, W, ls[i][2]);
+  for (i = 0; i < (closed ? n : n - 1); i++) {
+    var A = ls[i], B = ls[(i + 1) % n], e1 = cap(A, B), e2 = cap(B, A), X = rkEmCross(e1, e2, r);
+    fix += rkEmFixAt(e1, e2, r, X[0], sw) + rkEmFixAt(e2, e1, r, X[1], sw);
+  }
+  return rkEmWeave(base, fix, gk, sw);
+}
+// interlinked rings
+function rkEmRings(C, r, w, closed) {
+  var n = C.length, base = '', fix = '', i;
+  for (i = 0; i < n; i++) base += rkEmCirc(C[i][0], C[i][1], r);
+  for (i = 0; i < (closed ? n : n - 1); i++) {
+    var a = C[i], b = C[(i + 1) % n], X = rkEmCross(a, b, r);
+    fix += rkEmFixAt(a, b, r, X[0], w) + rkEmFixAt(b, a, r, X[1], w);
+  }
+  return rkEmWeave(base, fix, 'a', w);
+}
+function rkEmLens(a, b, r) {
+  var A = 'A' + rkEmN(r) + ' ' + rkEmN(r) + ' 0 0 1 ';
+  return 'M' + rkEmXY(a) + A + rkEmXY(b) + A + rkEmXY(a) + 'Z';
+}
+function rkEmLeaf(a, b, w) {
+  var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, nx = -dy / l * w, ny = dx / l * w;
+  return 'M' + rkEmXY(a) + 'Q' + rkEmXY([mx + nx, my + ny]) + ' ' + rkEmXY(b) + 'Q' + rkEmXY([mx - nx, my - ny]) + ' ' + rkEmXY(a) + 'Z';
+}
+function rkEmGear(cx, cy, ri, ro, k) {
+  var p = [], s = 360 / k;
+  for (var i = 0; i < k; i++) p.push(rkEmPol(cx, cy, ri, i * s - s * 0.36), rkEmPol(cx, cy, ro, i * s - s * 0.2), rkEmPol(cx, cy, ro, i * s + s * 0.2), rkEmPol(cx, cy, ri, i * s + s * 0.36));
+  return rkEmPath(p);
+}
+function rkEmDrip(x, y, L, w) {
+  var f = function (a, b) { return rkEmN(x + a) + ' ' + rkEmN(y + b); }, R = w * 1.25;
+  return 'M' + f(-w, -2) + 'C' + f(-w, L * 0.45) + ' ' + f(-R, L * 0.6) + ' ' + f(-R, L * 0.8) + 'A' + rkEmN(R) + ' ' + rkEmN(R) + ' 0 0 0 ' + f(R, L * 0.8) + 'C' + f(R, L * 0.6) + ' ' + f(w, L * 0.45) + ' ' + f(w, -2) + 'Z';
+}
+function rkEmShade(A, tri, v) { if (v > A.k) A.L += rkEmPath(tri); else if (v < -A.k) A.D += rkEmPath(tri); }
+// brilliant-cut gem seen from above, recursively nested in its own table; sh = how many levels get light/dark facets
+function rkEmFacets(cx, cy, R, n, rot, sub, dep, A, sh) {
+  var G = rkEmNgon(cx, cy, R, n, rot), T = rkEmNgon(cx, cy, R * 0.54, n, rot + 180 / n), Z = [], i;
+  for (i = 0; i < n; i++) {
+    var g0 = G[i], g1 = G[(i + 1) % n], t0 = T[i], tp = T[(i + n - 1) % n], m = rkEmLerp(g0, g1, 0.5), mk = rkEmLerp(tp, t0, 0.5);
+    var lb = Math.cos((rot + (i + 0.5) * 360 / n - 315) * Math.PI / 180), lk = -Math.cos((rot + i * 360 / n - 315) * Math.PI / 180);
+    Z.push(g0, t0);
+    if (sub) A.l += rkEmPath([t0, m], 1);
+    if (sub > 1) A.l += rkEmPath([g0, mk], 1);
+    if (sh > 0) {
+      if (sub) { rkEmShade(A, [g0, m, t0], lb + 0.4); rkEmShade(A, [m, g1, t0], lb - 0.4); } else rkEmShade(A, [g0, g1, t0], lb);
+      if (sub > 1) { rkEmShade(A, [g0, tp, mk], lk + 0.4); rkEmShade(A, [g0, mk, t0], lk - 0.4); } else rkEmShade(A, [g0, tp, t0], lk);
+    }
+  }
+  A.l += rkEmPath(Z);
+  if (dep > 1) { A.l += rkEmPath(T); rkEmFacets(cx, cy, R * 0.5, n, rot + 180 / n, 0, dep - 1, A, sh - 1); } else A.c = rkEmPath(T);
+}
+
+// ---------- families ----------
+// Creator: verified scalloped seal with a hammer (Official Creator); Sierpinski crown (Crowned Creator)
+function rkEmCreator(t) {
+  var N = '#ffc93c', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', K = '#ff6ec7';
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin(['#ffffff', '#ffd6f0', '#ff9ad5']), j: rkEmRad(['#ffffff', '#ffb3e0', K]) };
+  if (t === 1) {
+    e.push(E(rkEmScallop(50, 50, 35, 14), 'a', N, 2.4, 1, 'b'));
+    e.push(E(rkEmCirc(50, 50, 26.5), 0, p.d, 1.2, 0.6, 'd'));
+    e.push(rkEmDots(50, 50, 33, 14, 3.4, '#fff7dc', 0.95, 'd', 0.5));
+    var head = rkEmRound([[30, 27], [70, 27], [67, 43], [33, 43]], 3), hdl = rkEmRound([[46.5, 40], [53.5, 40], [53.5, 80], [46.5, 80]], 3.5);
+    e.push({ t: 'rotate(-38 50 53)', g: [E(hdl, 0, 0, 5, 1, 'o'), E(head, 0, 0, 5, 1, 'o'), E(hdl, 'b', K, 1.8, 1, 'b'), E(head, 'b', K, 2, 1, 'b'),
+      E('M32 35H68M40 27.5V42.5M60 27.5V42.5', 0, K, 1, 0.7, 'd'), E('M46.5 66H53.5M46.5 72H53.5', 0, K, 1.4, 0.8, 'd')] });
+    e.push(E(rkEmSpark(77, 24, 5.5), '#ffffff', 0, 0, 1, 'x'));
+  } else {
+    var C = [[15, 80], [15, 44], [32, 59], [50, 26], [68, 59], [85, 44], [85, 80]];
+    e.push(rkEmEO(E(rkEmRound(C, [4, 3, 3, 3, 3, 3, 4]) + rkEmSier([50, 32], [37.5, 57], [62.5, 57], 2), 'a', N, 2.4, 1, 'b')));
+    e.push(E(rkEmRound([[12, 65], [88, 65], [88, 83], [12, 83]], 4), 'a', N, 2.4, 1, 'b'));
+    e.push(E('M15 70H85', 0, '#ffffff', 1.2, 0.5, 'h'));
+    s = '';
+    for (i = 0; i < 3; i++) { var x = 30 + i * 20; s += rkEmPath([[x, 69], [x + 5, 74], [x, 79], [x - 5, 74]]); }
+    e.push(E(s, 'j', K, 1, 1, 'd'));
+    e.push(E(rkEmCirc(15, 39.5, 4.6) + rkEmCirc(50, 21, 5.2) + rkEmCirc(85, 39.5, 4.6), 'j', K, 1.4, 1, 'b'));
+    e.push(E(rkEmSpark(31, 22, 4) + rkEmSpark(70, 17, 3), '#ffffff', 0, 0, 1, 'x'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Kandi collector: perspective bead bracelet; rows grow single -> double -> triple cuff
+function rkEmCuff(t) {
+  var C = ['#ff8fd6', '#ffb27a', '#ffe36e', '#b6ff6e', '#6ff0ff', '#b99cff'], E = rkEmE, e = [], i, j, r;
+  var ys = [[50], [43, 58], [36, 50, 64]][t - 1], N = 16, rx = 37, ry = [17, 13.5, 11][t - 1], bk = ['', '', '', '', '', ''], fr = bk.slice(), hi = '';
+  for (r = 0; r < t; r++) {
+    for (j = 0; j < N; j++) {
+      var a = (j + (r % 2) * 0.5) * 2 * Math.PI / N, sn = Math.sin(a), x = 50 + rx * Math.cos(a), y = ys[r] + ry * sn, ci = (j + r * 2) % 6, rad = 4.9 + 1.4 * sn;
+      if (sn > 0.05) { fr[ci] += rkEmCirc(x, y, rad); hi += rkEmCirc(x - rad * 0.32, y - rad * 0.36, rad * 0.3); } else bk[ci] += rkEmCirc(x, y, rad);
+    }
+  }
+  for (i = 0; i < 6; i++) if (bk[i]) e.push(E(bk[i], C[i], 0, 0, 0.45, 'd'));
+  for (i = 0; i < 6; i++) if (fr[i]) e.push(E(fr[i], C[i], rkEmMix(C[i], '#ffffff', 0.55), 0.9, 1, 'b'));
+  e.push(E(hi, '#ffffff', 0, 0, 0.8, 'h'));
+  if (t > 1) e.push(E(rkEmSpark(84, 20, t > 2 ? 6 : 4.5) + (t > 2 ? rkEmSpark(15, 82, 4) : ''), '#ffffff', 0, 0, 1, 'x'));
+  return { g: {}, e: e, h: '#ff8fd6' };
+}
+
+// Hustler coins: beaded border and guilloche rosette deepen per metal; Tycoon adds a breakout trend arrow
+function rkEmCoin(t) {
+  var N = ['#c2cbff', '#ffac70', '#aef0ff', '#ffc933', '#ffc933'][t - 1], p = rkEmPal(N), E = rkEmE, e = [], i, j, q, s = '';
+  var ty = t === 5, cx = ty ? 45 : 50, cy = ty ? 55 : 50, R = ty ? 35 : 38;
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([N, p.m, p.l], [0.2, 0.95, 0.8, 0.05]) };
+  if (ty) g.i = rkEmLin(['#ffc933', '#ff8fd0', '#7ff3ff', '#ffc933']);
+  e.push(E(rkEmCirc(cx, cy, R), 'a', ty ? 'i' : N, 2.6, 1, 'b'));
+  e.push(E(rkEmCirc(cx, cy, R - 7.5), 'b', p.d, 1, 0.5, 'd'));
+  var nb = [0, 18, 24, 30, 24][t - 1];
+  if (nb) e.push(rkEmDots(cx, cy, R - 4, nb, 2.5, p.d, 0.7, 'd'));
+  var lay = [1, 1, 2, 2, 2][t - 1], nc = [6, 8, 9, 11, 12][t - 1];
+  for (j = 0; j < lay; j++) {
+    s = '';
+    for (i = 0; i < nc; i++) { q = rkEmPol(cx, cy, 19 - j * 2.5, (i + j / lay) * 360 / nc); s += rkEmCirc(q[0], q[1], 8.5 - j * 1.6); }
+    e.push(E(s, 0, p.d, 0.8, 0.45, 'd'));
+  }
+  if (!ty) {
+    var D = 'M57.5 42.5C56 39.6 53.3 38.6 50 38.6C46.2 38.6 43.6 40.6 43.6 44C43.6 47.6 47 48.6 50 49.4C53.4 50.3 56.8 51.6 56.8 55.6C56.8 59.3 54 61.4 50 61.4C46.4 61.4 43.6 59.9 42.6 57M50 35.4V64.6';
+    e.push(E(D, 0, p.l, 7.5, 0.9, 'x'));
+    e.push(E(D, 0, p.d, 3.6, 1, 'b'));
+  }
+  e.push(E(rkEmArc(cx, cy, R - 3, 292, 338), 0, '#ffffff', 2.4, 0.75, 'h'));
+  if (t === 4) e.push(E(rkEmCirc(50, 50, 43.5), 0, N, 1.1, 0.6, 'd'), E(rkEmSpark(83, 17, 6) + rkEmSpark(17, 83, 4), '#fff6d6', 0, 0, 1, 'x'));
+  if (ty) {
+    var pts = [[13, 74], [33, 54], [46, 64], [75, 31]], u = [29, -33], L = Math.hypot(29, 33);
+    u = [u[0] / L, u[1] / L];
+    var bs = [75 - u[0] * 2, 31 - u[1] * 2], pr = [-u[1] * 8.5, u[0] * 8.5], H = rkEmRound([[75 + u[0] * 10, 31 + u[1] * 10], [bs[0] + pr[0], bs[1] + pr[1]], [bs[0] - pr[0], bs[1] - pr[1]]], 1.5), A = rkEmPath(pts, 1);
+    e.push(E(A, 0, 0, 12.5, 1, 'o'), E(H, 0, 0, 5, 1, 'o'), E(A, 0, '#ff6ec7', 6.5, 1, 'b'), E(H, '#ff6ec7', '#ff6ec7', 2, 1, 'b'), E(A, 0, '#ffe0f3', 2, 0.9, 'h'));
+    e.push(E(rkEmSpark(20, 22, 6.5) + rkEmSpark(87, 62, 4), '#fff6d6', 0, 0, 1, 'x'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Sold: price tag of nested self-similar tags; kandi beads thread onto the string per tier
+function rkEmTag(t) {
+  var N = '#a6ff4d', p = rkEmPal(N), E = rkEmE, e = [], tg = [], i, k;
+  var g = { a: rkEmLin([p.l, p.m, N]) };
+  var B = [[50, 11], [70, 31], [70, 85], [30, 85], [30, 31]], nl = [1, 2, 4][t - 1];
+  tg.push(E(rkEmRound(B, [6, 4, 7, 7, 4]), 'a', N, 2.6, 1, 'b'));
+  for (i = 1; i <= nl; i++) {
+    k = 1 - i * (t === 3 ? 0.18 : 0.25);
+    tg.push(rkEmFO(E(rkEmRound(rkEmScale(B, 50, 57, k), 5 * k), i % 2 ? p.d : '#ffffff', N, 1.2, 1, 'd'), i % 2 ? 0.22 : 0.4));
+  }
+  tg.push(E(rkEmCirc(50, 25, 4.6), '#0a0014', N, 1.8, 1, 'k'));
+  e.push({ g: tg, t: 'rotate(-45 50 50)' });
+  e.push(E('M32.3 32.3C31 24 37 15 33 7', 0, '#f4ffe6', 1.6, 0.9, 'd'));
+  var bd = [[33.7, 19.5, '#ff8fd6'], [34.4, 13.2, '#6ff0ff'], [33.5, 7.6, '#ffe36e']];
+  for (i = 0; i < t - 1 + (t > 2 ? 1 : 0); i++) e.push(E(rkEmCirc(bd[i][0], bd[i][1], 3.1), bd[i][2], '#ffffff', 0.8, 1, 'd'));
+  if (t === 3) e.push(E(rkEmSpark(76, 20, 6) + rkEmSpark(88, 35, 3.5), '#ffffff', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Buying: shopping bag tiled with a triangle lattice; a heart of PLUR appears with tier
+function rkEmBag(t) {
+  var N = '#ff6ec7', p = rkEmPal(N), E = rkEmE, e = [], i, j, s = '';
+  var g = { a: rkEmLin([p.m, N, rkEmMix(N, '#b464ff', 0.4)]), h: rkEmLin(['#ffffff', '#ffd0ec']), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  var T0 = 38, B0 = 86, l0 = 25, r0 = 75, l1 = 17, r1 = 83, R = t + 1, C = t + 2;
+  e.push(E(t === 3 ? 'M36 41V31a14 14 0 0 1 28 0V41' : 'M37 41V32a13 13 0 0 1 26 0V41', 0, t === 3 ? 'y' : N, 4.4, 1, 'b'));
+  e.push(E(rkEmRound([[l0, T0], [r0, T0], [r1, B0], [l1, B0]], [3, 3, 8, 8]), 'a', N, 2.4, 1, 'b'));
+  for (i = 0; i < R; i++) {
+    var y0 = T0 + (B0 - T0) * i / R, y1 = T0 + (B0 - T0) * (i + 1) / R, f0 = (y0 - T0) / (B0 - T0), f1 = (y1 - T0) / (B0 - T0);
+    var a0 = l0 + (l1 - l0) * f0, b0 = r0 + (r1 - r0) * f0, a1 = l0 + (l1 - l0) * f1, b1 = r0 + (r1 - r0) * f1;
+    for (j = 0; j < C; j++) {
+      var u0 = j / C, u1 = (j + 1) / C, um = (j + 0.5) / C;
+      var tri = i % 2 ? [[a1 + (b1 - a1) * u0, y1], [a1 + (b1 - a1) * u1, y1], [a0 + (b0 - a0) * um, y0]] : [[a0 + (b0 - a0) * u0, y0], [a0 + (b0 - a0) * u1, y0], [a1 + (b1 - a1) * um, y1]];
+      s += rkEmPath(rkEmShrink(tri, 0.8));
+    }
+  }
+  e.push(E(s, 'h', 0, 0, 0.5, 'd'));
+  if (t > 1) {
+    var H = rkEmHeart(50, 63, t === 2 ? 10.5 : 12.5);
+    e.push(E(H, 0, 0, 5, 1, 'o'));
+    e.push(t === 2 ? E(H, '#0a0014', '#ffd0ec', 2, 1, 'k') : E(H, 'h', '#ffffff', 2, 1, 'b'));
+  }
+  if (t === 3) e.push(E(rkEmSpark(82, 24, 5.5) + rkEmSpark(17, 27, 3.5), '#fff6d6', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Big Spender: two fanned holographic cards, chip, contactless arcs and a hex hologram
+function rkEmCard() {
+  var N = '#a98bff', p = rkEmPal(N), E = rkEmE, e = [], f = [];
+  var g = { a: rkEmLin(['#efe4ff', '#ffd0f0', '#c6f6ff', '#dccbff']), b: rkEmLin([p.m, N]), c: rkEmLin(['#fff3c4', '#ffcf5c']) };
+  var card = rkEmRound([[-31, -20], [31, -20], [31, 20], [-31, 20]], 6);
+  e.push({ g: [E(card, 'b', N, 2.2, 1, 'b'), E('M-31 -8H31', 0, '#1a0a33', 6, 0.75, 'd')], t: 'translate(46 42) rotate(-14)' });
+  f.push(E(card, 0, 0, 5, 1, 'o'), E(card, 'a', N, 2.4, 1, 'b'));
+  f.push(E(rkEmRound([[-24, -10], [-11, -10], [-11, 0], [-24, 0]], 2.2), 'c', '#c99a2e', 0.8, 1, 'd'));
+  f.push(E('M-24 -5h13M-17.5 -10v10', 0, '#b8862a', 0.8, 0.9, 'd'));
+  f.push(E(rkEmArc(14, -6, 3.4, 50, 130) + rkEmArc(14, -6, 6.4, 50, 130) + rkEmArc(14, -6, 9.4, 50, 130), 0, N, 1.6, 0.9, 'd'));
+  f.push(E('M-24 10h8M-12 10h8M0 10h8', 0, '#7a55e0', 2.4, 0.75, 'd'));
+  f.push(E(rkEmPath(rkEmNgon(21, 9, 5.5, 6, 0)) + rkEmPath(rkEmNgon(21, 9, 3, 6, 30)), '#ffffff', N, 0.8, 0.75, 'd'));
+  e.push({ g: f, t: 'translate(55 59) rotate(7)' });
+  e.push(E(rkEmSpark(84, 24, 5) + rkEmSpark(14, 82, 3.5), '#ffffff', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Social & comments: elliptical speech bubbles built from hexagon cells
+function rkEmSocial(t) {
+  var N = '#58eeff', p = rkEmPal(N), E = rkEmE, e = [], i;
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([p.m, rkEmMix(N, '#5a3cff', 0.35)]) };
+  var bub = function (cx, cy, rx, ry, ta, tl, tw, hr, f) {
+    var b = rkEmBub(cx, cy, rx, ry, ta, tl, tw), hx = rkEmHexCells(cx, cy, rx - hr * 0.7, ry - hr * 0.7, hr, 0.8);
+    e.push(E(b, 0, 0, 5, 1, 'o'), E(b, f, N, 2.4, 1, 'b'));
+    e.push({ g: [rkEmQ(E(hx[0], '#ffffff', 0, 0, 0.55, 'd')), rkEmQ(E(hx[1], '#ffffff', 0, 0, 0.2, 'd'))], c: b });
+  };
+  if (t === 1) {
+    bub(46, 53, 32, 25, 222, 12, 13, 5.4, 'a');
+    e.push(E(rkEmArc(46, 53, 39, 30, 70), 0, N, 3.2, 1, 'b'), E(rkEmArc(46, 53, 46, 36, 64), 0, N, 2.4, 0.65, 'd'));
+  } else if (t === 2) {
+    var W = [[31, 37, 18, 15, 128], [69, 37, 18, 15, 232], [34, 67, 13, 11, 52], [66, 67, 13, 11, 308]];
+    for (i = 0; i < 4; i++) bub(W[i][0], W[i][1], W[i][2], W[i][3], W[i][4], 7, 16, 4.2, i < 2 ? 'a' : 'b');
+    e.push(E('M48.5 31Q44 20 37 15M51.5 31Q56 20 63 15', 0, N, 2, 1, 'b'), E(rkEmCirc(37, 15, 2.6) + rkEmCirc(63, 15, 2.6), '#ffffff', N, 1, 1, 'd'));
+    e.push(E(rkEmStad(50, 53, 46, 7, 90), 'a', N, 2, 1, 'b'));
+  } else {
+    e.push(E(rkEmBub(61, 38, 26, 20, 140, 10, 14), 'b', N, 2.2, 1, 'b'));
+    e.push(E(rkEmCirc(52, 38, 3) + rkEmCirc(61, 38, 3) + rkEmCirc(70, 38, 3), '#ffffff', 0, 0, 0.95, 'd'));
+    bub(40, 61, 28, 22, 220, 11, 14, 5, 'a');
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Likes: heart tiled by a Sierpinski gasket of small triangles (Pascal's triangle mod 2) fanning up from its tip
+function rkEmLikes(t) {
+  var N = '#ff5f9e', p = rkEmPal(N), E = rkEmE, e = [], cy = t === 1 ? 51 : 53, sz = t === 1 ? 38 : 35, rows = t === 1 ? 8 : 16, i, j, s = '', row = [1];
+  var g = { a: rkEmLin([p.m, N, rkEmMix(N, '#b464ff', 0.3)]), w: rkEmLin(['#ffffff', p.l]) };
+  var H = rkEmHeart(50, cy, sz), tip = [50, cy + sz], top = cy - sz * 0.9, h = (tip[1] - top) / rows, w = h / Math.sqrt(3) * 1.12;
+  for (i = 0; i < rows; i++) {
+    var y0 = tip[1] - i * h, y1 = y0 - h;
+    for (j = 0; j <= i; j++) {
+      if (row[j] % 2) s += rkEmPath(rkEmShrink([[50 + (2 * j - i) * w, y0], [50 + (2 * j - i - 1) * w, y1], [50 + (2 * j - i + 1) * w, y1]], 0.84));
+    }
+    var nx = [1];
+    for (j = 1; j <= i; j++) nx.push((row[j - 1] + row[j]) % 2);
+    nx.push(1);
+    row = nx;
+  }
+  e.push(E(H, 'a', N, 2.6, 1, 'b'));
+  e.push({ c: H, g: [E(s, 'w', 0, 0, 0.8, 'd')] });
+  e.push(E(H, 0, N, 2.6, 1, 'b'), E(rkEmArc(50 - sz * 0.5, cy - sz * 0.41, sz * 0.32, 292, 345), 0, '#ffffff', 2.2, 0.75, 'h'));
+  if (t > 1) e.push(E(rkEmHeart(85, 15, 6.5) + rkEmHeart(14, 20, 4.8), 'w', N, 1.2, 1, 'x'), E(rkEmSpark(88, 38, 3.5) + rkEmSpark(12, 42, 3), '#ffffff', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Referrals: radial fractal constellation; branching depth grows with tier
+function rkEmRef(t) {
+  var N = '#3ff2c0', p = rkEmPal(N), E = rkEmE, e = [], i, j, k, L = '', a, a2, q, q2, q3, m = [3, 4, 6][t - 1], R1 = [26, 20, 16][t - 1], nd = ['', '', ''], l1 = [];
+  var g = { a: rkEmRad(['#ffffff', p.l, p.m]) };
+  for (i = 0; i < m; i++) {
+    a = i * 360 / m; q = rkEmPol(50, 50, R1, a); l1.push(q); L += 'M50 50L' + rkEmXY(q); nd[0] += rkEmCirc(q[0], q[1], [6, 5, 4.2][t - 1]);
+    for (j = -1; t > 1 && j <= 1; j += 2) {
+      a2 = a + j * (t === 2 ? 25 : 14); q2 = rkEmPol(50, 50, t === 2 ? 36 : 29, a2); L += 'M' + rkEmXY(q) + 'L' + rkEmXY(q2); nd[1] += rkEmCirc(q2[0], q2[1], t === 2 ? 3.8 : 3.2);
+      for (k = -1; t > 2 && k <= 1; k += 2) { q3 = rkEmPol(50, 50, 41, a2 + k * 6.5); L += 'M' + rkEmXY(q2) + 'L' + rkEmXY(q3); nd[2] += rkEmCirc(q3[0], q3[1], 2.3); }
+    }
+  }
+  if (t === 1) L += rkEmPath(l1);
+  e.push(E(L, 0, p.m, t === 3 ? 1.3 : 1.8, 0.9, 'd'));
+  if (nd[2]) e.push(E(nd[2], p.l, 0, 0, 1, 'd'));
+  if (nd[1]) e.push(E(nd[1], p.l, N, 1, 1, 'd'));
+  e.push(E(nd[0], 'a', N, 1.6, 1, 'b'), E(rkEmCirc(50, 50, t === 1 ? 9 : 8), 'a', N, 2.2, 1, 'b'), E(rkEmSpark(50, 50, 5.5), '#ffffff', 0, 0, 1, 'h'));
+  if (t === 1) e.push(E(rkEmSpark(80, 22, 3.5) + rkEmSpark(22, 80, 3), '#ffffff', 0, 0, 0.9, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Link in Bio Hero: avatar disc, an interlocked chain link and a hero spark
+function rkEmBio() {
+  var N = '#3ff2c0', p = rkEmPal(N), E = rkEmE, e = [], C = rkEmCirc(43, 44, 31);
+  var g = { a: rkEmLin([p.l, p.m, N]), k: rkEmLin(['#ffe0f3', '#ff6ec7'], [60, 56, 90, 88], 1) };
+  e.push(E(C, 'a', N, 2.6, 1, 'b'));
+  e.push({ g: [E(rkEmCirc(43, 36, 10) + 'M19 80C20 62 30 53 43 53C56 53 66 62 67 80Z', '#ffffff', 0, 0, 0.88, 'd')], c: C });
+  e = e.concat(rkEmLinks([[69, 78, -45], [80, 67, -45]], 21, 11, 'k', 4.2));
+  e.push(E(rkEmSpark(80, 18, 6), '#fff6d6', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// RevShare ranks I-XI: one gem lineage; symmetry order, facet subdivision and recursion depth grow
+function rkEmGem(r) {
+  var D = [['#ff6ec7', 3, 1, 0, 41], ['#a3e635', 4, 1, 0, 33], ['#67e8f9', 5, 2, 0, 35], ['#c084fc', 6, 2, 1, 34], ['#facc15', 7, 2, 1, 30], ['#ff5d73', 8, 3, 1, 30], ['#fb923c', 9, 3, 1, 29], ['#b9a7ff', 10, 3, 2, 29], ['#ffffff', 12, 3, 2, 28], ['#e879f9', 14, 3, 2, 28], ['#fcd34d', 16, 3, 2, 27]][r - 1];
+  var H = D[0], n = D[1], Rg = D[4], p = rkEmPal(H), E = rkEmE, e = [], A = { L: '', D: '', l: '', c: '', k: n > 10 ? 0.62 : 0.3 }, i, s = '', q;
+  var gr = [p.l, p.m, H], RB = ['#ff8fd6', '#ffb27a', '#ffe36e', '#b6ff6e', '#6ff0ff', '#b99cff'];
+  if (r === 3) gr = ['#f4feff', '#9fe9f6', '#ecfdff', '#57cfe6', '#dffbff'];
+  if (r === 4) gr = ['#ffd6f3', '#d7c9ff', '#c9f7ff', '#e3ffd1', '#f3d3ff'];
+  if (r === 8) gr = ['#5b4a96', '#2a1d58', '#160d36'];
+  if (r === 9) gr = ['#ffffff', '#ffe3f5', '#e3f8ff', '#f2ffe3', '#ffffff'];
+  if (r === 11) gr = ['#fff6d6', '#fcd34d', '#fff0b8', '#f0a92a'];
+  var g = { a: rkEmLin(gr), c: rkEmRad(['#ffffff', '#ffffff', p.l]) };
+  if (r === 4) g.h = rkEmLin(['#ff9ad5', '#9ff3ff', '#d4ff9e', '#c9a8ff']);
+  if (r === 7) g.s = rkEmRad([[0, H, 0.85], [0.6, H, 0.35], [1, H, 0]], [0.5, 0.5, 0.5]);
+  if (r > 10) g.i = rkEmLin(['#ffe27a', '#ff8fd6', '#7ff3ff', '#ffe27a']);
+  rkEmFacets(50, 50, Rg, n, 0, D[3], D[2], A, n > 10 ? 1 : 2);
+  var G = rkEmNgon(50, 50, Rg, n, 0), ln = r === 9 ? '#a58cff' : (r === 8 ? '#d9cfff' : '#ffffff'), dk = r === 9 ? '#b9a7ff' : p.d;
+  if (r === 2) e.push(E(rkEmDrip(73.1, 59.9, 11, 3) + rkEmDrip(59.9, 73.1, 15, 3.4) + rkEmDrip(33.5, 66.5, 9, 2.8), 'a', H, 2.2, 1, 'b'));
+  if (r === 4) e.push(E(rkEmCirc(50, 50, 41), 0, 'h', 1.8, 0.9, 'd'));
+  if (r === 5) {
+    for (i = 0; i < 7; i++) s += rkEmPath([rkEmPol(50, 50, Rg - 2, (i + 0.5) * 360 / 7), rkEmPol(50, 50, 43.5, (i + 0.5) * 360 / 7)], 1);
+    e.push(E(s, 0, H, 1.8, 1, 'd'));
+  }
+  if (r === 6) e.push(E(rkEmWave(50, 50, 40, 2.2, 16), 0, H, 1.8, 0.9, 'd'));
+  if (r === 7) e.push(E(rkEmPath(rkEmStarPts(50, 50, 46, 33, 18, 10)), 's', 0, 0, 1, 'd'));
+  if (r === 8) e.push(E(rkEmEll(50, 50, 44, 12), 0, H, 1.3, 0.85, 'd'), E(rkEmEll(50, 50, 44, 12), 0, H, 1.3, 0.85, 'd'));
+  if (r === 8) { e[e.length - 2].t = 'rotate(28 50 50)'; e[e.length - 1].t = 'rotate(-28 50 50)'; }
+  if (r === 9) {
+    e.push(E(rkEmCirc(50, 50, 40), 0, '#ffffff', 1.2, 0.7, 'd'));
+    for (i = 0; i < 6; i++) { q = rkEmDots(50, 50, 40, 2, 6, RB[i], 1, 'd'); q.dof = rkEmN2(-2 * Math.PI * 40 * i / 12); e.push(q); }
+  }
+  if (r === 10) e.push(E(rkEmGear(50, 50, 37, 42.5, 14), 0, H, 1.7, 1, 'd'));
+  if (r === 11) {
+    e.push(E(rkEmCirc(50, 50, 36) + rkEmCirc(50, 50, 44.4), 0, 'i', 1.4, 1, 'd'), rkEmDots(50, 50, 40.2, 16, 6.2, H, 1, 'd', 0.5), rkEmDots(50, 50, 40.2, 16, 2.6, '#ffffff', 0.9, 'h', 0.5));
+  }
+  e.push(E(n > 8 ? rkEmPath(G) : rkEmRound(G, n < 5 ? 5 : 3), 'a', H, 2.4, 1, 'b'));
+  e.push(E(A.L, '#ffffff', 0, 0, r === 9 ? 0.6 : 0.42, 'h'), E(A.D, dk, 0, 0, 0.32, 'h'), E(A.l, 0, ln, 0.7, 0.55, 'd'), E(A.c, 'c', ln, 0.8, 0.95, 'd'));
+  if (r === 5) e.push(E(rkEmCirc(50, 50, 4), '#ffffff', 0, 0, 1, 'h'));
+  if (r > 8) e.push(E(rkEmSpark(84, 16, 5.5) + rkEmSpark(16, 84, 4) + (r === 10 ? rkEmSpark(14, 24, 3) : ''), '#ffe9a8', 0, 0, 1, 'x'));
+  var oy = n % 2 ? Rg * (1 - Math.cos(Math.PI / n)) / 2 : 0;
+  return { g: g, e: oy > 1 ? [{ g: e, t: 'translate(0 ' + rkEmN(oy) + ')' }] : e, h: r === 9 ? '#d6c9ff' : H };
+}
+
+// Beyond the chart (custom RevShare above rank XI): a faceted 8-point star-crystal whose spikes pierce
+// a ring segmented in all eleven rank colours, with a nested 16-fold gem at its heart
+function rkEmBeyond() {
+  var E = rkEmE, e = [], A = { L: '', D: '', l: '', c: '', k: 0.62 }, i, S = [], L = '', D = '', st;
+  var RK = ['#ff6ec7', '#a3e635', '#67e8f9', '#c084fc', '#facc15', '#ff5d73', '#fb923c', '#b9a7ff', '#ffffff', '#e879f9', '#fcd34d'];
+  var g = { a: rkEmLin(['#ffd6f5', '#c9f6ff', '#fff2b8', '#d6c9ff', '#c8ffd9']), c: rkEmRad(['#ffffff', '#ffffff', '#ffe3f5']), i: rkEmLin(['#ffe27a', '#ff8fd6', '#7ff3ff', '#ffe27a']) };
+  for (i = 0; i < 11; i++) e.push(E(rkEmArc(50, 50, 36, i * 360 / 11 + 3.5, (i + 1) * 360 / 11 - 3.5), 0, RK[i], 4.4, 1, 'd'));
+  for (i = 0; i < 16; i++) S.push(rkEmPol(50, 50, i % 2 ? 16.5 : (i % 4 ? 33 : 46), i * 22.5));
+  for (i = 0; i < 16; i++) { var tri = rkEmPath([[50, 50], S[i], S[(i + 1) % 16]]); if (i % 2) L += tri; else D += tri; }
+  st = rkEmPath(S);
+  e.push(E(st, 0, 0, 5, 1, 'o'), E(st, 'a', 'i', 2.2, 1, 'b'), E(L, '#ffffff', 0, 0, 0.5, 'h'), E(D, '#a58cff', 0, 0, 0.25, 'h'));
+  rkEmFacets(50, 50, 14.5, 16, 0, 0, 2, A, 1);
+  var G = rkEmPath(rkEmNgon(50, 50, 14.5, 16, 0));
+  e.push(E(G, 0, 0, 4, 1, 'o'), E(G, 'a', '#ffffff', 1.6, 1, 'b'), E(A.L, '#ffffff', 0, 0, 0.5, 'h'), E(A.D, '#a58cff', 0, 0, 0.3, 'h'), E(A.l, 0, '#ffffff', 0.6, 0.6, 'd'), E(A.c, 'c', '#ffffff', 0.7, 1, 'd'));
+  e.push(E(rkEmSpark(84, 16, 5) + rkEmSpark(16, 84, 4), '#ffe9a8', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: '#ff9be6' };
+}
+
+// Trades: two partners' arrows circling a gift (Trader); a woven Mobius infinity loop (Trade Master)
+function rkEmTrade(t) {
+  var A = '#ff6ec7', B = '#58eeff', E = rkEmE, e = [], i;
+  var g = { a: rkEmLin(['#ffd0ec', A]), b: rkEmLin(['#d2fbff', B]), x: rkEmLin([[0, A], [0.5, '#c9a8ff'], [1, B]], [14, 0, 86, 0], 1), w: rkEmLin(['#ffffff', '#e9dcff']) };
+  if (t === 1) {
+    var R = 30, hd = function (a1) { return rkEmRound([rkEmPol(50, 50, R, a1 + 17), rkEmPol(50, 50, R + 10.5, a1 - 1), rkEmPol(50, 50, R - 10.5, a1 - 1)], 1.8); };
+    e.push(E(rkEmArc(50, 50, R, 290, 412), 0, 'a', 8.5, 1, 'b'), E(hd(412), A, A, 1.5, 1, 'b'));
+    e.push(E(rkEmArc(50, 50, R, 110, 232), 0, 'b', 8.5, 1, 'b'), E(hd(232), B, B, 1.5, 1, 'b'));
+    e.push(E(rkEmArc(50, 50, R, 294, 408) + rkEmArc(50, 50, R, 114, 228), 0, '#ffffff', 2, 0.6, 'h'));
+    e.push(E(rkEmRound([[39, 47], [61, 47], [61, 65], [39, 65]], 3), 'w', '#c9a8ff', 1.6, 1, 'b'), E(rkEmRound([[37, 41], [63, 41], [63, 48], [37, 48]], 2.5), 'w', '#c9a8ff', 1.6, 1, 'b'));
+    e.push(E('M50 41V65', 0, A, 3.4, 1, 'd'), E('M50 41C45 33 39 35 42 40.5M50 41C55 33 61 35 58 40.5', 0, A, 2.2, 1, 'd'));
+  } else {
+    var a = 35, pts = [], O = [], f = function (u) { var sn = Math.sin(u), c = Math.cos(u), dd = 1 + sn * sn; return [50 + a * c / dd, 50 + a * 1.6 * sn * c / dd]; };
+    for (i = 0; i < 72; i++) pts.push(f(i * Math.PI / 36));
+    for (i = 12; i <= 24; i++) O.push(pts[i]);
+    var L = rkEmPath(pts), ov = rkEmPath(O, 1), hds = '', hds2 = '';
+    var head = function (u) {
+      var p0 = f(u), p1 = f(u + 0.02), dx = p1[0] - p0[0], dy = p1[1] - p0[1], l = Math.hypot(dx, dy); dx /= l; dy /= l;
+      return rkEmRound([[p0[0] + dx * 8, p0[1] + dy * 8], [p0[0] - dx * 3 - dy * 7.5, p0[1] - dy * 3 + dx * 7.5], [p0[0] - dx * 3 + dy * 7.5, p0[1] - dy * 3 - dx * 7.5]], 1.5);
+    };
+    hds = head(0.32); hds2 = head(Math.PI + 0.32);
+    e.push(E(L, 0, 'x', 9, 1, 'b'), E(L, 0, '#ffffff', 2.2, 0.55, 'h'));
+    var o1 = E(ov, 0, 0, 15, 1, 'o'); o1.cap = 'butt';
+    e.push(o1, E(ov, 0, 'x', 9, 1, 'b'), E(ov, 0, '#ffffff', 2.2, 0.55, 'h'));
+    e.push(E(hds, B, '#ffffff', 1, 1, 'b'), E(hds2, A, '#ffffff', 1, 1, 'b'));
+    e.push(E(rkEmPath([[31, 44], [36, 50], [31, 56], [26, 50]]), 'a', A, 1, 1, 'd'), E(rkEmPath([[69, 44], [74, 50], [69, 56], [64, 50]]), 'b', B, 1, 1, 'd'));
+    e.push(E(rkEmSpark(50, 22, 4.5) + rkEmSpark(50, 79, 3.5), '#ffffff', 0, 0, 1, 'x'));
+  }
+  return { g: g, e: e, h: '#c9a8ff' };
+}
+
+// Rave Radio: lattice tower beaming arcs (Tuned In); disco-ball beacon in waveform rosettes (Dancefloor Devotee)
+function rkEmRadio(t) {
+  var N = '#a48bff', p = rkEmPal(N), E = rkEmE, e = [], i, cy = t === 1 ? 36 : 44, top = cy + 7, s, br = '';
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmRad(['#ffffff', p.l, p.m, N], [0.38, 0.32, 0.8]) };
+  if (t === 2) {
+    for (i = 0; i < 3; i++) e.push(E(rkEmWave(50, cy, 17 + i * 8.5, 1.6, 8 + i * 4), 0, i ? p.m : N, 2.6 - i * 0.4, 1 - i * 0.22, i ? 'd' : 'b'));
+  } else {
+    for (i = 0; i < 3; i++) e.push(E(rkEmArc(50, cy, 11 + i * 8, 236, 304) + rkEmArc(50, cy, 11 + i * 8, 56, 124), 0, N, 3.4 - i * 0.4, 1 - i * 0.2, 'b'));
+  }
+  var xl = function (y) { return 50 - 15 * (y - top) / (88 - top); }, lv = [top, top + (88 - top) * 0.36, top + (88 - top) * 0.68, 88];
+  s = 'M50 ' + rkEmN(top) + 'L35 88M50 ' + rkEmN(top) + 'L65 88';
+  for (i = 1; i < 4; i++) {
+    var y0 = lv[i - 1], y1 = lv[i];
+    br += 'M' + rkEmN(xl(y1)) + ' ' + rkEmN(y1) + 'H' + rkEmN(100 - xl(y1)) + 'M' + rkEmN(xl(y0)) + ' ' + rkEmN(y0) + 'L' + rkEmN(100 - xl(y1)) + ' ' + rkEmN(y1) + 'M' + rkEmN(100 - xl(y0)) + ' ' + rkEmN(y0) + 'L' + rkEmN(xl(y1)) + ' ' + rkEmN(y1);
+  }
+  e.push(E(s, 0, 0, 7, 1, 'o'), E(s, 0, N, 3, 1, 'b'), E(br, 0, p.m, 1.6, 0.9, 'd'), E('M28 88H72', 0, N, 3, 1, 'b'));
+  if (t === 1) {
+    e.push(E(rkEmCirc(50, cy, 6.5), 'b', N, 2, 1, 'b'));
+  } else {
+    var r = 10.5, ds = '';
+    for (i = -2; i <= 2; i++) { var dy = i * 4, hw = Math.sqrt(r * r - dy * dy); ds += 'M' + rkEmN(50 - hw) + ' ' + rkEmN(cy + dy) + 'H' + rkEmN(50 + hw); }
+    e.push(E(rkEmCirc(50, cy, r + 2.5), 0, 0, 0, 1, 'o'));
+    e.push(E(rkEmCirc(50, cy, r), 'b', N, 2, 1, 'b'), E(ds + 'M50 ' + rkEmN(cy - r) + 'V' + rkEmN(cy + r) + rkEmEll(50, cy, 4.5, r) + rkEmEll(50, cy, 8.5, r), 0, p.d, 0.8, 0.6, 'd'));
+    e.push(E(rkEmSpark(46, cy - 4, 3.2), '#ffffff', 0, 0, 1, 'h'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Friends: interlinked rings (2 -> 5), Seed of Life (7 rings), Flower of Life (19 rings)
+function rkEmFriends(t) {
+  var N = '#ffd84a', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', lens = '', c;
+  var g = { a: rkEmLin([p.l, N, rkEmMix(N, '#ff9a5c', 0.35)], [16, 16, 84, 84], 1), f: rkEmRad(['#ffffff', p.l, p.m]) };
+  if (t === 1) {
+    e.push(E(rkEmLens([50, 34.8], [50, 65.2], 20), 'f', 0, 0, 0.95, 'd'));
+    e = e.concat(rkEmRings([[37, 50], [63, 50]], 20, 6.5, false));
+    e.push(E(rkEmSpark(50, 50, 4), '#ffffff', 0, 0, 1, 'h'));
+  } else if (t === 2) {
+    var P5 = rkEmNgon(50, 51, 23, 5, 0);
+    e.push(E(rkEmCirc(50, 51, 9), 'f', 0, 0, 0.9, 'd'));
+    e = e.concat(rkEmRings(P5, 14.5, 5, true));
+  } else {
+    var r = t === 3 ? 15.5 : 10.5, C = [[50, 50]].concat(rkEmNgon(50, 50, r, 6, 0));
+    if (t === 4) C = C.concat(rkEmNgon(50, 50, 2 * r, 6, 0), rkEmNgon(50, 50, r * Math.sqrt(3), 6, 30));
+    for (i = 0; i < 6; i++) {
+      lens += rkEmLens(rkEmPol(50, 50, r, i * 60 - 60), rkEmPol(50, 50, r, i * 60 + 60), r);
+      if (t === 4) lens += rkEmLens([50, 50], rkEmPol(50, 50, r * Math.sqrt(3), i * 60 + 30), r);
+    }
+    for (i = 0; i < C.length; i++) { c = C[i]; s += rkEmCirc(c[0], c[1], r); }
+    e.push(E(lens, 'f', p.m, 0.8, 0.95, 'd'), E(s, 0, 'a', t === 3 ? 2.4 : 1.8, 1, 'b'));
+    e.push(E(rkEmCirc(50, 50, 3 * r - (t === 3 ? r : 0)) + (t === 4 ? rkEmCirc(50, 50, 3 * r + 3) : ''), 0, N, t === 3 ? 2 : 1.6, 0.9, 'b'));
+    if (t === 4) { s = ''; for (i = 0; i < 6; i++) { c = rkEmPol(50, 50, 42.5, i * 60 + 30); s += rkEmSpark(c[0], c[1], 3.2); } e.push(E(s, '#fff6d6', 0, 0, 1, 'x')); }
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Tribes: Sierpinski tipis and a campfire circle
+function rkEmTipi(ax, ay, w, h, dep) {
+  var A = [ax, ay], B = [ax - w / 2, ay + h], C = [ax + w / 2, ay + h];
+  return rkEmRound([A, C, B], [2.5, 3, 3]) + rkEmSier(A, B, C, dep);
+}
+function rkEmPoles(ax, ay, w, h, k) {
+  var A = [ax, ay], B = [ax - w / 2, ay + h], C = [ax + w / 2, ay + h];
+  return rkEmPath([rkEmLerp(A, B, 0.22), rkEmLerp(A, B, -k)], 1) + rkEmPath([rkEmLerp(A, C, 0.22), rkEmLerp(A, C, -k)], 1);
+}
+function rkEmTribe(t) {
+  var N = '#ff9a5c', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', pl = '', q;
+  var g = { a: rkEmLin([p.l, p.m, N]), f: rkEmLin(['#ff7ad0', '#ff9a5c', '#ffd36b'], [0, 0, 0, 1]), w: rkEmLin(['#ffffff', '#ffe2c4']) };
+  var fire = function (cx, by, h, w) {
+    e.push(E(rkEmStad(cx, by + 1.5, w * 2.6, 4.6, 16) + rkEmStad(cx, by + 1.5, w * 2.6, 4.6, -16), p.d, N, 1.2, 1, 'd'));
+    e.push(E(rkEmFlame(cx, by, h, w), 'f', '#ff6ec7', 1.6, 1, 'b'), E(rkEmFlame(cx, by, h * 0.64, w * 0.62), '#ffd36b', 0, 0, 0.95, 'd'), E(rkEmFlame(cx, by, h * 0.34, w * 0.34), '#ffffff', 0, 0, 0.95, 'd'));
+  };
+  if (t === 1) {
+    e.push(rkEmEO(E(rkEmTipi(50, 25, 66, 61, 2), 'a', N, 2.6, 1, 'b')), E(rkEmPoles(50, 25, 66, 61, 0.2), 0, N, 2.6, 1, 'b'));
+    e.push(E(rkEmRound([[56.8, 12.3], [70, 15.5], [58.9, 20.2]], 1.2), '#ff6ec7', '#ff6ec7', 1, 1, 'd'), E(rkEmSpark(23, 31, 5), '#ffffff', 0, 0, 1, 'x'));
+  } else if (t === 2) {
+    var T = [[50, 13.3], [30, 51.3], [70, 51.3]];
+    for (i = 0; i < 3; i++) { s += rkEmTipi(T[i][0], T[i][1], 34, 33, 1); pl += rkEmPoles(T[i][0], T[i][1], 34, 33, 0.22); }
+    e.push(rkEmEO(E(s, 'a', N, 2.2, 1, 'b')), E(pl, 0, N, 2.2, 1, 'b'));
+    fire(50, 73, 21, 6.5);
+    e.push(E(rkEmSpark(82, 22, 4.5) + rkEmSpark(18, 22, 3.5), '#ffffff', 0, 0, 1, 'x'));
+  } else {
+    var n = t === 3 ? 5 : 10, R = t === 3 ? 33 : 36, cy = t === 3 ? 60 : 50, sz = t === 3 ? 7.5 : 5.8;
+    if (t === 4) e.push(E(rkEmCirc(50, 50, R), 0, p.m, 2, 0.9, 'd'));
+    for (i = 0; i < n; i++) {
+      var a = t === 3 ? 270 + i * 45 : i * 36;
+      q = rkEmPol(50, cy, R, a);
+      s += rkEmPerson(q[0], q[1], sz, t === 3 ? 0 : a);
+    }
+    e.push(E(s, 'a', N, 1.4, 1, 'b'));
+    fire(50, t === 3 ? 69 : 62, t === 3 ? 31 : 26, t === 3 ? 11 : 9);
+    if (t === 4) e.push(E(rkEmSpark(50, 16, 3) + rkEmSpark(80, 30, 2.5) + rkEmSpark(20, 30, 2.5), '#fff6d6', 0, 0, 1, 'x'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Tribe chat: warm bubbles carrying a Sierpinski tribe glyph
+function rkEmTribeChat(t) {
+  var N = '#ffab5c', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([p.m, rkEmMix(N, '#ff5fd2', 0.45)]), w: rkEmLin(['#ff8fd6', '#ff6ec7', '#ff8a5c']) };
+  if (t === 2) {
+    e.push(E(rkEmBub(65, 31, 24, 18, 145, 9, 15), 'b', N, 2.2, 1, 'b'));
+    e.push(E(rkEmArc(58, 31, 6, 45, 135) + rkEmArc(58, 31, 11, 45, 135) + rkEmArc(58, 31, 16, 50, 130), 0, '#ffffff', 2, 0.9, 'd'));
+  }
+  var cx = t === 1 ? 50 : 42, cy = t === 1 ? 47 : 58, b = t === 1 ? rkEmBub(50, 48, 36, 30, 215, 11, 13) : rkEmBub(42, 59, 32, 26, 215, 10, 13), z = t === 1 ? 20 : 17.5;
+  var A = [cx, cy - z], B = [cx - z * 1.08, cy + z * 0.82], C = [cx + z * 1.08, cy + z * 0.82];
+  e.push(E(b, 0, 0, 5, 1, 'o'), E(b, 'a', N, 2.6, 1, 'b'));
+  e.push(rkEmEO(E(rkEmRound([A, C, B], 2) + rkEmSier(A, B, C, t + 1), 'w', '#ffffff', 1.2, 1, 'd')));
+  return { g: g, e: e, h: N };
+}
+
+// Active time: heartbeat pulse in a clock ring (Regular); the pulse wraps into a beat rosette (Always Raving)
+function rkEmActive(t) {
+  var N = '#5cff9a', p = rkEmPal(N), E = rkEmE, e = [], i, j, s = '', q, q2, Rr = t === 1 ? 37 : 30;
+  var g = { a: rkEmRad(['#1f5a40', '#0f2e22', '#0a1f17'], [0.5, 0.45, 0.62]) };
+  if (t === 2) {
+    var pts = [], pat = [0, 2.5, 0, -2, 7.5, -5, 1.5, 0];
+    for (i = 0; i < 6; i++) {
+      for (j = 0; j < 8; j++) pts.push(rkEmPol(50, 50, 37 + pat[j], i * 60 + j * 2.6 - 9));
+      for (j = 1; j < 4; j++) pts.push(rkEmPol(50, 50, 37, i * 60 + 9.2 + j * 10.4));
+    }
+    e.push(E(rkEmPath(pts), 0, N, 2.4, 1, 'b'));
+  }
+  e.push(E(rkEmCirc(50, 50, Rr), 'a', N, 3, 1, 'b'));
+  for (i = 0; i < 12; i++) { q = rkEmPol(50, 50, Rr - 3.5, i * 30); q2 = rkEmPol(50, 50, Rr - (i % 3 ? 6.5 : 9), i * 30); s += 'M' + rkEmXY(q) + 'L' + rkEmXY(q2); }
+  e.push(E(s, 0, p.m, 1.4, 0.75, 'd'));
+  var pl = t === 1 ? 'M17 51H33L38 43L43 59L49 27L55 70L60 45L64 51H83' : 'M24 51H35L39 45L43 57L49 33L54 64L58 47L61 51H76';
+  e.push(E(pl, 0, N, 4.2, 1, 'b'), E(pl, 0, '#ffffff', 1.4, 0.85, 'h'));
+  return { g: g, e: e, h: N };
+}
+
+// Marquee Mogul: marquee sign with a bulb border, scrolling chevrons and a zap
+function rkEmBanner() {
+  var N = '#ff5fd2', p = rkEmPal(N), E = rkEmE, e = [], i, s1 = '', s2 = '', k = 0, b;
+  var g = { a: rkEmLin([p.m, N, '#b464ff']), d: rkEmLin(['#2c0a40', '#16052a']), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  e.push(E('M33 70V86M67 70V86', 0, p.m, 3.4, 1, 'b'));
+  e.push(E(rkEmRound([[11, 24], [89, 24], [89, 72], [11, 72]], 9), 'a', N, 2.4, 1, 'b'));
+  e.push(E(rkEmRound([[20, 33], [80, 33], [80, 63], [20, 63]], 4), 'd', p.l, 1, 1, 'k'));
+  var B = [];
+  for (i = 0; i < 9; i++) B.push([19 + i * 7.75, 28.5], [19 + i * 7.75, 67.5]);
+  for (i = 0; i < 3; i++) B.push([15.5, 38 + i * 10], [84.5, 38 + i * 10]);
+  for (i = 0; i < B.length; i++) { b = rkEmCirc(B[i][0], B[i][1], 1.9); if ((k++) % 2) s1 += b; else s2 += b; }
+  e.push(E(s1, '#ffd54a', 0, 0, 1, 'd'), E(s2, '#ffffff', 0, 0, 1, 'd'));
+  for (i = 0; i < 3; i++) e.push(E('M' + (27 + i * 10) + ' 41L' + (34 + i * 10) + ' 48L' + (27 + i * 10) + ' 55', 0, i === 2 ? '#ffffff' : p.m, 3.6, 0.45 + i * 0.27, 'b'));
+  e.push(E('M70.5 37L61.5 50H67.5L63.5 60L74.5 45.5H68.5L72.5 37Z', 'y', '#ffd54a', 1, 1, 'b'));
+  return { g: g, e: e, h: N };
+}
+
+// Spotlight Seeker: geometric rocket with a Sierpinski exhaust inside a spotlight halo
+function rkEmBoost() {
+  var N = '#ff7a6b', p = rkEmPal(N), E = rkEmE, e = [], r = [];
+  var g = { a: rkEmLin(['#ffffff', '#f1e6ff', '#d9c8ff']), b: rkEmLin([p.m, N]), c: rkEmRad(['#ffffff', '#c9fbff', '#58eeff']), s: rkEmRad([[0, '#fff3d6', 0.5], [1, N, 0]], [0.5, 0.5, 0.5]), f: rkEmLin(['#fff3b0', '#ffb36b', '#ff6ec7'], [0, 0, 0, 1]) };
+  e.push(E(rkEmCirc(50, 50, 45), 's', 0, 0, 1, 'x'));
+  r.push(E(rkEmRound([[38, 47], [27, 66], [28, 74], [39, 64]], 2) + rkEmRound([[62, 47], [73, 66], [72, 74], [61, 64]], 2), 'b', N, 1.8, 1, 'b'));
+  r.push(rkEmEO(E(rkEmRound([[41, 69], [59, 69], [50, 91]], 2) + rkEmSier([41, 69], [59, 69], [50, 91], 2), 'f', '#ff6ec7', 1.2, 1, 'b')));
+  r.push(E(rkEmRound([[42, 61], [58, 61], [56, 68], [44, 68]], 1.5), p.d, N, 1.4, 1, 'd'));
+  r.push(E('M50 11C61 20 64 37 62 62H38C36 37 39 20 50 11Z', 'a', N, 2.4, 1, 'b'));
+  r.push(E('M38.6 54H61.4', 0, N, 1.6, 0.8, 'd'), E(rkEmCirc(50, 34, 6.5), 'c', N, 2, 1, 'b'));
+  e.push({ g: r, t: 'rotate(45 50 50)' });
+  e.push(E(rkEmSpark(22, 22, 5) + rkEmSpark(80, 80, 3.5) + rkEmSpark(14, 46, 2.5), '#ffffff', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Video: camera aperture iris; Content Creator adds blades, a film-strip ring and a play glyph
+function rkEmVideo(t) {
+  var N = '#5cb4ff', p = rkEmPal(N), E = rkEmE, e = [], i, n = t === 1 ? 6 : 8, Ro = t === 1 ? 37 : 28.5, ri = t === 1 ? 12 : 10.5, V = rkEmNgon(50, 50, ri, n, 0), Pp = [], A = '', B = '', s = '';
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([p.m, N, p.d]), f: rkEmLin([p.d, rkEmMix(N, '#1a0033', 0.3)]) };
+  for (i = 0; i < n; i++) {
+    var v0 = V[i], v1 = V[(i + 1) % n], ux = v1[0] - v0[0], uy = v1[1] - v0[1], l = Math.hypot(ux, uy);
+    ux /= l; uy /= l;
+    var fx = v1[0] - 50, fy = v1[1] - 50, bb = fx * ux + fy * uy, d = -bb + Math.sqrt(bb * bb - (fx * fx + fy * fy - Ro * Ro));
+    Pp.push([v1[0] + ux * d, v1[1] + uy * d]);
+  }
+  for (i = 0; i < n; i++) {
+    var bl = 'M' + rkEmXY(V[(i + 1) % n]) + 'L' + rkEmXY(Pp[i]) + 'A' + Ro + ' ' + Ro + ' 0 0 1 ' + rkEmXY(Pp[(i + 1) % n]) + 'L' + rkEmXY(V[(i + 2) % n]) + 'Z';
+    if (i % 2) A += bl; else B += bl;
+  }
+  if (t === 2) {
+    for (i = 0; i < 16; i++) s += rkEmRound(rkEmRot([[47.6, 11], [52.4, 11], [52.4, 15.2], [47.6, 15.2]], 50, 50, i * 22.5), 1);
+    e.push(rkEmEO(E(rkEmCirc(50, 50, 43) + rkEmCirc(50, 50, 32.5) + s, 'f', N, 1.6, 1, 'b')));
+  }
+  e.push(E(rkEmCirc(50, 50, Ro + 2), 0, N, 3, 1, 'b'), E(A, 'a', p.d, 0.9, 1, 'b'), E(B, 'b', p.d, 0.9, 1, 'b'));
+  e.push(E(rkEmPath(V), '#0a0014', N, 1.4, 1, 'k'));
+  e.push(E(rkEmArc(50, 50, ri * 0.55, 300, 345), 0, '#ffffff', 1.6, 0.8, 'h'));
+  if (t === 2) e.push(E(rkEmRound([[47, 45], [55.5, 50], [47, 55]], 1.2), '#ffffff', 0, 0, 1, 'd'));
+  return { g: g, e: e, h: N };
+}
+
+// Music listens: vinyl whose groove guilloche blooms into rosettes per tier; Platinum turns iridescent
+function rkEmVinyl(t) {
+  var pt = t === 4, N = pt ? '#efeaff' : '#d06bff', p = rkEmPal(pt ? '#b9a7ff' : N), E = rkEmE, e = [], i, j, s = '', q;
+  var g = { a: pt ? rkEmLin(['#ffffff', '#dfe6ff', '#fbefff', '#c9d4f5']) : rkEmRad(['#4a1a7a', '#2a0d4a', '#1a0630'], [0.5, 0.5, 0.55]), b: rkEmLin(['#ffd6f5', '#e0c8ff', '#c9f4ff']), i: rkEmLin(['#ffd54a', '#ff8fd6', '#7ff3ff', '#d6c9ff']) };
+  if (pt) {
+    for (i = 0; i < 24; i++) s += 'M' + rkEmXY(rkEmPol(50, 50, 41.5, i * 15)) + 'L' + rkEmXY(rkEmPol(50, 50, i % 2 ? 44 : 46.5, i * 15));
+    e.push(E(s, 0, '#ffd54a', 1.6, 0.95, 'd'));
+    s = '';
+  }
+  e.push(E(rkEmCirc(50, 50, 38), 'a', pt ? 'i' : N, 2.6, 1, 'b'));
+  for (i = 0; i < 4; i++) s += rkEmCirc(50, 50, 34 - i * 3.6);
+  e.push(E(s, 0, p.m, 0.8, t === 1 ? 0.5 : 0.25, 'd'));
+  var RS = [[], [[6, 21, 9.5]], [[12, 24, 8], [6, 15.5, 6]], [[18, 27, 7], [9, 18.5, 6]]][t - 1];
+  for (j = 0; j < RS.length; j++) {
+    s = '';
+    for (i = 0; i < RS[j][0]; i++) { q = rkEmPol(50, 50, RS[j][1], (i + j * 0.5) * 360 / RS[j][0]); s += rkEmCirc(q[0], q[1], RS[j][2]); }
+    e.push(E(s, 0, pt ? '#a58cff' : p.m, j ? 1.1 : 1.4, j ? 0.6 : 0.9, 'd'));
+  }
+  e.push(E('M50 50L' + rkEmXY(rkEmPol(50, 50, 37, 296)) + rkEmArc(50, 50, 37, 296, 326).replace('M', 'L') + 'ZM50 50L' + rkEmXY(rkEmPol(50, 50, 37, 116)) + rkEmArc(50, 50, 37, 116, 146).replace('M', 'L') + 'Z', '#ffffff', 0, 0, pt ? 0.25 : 0.12, 'h'));
+  e.push(E(rkEmCirc(50, 50, 13), 'b', pt ? '#b9a7ff' : N, 1.4, 1, 'b'));
+  e.push(E(rkEmEll(47, 54.5, 3.4, 2.6), '#5a1a99', 0, 0, 1, 'd'), E('M50.2 54V42.5C53.5 43.5 55.5 45.5 54 49.5', 0, '#5a1a99', 1.6, 1, 'd'));
+  e[e.length - 2].t = 'rotate(-20 47 54.5)';
+  if (t > 2) e.push(E(rkEmCirc(50, 50, 42.5), 0, pt ? 'i' : N, 1.1, 0.7, 'd'));
+  if (pt) e.push(E(rkEmSpark(83, 17, 6) + rkEmSpark(17, 83, 4.5), '#fff6d6', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: pt ? '#c9b8ff' : N };
+}
+
+// Downloads: self-similar cascade of chevrons into a tray; Certified Banger gets a gold laurel wreath
+function rkEmDl(t) {
+  var N = '#4de0ff', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', lf = '';
+  var g = { a: rkEmLin([p.l, p.m, N]), l: rkEmLin(['#fff3c4', '#ffc93c']) };
+  if (t === 4) {
+    for (i = 0; i < 7; i++) {
+      var a = 205 + i * 17;
+      lf += rkEmLeaf(rkEmPol(50, 52, 39, a), rkEmPol(50, 52, 41, a + 13), 3.4) + rkEmLeaf(rkEmPol(50, 52, 39, 360 - a), rkEmPol(50, 52, 41, 347 - a), 3.4);
+    }
+    e.push(E(lf, 'l', '#ffc93c', 1, 1, 'b'), E(rkEmArc(50, 52, 37.5, 200, 322) + rkEmArc(50, 52, 37.5, 38, 160), 0, '#ffc93c', 1.4, 0.9, 'd'));
+  } else {
+    e.push(E('M17 64V77Q17 85 25 85H75Q83 85 83 77V64', 0, N, 5, 1, 'b'));
+  }
+  var head = rkEmRound([[28, 49], [72, 49], [50, 72]], 3);
+  if (t === 1) e.push(E(rkEmRound([[44, 15], [56, 15], [56, 52], [44, 52]], 3), 'a', N, 2.2, 1, 'b'));
+  for (i = 1; i < t + (t > 3 ? 0 : 1) && t > 1; i++) {
+    var k = Math.pow(0.74, i), y = 49 - 15 * (1 - k) / 0.26;
+    s += 'M' + rkEmN(50 - 21 * k) + ' ' + rkEmN(y - 14 * k) + 'L50 ' + rkEmN(y) + 'L' + rkEmN(50 + 21 * k) + ' ' + rkEmN(y - 14 * k);
+  }
+  if (s) e.push(E(s, 0, 'a', 6, 1, 'b'));
+  e.push(E(head, 'a', N, 2.4, 1, 'b'), E('M36 53H64', 0, '#ffffff', 1.4, 0.6, 'h'));
+  if (t === 3) e.push(E(rkEmRound([[17, 45], [31, 45], [24, 56], [24, 56]], 1.5) + rkEmRound([[69, 45], [83, 45], [76, 56], [76, 56]], 1.5), 'a', N, 1.6, 1, 'b'), E('M24 31V45M76 31V45', 0, 'a', 4, 1, 'b'));
+  if (t === 4) e.push(E(rkEmSpark(50, 85, 4) + rkEmSpark(84, 18, 4.5) + rkEmSpark(16, 18, 4.5), '#fff6d6', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Views: almond eye whose iris is a petal mandala; petals, lashes and rays multiply per tier
+function rkEmEye(t) {
+  var N = '#9d7bff', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', n = [6, 8, 12, 16][t - 1], k = t > 2 ? 0.86 : 1, ex = 40 * k, ey = 38 * k, q;
+  var g = { a: rkEmLin([p.l, '#ffffff', p.l], [0, 0, 0, 1]), i: rkEmRad(['#d6fdff', '#58eeff', '#7a5cff'], [0.5, 0.5, 0.55]), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  var eye = 'M' + rkEmN(50 - ex) + ' 50Q50 ' + rkEmN(50 - ey) + ' ' + rkEmN(50 + ex) + ' 50Q50 ' + rkEmN(50 + ey) + ' ' + rkEmN(50 - ex) + ' 50Z';
+  if (t === 4) {
+    for (i = 0; i < 24; i++) s += 'M' + rkEmXY(rkEmPol(50, 50, i % 2 ? 37 : 39, i * 15)) + 'L' + rkEmXY(rkEmPol(50, 50, i % 2 ? 42 : 46, i * 15));
+    e.push(E(s, 0, 'y', 1.8, 1, 'd'));
+    s = '';
+  }
+  if (t > 1) {
+    var m = t === 2 ? 5 : 7;
+    for (i = 0; i < m; i++) {
+      var u = 0.2 + 0.6 * i / (m - 1), bx = (1 - u) * (1 - u) * (50 - ex) + 2 * (1 - u) * u * 50 + u * u * (50 + ex), by = (1 - u) * (1 - u) * 50 + 2 * (1 - u) * u * (50 - ey) + u * u * 50;
+      s += 'M' + rkEmN(bx) + ' ' + rkEmN(by) + 'L' + rkEmN(bx + (bx - 50) * 0.22) + ' ' + rkEmN(by + (by - 64) * 0.3);
+      if (t > 2) s += 'M' + rkEmN(bx) + ' ' + rkEmN(100 - by) + 'L' + rkEmN(bx + (bx - 50) * 0.22) + ' ' + rkEmN(100 - by - (by - 64) * 0.3);
+    }
+    e.push(E(s, 0, N, 2.2, 1, 'b'));
+  }
+  if (t > 2) e.push(E('M' + rkEmN(50 - ex - 6) + ' 50Q50 ' + rkEmN(50 - ey - 9) + ' ' + rkEmN(56 + ex) + ' 50Q50 ' + rkEmN(59 + ey) + ' ' + rkEmN(44 - ex) + ' 50Z', 0, N, 1.2, 0.7, 'd'));
+  e.push(E(eye, 'a', N, 2.6, 1, 'b'));
+  s = '';
+  for (i = 0; i < n; i++) { var a = i * 360 / n, w = 180 / n * 0.85; s += 'M' + rkEmXY(rkEmPol(50, 50, 5.5 * k, a)) + 'Q' + rkEmXY(rkEmPol(50, 50, 11 * k, a - w)) + ' ' + rkEmXY(rkEmPol(50, 50, 14.5 * k, a)) + 'Q' + rkEmXY(rkEmPol(50, 50, 11 * k, a + w)) + ' ' + rkEmXY(rkEmPol(50, 50, 5.5 * k, a)) + 'Z'; }
+  e.push({ c: eye, g: [E(rkEmCirc(50, 50, 16 * k), 'i', N, 1.6, 1, 'b'), E(s, '#ffffff', 0, 0, 0.5, 'd'), E(rkEmCirc(50, 50, 5 * k), '#0a0014', 0, 0, 1, 'k')] });
+  q = [50 + 4 * k, 50 - 4 * k];
+  e.push(E(rkEmSpark(q[0], q[1], 3.2 * k), '#ffffff', 0, 0, 1, 'h'));
+  if (t === 4) e.push(E(rkEmSpark(84, 16, 4.5) + rkEmSpark(16, 84, 4.5), '#fff6d6', 0, 0, 1, 'x'));
+  return { g: g, e: e, h: N };
+}
+
+// Links: chain links on a diagonal -> a closed chain ring -> The Vault (chain ring round a vault wheel)
+function rkEmChain(t) {
+  var N = '#7f9cff', p = rkEmPal(N), E = rkEmE, e = [], i, L = [], q, s = '';
+  var g = { a: rkEmLin(['#d9f6ff', '#8fb4ff', '#8a6bff'], [16, 16, 84, 84], 1), v: rkEmRad(['#ffffff', p.l, p.m]), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  if (t < 3) {
+    var k = t + 1;
+    for (i = 0; i < k; i++) { var f = k === 2 ? (i - 0.5) * 27.5 : (i - 1) * 23; L.push([50 + f * 0.707, 50 - f * 0.707, -45]); }
+    e = rkEmLinks(L, k === 2 ? 36 : 30, k === 2 ? 17 : 14, 'a', k === 2 ? 6 : 5, false);
+  } else {
+    var m = t === 3 ? 8 : 12, R = t === 3 ? 31 : 37;
+    if (t === 4) {
+      e.push(E(rkEmCirc(50, 50, 25), 'v', N, 2.4, 1, 'b'));
+      e.push(rkEmDots(50, 50, 21.5, 12, 2.6, p.d, 0.7, 'd', 0.5));
+      for (i = 0; i < 6; i++) { q = rkEmPol(50, 50, 15.5, i * 60); s += 'M50 50L' + rkEmXY(q) + rkEmCirc(q[0], q[1], 2.4); }
+      e.push(E(s, 'y', '#ffc93c', 2.4, 1, 'b'), E(rkEmCirc(50, 50, 5), 'y', '#ffc93c', 1.6, 1, 'b'));
+    }
+    for (i = 0; i < m; i++) { q = rkEmPol(50, 50, R, i * 360 / m); L.push([q[0], q[1], i * 360 / m]); }
+    e = e.concat(rkEmLinks(L, t === 3 ? 29 : 23, t === 3 ? 13 : 10.5, 'a', t === 3 ? 4.6 : 3.8, true));
+    if (t === 4) e.push(E(rkEmSpark(86, 14, 4) + rkEmSpark(14, 86, 4), '#fff6d6', 0, 0, 1, 'x'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Achievements: faceted bevel star (Achiever); a star of stars inside a 15-bead orbit (Completionist)
+function rkEmStars(t) {
+  var N = '#ffd84a', p = rkEmPal(N), E = rkEmE, e = [], i, q;
+  var g = { a: rkEmLin([p.l, p.m, N]) };
+  var star = function (cx, cy, R, ri, w, det) {
+    var P = rkEmStarPts(cx, cy, R, ri, 5, 0), Lt = '', Dk = '';
+    for (var k = 0; k < 10; k++) { var tri = rkEmPath([[cx, cy], P[k], P[(k + 1) % 10]]); if (k % 2) Dk += tri; else Lt += tri; }
+    e.push(E(rkEmRound(P, R * 0.08), 'a', N, w, 1, 'b'));
+    if (det) e.push(E(Lt, '#ffffff', 0, 0, 0.4, 'h'), E(Dk, p.d, 0, 0, 0.25, 'h'));
+  };
+  if (t === 1) {
+    star(50, 53, 41, 18, 2.6, 1);
+    e.push(E(rkEmSpark(50, 53, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  } else {
+    q = rkEmDots(50, 51, 43, 15, 3.2, N, 1, 'd', 1);
+    q.da = '0 ' + rkEmN2(2 * Math.PI * 43 / 15) + ' 0 ' + rkEmN2(4 * Math.PI * 43 / 15);
+    e.push(E(rkEmCirc(50, 51, 43), 0, p.m, 1, 0.6, 'd'), rkEmDots(50, 51, 43, 5, 5.2, N, 1, 'd'), q);
+    for (i = 0; i < 5; i++) { q = rkEmPol(50, 51, 32, i * 72 + 36); star(q[0], q[1], 8.5, 3.8, 1.4, 0); }
+    star(50, 51, 27, 11.5, 2.4, 1);
+    e.push(E(rkEmSpark(50, 51, 4), '#ffffff', 0, 0, 1, 'h'));
+  }
+  return { g: g, e: e, h: N };
+}
+
+// Fully Wired: phone with mail + contact glyphs and circuit traces out to nodes
+function rkEmPhone() {
+  var N = '#4ff0e8', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), s: rkEmLin(['#173352', '#0e1c33']) };
+  e.push(E('M31 33H23L17 27M31 50H13M31 67H23L17 73M69 33H77L83 27M69 50H87M69 67H77L83 73', 0, p.m, 1.8, 0.9, 'd'));
+  e.push(E(rkEmCirc(17, 27, 2.6) + rkEmCirc(13, 50, 2.6) + rkEmCirc(17, 73, 2.6) + rkEmCirc(83, 27, 2.6) + rkEmCirc(87, 50, 2.6) + rkEmCirc(83, 73, 2.6), p.l, N, 1.2, 1, 'd'));
+  e.push(E(rkEmRound([[31, 10], [69, 10], [69, 90], [31, 90]], 9), 'a', N, 2.6, 1, 'b'));
+  e.push(E(rkEmRound([[35.5, 19], [64.5, 19], [64.5, 79], [35.5, 79]], 3), 's', 0, 0, 1, 'k'));
+  e.push(E('M45 14.5H55M44 84.5H56', 0, p.d, 1.8, 1, 'd'));
+  e.push(E(rkEmRound([[40, 27], [60, 27], [60, 41], [40, 41]], 2) + 'M40.5 28L50 35.5L59.5 28', 0, N, 1.6, 1, 'd'));
+  e.push(E(rkEmCirc(50, 54, 4.6) + 'M41.5 71Q41.5 62 50 62Q58.5 62 58.5 71Z', p.l, N, 1.2, 1, 'd'));
+  return { g: g, e: e, h: N };
+}
+
+// Full Signal: faceted bell with every signal arc lit
+function rkEmBell() {
+  var N = '#ffdf5c', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]) };
+  e.push(E(rkEmArc(50, 44, 34, 292, 332) + rkEmArc(50, 44, 34, 28, 68), 0, N, 3, 1, 'b'), E(rkEmArc(50, 44, 41.5, 296, 328) + rkEmArc(50, 44, 41.5, 32, 64), 0, N, 2.4, 0.7, 'b'));
+  e.push(E(rkEmCirc(50, 75, 5.5), 'a', N, 2, 1, 'b'));
+  e.push(E('M50 18C37 18 29 28 29 42V56L21 68H79L71 56V42C71 28 63 18 50 18Z', 'a', N, 2.6, 1, 'b'));
+  e.push(E('M50 19C44.5 27 42.5 41 41 67.5M50 19C55.5 27 57.5 41 59 67.5M30 56H70', 0, p.d, 1, 0.45, 'd'));
+  e.push(E('M50 19C55.5 27 57.5 41 59 67.5H70L71 56V42C71 28 63 18 50 18Z', p.d, 0, 0, 0.18, 'h'), E(rkEmArc(50, 42, 15, 300, 340), 0, '#ffffff', 2.2, 0.7, 'h'));
+  e.push(E(rkEmCirc(50, 14.5, 3.6), p.l, N, 1.8, 1, 'b'));
+  return { g: g, e: e, h: N };
+}
+
+// Fallback for unknown ids: ribbon medal with an 8-point star
+function rkEmGeneric() {
+  var N = '#b99cff', p = rkEmPal(N), E = rkEmE;
+  return { g: { a: rkEmLin([p.l, p.m, N]) }, h: N, e: [
+    E(rkEmRound([[38, 58], [48, 64], [42, 90], [36, 84], [29, 87]], 2) + rkEmRound([[62, 58], [52, 64], [58, 90], [64, 84], [71, 87]], 2), p.m, N, 1.8, 1, 'b'),
+    E(rkEmCirc(50, 43, 27), 'a', N, 2.6, 1, 'b'),
+    E(rkEmCirc(50, 43, 21), 0, p.d, 1, 0.5, 'd'),
+    E(rkEmRound(rkEmStarPts(50, 43, 17, 8, 8, 0), 1), '#ffffff', 0, 0, 0.8, 'd')] };
+}
+
+// ---------- registry ----------
+function rkEmSpec() {
+  if (rkEmSpec.t) return rkEmSpec.t;
+  var L = [['kandi_creator', rkEmCreator, 1, 3], ['top_creator', rkEmCreator, 2, 2],
+    ['collector_1', rkEmCuff, 1, 2], ['collector_2', rkEmCuff, 2, 2], ['collector_3', rkEmCuff, 3, 2],
+    ['sales_1', rkEmCoin, 1, 2], ['sales_2', rkEmCoin, 2, 2], ['sales_3', rkEmCoin, 3, 2], ['sales_4', rkEmCoin, 4, 2], ['sales_5', rkEmCoin, 5, 2],
+    ['sold_1', rkEmTag, 1, 2], ['sold_2', rkEmTag, 2, 2], ['sold_3', rkEmTag, 3, 2],
+    ['buy_1', rkEmBag, 1, 2], ['buy_2', rkEmBag, 2, 2], ['buy_3', rkEmBag, 3, 2], ['spent_1', rkEmCard, 1, 2],
+    ['social_1', rkEmSocial, 1, 2], ['social_2', rkEmSocial, 2, 2], ['likes_1', rkEmLikes, 1, 2], ['likes_2', rkEmLikes, 2, 2], ['comments_1', rkEmSocial, 3, 2],
+    ['ref_1', rkEmRef, 1, 2], ['biolink', rkEmBio, 1, 2], ['ref_2', rkEmRef, 2, 2], ['ref_3', rkEmRef, 3, 2],
+    ['rank_neon_pink', rkEmGem, 1, 1], ['rank_slime_green', rkEmGem, 2, 1], ['rank_liquid_metal', rkEmGem, 3, 2], ['rank_holographic', rkEmGem, 4, 2],
+    ['rank_laser_core', rkEmGem, 5, 3], ['rank_plasma', rkEmGem, 6, 3], ['rank_supernova', rkEmGem, 7, 4], ['rank_dark_matter', rkEmGem, 8, 4],
+    ['rank_plur_god', rkEmGem, 9, 5], ['rank_cosmic_forge', rkEmGem, 10, 5], ['rank_eternal_rave', rkEmGem, 11, 5],
+    ['trade_1', rkEmTrade, 1, 2], ['trade_2', rkEmTrade, 2, 2], ['radio_1', rkEmRadio, 1, 2], ['radio_2', rkEmRadio, 2, 2],
+    ['friend_1', rkEmFriends, 1, 2], ['friend_2', rkEmFriends, 2, 2], ['friend_3', rkEmFriends, 3, 3], ['friend_4', rkEmFriends, 4, 4],
+    ['tribe_1', rkEmTribe, 1, 2], ['tribe_3', rkEmTribe, 2, 3], ['tribe_big_5', rkEmTribe, 3, 3], ['tribe_big_10', rkEmTribe, 4, 4],
+    ['tribe_msg_50', rkEmTribeChat, 1, 2], ['tribe_msg_500', rkEmTribeChat, 2, 3], ['active_1', rkEmActive, 1, 2], ['active_2', rkEmActive, 2, 2],
+    ['banner_5', rkEmBanner, 1, 2], ['boost_5', rkEmBoost, 1, 2], ['video_1', rkEmVideo, 1, 2], ['video_5', rkEmVideo, 2, 2],
+    ['listens_1k', rkEmVinyl, 1, 2], ['listens_10k', rkEmVinyl, 2, 3], ['listens_100k', rkEmVinyl, 3, 4], ['listens_1m', rkEmVinyl, 4, 5],
+    ['dl_1k', rkEmDl, 1, 2], ['dl_10k', rkEmDl, 2, 3], ['dl_100k', rkEmDl, 3, 4], ['dl_1m', rkEmDl, 4, 5],
+    ['views_1k', rkEmEye, 1, 2], ['views_10k', rkEmEye, 2, 3], ['views_100k', rkEmEye, 3, 4], ['views_1m', rkEmEye, 4, 5],
+    ['links_10', rkEmChain, 1, 2], ['links_50', rkEmChain, 2, 3], ['links_250', rkEmChain, 3, 4], ['links_1000', rkEmChain, 4, 5],
+    ['ach_5', rkEmStars, 1, 1], ['ach_15', rkEmStars, 2, 3], ['contact_full', rkEmPhone, 1, 1], ['notif_all', rkEmBell, 1, 1],
+    ['rate_beyond', rkEmBeyond, 1, 5]], t = {};
+  for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
+  rkEmSpec.ids = L.map(function (r) { return r[0]; });
+  rkEmSpec.t = t;
+  return t;
+}
+function rkEmIds() { rkEmSpec(); return rkEmSpec.ids.slice(); }
+const RK_EMBLEM_IDS = Object.freeze(rkEmIds());
+
 // V84.77.150.311: RANK BADGES. One look per RevShare rank, in four bands that build on each other:
 //   I-III   Glow     the tier's colour, tinted
 //   IV-VI   Neon     plus an outer glow
@@ -5480,7 +6891,18 @@ const RkRankBadge = ({ rank, size = 'sm', className = '' }) => {
     const big = size === 'lg', band = rkRankBand(rank), ic = big ? 12 : 9;
     return (
         <span title={RK_RANK_BAND_NAMES[band] + ' badge'} className={'inline-flex items-center gap-1 border rounded-full font-black uppercase tracking-wide whitespace-nowrap align-middle ' + (big ? 'text-xs px-2.5 py-1' : 'text-[10px] px-1.5 py-0.5') + (className ? ' ' + className : '')} style={rkRankStyle(rank)}>
-            {band >= 4 ? <Crown size={ic}/> : band >= 2 ? <Zap size={ic}/> : <Award size={ic}/>}{t.badge} · {RK_RANK_ROMAN[rank - 1]}
+            <img src={rkEmblemUri(RK_RANK_ACHS[rank - 1].id, { size: ic + 6 })} width={ic + 6} height={ic + 6} alt="" className="shrink-0"/>{t.badge} · {RK_RANK_ROMAN[rank - 1]}
+        </span>
+    );
+};
+// V84.78.150.312: the badge for a custom RevShare rate, shown wherever a rank badge would be.
+const RkRateBadge = ({ standing, size = 'sm', className = '' }) => {
+    if (!standing || !standing.custom) return null;
+    const big = size === 'lg', px = big ? 18 : 15;
+    return (
+        <span title="Custom RevShare rate" className={'inline-flex items-center gap-1 border rounded-full font-black uppercase tracking-wide whitespace-nowrap align-middle ' + (big ? 'text-xs px-2.5 py-1' : 'text-[10px] px-1.5 py-0.5') + (className ? ' ' + className : '')}
+            style={{ color: '#fff4fe', borderColor: '#ffd1f5', backgroundImage: 'linear-gradient(120deg, rgba(255,110,199,0.30), rgba(103,232,249,0.22), rgba(252,211,77,0.30))', backgroundSize: '300% 300%', animation: 'rkAchBg 5s ease infinite', boxShadow: '0 0 14px rgba(255,209,245,0.55)', textShadow: '0 0 6px rgba(255,209,245,0.8)' }}>
+            <img src={rkEmblemUri('rate_beyond', { size: px })} width={px} height={px} alt="" className="shrink-0"/>{standing.name} · {rkPctTxt(standing.pct)}
         </span>
     );
 };
@@ -5491,10 +6913,10 @@ const BadgeChip = ({ badge }) => {
     if (!ach) return null;
     // V84.77.150.311: a rank badge wears its tier's colour and band effects wherever it is shown.
     if (ach.rank) return <RkRankBadge rank={ach.rank} className="ml-1"/>;
-    const Icon = ach.icon;
+    // V84.78.150.312: every badge shows its emblem.
     return (
-        <span className="inline-flex items-center gap-0.5 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[10px] font-bold px-1 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
-            <Icon size={8}/> {badge.name || ach.name}
+        <span className="inline-flex items-center gap-1 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[10px] font-bold pl-0.5 pr-1.5 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
+            <img src={rkEmblemUri(ach.id, { size: 16 })} width={15} height={15} alt="" className="shrink-0"/>{badge.name || ach.name}
         </span>
     );
 };
@@ -5555,7 +6977,7 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
                     {items.length === 0 && <p className="col-span-2 text-center opacity-50 py-10 text-xs">{meta.empty}</p>}
                     {items.map(i => (
                         <div key={i.id} onClick={() => setOpenRow(i)} className="bg-white/5 p-2 rounded-lg border border-white/10 flex flex-col cursor-pointer hover:bg-white/10 active:scale-95 transition">
-                            <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || 'https://placehold.co/100?text=Kandi'} className="w-full h-24 object-cover rounded mb-2"/>
+                            <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || rkPh(100, 100, null, null, 'Kandi')} className="w-full h-24 object-cover rounded mb-2"/>
                             <p className="font-bold text-[10px] truncate">{i.name || 'Item'}</p>
                             <div className="flex justify-between items-center mt-1 border-t border-white/10 pt-1">
                                 <span className="text-[10px] text-lime-400 font-bold">{badge(i)}</span>
@@ -5596,14 +7018,15 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
                     // V84.77.150.311: a reached rank wears its tier colour; the current rank is highlighted.
                     const isCurRank = !!ach.rank && ach.unlocked && ach.rank === curRank;
                     return (
-                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10 ') + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/5 bg-black/40 opacity-40 grayscale'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, isCurRank) : undefined}>
-                            <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} style={ach.rank && ach.unlocked ? { color: REFERRAL_TIERS[ach.rank - 1].hex } : undefined} />
+                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10 ') + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/15 bg-black/40'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, isCurRank) : undefined}>
+                            {/* V84.78.150.312: emblems replace the icons; a locked one is its own outline, so the row is no longer greyed out. */}
+                            <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="mr-3 shrink-0" />
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-center gap-2">
                                     <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
                                     <p className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Unlocked' : 'Locked'}</p>
                                 </div>
-                                <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                                <p className="text-xs text-white mt-0.5">{ach.desc}</p>
                                 {ach.rank && <div className="mt-1 flex items-center gap-1.5 flex-wrap"><RkRankBadge rank={ach.rank}/>{isCurRank && <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">CURRENT RANK</span>}</div>}
                             </div>
                             {editable && ach.unlocked && (
@@ -5653,7 +7076,7 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
                                 // V84.77.150.311: each row now shows what this raver has earned at that difficulty. Rows
                                 // with at least one achievement get a light highlight, and the highest one reached is
                                 // marked. The rates underneath are the ones checkout actually uses.
-                                const rw = rkAchRewards(profile);
+                                const rw = rkAchApplied(profile);
                                 const best = unlocked.reduce((m, a) => Math.max(m, rkAchDiff(a)), 0);
                                 return (<>
                                     {[1,2,3,4,5].map(d => {
@@ -5670,8 +7093,8 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
                                     })}
                                     <div className="mt-2 bg-black/50 border border-lime-400/50 rounded-lg p-2.5 space-y-1">
                                         <p className="text-[11px] font-black text-lime-300 uppercase tracking-wide">{editable ? 'Your' : 'Their'} rates now · applied at checkout</p>
-                                        <p className="text-xs text-white">Seller commission: <strong>{rkRatePct(rkSellerRate(profile))}</strong>{rw.comm > 0 ? ' (' + rkRatePct(rkBaseSellerRate(profile)) + ' − ' + rkRatePct(rw.comm) + ' earned)' : ''}</p>
-                                        <p className="text-xs text-white">Referral share: <strong>{rkPctTxt(rkRefSharePct(profile))}</strong> of the commission{rw.ref > 0 ? ' (' + rkPctTxt(rkRefBasePct(profile)) + ' + ' + rkPctTxt(rw.ref * 100) + ' earned)' : ''}</p>
+                                        <p className="text-xs text-white">Seller commission: <strong>{rkRatePct(rkSellerRate(profile))}</strong>{rkHasCustom(profile?.customCommissionRate) ? ' (custom rate; it replaces achievement rewards)' : rw.comm > 0 ? ' (' + rkRatePct(rkBaseSellerRate(profile)) + ' − ' + rkRatePct(rw.comm) + ' earned)' : ''}</p>
+                                        <p className="text-xs text-white">Referral share: <strong>{rkPctTxt(rkRefSharePct(profile))}</strong> of the commission{rkHasCustom(profile?.customRevSharePct) ? ' (custom rate; it replaces achievement rewards)' : rw.ref > 0 ? ' (' + rkPctTxt(rkRefBasePct(profile)) + ' + ' + rkPctTxt(rw.ref * 100) + ' earned)' : ''}</p>
                                         <p className="text-[11px] text-white">Caps: 5% total commission trim · 5% total referral add.</p>
                                     </div>
                                 </>);
@@ -5680,14 +7103,14 @@ const AchievementsCard = ({ profile, editable = false, userUid }) => {
                     </div>
                     <div className="space-y-3">
                         {display.map((ach, idx) => (
-                            <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10') : 'border-white/5 bg-black/40 opacity-40 grayscale'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, ach.rank === curRank) : undefined}>
-                                <ach.icon size={24} className={`mr-3 shrink-0 ${ach.unlocked ? 'text-lime-400' : 'text-white'}`} style={ach.rank && ach.unlocked ? { color: REFERRAL_TIERS[ach.rank - 1].hex } : undefined} />
+                            <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10') : 'border-white/15 bg-black/40'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, ach.rank === curRank) : undefined}>
+                                <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="mr-3 shrink-0" />
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center gap-2">
                                         <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
                                         {(profile?.topAchievements || []).includes(ach.id) && ach.unlocked && <Star size={12} className="text-yellow-400 shrink-0" fill="currentColor"/>}
                                     </div>
-                                    <p className="text-[10px] opacity-70 mt-0.5">{ach.desc}</p>
+                                    <p className="text-xs text-white mt-0.5">{ach.desc}</p>
                                     {ach.rank && <div className="mt-1"><RkRankBadge rank={ach.rank}/></div>}
                                 </div>
                             </div>
@@ -5743,11 +7166,11 @@ const BadgeSelectorModal = ({ user, profile, isOpen, onClose }) => {
                 {all.map((ach, i) => {
                     const isFeatured = profile?.featuredBadge?.id === ach.id;
                     return (
-                        <button key={i} disabled={saving} onClick={() => selectBadge(ach)} className={`w-full flex items-center p-3 rounded-lg border text-left transition-all ${isFeatured ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_10px_rgba(250,204,21,0.4)]' : ach.unlocked ? 'border-lime-500/50 bg-lime-900/10 hover:bg-lime-900/30' : 'border-white/5 bg-black/40 opacity-40 grayscale'}`}>
-                            <ach.icon size={22} className={`mr-3 shrink-0 ${isFeatured ? 'text-yellow-400' : ach.unlocked ? 'text-lime-400' : 'text-white'}`}/>
+                        <button key={i} disabled={saving} onClick={() => selectBadge(ach)} className={`w-full flex items-center p-3 rounded-lg border text-left transition-all ${isFeatured ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_10px_rgba(250,204,21,0.4)]' : ach.unlocked ? 'border-lime-500/50 bg-lime-900/10 hover:bg-lime-900/30' : 'border-white/15 bg-black/40'}`}>
+                            <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="mr-3 shrink-0"/>
                             <div className="flex-1">
                                 <p className="font-bold text-sm flex items-center gap-2">{ach.name} {isFeatured && <span className="text-[10px] bg-yellow-400 text-black px-1 rounded font-black uppercase">Featured</span>}</p>
-                                <p className="text-[10px] opacity-70">{ach.desc}</p>
+                                <p className="text-xs text-white">{ach.desc}</p>
                                 {ach.rank && <div className="mt-1"><RkRankBadge rank={ach.rank}/></div>}
                             </div>
                             <span className={`text-[10px] font-black uppercase px-1 rounded ${ach.unlocked ? 'bg-lime-500 text-black' : 'bg-white/10 text-white'}`}>{ach.unlocked ? 'Owned' : 'Locked'}</span>
@@ -6034,7 +7457,7 @@ const ReferredUsersPanel = ({ user, profile, onViewProfile }) => {
             <div className="space-y-2">
                 {rows.map(r => (
                     <button key={r.id} onClick={() => onViewProfile && onViewProfile(r.publicUid || r.id)} className="w-full flex items-center gap-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg p-2 text-left">
-                        <img src={r.photoURL || ('https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((r.displayName || 'R').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = 'https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((r.displayName || 'R').charAt(0).toUpperCase()); }} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
+                        <img src={r.photoURL || (rkPh(64, 64, '2a0a3a', 'fff', (r.displayName || 'R').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(64, 64, '2a0a3a', 'fff', (r.displayName || 'R').charAt(0).toUpperCase()); }} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
                         <div className="min-w-0 flex-1"><p className="text-xs font-bold text-white truncate">@{r.displayName || 'Raver'}</p><p className="text-[10px] opacity-50 truncate">Joined {r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '—'}</p></div>
                         <span className="text-[11px] font-black text-lime-300 shrink-0">${(r.earnedFromThisUser || 0).toFixed(2)}</span>
                     </button>
@@ -6086,7 +7509,8 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
     const pctBase = rkRefBasePct(profile);
     const pctAdd = Math.round((pct - pctBase) * 100) / 100;
     const curRank = rkRankOf(refCount);
-    const hasCustom = profile?.customRevSharePct !== null && profile?.customRevSharePct !== undefined && profile?.customRevSharePct !== '';
+    // V84.78.150.312: a custom rate is its own standing, with its own badge and chart line.
+    const standing = rkShareStanding(profile);
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="RevShare Program">
             <div className="space-y-4">
@@ -6097,10 +7521,11 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
                     <p className="text-[10px] uppercase opacity-60 mb-1">Your Friend UID</p>
                     <p className="font-mono text-2xl font-black text-lime-400 break-all">{code}</p>
                     <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
-                        {curRank > 0 ? <RkRankBadge rank={curRank} size="lg"/> : <span className="text-xs font-black text-white">No rank yet: your first referral unlocks Neon Pink</span>}
+                        {standing.custom ? <RkRateBadge standing={standing} size="lg"/> : curRank > 0 ? <RkRankBadge rank={curRank} size="lg"/> : <span className="text-xs font-black text-white">No rank yet: your first referral unlocks Neon Pink</span>}
                         <span className="text-xs text-cyan-300 font-bold">{rkPctTxt(pct)} RevShare · {refCount} referral{refCount === 1 ? '' : 's'}</span>
                     </div>
-                    {pctAdd > 0 && <p className="text-xs text-lime-300 font-bold mt-1">{rkPctTxt(pctBase)} {hasCustom ? 'custom rate' : 'rank rate'} + {rkPctTxt(pctAdd)} from your achievements</p>}
+                    {standing.custom && <p className="text-xs text-white mt-1">{standing.above ? 'Your rate is above the top rank, set for you by RaveKandi.' : 'Your rate is set for you by RaveKandi.'}{curRank > 0 ? ' Earned rank: ' + REFERRAL_TIERS[curRank - 1].badge + '.' : ''}</p>}
+                    {pctAdd > 0 && <p className="text-xs text-lime-300 font-bold mt-1">{rkPctTxt(pctBase)} rank rate + {rkPctTxt(pctAdd)} from your achievements</p>}
                 </div>
                 <Button onClick={doCopyLink} color="lime" className="w-full text-xs flex items-center justify-center gap-2 mb-1"><Link size={16}/> Copy My Invite Link</Button>
                 {!profile?.publicUidChanged && (
@@ -6140,11 +7565,21 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
                         <table className="w-full text-xs">
                             <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Rank &amp; badge</th><th className="pb-1">Referrals</th><th className="pb-1">RevShare</th></tr></thead>
                             <tbody>
-                                {REFERRAL_TIERS.map((t, i) => {
-                                    const r = i + 1, reached = curRank >= r, isCurrent = curRank === r;
+                                {/* V84.78.150.312: a custom rate gets its own highlighted line, placed by % (at the end
+                                    when it is above the top rank); otherwise the current rank is highlighted, and
+                                    the next rank to reach is marked. */}
+                                {rkShareRows(standing).map(row => {
+                                    if (row.kind === 'custom') return (
+                                        <tr key="rk-custom" className="border-b border-white/5" style={{ background: 'linear-gradient(90deg, rgba(255,110,199,0.24), rgba(103,232,249,0.14))', boxShadow: 'inset 3px 0 0 #ffd1f5' }}>
+                                            <td className="py-1.5 pl-1.5"><RkRateBadge standing={standing}/><span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black align-middle">YOU</span></td>
+                                            <td className="py-1.5 text-white">Custom rate</td>
+                                            <td className="py-1.5 text-lime-300 font-bold">{rkPctTxt(standing.pct)}</td>
+                                        </tr>
+                                    );
+                                    const { r, t } = row, reached = standing.earnedRank >= r, isCurrent = !standing.custom && standing.rank === r, isNext = !standing.custom && r === standing.rank + 1;
                                     return (
                                         <tr key={t.badge} className="border-b border-white/5" style={isCurrent ? { background: t.hex + '29', boxShadow: 'inset 3px 0 0 ' + t.hex } : reached ? { background: t.hex + '12' } : undefined}>
-                                            <td className="py-1.5 pl-1.5"><span style={reached ? undefined : { opacity: 0.8 }}><RkRankBadge rank={r}/></span>{isCurrent && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black align-middle">YOU</span>}{reached && !isCurrent && <span className="ml-1 text-xs text-lime-300 font-black">✓</span>}</td>
+                                            <td className="py-1.5 pl-1.5"><span style={reached ? undefined : { opacity: 0.8 }}><RkRankBadge rank={r}/></span>{isCurrent && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black align-middle">YOU</span>}{reached && !isCurrent && <span className="ml-1 text-xs text-lime-300 font-black">✓</span>}{isNext && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full border border-white text-white align-middle">NEXT · {(t.min - refCount).toLocaleString()} to go</span>}</td>
                                             <td className="py-1.5 text-white">{t.min.toLocaleString()}–{t.max >= 999999 ? '∞' : t.max.toLocaleString()}</td>
                                             <td className="py-1.5 text-lime-300 font-bold">{t.sharePct}%</td>
                                         </tr>
@@ -6155,7 +7590,7 @@ const RevShareShareModal = ({ user, profile, isOpen, onClose, onOpenWallet, onVi
                     </div>
                     <div className="bg-black/40 border border-white/15 rounded p-2.5 text-xs text-white leading-relaxed space-y-1">
                         <p>Every rank you reach is also an <strong>achievement and a badge</strong>. Feature it from My Badges and it shows beside your name across the app.</p>
-                        <p>You earn <strong className="text-lime-300">{rkPctTxt(pct)}</strong>{pctAdd > 0 ? ' — that includes +' + rkPctTxt(pctAdd) + ' from your achievements' : ''}.{hasCustom ? ' A custom rate of ' + rkPctTxt(pctBase) + ' is set on your account and replaces the rank rate.' : ''}</p>
+                        <p>You earn <strong className="text-lime-300">{rkPctTxt(pct)}</strong>{pctAdd > 0 ? ' — that includes +' + rkPctTxt(pctAdd) + ' from your achievements' : ''}.{standing.custom ? ' A custom rate is set on your account. It replaces the rank rate and achievement rewards, and has its own line in the chart.' : ''}</p>
                     </div>
                     <div className="bg-cyan-900/20 p-3 rounded text-xs border border-cyan-500/30">
                         <span className="font-bold text-cyan-400 block mb-1">How it works</span>
@@ -6694,7 +8129,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                                 {searchHit.map(h => (
                                     <div key={h.id} className="w-full flex items-center gap-2 bg-white/5 border border-white/10 rounded p-2">
                                         <button onClick={() => openThreadWith(h.id, h.displayName)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                                            <img src={h.photoURL || 'https://placehold.co/40?text=U'} className="w-7 h-7 rounded-full object-cover"/>
+                                            <img src={h.photoURL || rkPh(40, 40, null, null, 'U')} className="w-7 h-7 rounded-full object-cover"/>
                                             <div className="flex-1 min-w-0"><span className="text-[11px] font-bold block truncate">@{h.displayName}</span><span className="text-[10px] font-mono opacity-50 truncate">{h.publicUid || h.id}</span></div>
                                         </button>
                                         <AddFriendButton myProfile={profile} myUid={myUid} targetUid={h.id} targetName={h.displayName} />
@@ -6704,7 +8139,7 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                         )}
                         {searchHit && !Array.isArray(searchHit) && (
                             <button onClick={() => openThreadWith(searchHit.id, searchHit.displayName)} className="w-full flex items-center gap-2 bg-lime-900/20 border border-lime-500/40 rounded p-2 mb-2 text-left">
-                                <img src={searchHit.photoURL || 'https://placehold.co/40?text=U'} className="w-8 h-8 rounded-full object-cover"/>
+                                <img src={searchHit.photoURL || rkPh(40, 40, null, null, 'U')} className="w-8 h-8 rounded-full object-cover"/>
                                 <span className="text-xs font-bold flex-1">@{searchHit.displayName}</span>
                                 <span className="text-[10px] text-lime-400 font-black uppercase">Start Chat →</span>
                             </button>
@@ -7246,7 +8681,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                         {myItems.length === 0 && <p className="text-center opacity-50 text-[10px] py-4">You have no live posts yet.</p>}
                         {myItems.map(i => (
                             <button key={i.id} onClick={() => setPick(i)} className={`w-full flex items-center gap-2 p-2 rounded border text-left ${pick?.id === i.id ? 'border-pink-400 bg-pink-900/30' : 'border-white/10 bg-white/5'}`}>
-                                <img src={i.mediaUrls?.[0]?.url || i.imageUrl || 'https://placehold.co/40'} className="w-8 h-8 rounded object-cover"/>
+                                <img src={i.mediaUrls?.[0]?.url || i.imageUrl || rkPh(40, 40)} className="w-8 h-8 rounded object-cover"/>
                                 <span className="text-[10px] font-bold flex-1 truncate">{i.name}</span>
                                 <span className="text-[10px] text-lime-400">${Number(i.price || 0).toFixed(2)}</span>
                             </button>
@@ -7592,7 +9027,7 @@ const StripeCheckoutForm = ({ total, onComplete, onCancel }) => {
     );
 };
 
-const CryptoCheckoutForm = ({ total, onComplete, onCancel, user }) => {
+const CryptoCheckoutForm = ({ total, onComplete, onCancel, user, profile }) => {
     const cluster = rkCluster();
     const mint = RK_USDC_MINTS[cluster];
     const amount = (Math.round(total * 100) / 100).toFixed(2);
@@ -7600,6 +9035,26 @@ const CryptoCheckoutForm = ({ total, onComplete, onCancel, user }) => {
     const [status, setStatus] = useState('awaiting'); // awaiting | checking | paid | timeout
     const [lastCheck, setLastCheck] = useState('');
     const doneRef = useRef(false);
+    // V84.78.150.312: PHANTOM'S "INVALID LINK — CONTAINS A TOKEN THAT YOU DON'T OWN OR CAN'T IDENTIFY".
+    // The payment link is valid Solana Pay. Phantom shows that error when the wallet paying has no
+    // USDC on the network the link asks for: no USDC at all (SOL is not enough), or a network
+    // mismatch (the app on Devnet with Phantom on Mainnet, or the reverse). Before the raver taps
+    // Pay, read the saved wallet's USDC balance on this network and say plainly which case it is.
+    const [walletCheck, setWalletCheck] = useState({ state: 'checking' });
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const addr = profile?.walletEnc ? await rkDecWallet(user?.uid, profile.walletEnc) : null;
+                if (!addr) { if (alive) setWalletCheck({ state: 'nowallet' }); return; }
+                const r = await rkRpc('getTokenAccountsByOwner', [addr, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }], cluster);
+                const accts = (r && r.value) || [];
+                const bal = accts.reduce((sum, x) => sum + (Number(x?.account?.data?.parsed?.info?.tokenAmount?.uiAmount) || 0), 0);
+                if (alive) setWalletCheck({ state: accts.length === 0 ? 'none' : bal + 1e-9 >= Number(amount) ? 'ok' : 'low', bal, addr });
+            } catch (e) { if (alive) setWalletCheck({ state: 'error' }); }
+        })();
+        return () => { alive = false; };
+    }, []);
     const solUri = 'solana:' + SOLANA_RECEIVER + '?amount=' + amount + '&spl-token=' + mint + '&reference=' + reference + '&label=' + encodeURIComponent('RaveKandi') + '&message=' + encodeURIComponent('RaveKandi Order ' + reference.slice(0, 8));
     // Audit intent — written before payment, stamped after. Best-effort; verification is on-chain.
     useEffect(() => {
@@ -7643,6 +9098,23 @@ const CryptoCheckoutForm = ({ total, onComplete, onCancel, user }) => {
                 <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} className="flex-1 text-xs font-bold text-lime-300 bg-lime-500/10 border border-lime-500/40 rounded py-2">👛 Add my wallet</button>
                 {false && <button className="flex-1 text-xs font-bold text-blue-300 bg-blue-500/10 border border-blue-500/40 rounded py-2">💳 Pay with card (Stripe)</button>}{/* V65.10: unhide when Stripe ships */}
             </div>
+            {(() => {
+                const net = cluster === 'devnet' ? 'Solana Devnet (test)' : 'Solana Mainnet';
+                const w = walletCheck, short = w.addr ? rkMaskAddr(w.addr) : '';
+                const need = Math.max(0, Number(amount) - (Number(w.bal) || 0));
+                const devnetTip = cluster === 'devnet' ? ' On Devnet: in Phantom turn on Settings → Developer Settings → Testnet Mode, and get test USDC at faucet.circle.com.' : '';
+                const box = (cls, text) => <p className={'text-xs text-left rounded-lg p-2 border leading-snug ' + cls}>{text}</p>;
+                return (
+                    <div className="space-y-1.5">
+                        <p className="text-xs text-white">Network: <strong>{net}</strong>. Phantom must be on the same network.</p>
+                        {w.state === 'checking' && box('bg-black/40 border-white/20 text-white', 'Checking the USDC in your saved wallet…')}
+                        {w.state === 'ok' && box('bg-lime-900/30 border-lime-400/60 text-lime-100', '✅ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this order.')}
+                        {w.state === 'low' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC. This order needs $' + amount + '. Add at least $' + need.toFixed(2) + ' of USDC in Phantom first (Buy → USDC).' + devnetTip)}
+                        {w.state === 'none' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') has no USDC on ' + net + '. Phantom will refuse this payment with "invalid link: contains a token that you don\'t own". In Phantom tap Buy → USDC first; SOL alone is not enough.' + devnetTip)}
+                        {(w.state === 'nowallet' || w.state === 'error') && box('bg-black/40 border-cyan-400/40 text-white', (w.state === 'error' ? 'Couldn\'t check your wallet just now. ' : '') + 'Pay from a Phantom wallet that holds USDC on ' + net + '; SOL alone is not enough. If Phantom says "invalid link: contains a token that you don\'t own", that wallet has no USDC yet. Buy USDC in Phantom first.' + devnetTip)}
+                    </div>
+                );
+            })()}
             <div className="flex justify-center"><div className="bg-white p-2 rounded"><QRCodeCanvas value={solUri} size={168}/></div></div>
             <a href={solUri} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }}>👛 Open in Phantom & Pay</a>
             <p className="text-xs text-white">Scan with Phantom or tap the button. The exact amount, token (USDC), and order code are pre-filled — just confirm.</p>
@@ -7694,6 +9166,14 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
     };
     const enriched = cartItems.map(c => ({ ...c, liveStatus: getStatus(c) }));
     const STATUS_LABELS = { sold: 'UNAVAILABLE FOR PURCHASE: SOLD', cancelled: 'UNAVAILABLE FOR PURCHASE: REMOVED', purchased: 'ALREADY PURCHASED' };
+    // V84.78.150.312: every available item in the cart is CHECKED for purchase unless the raver
+    // unchecked it (Milli, at 312). Unchecking saves `held: true` on that cart entry, so a held item
+    // stays unchecked after the app closes, and anything newly added arrives checked. The selection
+    // is worked out from the entries themselves, so items removed elsewhere no longer linger in the
+    // "Checkout (n)" count either.
+    useEffect(() => {
+        setSelectedIds(enriched.filter(c => c.liveStatus === 'available' && !c.held).map(c => c.id));
+    }, [cartItems, items]);
     
     const handleRemove = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, id)); setSelectedIds(prev => prev.filter(sid => sid !== id)); };
     const bulkRemove = async (filterKey, label) => {
@@ -7707,8 +9187,10 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
     };
     const toggleSelection = (entry) => {
         if (entry.liveStatus !== 'available') return;
-        if (selectedIds.includes(entry.id)) setSelectedIds(selectedIds.filter(sid => sid !== entry.id));
-        else setSelectedIds([...selectedIds, entry.id]);
+        const on = selectedIds.includes(entry.id);
+        setSelectedIds(on ? selectedIds.filter(sid => sid !== entry.id) : [...selectedIds, entry.id]);
+        // V84.78.150.312: the hold lives on the cart entry, so it survives closing the app.
+        updateDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, entry.id), { held: on }).catch(e => rkReport('cart hold', e));
     };
     const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => { const q = getQty(item); return sum + bulkUnitPrice(item, q) * q; }, 0);
     
@@ -7839,7 +9321,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
     }
 
     if(checkoutMode === 'crypto') {
-        return <Modal isOpen={isOpen} onClose={() => {setCheckoutMode('cart'); onClose();}} title="Crypto Checkout"><CryptoCheckoutForm total={totalCost} user={user} onComplete={handleSuccess} onCancel={()=>setCheckoutMode('select')}/></Modal>
+        return <Modal isOpen={isOpen} onClose={() => {setCheckoutMode('cart'); onClose();}} title="Crypto Checkout"><CryptoCheckoutForm total={totalCost} user={user} profile={profile} onComplete={handleSuccess} onCancel={()=>setCheckoutMode('select')}/></Modal>
     }
 
     return ( 
@@ -7866,7 +9348,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                     <div key={item.id} className={`bg-white/5 p-3 rounded relative ${item.liveStatus !== 'available' ? 'opacity-90' : ''}`}>
                         <div className={`flex items-center gap-3 ${item.liveStatus !== 'available' ? 'grayscale opacity-40 pointer-events-none' : ''}`}>
                             <input type="checkbox" disabled={item.liveStatus !== 'available'} checked={selectedIds.includes(item.id)} onChange={() => toggleSelection(item)} className="accent-lime-400" />
-                            <img src={item.mediaUrls?.[0]?.url || item.imageUrl || 'https://placehold.co/50'} className="w-12 h-12 rounded object-cover"/>
+                            <img src={item.mediaUrls?.[0]?.url || item.imageUrl || rkPh(50, 50)} className="w-12 h-12 rounded object-cover"/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold truncate">{item.name}</p>
                                 {(() => { const q = getQty(item); const unit = bulkUnitPrice(item, q); const saved = (item.price||0) - unit; return (
@@ -8137,7 +9619,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         <Modal isOpen={isOpen} onClose={onClose} zClass={zClass || 'z-50'} title={item.name || "Item Details"}>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="h-72 w-full rounded-lg overflow-hidden border border-white/10 bg-black/60">
-                    <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image || 'https://placehold.co/400x300/1a0033/ff50b4?text=RaveKandi'} />
+                    <MediaCarousel media={item.mediaUrls} fallback={item.imageUrl || item.image || rkPh(400, 300, '1a0033', 'ff50b4', 'RaveKandi')} />
                 </div>
                 {item.videoLink && (() => { const v = parseVideoLink(item.videoLink); return (v.ok && v.platform === 'dropbox') ? (
                     <div className="mt-2"><p className="text-[10px] font-bold text-purple-300 mb-1">🎬 Video</p><video src={v.fileUrl} controls preload="metadata" playsInline className="w-full max-h-72 rounded-lg border border-purple-500/40 bg-black"/></div>
@@ -8593,7 +10075,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
                             {item.isHidden && <span className="absolute top-1 left-1 z-10 text-[9px] font-black uppercase bg-yellow-500/80 text-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><EyeOff size={8}/> Hidden</span>}
                             {item.status === 'generating' ? (
                                 <div className="w-full h-24 bg-black/50 flex flex-col items-center justify-center rounded mb-2"><Activity className="animate-pulse text-yellow-400 mb-1"/><span className="text-[10px] text-yellow-400">Processing...</span></div>
-                            ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Kandi'} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/100?text=Kandi'; }} className="w-full h-24 object-cover rounded mb-2"/> )}
+                            ) : ( <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || rkPh(100, 100, null, null, 'Kandi')} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(100, 100, null, null, 'Kandi'); }} className="w-full h-24 object-cover rounded mb-2"/> )}
                             <p className="font-bold text-[10px] truncate">{item.name || item.subType || 'Unknown Item'}</p>
                             {/* V73.5: a generated design is not worth $0.00 — it has a costed
                                 breakdown. Showing zero made the collection look broken. */}
@@ -9327,7 +10809,7 @@ const CreatorSelectCarousel = ({ onSelectCreator, selectedId }) => {
                 <div ref={gridRef} onScroll={(e) => { const el = e.target; const max = el.scrollHeight - el.clientHeight; const thumb = Math.max(20, (el.clientHeight / el.scrollHeight) * 100); const top = max > 0 ? (el.scrollTop / max) * (100 - thumb) : 0; setStScroll({ thumb, top }); }} className="grid grid-cols-4 gap-2 overflow-y-auto rk-scroll pr-3 overscroll-contain" style={{ maxHeight: '188px', WebkitOverflowScrolling: 'touch' }}>
                     {creators.map(c => (
                         <div key={c.id} onClick={() => onSelectCreator(c)} className={`p-2 rounded-xl border flex flex-col items-center cursor-pointer transition-colors ${selectedId === c.id ? 'bg-pink-500/20 border-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-black/50 border-white/10 hover:bg-white/5'}`}>
-                            <img src={c.photoURL || 'https://placehold.co/50'} className="w-10 h-10 rounded-full mb-1 object-cover border border-white/20"/>
+                            <img src={c.photoURL || rkPh(50, 50)} className="w-10 h-10 rounded-full mb-1 object-cover border border-white/20"/>
                             <p className="text-[10px] font-bold truncate w-full text-center">{c.displayName}</p>
                             <p className="text-[9px] opacity-50 flex items-center gap-1"><Award size={8}/> {c.completedTrades || 0}</p>
                         </div>
@@ -9449,7 +10931,7 @@ const DIYBuilder = ({ onSubmitRequest }) => {
                             {creatorStock.map(i => (
                                 <div key={i.id} onClick={() => add(i)} className="bg-white/5 p-2 rounded cursor-pointer border border-transparent relative h-24 flex flex-col items-center justify-center transition hover:bg-white/10">
                                     <PlusCircle size={16} className="absolute top-1 right-1 text-lime-400"/>
-                                    <img src={i.imageUrl || i.image || 'https://placehold.co/50'} className="h-10 w-10 rounded mb-1 object-cover"/>
+                                    <img src={i.imageUrl || i.image || rkPh(50, 50)} className="h-10 w-10 rounded mb-1 object-cover"/>
                                     <p className="text-[10px] font-bold text-center leading-tight uppercase truncate w-full">{i.name || i.subType}</p>
                                     <p className="text-[10px] text-lime-400">${(parseFloat(i.sell) || parseFloat(i.cost) || 0).toFixed(2)}</p>
                                 </div>
@@ -10150,7 +11632,7 @@ const FindUsersPanel = ({ onPick }) => {
                     {filtered.length === 0 && <p className="text-center opacity-50 text-xs py-6">No users match.</p>}
                     {filtered.map(u => (
                         <button key={u.id} onClick={() => onPick && onPick(u)} className="w-full flex items-center gap-2 p-2 rounded bg-black/40 hover:bg-white/10 text-left border border-white/5">
-                            <img src={u.photoURL || 'https://placehold.co/40?text=U'} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
+                            <img src={u.photoURL || rkPh(40, 40, null, null, 'U')} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[11px] font-bold truncate flex items-center gap-1">@{u.displayName || 'Raver'}{u.isKandiCreator && <Hammer size={9} className="text-yellow-400"/>}{u.isAdmin && <span className="text-[9px] text-red-400">TEAM</span>}{u.bannedUntil && <Ban size={9} className="text-red-500"/>}</p>
                                 <p className="text-[10px] font-mono opacity-50 truncate">{u.publicUid || u.id}</p>
@@ -11490,7 +12972,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         if (val !== null && val !== '' && isNaN(pct)) return alert("Enter a valid percentage (0-100).");
         await updateDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { customRevSharePct: pct });
         setManagedUser({ ...managedUser, customRevSharePct: pct });
-        alert(pct === null ? "Override removed - user returns to standard tier rates." : `RevShare set to ${pct}% for ${managedUser.displayName}. Their achievement add still applies on top.`);
+        alert(pct === null ? "Override removed - user returns to standard tier rates." : `RevShare set to ${pct}% for ${managedUser.displayName}. It replaces their rank rate and achievement add.`);
     };
 
     const banUser = async (durationMs, label) => {
@@ -11557,7 +13039,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                         <p className="text-[10px] uppercase font-bold text-cyan-400 mb-1">{userMatches.length} matches — tap one:</p>
                         {userMatches.map(u => (
                             <button key={u.id} onClick={() => pickUser(u)} className="w-full flex items-center gap-2 p-1.5 rounded bg-white/5 hover:bg-white/10 text-left">
-                                <img src={u.photoURL || 'https://placehold.co/40?text=U'} className="w-7 h-7 rounded-full object-cover border border-pink-500/40"/>
+                                <img src={u.photoURL || rkPh(40, 40, null, null, 'U')} className="w-7 h-7 rounded-full object-cover border border-pink-500/40"/>
                                 <div className="flex-1 min-w-0"><p className="text-[10px] font-bold truncate">@{u.displayName || 'Raver'}</p><p className="text-[10px] font-mono opacity-50 truncate">{u.publicUid || u.id}</p></div>
                             </button>
                         ))}
@@ -11584,7 +13066,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                 <Button onClick={() => saveRevShare(revPct)} color="lime" className="text-[10px]">Set</Button>
                                 <Button onClick={() => saveRevShare(null)} color="accent" className="text-[10px]">Reset</Button>
                             </div>
-                            {managedUser.customRevSharePct != null && <p className="text-[10px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces the tier rate on all future RevShare payouts. Their achievement add still applies on top.</p>}
+                            {managedUser.customRevSharePct != null && <p className="text-[10px] text-yellow-400 mt-1">Active override: {managedUser.customRevSharePct}% — replaces the tier rate and their achievement add on all future RevShare payouts.</p>}
 
                             <div className="mt-3 pt-3 border-t border-white/10">
                                 <p className="text-[10px] font-black uppercase text-pink-300 mb-1">Seller Commission Rate</p>
@@ -11603,8 +13085,8 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                                 </div>
                                 <p className="text-[10px] opacity-50 mt-1">Current: {managedUser.customCommissionRate != null ? (managedUser.customCommissionRate * 100).toFixed(0) + '% (override)' : 'standard 20%'}{managedUser.lockedCommissionRate != null ? ' · 🔒 launch-locked at ' + (managedUser.lockedCommissionRate * 100).toFixed(0) + '%' : ''}. Enter 0.10 for 10% (or just 10).</p>
                                 {/* V84.77.150.311: what checkout actually uses for this raver, achievement rewards included. */}
-                                {(() => { const aw = rkAchRewards(managedUser); return (
-                                    <p className="text-[11px] text-white mt-1">Charged now: <strong>{rkRatePct(rkSellerRate(managedUser))}</strong>{aw.comm > 0 ? ' (achievements −' + rkRatePct(aw.comm) + ')' : ''} · RevShare paid: <strong>{rkPctTxt(rkRefSharePct(managedUser))}</strong>{aw.ref > 0 ? ' (achievements +' + rkPctTxt(aw.ref * 100) + ')' : ''}. Achievement rewards apply on top of any custom rate.</p>
+                                {(() => { const aw = rkAchApplied(managedUser); return (
+                                    <p className="text-[11px] text-white mt-1">Charged now: <strong>{rkRatePct(rkSellerRate(managedUser))}</strong>{aw.comm > 0 ? ' (achievements −' + rkRatePct(aw.comm) + ')' : ''} · RevShare paid: <strong>{rkPctTxt(rkRefSharePct(managedUser))}</strong>{aw.ref > 0 ? ' (achievements +' + rkPctTxt(aw.ref * 100) + ')' : ''}. A custom rate replaces achievement rewards.</p>
                                 ); })()}
                             </div>
 
@@ -12982,7 +14464,7 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     if (!isOpen) return null;
     // V84.77.150.311: the rates actually charged and paid, achievement rewards included.
     const activeCommRate = rkSellerRate(profile);
-    const achRw = rkAchRewards(profile);
+    const achRw = rkAchApplied(profile);
     
     const totalRevenue = profile.totalSalesValue || 0;
     const totalFees = totalRevenue * activeCommRate;
@@ -13096,7 +14578,7 @@ const HELP_TOPICS = [
     { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item." },
     { cat: 'Buying', title: '📦 Tracking & Delivery', content: "For physical items, sellers must add a tracking number, which is permanently locked once entered and visible only to you and the seller. Check your Collection to follow an order: Pending → Active → Completed." },
     { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight." },
-    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Every achievement you complete trims your commission a little more, permanently (up to 5% off in total), and checkout applies it automatically. Your current rate is in your Analytics Dashboard and in Achievements → 📊 REWARDS. Sellers manage payouts through their secure Stripe Connect portal." },
+    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Every achievement you complete trims your commission a little more, permanently (up to 5% off in total), and checkout applies it automatically. A custom rate set by RaveKandi replaces these rewards. Your current rate is in your Analytics Dashboard and in Achievements → 📊 REWARDS. Sellers manage payouts through their secure Stripe Connect portal." },
     { cat: 'Selling', title: '👑 Becoming a Creator', content: "Apply to become a verified Creator from your profile. Creators get an Official badge, can take DIY commission requests, post official drops, and pin featured items to their profile. Top creators climb the leaderboard." },
     { cat: 'Creating (DIY)', title: '🎨 DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone." },
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
@@ -13252,10 +14734,19 @@ export const ReferralProgramSection = ({ onNavigateToProfile, profile }) => (
                 <table className="w-full text-xs">
                     <thead><tr className="text-left text-lime-400 border-b border-white/20"><th className="pb-1">Tier</th><th className="pb-1">Refs</th><th className="pb-1">RevShare</th></tr></thead>
                     <tbody>
-                        {/* V84.77.150.311: the signed-in raver's current rank is highlighted, ranks below it lightly. */}
-                        {REFERRAL_TIERS.map((t, i) => { const r = i + 1, cur = rkRankOf(profile?.referrals); return (
-                            <tr key={t.badge} className="border-b border-white/5" style={r === cur ? { background: t.hex + '29', boxShadow: 'inset 3px 0 0 ' + t.hex } : cur > r ? { background: t.hex + '12' } : undefined}><td className={`py-1 pl-1 font-bold ${t.color}`}>{t.badge}{r === cur && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">YOU</span>}</td><td className="py-1">{t.max >= 999999 ? t.min.toLocaleString() + '+' : t.min + '-' + t.max}</td><td className="py-1 text-lime-300">{t.sharePct}%</td></tr>
-                        ); })}
+                        {/* V84.77.150.311: the signed-in raver's current rank is highlighted, ranks below it lightly.
+                            V84.78.150.312: it highlighted nothing for a raver with a custom rate and no referrals
+                            (Milli's case). A custom rate now has its own highlighted line, at the end when it is
+                            above the top rank, and the next rank to reach is marked. */}
+                        {(() => { const sd = rkShareStanding(profile || {}); const refs = Number(profile?.referrals) || 0; return rkShareRows(sd).map(row => {
+                            if (row.kind === 'custom') return (
+                                <tr key="rk-custom" className="border-b border-white/5" style={{ background: 'linear-gradient(90deg, rgba(255,110,199,0.24), rgba(103,232,249,0.14))', boxShadow: 'inset 3px 0 0 #ffd1f5' }}><td className="py-1 pl-1"><RkRateBadge standing={sd}/><span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">YOU</span></td><td className="py-1 text-white">Custom</td><td className="py-1 text-lime-300">{rkPctTxt(sd.pct)}</td></tr>
+                            );
+                            const { r, t } = row, isCur = !sd.custom && sd.rank === r, isNext = !sd.custom && r === sd.rank + 1;
+                            return (
+                                <tr key={t.badge} className="border-b border-white/5" style={isCur ? { background: t.hex + '29', boxShadow: 'inset 3px 0 0 ' + t.hex } : sd.earnedRank >= r ? { background: t.hex + '12' } : undefined}><td className={`py-1 pl-1 font-bold ${t.color}`}>{t.badge}{isCur && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-white text-black">YOU</span>}{isNext && profile && <span className="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-full border border-white text-white">NEXT · {(t.min - refs).toLocaleString()} to go</span>}</td><td className="py-1">{t.max >= 999999 ? t.min.toLocaleString() + '+' : t.min + '-' + t.max}</td><td className="py-1 text-lime-300">{t.sharePct}%</td></tr>
+                            );
+                        }); })()}
                     </tbody>
                 </table>
             </div>
@@ -13343,7 +14834,7 @@ const OrdersModal = ({ user, profile, isOpen, onClose }) => {
                 {rows.map(o => { const st = RK_ORDER_STAGES[o.status] || RK_ORDER_STAGES.paid_unfinished; const mine = st.by === (tab === 'buying' ? 'buyer' : 'seller'); return (
                     <div key={o.id} className="bg-black/40 border border-white/15 rounded-lg p-2.5">
                         <div className="flex items-center gap-2">
-                            <img src={o.itemImage || 'https://placehold.co/60?text=•'} className="w-10 h-10 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/60?text=•'; }}/>
+                            <img src={o.itemImage || rkPh(60, 60, null, null, '•')} className="w-10 h-10 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(60, 60, null, null, '•'); }}/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold truncate">{o.itemName} <span className="text-lime-300">${(o.amountUsd || 0).toFixed(2)}</span></p>
                                 <p className="text-[10px] text-white/60">{tab === 'buying' ? 'from @' + o.sellerName : 'to @' + o.buyerName} · {new Date(o.createdAt || 0).toLocaleDateString()}</p>
@@ -13599,7 +15090,7 @@ const VipGiftModal = ({ user, profile, isOpen, onClose }) => {
                             {list.length === 0 && <p className="text-center text-xs text-white/60 py-6">No ravers match — try a different search.</p>}
                             {list.map(u => (
                                 <button key={u.id} onClick={() => { setSel(u); setTarget(''); }} className={'w-full flex items-center gap-2 p-2 rounded text-left border ' + (sel?.id === u.id ? 'border-yellow-400 bg-yellow-500/15' : 'border-white/10 bg-black/40')}>
-                                    <img src={u.photoURL || 'https://placehold.co/40?text=U'} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
+                                    <img src={u.photoURL || rkPh(40, 40, null, null, 'U')} className="w-9 h-9 rounded-full object-cover border border-pink-500/40 shrink-0"/>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-[12px] font-bold text-white truncate">@{u.displayName || 'Raver'}{u.isKandiCreator && <span className="text-yellow-300 ml-1">🔨</span>}</p>
                                         <p className="text-[10px] font-mono text-white/60 truncate">{u.publicUid || u.id}</p>
@@ -13670,7 +15161,7 @@ const PinSelectModal = ({ user, profile, isOpen, onClose }) => {
             <div className="grid grid-cols-6 gap-1.5 mb-3">
                 {Array.from({ length: 6 }).map((_, ix) => {
                     const p = inv.filter(i => i.isPinned)[ix];
-                    if (p) return <div key={'pv' + ix} className="aspect-square rounded border border-pink-500/40 overflow-hidden"><img src={p.mediaUrls?.[0]?.url || p.imageUrl || p.image || 'https://placehold.co/60?text=★'} className="w-full h-full object-cover"/></div>;
+                    if (p) return <div key={'pv' + ix} className="aspect-square rounded border border-pink-500/40 overflow-hidden"><img src={p.mediaUrls?.[0]?.url || p.imageUrl || p.image || rkPh(60, 60, null, null, '★')} className="w-full h-full object-cover"/></div>;
                     return <button key={'pv' + ix} onClick={() => { onClose(); try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'postform' })); } catch (e) {} }} className="aspect-square rounded border border-dashed border-lime-400/50 bg-lime-500/5 hover:bg-lime-500/15 flex flex-col items-center justify-center" title="Post a new item to fill this slot"><span className="text-lime-300 text-sm leading-none">+</span><span className="text-[9px] font-bold text-lime-200 leading-none mt-0.5">POST</span></button>;
                 })}
             </div>
@@ -13679,7 +15170,7 @@ const PinSelectModal = ({ user, profile, isOpen, onClose }) => {
                 {inv.map(i => (
                     <div key={i.id} onClick={() => togglePin(i)} className={`border p-2 rounded cursor-pointer relative ${i.isPinned ? 'border-pink-500 bg-pink-500/20' : 'border-white/20 hover:bg-white/10'}`}>
                         {i.isPinned && <span className="absolute top-1 right-1 bg-pink-600 text-white text-[9px] font-black rounded-full px-1.5 py-0.5">★ PINNED</span>}
-                        <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || 'https://placehold.co/100'} className="w-full h-16 object-cover rounded mb-1"/>
+                        <img src={i.mediaUrls?.[0]?.url || i.imageUrl || i.image || rkPh(100, 100)} className="w-full h-16 object-cover rounded mb-1"/>
                         <p className="text-[10px] truncate">{i.name}</p>
                     </div>
                 ))}
@@ -14388,7 +15879,7 @@ const FeaturedPartners = ({ viewerUid, viewerProfile, onViewProfile }) => {
                         {spots.map(sp => { const parsed = sp.link ? parseVideoLink(sp.link) : null; return (
                             <div key={sp.id} className="w-full shrink-0 snap-center">
                                 <button onClick={() => onViewProfile && onViewProfile(sp.publicUid || sp.id)} className="flex items-center gap-2 mb-2">
-                                    <img src={sp.photo || ('https://placehold.co/64/3a2a0a/fff?text=' + encodeURIComponent((sp.name || 'P').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = 'https://placehold.co/64/3a2a0a/fff?text=' + encodeURIComponent((sp.name || 'P').charAt(0).toUpperCase()); }} className="w-7 h-7 rounded-full object-cover border-2 border-yellow-400/60"/>
+                                    <img src={sp.photo || (rkPh(64, 64, '3a2a0a', 'fff', (sp.name || 'P').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(64, 64, '3a2a0a', 'fff', (sp.name || 'P').charAt(0).toUpperCase()); }} className="w-7 h-7 rounded-full object-cover border-2 border-yellow-400/60"/>
                                     <span className="text-xs font-black text-white">@{sp.name || 'Partner'}</span>
                                     {sp.caption && <span className="text-[10px] text-white/60 truncate">· {sp.caption}</span>}
                                 </button>
@@ -14430,7 +15921,7 @@ const FeedMusicSection = ({ user, viewerUid, onViewProfile }) => {
             {tracks.map(t => (
                 <div key={t.id}>
                     <button onClick={() => onViewProfile && onViewProfile(t.publicUid || t.ownerUid)} className="flex items-center gap-1.5 mb-1 ml-1">
-                        <img src={t.ownerPhoto || ('https://placehold.co/48/2a0a3a/fff?text=' + encodeURIComponent((t.ownerName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = 'https://placehold.co/48/2a0a3a/fff?text=' + encodeURIComponent((t.ownerName || 'A').charAt(0).toUpperCase()); }} className="w-5 h-5 rounded-full object-cover border border-purple-400/50"/>
+                        <img src={t.ownerPhoto || (rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()); }} className="w-5 h-5 rounded-full object-cover border border-purple-400/50"/>
                         <span className="text-[10px] font-bold text-purple-300">@{t.ownerName || 'Artist'}</span>
                     </button>
                     <MusicTrackCard t={t} isOwner={false} viewerUid={viewerUid}/>
@@ -14467,7 +15958,7 @@ const MusicCreatorsBrowser = ({ viewerUid, onViewProfile }) => {
                     <div className="grid grid-cols-3 gap-2">
                         {creators.map(c => (
                             <button key={c.id} onClick={() => setSel(c)} className="flex flex-col items-center gap-1 bg-black/40 border border-purple-500/30 rounded-xl p-2 hover:bg-white/5">
-                                <img src={c.photoURL || ('https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((c.displayName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = 'https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((c.displayName || 'A').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-purple-500/50"/>
+                                <img src={c.photoURL || (rkPh(96, 96, '2a0a3a', 'fff', (c.displayName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(96, 96, '2a0a3a', 'fff', (c.displayName || 'A').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-purple-500/50"/>
                                 <p className="text-[10px] font-bold text-white truncate w-full text-center">@{c.displayName || 'Artist'}</p>
                                 {(c.musicGenres || []).length > 0 && <p className="text-[9px] text-purple-300/80 truncate w-full text-center uppercase tracking-wide">{(c.musicGenres || []).slice(0, 2).join(' · ')}</p>}
                             </button>
@@ -15702,13 +17193,14 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
 
                     <div className="flex flex-col items-center md:flex-row gap-6 relative">
                         <div className="relative shrink-0">
-                            <div className="w-32 h-32 rounded-full border-4 border-pink-500 overflow-hidden bg-gray-800"><img src={targ.photoURL || 'https://placehold.co/100?text=User'} className="w-full h-full object-cover"/></div>
-                            {(targ.referrals > 0) && refStats && (
-                                <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
-                                    <span>{refStats.badge}</span>
-                                    <span className="text-[10px] opacity-80">{rkPctTxt(rkRefSharePct(targ))} RevShare</span>
+                            <div className="w-32 h-32 rounded-full border-4 border-pink-500 overflow-hidden bg-gray-800"><img src={targ.photoURL || rkPh(100, 100, null, null, 'User')} className="w-full h-full object-cover"/></div>
+                            {/* V84.78.150.312: a custom rate shows here too, not only a referral rank. */}
+                            {(() => { const sd = rkShareStanding(targ); if (!sd.custom && !(sd.rank > 0)) return null; return (
+                                <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest shadow-lg flex flex-col items-center leading-tight ${sd.custom ? 'text-white border-pink-200/70' : REFERRAL_TIERS[sd.rank - 1].color + ' border-white/20'}`} style={sd.custom ? { boxShadow: '0 0 12px rgba(255,209,245,0.6)' } : undefined}>
+                                    <span className="flex items-center gap-1"><img src={rkEmblemUri(sd.custom ? 'rate_beyond' : RK_RANK_ACHS[sd.rank - 1].id, { size: 16 })} width={14} height={14} alt=""/>{sd.custom ? sd.name : REFERRAL_TIERS[sd.rank - 1].badge}</span>
+                                    <span className="text-[10px] opacity-80">{rkPctTxt(sd.pct)} RevShare</span>
                                 </div>
-                            )}
+                            ); })()}
                             {isEffVIP(targ) && (
                                 <div className="absolute -top-2 -left-2 bg-yellow-500/20 text-yellow-400 p-1.5 rounded-full border border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]"><Crown size={14}/></div>
                             )}
@@ -15920,7 +17412,7 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, cfg, onViewProfile, onOpen
     );
 };
 
-const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessageUser }) => {
+const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessageUser, initialTab }) => {
     const [tab, setTab] = useState('friends');
     const [friends, setFriends] = useState([]);
     const [tribes, setTribes] = useState([]);
@@ -15943,6 +17435,14 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [memberSearch, setMemberSearch] = useState('');            // search within tribe members
     const [tribeAddSearch, setTribeAddSearch] = useState('');        // add-by-search in tribe view
     const [tribeAddResults, setTribeAddResults] = useState([]);
+    // V84.78.150.312: open and closed tribes, and the Find Tribes page.
+    const [tribeMode, setTribeMode] = useState('mine');              // 'mine' | 'find'
+    const [newTribeStatus, setNewTribeStatus] = useState('closed');  // status picked when creating
+    const [openTribes, setOpenTribes] = useState([]);                // Find Tribes results
+    const [tribeQuery, setTribeQuery] = useState('');
+    const [findLoading, setFindLoading] = useState(false);
+    const [settingsFor, setSettingsFor] = useState(null);            // id of the tribe whose settings are open
+    const settlingRef = useRef({});
     // Search all ravers by name/UID (excludes self + existing friends) for the "Find Ravers" tab.
     const runUserSearch = async (term) => {
         const t = (term || '').trim().toLowerCase();
@@ -15982,6 +17482,33 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         }, e => console.log('tribes', e));
         return () => unsub();
     }, [isOpen, myUid]);
+
+    // V84.78.150.312: a tribe notification opens the Tribes tab (App sends 'vibeTribe:tribes').
+    useEffect(() => {
+        if (isOpen && initialTab && initialTab.tab) { setTab(initialTab.tab); if (initialTab.tab === 'tribes') setTribeMode('mine'); }
+    }, [isOpen, initialTab]);
+    // Find Tribes lists OPEN tribes only, live while the page is showing.
+    useEffect(() => {
+        if (!isOpen || tab !== 'tribes' || tribeMode !== 'find') return;
+        setFindLoading(true);
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('status', '==', 'open'), limit(200)), snap => {
+            const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+            list.sort((a, b) => ((b.members || []).length - (a.members || []).length) || String(a.name || '').localeCompare(String(b.name || '')));
+            setOpenTribes(list); setFindLoading(false);
+        }, e => { setFindLoading(false); rkReport('find tribes', e); });
+        return () => unsub();
+    }, [isOpen, tab, tribeMode]);
+    // Votes that have already passed are settled when they are seen: a tribe of one used to sit
+    // at 1/1 for good. One attempt per tribe at a time; the transaction re-checks.
+    useEffect(() => {
+        if (!isOpen || !myUid) return;
+        tribes.forEach(t => {
+            const st = rkTribeSettle(t);
+            if ((!st.admitted.length && !st.statusChanged) || settlingRef.current[t.id]) return;
+            settlingRef.current[t.id] = true;
+            settleTribe(t.id, myUid).catch(e => rkReport('tribe settle', e)).finally(() => { delete settlingRef.current[t.id]; });
+        });
+    }, [tribes, isOpen, myUid]);
 
     // Load active tribe's messages
     // Secure mode + screenshot detection while a tribe chat is open. On capture: blank + notify the
@@ -16039,12 +17566,42 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
 
     const doCreateTribe = async () => {
         if (!newTribeName.trim()) { alert("Name your tribe first!"); return; }
-        try { await createTribe(myUid, profile?.displayName || 'Raver', newTribeName); setNewTribeName(''); alert('🎉 Vibe Tribe "' + newTribeName.trim() + '" created! Add friends from the Friends tab.'); }
+        const nm = newTribeName.trim(), st = newTribeStatus;
+        try {
+            await createTribe(myUid, profile?.displayName || 'Raver', nm, st);
+            setNewTribeName(''); setNewTribeStatus('closed');
+            alert('🎉 Vibe Tribe "' + nm + '" created' + (st === 'open' ? ' as Open: it shows in Find Tribes.' : ' as Closed.') + ' Add friends from the Friends tab.');
+        }
         catch (e) { alert("Couldn't create tribe: " + e.message); }
     };
     const proposeFriend = async (tribe, friendId, friendName) => {
-        try { const needed = await proposeToTribe(tribe.id, friendId, friendName, myUid); alert('Proposed @' + friendName + ' to "' + tribe.name + '". Needs ' + needed + ' member vote(s) to join.'); }
+        try {
+            const r = await proposeToTribe(tribe.id, friendId, friendName, myUid);
+            alert(r.result === 'approved' ? '🎉 @' + friendName + ' joined "' + tribe.name + '".' : 'Proposed @' + friendName + ' to "' + tribe.name + '". ' + r.votes + ' of ' + r.needed + ' member votes so far.');
+        }
         catch (e) { alert(e.message); }
+    };
+    // V84.78.150.312: status changes, join requests.
+    const doProposeStatus = async (t, to) => {
+        if (rkTribeStatus(t) === to) return;
+        const n = (t.members || []).length, need = rkTribeNeeded(n);
+        const what = to === 'open' ? 'OPEN (listed in Find Tribes, where anyone can ask to join)' : 'CLOSED (hidden from Find Tribes)';
+        if (!window.confirm(n > 1 ? 'Propose making "' + t.name + '" ' + what + '? ' + need + ' of ' + n + ' members must vote yes. Yours counts as the first.' : 'Make "' + t.name + '" ' + what + '?')) return;
+        try {
+            const r = await proposeTribeStatus(t.id, to, myUid, profile?.displayName || 'Raver');
+            if (r.result === 'changed') alert(to === 'open' ? '🔓 "' + t.name + '" is now Open. It shows in Find Tribes.' : '🔒 "' + t.name + '" is now Closed. It no longer shows in Find Tribes.');
+            else if (r.result === 'proposed') alert('🗳️ Vote started: ' + r.votes + ' of ' + r.need + ' votes so far. The other members have been notified.');
+        } catch (e) { alert(e.message); }
+    };
+    const doAskToJoin = async (t) => {
+        if (!myUid) { alert('Sign in to join a tribe.'); return; }
+        const n = (t.members || []).length;
+        try { await requestToJoinTribe(t, myUid, profile?.displayName || 'Raver'); alert('🙋 Request sent to "' + t.name + '". The members vote you in: ' + rkTribeNeeded(n) + ' of ' + n + ' must say yes.'); }
+        catch (e) { alert("Couldn't send the request: " + e.message); }
+    };
+    const doWithdrawRequest = async (t) => {
+        if (!window.confirm('Withdraw your request to join "' + t.name + '"?')) return;
+        try { await withdrawTribeRequest(t.id, myUid); } catch (e) { alert(e.message); }
     };
     const sendTMsg = async () => {
         if (!tribeInput.trim() || !activeTribe) return;
@@ -16064,16 +17621,16 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
             {!activeTribe ? (
                 <div>
                     <div className="flex gap-2 mb-3">
-                        <button onClick={() => setTab('friends')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='friends' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white/60'}`}>👥 Friends ({(profile?.friends||[]).length})</button>
-                        <button onClick={() => setTab('tribes')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='tribes' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/60'}`}>🌈 Tribes ({tribes.length})</button>
+                        <button onClick={() => setTab('friends')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='friends' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white'}`}>👥 Friends ({(profile?.friends||[]).length})</button>
+                        <button onClick={() => setTab('tribes')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='tribes' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white'}`}>🌈 Tribes ({tribes.length})</button>
                     </div>
 
                     {tab === 'friends' && (
                         <div>
                             {/* Mode toggle: my friends vs find new ravers */}
                             <div className="flex gap-1 mb-3 bg-black/40 rounded-lg p-1">
-                                <button onClick={() => setFriendMode('mine')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='mine' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>👥 My Friends</button>
-                                <button onClick={() => setFriendMode('find')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='find' ? 'bg-cyan-600 text-white' : 'text-white/50'}`}>🔍 Find Ravers</button>
+                                <button onClick={() => setFriendMode('mine')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='mine' ? 'bg-pink-600 text-white' : 'text-white'}`}>👥 My Friends</button>
+                                <button onClick={() => setFriendMode('find')} className={`flex-1 text-[11px] font-bold py-1.5 rounded-md transition ${friendMode==='find' ? 'bg-cyan-600 text-white' : 'text-white'}`}>🔍 Find Ravers</button>
                             </div>
 
                             {friendMode === 'mine' ? (
@@ -16093,7 +17650,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                             if (shown.length === 0) return <p className="text-center opacity-50 text-sm py-6">No friends match "{friendSearch}".</p>;
                                             return shown.map(f => (
                                                 <div key={f.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
-                                                    <img src={f.photoURL || ('https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((f.displayName || 'R').charAt(0).toUpperCase()))} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((f.displayName||'R').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onViewProfile(f.publicUid || f.id); }}/>
+                                                    <img src={f.photoURL || (rkPh(96, 96, '2a0a3a', 'fff', (f.displayName || 'R').charAt(0).toUpperCase()))} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(96, 96, '2a0a3a', 'fff', (f.displayName||'R').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-pink-500/40 cursor-pointer" onClick={() => { onViewProfile(f.publicUid || f.id); }}/>
                                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onClose(); onViewProfile(f.publicUid || f.id); }}>
                                                         <p className="text-sm font-bold truncate flex items-center gap-1">@{f.displayName || 'Raver'}{f.featuredBadge && <BadgeChip badge={f.featuredBadge} />}</p>
                                                         <p className="text-[10px] opacity-50">{f.itemsSold || 0} sold · {(f.friends||[]).length} friends</p>
@@ -16117,7 +17674,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         : userResults.length === 0 ? <p className="text-center opacity-50 text-sm py-6">No ravers found matching "{friendSearch}".</p>
                                         : userResults.map(u => (
                                             <div key={u.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition">
-                                                <img src={u.photoURL || ('https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((u.displayName || 'R').charAt(0).toUpperCase()))} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/96/2a0a3a/fff?text=' + encodeURIComponent((u.displayName||'R').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/40 cursor-pointer" onClick={() => { onViewProfile(u.publicUid || u.id); }}/>
+                                                <img src={u.photoURL || (rkPh(96, 96, '2a0a3a', 'fff', (u.displayName || 'R').charAt(0).toUpperCase()))} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(96, 96, '2a0a3a', 'fff', (u.displayName||'R').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-cyan-500/40 cursor-pointer" onClick={() => { onViewProfile(u.publicUid || u.id); }}/>
                                                 <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { onViewProfile(u.publicUid || u.id); }}>
                                                     <p className="text-sm font-bold truncate flex items-center gap-1">@{u.displayName || 'Raver'}{u.featuredBadge && <BadgeChip badge={u.featuredBadge} />}</p>
                                                     <p className="text-[10px] opacity-50">{u.itemsSold || 0} sold · {(u.friends||[]).length} friends</p>
@@ -16132,52 +17689,146 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     )}
 
                     {tab === 'tribes' && (
+                        <div>
+                            {/* V84.78.150.312: My Tribes | Find Tribes, the same switch as My Friends | Find Ravers. */}
+                            <div className="flex gap-1 mb-3 bg-black/40 rounded-lg p-1">
+                                <button onClick={() => setTribeMode('mine')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='mine' ? 'bg-purple-600 text-white' : 'text-white'}`}>🌈 My Tribes</button>
+                                <button onClick={() => setTribeMode('find')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='find' ? 'bg-cyan-600 text-white' : 'text-white'}`}>🔍 Find Tribes</button>
+                            </div>
+                            {tribeMode === 'find' ? (
+                                <div className="space-y-2">
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white"/>
+                                        <input value={tribeQuery} onChange={e => setTribeQuery(e.target.value)} placeholder="Search open tribes by name..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm text-white focus:border-cyan-500/60 outline-none"/>
+                                    </div>
+                                    <p className="text-xs text-white">Only <strong>open</strong> tribes are listed here. Ask to join, and the members vote you in (2/3 of them must say yes).</p>
+                                    <div className="space-y-2 max-h-[46vh] overflow-y-auto pr-1">
+                                        {findLoading ? <p className="text-center text-white text-sm py-6">Loading open tribes…</p> : (() => {
+                                            const q = tribeQuery.trim().toLowerCase();
+                                            const shown = openTribes.filter(t => !q || String(t.name || '').toLowerCase().includes(q));
+                                            if (openTribes.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes yet. Members can open a tribe in its ⚙️ Tribe settings.</p>;
+                                            if (shown.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes match "{tribeQuery}".</p>;
+                                            return shown.map(t => {
+                                                const mem = t.members || [];
+                                                const n = mem.length || t.memberCount || 0;
+                                                const need = rkTribeNeeded(n);
+                                                const pv = (t.pendingVotes || {})[myUid];
+                                                const pvVotes = pv ? Array.from(new Set(pv.votes || [])).filter(v => mem.includes(v)).length : 0;
+                                                const founder = (t.memberNames || {})[t.creatorUid];
+                                                return (
+                                                    <div key={t.id} className="flex items-center justify-between gap-2 bg-white/5 border border-cyan-500/30 rounded-lg p-3">
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-black text-white truncate">🌈 {t.name}</p>
+                                                            <p className="text-xs text-white">{n} member{n === 1 ? '' : 's'}{founder ? ' · founded by @' + founder : ''}</p>
+                                                        </div>
+                                                        {mem.includes(myUid) ? <span className="text-xs font-bold text-lime-300 shrink-0">✓ You're in</span>
+                                                        : pv ? <span className="text-xs font-bold text-yellow-200 shrink-0 text-right">🗳️ Voting on you<br/>{pvVotes}/{need} votes</span>
+                                                        : (t.joinRequests || {})[myUid] ? <button onClick={() => doWithdrawRequest(t)} className="text-xs font-bold text-white bg-black/40 border border-white/40 rounded-full px-3 py-1 shrink-0">✓ Requested · Withdraw</button>
+                                                        : <button onClick={() => doAskToJoin(t)} className="text-xs font-bold bg-cyan-600 text-white rounded-full px-3 py-1 shrink-0">🙋 Ask to join</button>}
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
+                                </div>
+                            ) : (
                         <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
                             <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
-                                <p className="text-[10px] font-bold text-purple-300 mb-1">Start a new Vibe Tribe</p>
-                                <p className="text-[10px] opacity-60 mb-2">A tribe is a named group of friends with a shared group chat. New members need a 2/3 vote of current members to join.</p>
+                                <p className="text-xs font-bold text-purple-200 mb-1">Start a new Vibe Tribe</p>
+                                <p className="text-xs text-white mb-2">A tribe is a named group with a shared group chat. New members need a 2/3 vote of current members to join.</p>
                                 <div className="flex gap-2">
                                     <Input value={newTribeName} onChange={setNewTribeName} placeholder="Tribe name (e.g. Bass Heads)" className="mb-0 flex-1"/>
-                                    <Button onClick={doCreateTribe} color="lime" className="text-[10px]">Create</Button>
+                                    <Button onClick={doCreateTribe} color="lime" className="text-xs">Create</Button>
                                 </div>
+                                <div className="flex gap-2 mt-2">
+                                    {['closed', 'open'].map(opt => (
+                                        <button key={opt} onClick={() => setNewTribeStatus(opt)} className={'flex-1 text-xs font-bold rounded-lg py-1.5 border ' + (newTribeStatus === opt ? (opt === 'open' ? 'bg-lime-600/40 border-lime-300 text-white' : 'bg-purple-600/50 border-purple-300 text-white') : 'bg-black/40 border-white/30 text-white')}>{opt === 'open' ? '🔓 Open' : '🔒 Closed'}{newTribeStatus === opt ? ' ✓' : ''}</button>
+                                    ))}
+                                </div>
+                                <p className="text-xs text-white mt-1.5">{newTribeStatus === 'open' ? 'Open: listed in 🔍 Find Tribes, where any raver can ask to join.' : 'Closed: not listed in Find Tribes. Members invite people in.'} After the tribe is made, changing this takes a 2/3 vote in its ⚙️ Tribe settings.</p>
                             </div>
-                            {tribes.length === 0 ? <p className="text-center opacity-50 text-xs py-4">You're not in any tribes yet. Create one above!</p> : tribes.map(t => {
-                                const myFriendsNotIn = (friends || []).filter(f => !(t.members||[]).includes(f.id));
-                                const pendingList = Object.entries(t.pendingVotes || {});
+                            {tribes.length === 0 ? <p className="text-center text-white text-xs py-4">You're not in any tribes yet. Create one above, or ask to join an open one in 🔍 Find Tribes.</p> : tribes.map(t => {
+                                const members = t.members || [];
+                                const need = rkTribeNeeded(members.length);
+                                const st = rkTribeStatus(t);
+                                const myFriendsNotIn = (friends || []).filter(f => !members.includes(f.id));
+                                const pendingList = Object.entries(t.pendingVotes || {}).filter(([cid]) => !members.includes(cid));
+                                const requestList = Object.entries(t.joinRequests || {}).filter(([cid]) => !members.includes(cid) && !(t.pendingVotes || {})[cid]);
+                                const sv = t.statusVote && RK_TRIBE_STATUS.includes(t.statusVote.to) && t.statusVote.to !== st ? t.statusVote : null;
+                                const svVotes = sv ? Array.from(new Set(sv.votes || [])).filter(v => members.includes(v)) : [];
+                                const showSettings = settingsFor === t.id;
                                 return (
                                     <div key={t.id} className="bg-white/5 border border-purple-500/30 rounded-lg p-3">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div><p className="text-sm font-black text-purple-200">🌈 {t.name}</p><p className="text-[10px] opacity-50">{t.memberCount || (t.members||[]).length} members</p></div>
-                                            <button onClick={() => setActiveTribe(t)} className="text-[10px] font-bold bg-purple-600 text-white rounded-full px-3 py-1 flex items-center gap-1"><MessageSquare size={11}/> Group Chat</button>
+                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-black text-purple-200 flex items-center gap-1.5 flex-wrap">🌈 {t.name} <span className={'text-[11px] font-black rounded-full px-2 py-0.5 border ' + (st === 'open' ? 'bg-lime-500/20 border-lime-400/60 text-lime-200' : 'bg-white/10 border-white/30 text-white')}>{st === 'open' ? '🔓 OPEN' : '🔒 CLOSED'}</span></p>
+                                                <p className="text-xs text-white">{members.length} member{members.length === 1 ? '' : 's'}</p>
+                                            </div>
+                                            <button onClick={() => setActiveTribe(t)} className="text-xs font-bold bg-purple-600 text-white rounded-full px-3 py-1 flex items-center gap-1 shrink-0"><MessageSquare size={12}/> Group Chat</button>
                                         </div>
-                                        {pendingList.length > 0 && (
+                                        {sv && (
+                                            <div className="bg-cyan-900/30 border border-cyan-400/50 rounded p-2 mb-2">
+                                                <p className="text-xs font-bold text-cyan-100">🗳️ Vote: make this tribe {sv.to === 'open' ? '🔓 OPEN (listed in Find Tribes)' : '🔒 CLOSED (hidden from Find Tribes)'}</p>
+                                                <p className="text-xs text-white mt-0.5">Proposed by @{sv.byName || 'a member'} · {svVotes.length}/{need} votes</p>
+                                                <div className="flex items-center gap-3 mt-1.5">
+                                                    {!svVotes.includes(myUid) ? <button onClick={async () => { try { const r = await voteTribeStatus(t.id, myUid); alert(r === 'changed' ? (sv.to === 'open' ? '✅ Passed: the tribe is now Open.' : '✅ Passed: the tribe is now Closed.') : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 text-xs font-bold">Vote Yes</button> : <span className="text-xs font-bold text-lime-300">✓ voted</span>}
+                                                    {sv.by === myUid && <button onClick={async () => { if (!window.confirm('Withdraw your proposal?')) return; try { await withdrawTribeStatus(t.id, myUid); } catch (e) { alert(e.message); } }} className="text-xs font-bold text-white underline">Withdraw</button>}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {(pendingList.length > 0 || requestList.length > 0) && (
                                             <div className="bg-yellow-900/20 border border-yellow-500/30 rounded p-2 mb-2">
-                                                <p className="text-[10px] font-bold text-yellow-300 mb-1">🗳️ Pending votes:</p>
+                                                <p className="text-xs font-bold text-yellow-200 mb-1">🗳️ Pending votes:</p>
                                                 {pendingList.map(([cid, info]) => {
-                                                    const iVoted = (info.votes||[]).includes(myUid);
+                                                    const votes = Array.from(new Set(info.votes || [])).filter(v => members.includes(v));
                                                     return (
-                                                        <div key={cid} className="flex items-center justify-between text-[10px] mb-1">
-                                                            <span>@{info.name} — {info.votes.length}/{info.needed} votes</span>
-                                                            {!iVoted ? <button onClick={async () => { try { const r = await voteForTribeMember(t.id, cid, myUid); alert(r === 'approved' ? '✅ Approved — they joined!' : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5 font-bold">Vote Yes</button> : <span className="text-lime-400">✓ voted</span>}
+                                                        <div key={cid} className="flex items-center justify-between gap-2 text-xs text-white mb-1">
+                                                            <span>@{info.name} · {votes.length}/{need} votes</span>
+                                                            {!votes.includes(myUid) ? <button onClick={async () => { try { const r = await voteForTribeMember(t.id, cid, myUid); alert(r === 'approved' ? '✅ Approved: they joined!' : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 font-bold shrink-0">Vote Yes</button> : <span className="text-lime-300 font-bold shrink-0">✓ voted</span>}
                                                         </div>
                                                     );
                                                 })}
+                                                {requestList.map(([cid, info]) => (
+                                                    <div key={'jr_' + cid} className="flex items-center justify-between gap-2 text-xs text-white mb-1">
+                                                        <span>🙋 @{(info && info.name) || 'Raver'} asked to join · 0/{need} votes</span>
+                                                        <button onClick={async () => { try { const r = await proposeToTribe(t.id, cid, (info && info.name) || 'Raver', myUid); alert(r.result === 'approved' ? '✅ Approved: they joined!' : '✅ Vote counted: ' + r.votes + ' of ' + r.needed + '.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 font-bold shrink-0">Vote Yes</button>
+                                                    </div>
+                                                ))}
                                             </div>
                                         )}
                                         {myFriendsNotIn.length > 0 && (
                                             <div>
-                                                <p className="text-[10px] opacity-60 mb-1">Invite a friend (starts a vote):</p>
+                                                <p className="text-xs text-white mb-1">Invite a friend (starts a vote):</p>
                                                 <div className="flex flex-wrap gap-1">
                                                     {myFriendsNotIn.slice(0, 8).map(f => (
-                                                        <button key={f.id} onClick={() => proposeFriend(t, f.id, f.displayName)} className="text-[10px] bg-pink-600/30 text-pink-200 border border-pink-400/40 rounded-full px-2 py-0.5">+ @{f.displayName}</button>
+                                                        <button key={f.id} onClick={() => proposeFriend(t, f.id, f.displayName)} className="text-xs bg-pink-600/30 text-pink-100 border border-pink-400/40 rounded-full px-2 py-0.5">+ @{f.displayName}</button>
                                                     ))}
                                                 </div>
                                             </div>
                                         )}
-                                        <button onClick={async () => { if (window.confirm('Leave "' + t.name + '"?')) { try { await leaveTribe(t.id, myUid); } catch (e) {} } }} className="text-[10px] text-red-400 mt-2 underline">Leave tribe</button>
+                                        <div className="flex items-center justify-between mt-2">
+                                            <button onClick={() => setSettingsFor(showSettings ? null : t.id)} className="text-xs font-bold text-cyan-200 underline">⚙️ Tribe settings</button>
+                                            <button onClick={async () => { if (window.confirm('Leave "' + t.name + '"?')) { try { await leaveTribe(t.id, myUid); } catch (e) { alert("Couldn't leave: " + e.message); } } }} className="text-xs font-bold text-red-300 underline">Leave tribe</button>
+                                        </div>
+                                        {showSettings && (
+                                            <div className="mt-2 bg-black/40 border border-cyan-500/40 rounded-lg p-3 space-y-2">
+                                                <p className="text-xs font-black text-cyan-200">⚙️ TRIBE SETTINGS · Status</p>
+                                                {sv ? <p className="text-xs text-white">A vote to make it {sv.to === 'open' ? 'Open' : 'Closed'} is running above.</p> : (
+                                                    <div className="flex gap-2">
+                                                        {['closed', 'open'].map(opt => (
+                                                            <button key={opt} onClick={() => doProposeStatus(t, opt)} className={'flex-1 text-xs font-bold rounded-lg py-2 border ' + (st === opt ? (opt === 'open' ? 'bg-lime-600/40 border-lime-300 text-white' : 'bg-purple-600/50 border-purple-300 text-white') : 'bg-black/40 border-white/30 text-white')}>{opt === 'open' ? '🔓 Open' : '🔒 Closed'}{st === opt ? ' ✓' : ''}</button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <p className="text-xs text-white">{st === 'open' ? 'Open: listed in Find Tribes. Any raver can ask to join, and the members vote them in.' : 'Closed: not listed in Find Tribes. Members invite people in.'}</p>
+                                                <p className="text-xs text-white">{members.length > 1 ? 'Changing it takes a 2/3 vote: ' + need + ' of ' + members.length + ' members.' : 'You are the only member, so your choice applies at once.'}</p>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
+                        </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -16198,7 +17849,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                             const ts = getUserTextStyle(m.style);
                             return (
                                 <div key={m.id} className={`flex items-start gap-2 max-w-[88%] ${mine ? 'self-end flex-row-reverse' : 'self-start'}`}>
-                                    <img src={m.photoURL || ('https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((m.senderName || 'R').charAt(0).toUpperCase()))} onClick={() => { onViewProfile(m.publicUid || m.sender); }} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src='https://placehold.co/64/2a0a3a/fff?text=' + encodeURIComponent((m.senderName||'R').charAt(0).toUpperCase()); }} className="w-7 h-7 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
+                                    <img src={m.photoURL || (rkPh(64, 64, '2a0a3a', 'fff', (m.senderName || 'R').charAt(0).toUpperCase()))} onClick={() => { onViewProfile(m.publicUid || m.sender); }} onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(64, 64, '2a0a3a', 'fff', (m.senderName||'R').charAt(0).toUpperCase()); }} className="w-7 h-7 rounded-full object-cover border border-pink-500/40 cursor-pointer shrink-0 mt-0.5"/>
                                     <div className={mine ? 'items-end flex flex-col' : ''}>
                                         <div className="flex items-center gap-1 mb-0.5">
                                             <button onClick={() => { onViewProfile(m.publicUid || m.sender); }} className={`text-[10px] font-bold hover:underline ${m.ns ? '' : (mine ? 'text-lime-300' : 'text-pink-300')}`}><RkName name={m.senderName} style={m.ns}/></button>{m.badge && <BadgeChip badge={m.badge} />}
@@ -16233,9 +17884,9 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     if (shown.length === 0) return <p className="text-center opacity-50 text-xs py-4">No members match "{memberSearch}".</p>;
                                     return shown.map(p => (
                                         <div key={p.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 hover:bg-white/10 transition">
-                                            <img src={p.photoURL || 'https://placehold.co/48?text=U'} onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }} className="w-10 h-10 rounded-full object-cover border-2 border-purple-500/40 cursor-pointer"/>
+                                            <img src={p.photoURL || rkPh(48, 48, null, null, 'U')} onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }} className="w-10 h-10 rounded-full object-cover border-2 border-purple-500/40 cursor-pointer"/>
                                             <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }}>
-                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{p.displayName || 'Raver'}{p.id === activeTribe.creatorId && <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-1 rounded">FOUNDER</span>}{p.featuredBadge && <BadgeChip badge={p.featuredBadge} />}</p>
+                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{p.displayName || 'Raver'}{p.id === activeTribe.creatorUid && <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-1 rounded">FOUNDER</span>}{p.featuredBadge && <BadgeChip badge={p.featuredBadge} />}</p>
                                                 <p className="text-[10px] opacity-50">{p.itemsSold || 0} sold · {(p.friends||[]).length} friends</p>
                                             </div>
                                             {p.id !== myUid && <button onClick={() => { if (onMessageUser) { setShowMembers(false); onClose(); onMessageUser(p.id, p.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={16}/></button>}
@@ -16254,9 +17905,9 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     : tribeAddResults.length === 0 ? <p className="text-center opacity-50 text-[11px] py-3">No ravers found.</p>
                                     : tribeAddResults.map(u => (
                                         <div key={u.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
-                                            <img src={u.photoURL || 'https://placehold.co/48?text=U'} className="w-8 h-8 rounded-full object-cover border border-cyan-500/40"/>
+                                            <img src={u.photoURL || rkPh(48, 48, null, null, 'U')} className="w-8 h-8 rounded-full object-cover border border-cyan-500/40"/>
                                             <div className="flex-1 min-w-0"><p className="text-xs font-bold truncate">@{u.displayName || 'Raver'}</p></div>
-                                            <button onClick={async () => { try { const needed = await proposeToTribe(activeTribe.id, u.id, u.displayName || 'Raver', myUid); alert('Proposed @' + (u.displayName||'raver') + '. Needs ' + needed + ' vote(s) to join.'); setTribeAddSearch(''); setTribeAddResults([]); } catch (e) { alert(e.message); } }} className="text-[10px] font-bold bg-cyan-600 text-white rounded-full px-3 py-1">Propose</button>
+                                            <button onClick={async () => { try { const r = await proposeToTribe(activeTribe.id, u.id, u.displayName || 'Raver', myUid); alert(r.result === 'approved' ? '🎉 @' + (u.displayName||'raver') + ' joined.' : 'Proposed @' + (u.displayName||'raver') + '. ' + r.votes + ' of ' + r.needed + ' votes so far.'); setTribeAddSearch(''); setTribeAddResults([]); } catch (e) { alert(e.message); } }} className="text-[10px] font-bold bg-cyan-600 text-white rounded-full px-3 py-1">Propose</button>
                                         </div>
                                     ))}
                                 </div>
@@ -16317,6 +17968,8 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
 const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessageUser, onReplayTutorial, onReplayCreatorTour, openCreatorHub, onConsumeCreatorHub }) => {
     const [profile, setProfile] = useState({});
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
+    // V84.78.150.312: the Vibe Tribe tab to open on. A tribe notification asks for Tribes.
+    const [vibeTab, setVibeTab] = useState(null);
     const [showCreatorHub, setShowCreatorHub] = useState(false);
     const [pinOpen, setPinOpen] = useState(false);
     const [showMyProjects, setShowMyProjects] = useState(false);
@@ -16349,6 +18002,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
             const k = ev?.detail;
             if (!k) return;
             if (k === 'admin') { if (profile?.isAdmin) setShowAdminPortal(true); return; }
+            if (k === 'vibeTribe:tribes') { setVibeTab({ tab: 'tribes', n: Date.now() }); setModals(m => ({ ...m, vibeTribe: true })); return; }
             if (['vibeTribe', 'inventory', 'analytics', 'settings', 'referrals', 'socials', 'vip'].includes(k)) setModals(m => ({ ...m, [k]: true }));
         };
         window.addEventListener('rk:open', h);
@@ -16419,7 +18073,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
-                <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} onClose={() => setModals({...modals, vibeTribe: false})} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
+                <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} initialTab={vibeTab} onClose={() => { setVibeTab(null); setModals({...modals, vibeTribe: false}); }} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
                 <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" zClass="z-[200]" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <FontSelectorModal user={user} profile={profile} isOpen={nameFontOpen} onClose={() => setNameFontOpen(false)} field={RK_NAME_STYLE_FIELD} titleLabel="Your Name Style" />
@@ -16436,13 +18090,14 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 
                 <div className="flex flex-col items-center md:flex-row gap-6 relative">
                     <div className="relative">
-                        <div className="w-32 h-32 rounded-full border-4 border-pink-500 overflow-hidden bg-gray-800 group"><input type="file" onChange={uploadPic} className="absolute inset-0 opacity-0 z-10"/><img src={profile.photoURL || 'https://placehold.co/100?text=User'} className="w-full h-full object-cover"/></div>
-                        {(profile.referrals > 0) && (
-                            <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border border-white/20 text-[10px] font-black uppercase tracking-widest ${refStats.color} shadow-lg flex flex-col items-center leading-tight`}>
-                                <span>{refStats.badge}</span>
-                                <span className="text-[10px] opacity-80">{rkPctTxt(rkRefSharePct(profile))} RevShare</span>
+                        <div className="w-32 h-32 rounded-full border-4 border-pink-500 overflow-hidden bg-gray-800 group"><input type="file" onChange={uploadPic} className="absolute inset-0 opacity-0 z-10"/><img src={profile.photoURL || rkPh(100, 100, null, null, 'User')} className="w-full h-full object-cover"/></div>
+                        {/* V84.78.150.312: a custom rate shows here too, not only a referral rank. */}
+                        {(() => { const sd = rkShareStanding(profile); if (!sd.custom && !(sd.rank > 0)) return null; return (
+                            <div className={`absolute -bottom-2 -right-2 bg-black/90 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest shadow-lg flex flex-col items-center leading-tight ${sd.custom ? 'text-white border-pink-200/70' : refStats.color + ' border-white/20'}`} style={sd.custom ? { boxShadow: '0 0 12px rgba(255,209,245,0.6)' } : undefined}>
+                                <span className="flex items-center gap-1"><img src={rkEmblemUri(sd.custom ? 'rate_beyond' : RK_RANK_ACHS[sd.rank - 1].id, { size: 16 })} width={14} height={14} alt=""/>{sd.custom ? sd.name : refStats.badge}</span>
+                                <span className="text-[10px] opacity-80">{rkPctTxt(sd.pct)} RevShare</span>
                             </div>
-                        )}
+                        ); })()}
                         {isEffVIP(profile) && (
                             <div className="absolute -top-2 -left-2 bg-yellow-500/20 text-yellow-400 p-1.5 rounded-full border border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]">
                                 <Crown size={14}/>
@@ -16481,7 +18136,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                                         return (
                                             <div key={`pin-${item.id}`} onClick={() => setSelectedPinned(item)} className="bg-white/5 border border-pink-500/30 rounded-lg p-1 cursor-pointer hover:bg-white/10 transition-colors relative group aspect-square flex flex-col">
                                                 <button onClick={(e) => { e.stopPropagation(); unpinItem(item.id); }} className="absolute top-1 right-1 bg-black/80 text-red-400 p-0.5 rounded-full opacity-80 hover:opacity-100 z-10"><XCircle size={14}/></button>
-                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || 'https://placehold.co/100?text=Pin'} className="w-full flex-1 object-cover rounded mb-1 border border-pink-500/20" />
+                                                <img src={item.mediaUrls?.[0]?.url || item.imageUrl || item.image || rkPh(100, 100, null, null, 'Pin')} className="w-full flex-1 object-cover rounded mb-1 border border-pink-500/20" />
                                                 <p className="text-[11px] font-bold truncate text-white text-center">★ {item.name}</p>
                                             </div>
                                         );
@@ -17427,9 +19082,11 @@ const App = () => {
         return () => unsub();
     }, []);
     // V53.2: biggest Vibe Tribe gets a banner shout-out.
+    // V84.78.150.312: open tribes only. A closed tribe is kept out of Find Tribes, so naming it on
+    // the home page would undo that. It also stops this listener reading every tribe there is.
     const [topTribe, setTopTribe] = useState(null);
     useEffect(() => {
-        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes')), s => {
+        const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('status', '==', 'open')), s => {
             let best = null;
             s.docs.forEach(d => { const t = d.data(); const c = t.memberCount || (t.members || []).length; if (!best || c > best.count) best = { name: t.name, count: c }; });
             setTopTribe(best && best.count >= 2 ? best : null);
@@ -17936,7 +19593,7 @@ const App = () => {
         if (rank > prevRank) upd.rankNotified = rank;
         if (Object.keys(upd).length === 0) return;
         const p2 = { ...profile, ...upd };
-        const aw = rkAchRewards(p2);
+        const aw = rkAchApplied(p2);
         const msgs = [];
         if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
         if (rank > prevRank) { const t = REFERRAL_TIERS[rank - 1]; msgs.push('🏆 ' + (profile.rankNotified === undefined ? 'Your RevShare rank: ' : 'New RevShare rank: ') + t.badge + ' (rank ' + RK_RANK_ROMAN[rank - 1] + '). You earn ' + rkPctTxt(rkRefSharePct(p2)) + ' of the commission on everything your referrals buy, and the ' + t.badge + ' badge is yours: feature it from My Badges.'); }
@@ -18607,7 +20264,7 @@ cat << 'EOF' >> src/App.js
                 if (t === 'message') { if (n.refId) setMsgTarget({ threadId: n.refId }); setMsgOpen(true); return; }
                 if (t === 'trade') { if (n.refId) setMsgTarget({ uid: n.refId }); setMsgOpen(true); return; }
                 if (t === 'friendreq') { if (n.refId) { setMsgOpen(false); setViewingProfileId(n.refId); return; } setMsgOpen(false); setPage('profile'); return; }
-                if (t === 'tribe') { setMsgOpen(false); setPage('profile'); try { setTimeout(() => window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe' })), 250); } catch (e) {} return; }
+                if (t === 'tribe') { setMsgOpen(false); setPage('profile'); try { setTimeout(() => window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe:tribes' })), 250); } catch (e) {} return; }
                 if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
                 // V73.15: an offer notification opens the CHAT it lives in — the negotiation is
                 // carried as messages, so the thread is the destination, not a page.
@@ -18957,7 +20614,7 @@ cat << 'EOF' >> src/App.js
                             )}
                             {visibleUsers.map(u => (
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
-                                    <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
+                                    <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
                                         <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                         <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
@@ -18992,7 +20649,7 @@ cat << 'EOF' >> src/App.js
                                 <p className="text-[10px] font-black uppercase tracking-widest text-purple-300">Ravers matching "{filters.searchUid}"</p>
                                 {visibleUsers.slice(0, 10).map(u => (
                                     <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
-                                        <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || 'https://placehold.co/80?text=User'} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
+                                        <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
                                             <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
                                             <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
