@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=84
+RK_MAJOR=86
 RK_MINOR=78
 RK_PATCH=150
-RK_BUILD=312
+RK_BUILD=314
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -194,6 +194,41 @@ cat << 'EOF' > public/index.html
       /* V63: holographic — bright sweeping holo sticker */
       .rkfx-holo { background-image: linear-gradient(115deg,#ff6ec4,#7873f5,#4ade80,#facc15,#ff6ec4); background-size:300% 100%; -webkit-background-clip:text; background-clip:text; color:transparent; animation: rkShimmerMove 3.2s linear infinite; filter:saturate(1.15); }
       .rk-ghost-flash { animation: rkGhostFlash 1.6s ease-in-out infinite; }
+      /* V85.78.150.313: a highlighted item (a vote opened from a notification) glows; its text stays at full brightness. */
+      @keyframes rkFocusGlow { 0%, 100% { box-shadow: 0 0 0 2px rgba(253,224,71,0.55), 0 0 8px rgba(253,224,71,0.30); } 50% { box-shadow: 0 0 0 2px rgba(253,224,71,1), 0 0 22px rgba(253,224,71,0.75); } }
+      .rk-focus-glow { animation: rkFocusGlow 1.2s ease-in-out infinite; }
+      @keyframes rkAlertGlow { 0%, 100% { box-shadow: 0 0 10px rgba(239,68,68,0.35); } 50% { box-shadow: 0 0 24px rgba(239,68,68,0.85), 0 0 4px rgba(254,202,202,0.6) inset; } }
+      .rk-alert-glow { animation: rkAlertGlow 1.6s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .rk-focus-glow { animation: none; box-shadow: 0 0 0 2px rgba(253,224,71,0.95), 0 0 14px rgba(253,224,71,0.5); } .rk-alert-glow { animation: none; box-shadow: 0 0 18px rgba(239,68,68,0.6); } }
+      /* V86.78.150.314: background animations. Slow, small, and only on transform or opacity, so the
+         phone's compositor moves them without repainting. Off when the phone asks for reduced motion. */
+      .rk-bg-center { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+      @keyframes rkBgDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-128px, -128px, 0); } }
+      @keyframes rkBgSheen { 0% { transform: translate3d(-60%, 0, 0); } 55%, 100% { transform: translate3d(60%, 0, 0); } }
+      @keyframes rkBgBreathe { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+      @keyframes rkBgSpin { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+      @keyframes rkBgZoom { from { transform: scale(1) rotate(0deg); } to { transform: scale(1.12) rotate(3deg); } }
+      @keyframes rkBgFloat { from { transform: translate3d(-3%, -2%, 0); } to { transform: translate3d(3%, 2%, 0); } }
+      @keyframes rkBgFloat2 { from { transform: translate3d(3%, 2%, 0) scale(1.04); } to { transform: translate3d(-3%, -2%, 0) scale(1); } }
+      @keyframes rkBgSway { from { transform: rotate(-1.2deg); } to { transform: rotate(1.2deg); } }
+      @keyframes rkBgTwinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.9; } }
+      @keyframes rkBgAurora { from { transform: translate3d(-5%, 0, 0) rotate(-10deg) scaleY(1); } to { transform: translate3d(5%, -3%, 0) rotate(-7deg) scaleY(1.2); } }
+      .rk-bga-drift { animation: rkBgDrift 90s linear infinite; will-change: transform; }
+      .rk-bga-sheen { animation: rkBgSheen 18s ease-in-out infinite; will-change: transform; }
+      .rk-bga-breathe { animation: rkBgBreathe 10s ease-in-out infinite; will-change: opacity; }
+      .rk-bga-spin { animation: rkBgSpin 300s linear infinite; will-change: transform; }
+      .rk-bga-zoom { animation: rkBgZoom 40s ease-in-out infinite alternate; will-change: transform; }
+      .rk-bga-float { animation: rkBgFloat 45s ease-in-out infinite alternate; will-change: transform; }
+      .rk-bga-float2 { animation: rkBgFloat2 60s ease-in-out infinite alternate; will-change: transform; }
+      .rk-bga-sway { animation: rkBgSway 16s ease-in-out infinite alternate; transform-origin: 50% 100%; will-change: transform; }
+      .rk-bga-twinkle { animation: rkBgTwinkle 7s ease-in-out infinite; will-change: opacity; }
+      .rk-bga-twinkle2 { animation: rkBgTwinkle 11s ease-in-out infinite 3s; will-change: opacity; }
+      .rk-bga-aurora { animation: rkBgAurora 24s ease-in-out infinite alternate; will-change: transform; }
+      @media (prefers-reduced-motion: reduce) { [class*="rk-bga-"] { animation: none !important; } }
+      /* V86.78.150.314: TAP TO ENTER pulses its glow; the text stays at full brightness. */
+      @keyframes rkTapGlow { 0%, 100% { text-shadow: 0 0 6px rgba(255,111,216,0.55), 0 0 16px rgba(111,246,255,0.25); } 50% { text-shadow: 0 0 12px rgba(255,111,216,0.95), 0 0 30px rgba(111,246,255,0.6); } }
+      .rk-tap-enter { animation: rkTapGlow 2.4s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .rk-tap-enter { animation: none; text-shadow: 0 0 10px rgba(255,111,216,0.8); } }
       /* V63: visible scrollbar for picker scroll-boxes so users know they can scroll */
       .rk-scroll { scrollbar-width: thin; scrollbar-color: #ec4899 rgba(255,255,255,0.08); }
       .rk-scroll::-webkit-scrollbar { width: 8px; }
@@ -435,7 +470,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, sendEmailVerification, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, orderBy, limit, increment, runTransaction, writeBatch, deleteField } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction, writeBatch, deleteField } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -577,7 +612,7 @@ const adminBanUser = async (uid, name, durationMs, label) => {
     try {
         const until = durationMs === 'permanent' ? 'permanent' : Date.now() + durationMs;
         await setDoc(doc(db, 'artifacts', appId, 'users', uid), { bannedUntil: until }, { merge: true });
-        pushNotif(uid, 'admin', '⛔ Your account has been restricted by the RaveKandi team (' + label + ').');
+        pushNotif(uid, 'admin', '⛔ Your account has been restricted by the RaveKandi team (' + label + ').', '@profile');
         alert((name || 'User') + ' banned ' + label + '.');
     } catch (e) { alert('Ban failed: ' + e.message); }
 };
@@ -1233,7 +1268,7 @@ const ACHIEVEMENT_TIERS = [
     { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, icon: Smartphone, desc: "Add a phone number in Settings → Contact Info. The email you sign in with counts as your email." },
     { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, icon: Bell, desc: "Turn on every notification type for both Phone and Email in Settings → Notifications, then Save Changes." },
 ];
-const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'}];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'}];
 
 // V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
 
@@ -1670,7 +1705,7 @@ export const requestObliterate = async (tid, byUid, otherUid, byName) => {
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
     const deadline = Date.now() + 86400000;
     await setDoc(tRef, { obliterate: { requestedBy: byUid, deadline, accepted: { [byUid]: true } } }, { merge: true });
-    await pushNotif(otherUid, 'message', '💥 @' + (byName || 'A raver') + ' started OBLITERATE — this chat self-destructs in 24h. Open the chat to agree, or it deletes when the timer ends.', null);
+    await pushNotif(otherUid, 'message', '💥 @' + (byName || 'A raver') + ' started OBLITERATE — this chat self-destructs in 24h. Open the chat to agree, or it deletes when the timer ends.', tid);
 };
 export const acceptObliterate = async (tid, myUid) => {
     const tRef = doc(db, 'artifacts', appId, 'public', 'data', 'threads', tid);
@@ -1700,69 +1735,406 @@ export const performObliterate = async (tid) => {
 //  - `status`: 'open' tribes are listed in Find Tribes, where any raver can ask to join; the
 //    members still vote them in. 'closed' tribes are not listed. A tribe with no status is
 //    closed, so every tribe made before 312 stays unlisted until its members vote to open it.
-//    After creation, changing the status takes 2/3 of the members, like admitting someone.
 //  - The 2/3 is taken from the members at the moment of each vote, and only votes from people
 //    still in the tribe count.
-//  - A tribe of one could never grow. 2/3 of 1 member is 1 vote, the founder's proposal was that
-//    vote, and nothing ever counted it, so the proposal sat at 1/1 for good. Every proposal,
-//    vote and leave now settles whatever has passed, and opening Vibe Tribe settles the votes
-//    already stuck that way.
-//  - Votes run in transactions, so two members voting at the same moment no longer erase each
-//    other's vote.
-//  - The last member could not leave unless they had founded the tribe: the rules only let the
-//    founder delete it, and the failure was swallowed. The 312 rules let the last member do it.
-// The votes are counted by the app. The rules still let any member write the tribe document,
-// as before; queued at 312.
+//  - A tribe of one could never grow: the founder's proposal was the one vote needed and
+//    nothing counted it. Every proposal, vote and leave now settles whatever has passed.
+//  - Votes run in transactions, so two members voting at once no longer erase each other.
+//  - The last member could not leave unless they had founded the tribe (rules fixed at 312).
+//
+// V85.78.150.313: A VOTE FOR EVERYTHING, MUTES, AND NOTIFICATIONS THAT LAND (Milli, at 313).
+//  - Any member can call a vote: remove a member, open or close the tribe, purge the chat,
+//    rename it, or make another member the founder. Each passes at 2/3 of the members who may
+//    vote on it; a member up for removal doesn't vote on their own removal.
+//  - One vote per item at a time. The item is the key: 'kick:<uid>', 'status', 'purge',
+//    'rename', 'founder'. Calling one that is running returns 'exists', and the app takes the
+//    raver to it to vote instead. The same goes for proposing someone already up for a vote.
+//  - Votes live in `votes`. 312's `statusVote` is folded in the next time the tribe settles.
+//  - A purge stamps `purgedAt`. Every app hides the older messages at once; the member whose
+//    vote passed it deletes them, which the 313 rules allow for messages from before `purgedAt`.
+//  - Mutes are per tribe and per kind, in `mutes.<uid>`, so whoever sends a notification skips
+//    muted members without reading their profiles. Anything about you personally (you joined,
+//    you were removed, members are voting on your request) always arrives.
+//  - Every tribe notification names its place: '<tribeId>#vote:<key>', '#chat', '#card',
+//    '#find' or '#gone'. Tapping it opens that vote, chat or card directly.
+// V86.78.150.314: MUTE, TIME-OUT, APPEALS, AND A VOTE LOG (Milli, at 314).
+//  - Two more votes about a member, each with a length from 5 minutes to 30 days: 'mute:<uid>' (they
+//    can read and vote, not post) and 'timeout:<uid>' (they can read, nothing else). The rules refuse
+//    a message from a member with either running, so the time is really served.
+//  - Appeals: after each quarter of the time is served (25%, 50%, 75%) the member may send one apology
+//    and appeal. It opens 'repeal:<uid>', a vote for the others; at 2/3 it lifts the restriction. It
+//    stays open until the next quarter begins, then expires and the next window opens.
+//  - Members in a time-out don't vote, so they can't hold a vote back either.
+//  - Every vote is logged in tribes/{id}/voteLog with its percentages over time, never its voters.
+//  - Inviting someone is a vote too ('admit:<uid>'), started from anyone found with the feed's search.
+// The votes are still counted by the app; the rules let any member write the tribe document
+// (queue item 23).
 const RK_TRIBE_STATUS = ['open', 'closed'];
+const RK_TRIBE_VOTE_TYPES = ['kick', 'status', 'purge', 'rename', 'founder', 'mute', 'timeout', 'repeal'];
+const RK_TRIBE_MUTES = [
+    { k: 'msg', label: '💬 New messages' },
+    { k: 'vote', label: '🗳️ Votes and results' },
+    { k: 'join', label: '🙋 Join requests' },
+    { k: 'member', label: '👥 Members joining and leaving' },
+    { k: 'shot', label: '📸 Screenshot alerts' },
+];
+// V86.78.150.314: the lengths the timer offers for a mute or time-out (or any length from 5 minutes
+// to 30 days, typed in).
+const RK_TRIBE_TIMES = [
+    { ms: 15 * 60000, label: '15 min' }, { ms: 3600000, label: '1 hour' }, { ms: 6 * 3600000, label: '6 hours' },
+    { ms: 12 * 3600000, label: '12 hours' }, { ms: 86400000, label: '1 day' }, { ms: 3 * 86400000, label: '3 days' }, { ms: 7 * 86400000, label: '1 week' },
+];
+const RK_TRIBE_MIN_RESTRICT = 5 * 60000, RK_TRIBE_MAX_RESTRICT = 30 * 86400000;
+const rkDurTxt = (ms) => {
+    const m = Math.round((Number(ms) || 0) / 60000);
+    if (m < 60) return m + ' min';
+    const h = Math.round(m / 6) / 10;
+    if (h < 24) return h + (h === 1 ? ' hour' : ' hours');
+    const d = Math.round(h / 2.4) / 10;
+    return d + (d === 1 ? ' day' : ' days');
+};
+const rkTribeWhen = (t) => { try { return new Date(Number(t) || 0).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
 const rkTribeNeeded = (n) => Math.max(1, Math.ceil(((Number(n) || 0) * 2) / 3));
 const rkTribeStatus = (t) => (t && t.status === 'open') ? 'open' : 'closed';
 const rkTribeRef = (tribeId) => doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
-// Settles a tribe's votes against its current members. Pure: returns the new state and what passed.
-const rkTribeSettle = (t0) => {
+const RK_TRIBE_ABOUT = ['kick', 'mute', 'timeout', 'repeal'];   // votes about one member, who doesn't vote on them
+const rkTribeVoteKey = (v) => (v && RK_TRIBE_ABOUT.includes(v.type)) ? v.type + ':' + v.target : ((v && v.type) || '');
+// V86.78.150.314: a member's active mute or time-out, or null.
+const rkTribeRestriction = (t, uid, now) => {
+    const r = t && t.restrictions && t.restrictions[uid];
+    return (r && Number(r.until) > (now || Date.now())) ? r : null;
+};
+// Who may vote: every member, except the member a vote is about and anyone in a time-out.
+const rkTribeVoters = (members, v, rs, now) => {
+    const at = now || Date.now();
+    return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target)
+        && !(rs && rs[m] && rs[m].type === 'timeout' && Number(rs[m].until) > at));
+};
+// Every item vote in a tribe, with 312's statusVote folded in.
+const rkTribeVotesOf = (t) => {
+    const out = { ...((t && t.votes) || {}) };
+    const sv = t && t.statusVote;
+    if (sv && !out.status) out.status = { type: 'status', to: sv.to, yes: sv.votes || [], by: sv.by || '', byName: sv.byName || 'A member', at: sv.at || 0 };
+    return out;
+};
+const rkTribeVoteLabel = (v) => {
+    if (!v) return '';
+    if (v.type === 'kick') return 'Remove @' + (v.targetName || 'a member');
+    if (v.type === 'status') return v.to === 'open' ? 'Open the tribe (listed in Find Tribes)' : 'Close the tribe (hidden from Find Tribes)';
+    if (v.type === 'purge') return 'Purge the group chat';
+    if (v.type === 'rename') return 'Rename the tribe to "' + (v.name || '') + '"';
+    if (v.type === 'founder') return 'Make @' + (v.targetName || 'a member') + ' the founder';
+    if (v.type === 'mute') return 'Mute @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
+    if (v.type === 'timeout') return 'Time-out @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
+    if (v.type === 'repeal') return 'Lift @' + (v.targetName || 'a member') + "'s " + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' (appeal)';
+    return '';
+};
+// Appeals open after each quarter of a mute or time-out is served: at 25%, 50% and 75%, one appeal
+// in each window. `k` is the quarters served; `can` whether an appeal can be made now; `nextAt` when
+// the next one opens (null when none are left).
+const rkTribeAppeal = (r, now) => {
+    const at = now || Date.now(), start = Number(r.start) || 0, until = Number(r.until) || 0;
+    const q = Math.max(1, (until - start) / 4);
+    const k = Math.max(0, Math.min(3, Math.floor((at - start) / q)));
+    const list = r.appeals || [];
+    const used = list.map(a => a.w), open = list.some(a => a.outcome === 'open');
+    const can = k >= 1 && !open && !used.includes(k);
+    let nextAt = null;
+    if (!can) for (let w = Math.max(1, k + 1); w <= 3; w++) { if (!used.includes(w)) { nextAt = start + w * q; break; } }
+    return { k, can, open, nextAt: can ? at : nextAt, q, windows: [1, 2, 3].map(w => ({ w, at: start + w * q, a: list.find(x => x.w === w) || null })) };
+};
+// V85.78.150.313: what a raver must finish before using Vibe Tribes (Milli, at 313). `how` is
+// shown under an unticked box; tapping the row opens that editor.
+const rkTribeReqs = (p, uid) => [
+    { key: 'bio', label: 'Write your bio', ok: !!String((p && p.bio) || '').trim(), how: 'Tap here, or tap your bio box on your profile.' },
+    { key: 'photo', label: 'Add a profile picture', ok: !!(p && p.photoURL && String(p.photoURL).indexOf('placehold') < 0), how: 'Tap here to choose a picture, or tap your picture on your profile.' },
+    { key: 'uid', label: 'Set your custom Friend ID', ok: !!(p && (p.publicUidChanged || (p.publicUid && uid && p.publicUid !== uid))), how: 'Tap here, or tap ✎ Change UID under your Friend UID box. It is a one-time change.' },
+];
+// Settles a tribe's votes against its current members. Pure apart from the clock: returns the new
+// state and what passed, expired, ran out or no longer applied.
+const rkTribeSettle = (t0, nowIn) => {
+    const now = nowIn || Date.now();
     const before = (t0.members || []).slice();
-    const members = before.slice();
-    const need = rkTribeNeeded(before.length);
+    let members = before.slice();
     const names = { ...(t0.memberNames || {}) };
     const pending = { ...(t0.pendingVotes || {}) };
     const requests = { ...(t0.joinRequests || {}) };
+    // Restrictions: those served are cleared (and noted, for the vote log).
+    const restrictions = {}, served = [];
+    Object.entries(t0.restrictions || {}).forEach(([u, r]) => {
+        if (r && Number(r.until) > now) restrictions[u] = { ...r, appeals: (r.appeals || []).slice() };
+        else if (r) served.push({ uid: u, log: r.log || '', type: r.type });
+    });
+    const voterList = (v, list) => rkTribeVoters(list, v, restrictions, now);
+    const admitVoters = voterList({ type: 'admit' }, before);
+    const admitNeed = rkTribeNeeded(admitVoters.length);
     const admitted = [];
     Object.keys(pending).forEach((cid) => {
         const e = pending[cid] || {};
         if (before.includes(cid)) { delete pending[cid]; return; }
         const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
-        if (votes.length >= need) { admitted.push({ uid: cid, name: e.name || 'Raver' }); delete pending[cid]; }
-        else pending[cid] = { ...e, votes, needed: need };
+        if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver' }); delete pending[cid]; }
+        else pending[cid] = { ...e, votes, needed: admitNeed };
     });
-    admitted.forEach(a => { members.push(a.uid); names[a.uid] = a.name; });
+    // Item votes. Stale ones are dropped: the target left, or the tribe already has that status,
+    // name, founder or restriction. An appeal that outlives its window expires.
+    let status = rkTribeStatus(t0), name = t0.name || '', creatorUid = t0.creatorUid || '', purgedAt = Number(t0.purgedAt) || 0;
+    const votes = {}, passed = [], expired = [], dropped = [];
+    const all = rkTribeVotesOf(t0);
+    Object.keys(all).forEach((key) => {
+        const v = all[key];
+        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type) || rkTribeVoteKey(v) !== key) { dropped.push(key); return; }
+        const cur = v.target ? restrictions[v.target] : null;
+        const stale = (RK_TRIBE_ABOUT.includes(v.type) && !before.includes(v.target))
+            || (v.type === 'status' && (!RK_TRIBE_STATUS.includes(v.to) || v.to === status))
+            || (v.type === 'founder' && (!before.includes(v.target) || v.target === creatorUid))
+            || (v.type === 'rename' && (!String(v.name || '').trim() || String(v.name).trim() === name))
+            || (v.type === 'mute' && cur)
+            || (v.type === 'timeout' && cur && cur.type === 'timeout')
+            || (v.type === 'repeal' && (!cur || cur.type !== v.rtype));
+        if (stale) { dropped.push(key); return; }
+        if (v.type === 'repeal' && now >= Number(v.exp || 0)) { expired.push(key); return; }
+        const voters = voterList(v, before);
+        const yes = Array.from(new Set(v.yes || [])).filter(u => voters.includes(u));
+        if (voters.length && yes.length >= rkTribeNeeded(voters.length)) passed.push([key, { ...v, yes }]);
+        else votes[key] = { ...v, yes };
+    });
+    // Apply what passed in a fixed order, re-checking each against the members as they stand,
+    // so two removals can never empty a tribe between them.
+    const ORDER = { kick: 0, timeout: 1, mute: 2, repeal: 3, founder: 4, rename: 5, status: 6, purge: 7 };
+    passed.sort((a, b) => ORDER[a[1].type] - ORDER[b[1].type]);
+    const kicked = [], applied = [];
+    passed.forEach(([key, v]) => {
+        const voters = voterList(v, members);
+        const yes = (v.yes || []).filter(u => voters.includes(u));
+        const targetOk = !['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) || members.includes(v.target);
+        // Re-checked against what this settle has already applied: a time-out passing alongside a
+        // mute makes the mute moot, and an appeal lifts only the restriction it was made about.
+        const rNow = v.target ? restrictions[v.target] : null;
+        const moot = (v.type === 'mute' && rNow) || (v.type === 'timeout' && rNow && rNow.type === 'timeout')
+            || (v.type === 'repeal' && (!rNow || rNow.type !== v.rtype || (v.of && rNow.log !== v.of)));
+        if (!targetOk || moot) { dropped.push(key); return; }
+        if (!(voters.length && yes.length >= rkTribeNeeded(voters.length))) { votes[key] = { ...v, yes }; return; }
+        if (v.type === 'kick') { members = members.filter(m => m !== v.target); delete names[v.target]; kicked.push({ uid: v.target, name: v.targetName || 'Raver' }); }
+        else if (v.type === 'founder') creatorUid = v.target;
+        else if (v.type === 'rename') name = String(v.name).trim().slice(0, 40);
+        else if (v.type === 'status') status = v.to;
+        else if (v.type === 'purge') purgedAt = now;
+        else if (v.type === 'mute' || v.type === 'timeout') {
+            const dur = Math.max(RK_TRIBE_MIN_RESTRICT, Math.min(RK_TRIBE_MAX_RESTRICT, Number(v.dur) || 3600000));
+            // a time-out replacing a running mute ends the mute, and its log says so
+            if (rNow) served.push({ uid: v.target, log: rNow.log || '', type: rNow.type, ev: 'replaced' });
+            restrictions[v.target] = { type: v.type, start: now, until: now + dur, dur, name: v.targetName || 'Raver', log: rkTribeLogId(key, v.at), appeals: [] };
+        }
+        else if (v.type === 'repeal') {
+            const r = restrictions[v.target];
+            if (r) served.push({ uid: v.target, log: r.log || '', type: r.type, lifted: true });
+            delete restrictions[v.target];
+        }
+        applied.push({ ...v, yes });
+    });
+    // An appeal that passed, failed or expired is recorded on the restriction it was about.
+    const mark = (v, outcome) => { const r = restrictions[v.target]; if (!r) return; r.appeals = r.appeals.map(a => (a.w === v.w && a.outcome === 'open') ? { ...a, outcome } : a); };
+    expired.forEach(k => mark(all[k], 'failed'));
+    dropped.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'closed'); });
+    admitted.forEach(a => { if (!members.includes(a.uid)) members.push(a.uid); names[a.uid] = a.name; });
+    // A founder who is removed or has left hands the role to the longest-standing member, so
+    // someone can still moderate the chat (the rules give the founder message deletion).
+    if (members.length && !members.includes(creatorUid)) creatorUid = members[0];
+    // A removed member's votes stop counting everywhere.
+    if (kicked.length) {
+        const gone = kicked.map(k => k.uid);
+        Object.keys(pending).forEach(cid => { pending[cid] = { ...pending[cid], votes: (pending[cid].votes || []).filter(u => !gone.includes(u)) }; });
+        Object.keys(votes).forEach(k => {
+            const v = votes[k];
+            if (['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) && gone.includes(v.target)) { delete votes[k]; dropped.push(k); return; }
+            votes[k] = { ...v, yes: (v.yes || []).filter(u => !gone.includes(u)) };
+        });
+    }
     Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
-    let status = rkTribeStatus(t0), statusVote = t0.statusVote || null, statusChanged = false;
-    if (statusVote) {
-        const votes = Array.from(new Set(statusVote.votes || [])).filter(v => before.includes(v));
-        if (!RK_TRIBE_STATUS.includes(statusVote.to) || statusVote.to === status) statusVote = null;
-        else if (votes.length >= need) { status = statusVote.to; statusVote = null; statusChanged = true; }
-        else statusVote = { ...statusVote, votes };
-    }
-    return { members, names, pending, requests, admitted, status, statusVote, statusChanged };
+    return { members, names, pending, requests, admitted, kicked, applied, votes, status, statusChanged: status !== rkTribeStatus(t0), name, creatorUid, purgedAt,
+        restrictions, served, expired, dropped, rev: (Number(t0.rev) || 0) + 1 };
 };
-const rkTribePatch = (st) => ({
-    members: st.members, memberNames: st.names, memberCount: st.members.length,
-    pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
-    statusVote: st.statusVote ? st.statusVote : deleteField()
-});
-// Notifications for what a settle did. `skipUid` is whoever acted; they already saw it on screen.
-const rkTribeAnnounce = (tribeId, t0, st, skipUid) => {
-    const nm = (t0 && t0.name) || 'your tribe';
-    const before = (t0 && t0.members) || [];
-    st.admitted.forEach(a => {
-        pushNotif(a.uid, 'tribe', '🎉 You were voted into the "' + nm + '" Vibe Tribe! Open Vibe Tribe to see your group chat.', tribeId);
-        before.filter(m => m && m !== skipUid && m !== a.uid).forEach(m => pushNotif(m, 'tribe', '🎉 @' + a.name + ' passed the vote and joined "' + nm + '".', tribeId));
+const rkTribePatch = (st) => {
+    const p = {
+        members: st.members, memberNames: st.names, memberCount: st.members.length,
+        pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
+        votes: st.votes, statusVote: deleteField(), restrictions: st.restrictions, rev: st.rev,
+    };
+    if (st.name) p.name = st.name;
+    if (st.creatorUid) p.creatorUid = st.creatorUid;
+    if (st.purgedAt) p.purgedAt = st.purgedAt;
+    return p;
+};
+// The tribe document as it stands after a settle is written (the transaction read `t` at commit,
+// so this IS the committed state).
+const rkTribeMerged = (t, st) => {
+    const out = { ...t, members: st.members, memberNames: st.names, memberCount: st.members.length, pendingVotes: st.pending, joinRequests: st.requests, status: st.status, votes: st.votes, restrictions: st.restrictions, rev: st.rev };
+    delete out.statusVote;
+    if (st.name) out.name = st.name;
+    if (st.creatorUid) out.creatorUid = st.creatorUid;
+    if (st.purgedAt) out.purgedAt = st.purgedAt;
+    return out;
+};
+// V86.78.150.314: hands a tribe's committed state straight to the open Vibe Tribe window. Without it
+// the window waited for Firestore's live update, which on a slow phone connection could hold off
+// until another listener opened (Milli, at 314: the vote stayed on screen until she opened the chat).
+const rkTribeEmit = (tribeId, docData, gone, fresh) => { try { window.dispatchEvent(new CustomEvent('rk:tribe', { detail: { id: tribeId, doc: docData || null, gone: !!gone, fresh: !!fresh } })); } catch (e) {} };
+// A fresh copy from the server, for screens that are about to show votes.
+const rkTribeFresh = async (tribeId) => {
+    try { const s = await getDocFromServer(rkTribeRef(tribeId)); if (s.exists()) rkTribeEmit(tribeId, { ...s.data(), id: s.id }, false, true); } catch (e) {}
+};
+// ---- V86.78.150.314: THE VOTE LOG (Milli, at 314: "log all votes made in the tribe ... allow voting
+// users to remain anonymous on these logs and just show %"). One document per vote in
+// tribes/{id}/voteLog, written in the same transaction as the vote itself. It records counts and
+// percentages over time, never who voted.
+const rkTribeLogId = (key, at) => String(key).replace(/\//g, '_') + '~' + (Number(at) || 0);
+const rkTribeVoteRows = (t, now) => {
+    const members = t.members || [], rs = t.restrictions || {}, out = {};
+    const admitEl = rkTribeVoters(members, { type: 'admit' }, rs, now);
+    Object.entries(t.pendingVotes || {}).forEach(([cid, e]) => {
+        if (members.includes(cid)) return;
+        const yes = Array.from(new Set((e && e.votes) || [])).filter(u => admitEl.includes(u)).length;
+        out['admit:' + cid] = { type: 'admit', label: 'Add @' + ((e && e.name) || 'Raver') + ' to the tribe', yes, of: admitEl.length, at: Number(e && e.at) || 0, target: cid, targetName: (e && e.name) || 'Raver', note: { asked: !!(e && e.asked) } };
     });
-    if (st.statusChanged) {
-        const txt = st.status === 'open'
-            ? '🔓 "' + nm + '" is now OPEN: it shows in Find Tribes, and ravers can ask to join.'
-            : '🔒 "' + nm + '" is now CLOSED: it no longer shows in Find Tribes.';
-        st.members.filter(m => m && m !== skipUid).forEach(m => pushNotif(m, 'tribe', txt, tribeId));
+    Object.entries(rkTribeVotesOf(t)).forEach(([key, v]) => {
+        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type)) return;
+        const el = rkTribeVoters(members, v, rs, now);
+        const yes = Array.from(new Set(v.yes || [])).filter(u => el.includes(u)).length;
+        const note = {};
+        if (v.dur) note.dur = v.dur;
+        if (v.type === 'rename') note.name = v.name || '';
+        if (v.type === 'status') note.to = v.to || '';
+        if (v.type === 'repeal') { note.statement = v.statement || ''; note.w = v.w || 0; note.rtype = v.rtype || ''; note.appealOf = v.of || ''; note.exp = v.exp || 0; }
+        out[key] = { type: v.type, label: rkTribeVoteLabel(v), yes, of: el.length, at: Number(v.at) || 0, target: v.target || '', targetName: v.targetName || '', note };
+    });
+    return out;
+};
+// A vote must never fail because its log entry was refused (rules deployed late, say). If a tribe
+// transaction is refused, it runs once more without the log, and the log stays off until the app
+// restarts. The refusal is reported.
+let rkTribeLogOk = true;
+const rkTribeTx = async (fn) => {
+    try { return await runTransaction(db, fn); }
+    catch (e) {
+        if (!rkTribeLogOk || !e || e.code !== 'permission-denied') throw e;
+        rkTribeLogOk = false;
+        rkReport('tribe vote log refused; voting without it', e);
+        return await runTransaction(db, fn);
     }
+};
+// Works out what a transaction did to every vote (started, cast, passed, expired, withdrawn or no
+// longer applying) by comparing the tribe before (t0), with the action applied (t1), and after (st).
+const rkTribeLogTx = (tx, tribeId, t0, t1, st, now, hint) => {
+    if (!rkTribeLogOk) return;
+    try {
+        const A = rkTribeVoteRows(t0, now), B = rkTribeVoteRows(t1, now), C = rkTribeVoteRows(rkTribeMerged(t1, st), now);
+        const pct = (r) => r.of ? Math.round(100 * r.yes / r.of) : 0;
+        const acc = {};
+        const put = (id, data, ev) => { const e = acc[id] || (acc[id] = { data: {}, hist: [] }); Object.assign(e.data, data); if (ev) e.hist.push(ev); };
+        // identity fields go on every write, so a vote started before 314 still gets a full entry
+        const who = (k, b) => ({ key: k, type: b.type, label: b.label, startedAt: b.at || now, target: b.target, targetName: b.targetName, note: b.note });
+        Object.keys(B).forEach(k => {
+            const a = A[k], b = B[k], id = rkTribeLogId(k, b.at);
+            if (!a || a.at !== b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'start', pct: pct(b), n: b.yes, of: b.of });
+            // a vote cast; when the same transaction also ends the vote, its end event carries the count
+            else if ((a.yes !== b.yes || a.of !== b.of) && C[k] && C[k].at === b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'vote', pct: pct(b), n: b.yes, of: b.of });
+        });
+        const passed = new Set([...(st.applied || []).map(v => rkTribeVoteKey(v)), ...(st.admitted || []).map(a => 'admit:' + a.uid)]);
+        const expired = new Set(st.expired || []);
+        Object.keys(B).forEach(k => {
+            const b = B[k];
+            if (C[k] && C[k].at === b.at) { if (C[k].yes !== b.yes || C[k].of !== b.of) put(rkTribeLogId(k, b.at), { ...who(k, b), status: 'open', yes: C[k].yes, of: C[k].of, pct: pct(C[k]), need: rkTribeNeeded(C[k].of) }, { at: now, ev: 'vote', pct: pct(C[k]), n: C[k].yes, of: C[k].of }); return; }
+            const ev = passed.has(k) ? 'pass' : expired.has(k) ? 'expire' : (hint && hint.withdrawn === k) ? 'withdraw' : 'close';
+            put(rkTribeLogId(k, b.at), { ...who(k, b), yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of), status: { pass: 'passed', expire: 'expired', withdraw: 'withdrawn', close: 'closed' }[ev], endedAt: now }, { at: now, ev, pct: pct(b), n: b.yes, of: b.of });
+        });
+        (st.served || []).forEach(s => { if (s.log) put(s.log, { doneAt: now }, { at: now, ev: s.ev || (s.lifted ? 'lifted' : 'served') }); });
+        Object.keys(acc).slice(0, 12).forEach(id => {
+            const e = acc[id], data = { ...e.data };
+            if (e.hist.length) data.history = arrayUnion(...e.hist);
+            tx.set(doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'voteLog', id), data, { merge: true });
+        });
+    } catch (e) { rkReport('tribe vote log', e); }
+};
+// Sends a tribe notification to everyone in `uids` who hasn't muted that kind for this tribe.
+// `cat` null means it is about the recipient personally, and it is always sent.
+const rkTribeNotify = (tribeId, t, uids, cat, text, frag) => {
+    const mutes = (t && t.mutes) || {};
+    const ref = tribeId + '#' + (frag || 'card');
+    Array.from(new Set(uids || [])).forEach(u => {
+        if (!u) return;
+        if (cat && mutes[u] && mutes[u][cat]) return;
+        pushNotif(u, 'tribe', text, ref);
+    });
+};
+// Deletes chat messages from before a purge. Best effort: the app hides them anyway, and the next
+// member to open the chat finishes anything left. One delete per request, ten at a time: the
+// delete rule looks the tribe up for every message, and a batched write may make only 20 such
+// lookups across all its deletes, so a big batch could be refused as a whole.
+const rkTribePurgeMessages = async (tribeId, purgedAt) => {
+    if (!tribeId || !purgedAt) return 0;
+    let n = 0;
+    try {
+        for (let round = 0; round < 20; round++) {
+            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), where('at', '<=', purgedAt), limit(100)));
+            if (snap.empty) break;
+            for (let i = 0; i < snap.docs.length; i += 10) {
+                await Promise.all(snap.docs.slice(i, i + 10).map(d => deleteDoc(d.ref).then(() => { n++; })));
+            }
+            if (snap.size < 100) break;
+        }
+    } catch (e) { rkReport('tribe purge', e); }
+    return n;
+};
+// Notifications for what a settle did, and the purge if one passed. `skipUid` acted and saw it.
+const rkTribeAfter = (tribeId, t0, st, skipUid) => {
+    const oldName = (t0 && t0.name) || 'your tribe';
+    const nm = st.name || oldName;
+    const before = (t0 && t0.members) || [];
+    const others = (list, ...ex) => (list || []).filter(m => m && !ex.includes(m));
+    st.admitted.forEach(a => {
+        rkTribeNotify(tribeId, t0, [a.uid], null, '🎉 You were voted into the "' + nm + '" Vibe Tribe! Tap to open the group chat.', 'chat');
+        rkTribeNotify(tribeId, t0, others(before, skipUid, a.uid), 'member', '🎉 @' + a.name + ' passed the vote and joined "' + nm + '".', 'card');
+    });
+    (st.kicked || []).forEach(k => {
+        rkTribeNotify(tribeId, t0, [k.uid], null, '🚪 You were removed from the "' + oldName + '" Vibe Tribe by a member vote.', 'gone');
+        rkTribeNotify(tribeId, t0, others(st.members, skipUid), 'member', '🚪 @' + k.name + ' was removed from "' + nm + '" by a member vote.', 'card');
+    });
+    (st.applied || []).forEach(v => {
+        if (v.type === 'kick') return;
+        if (v.type === 'mute' || v.type === 'timeout') {
+            const r = st.restrictions[v.target]; if (!r) return;
+            const firstAppeal = r.start + (r.until - r.start) / 4;
+            rkTribeNotify(tribeId, t0, [v.target], null, v.type === 'mute'
+                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read and vote, not post. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
+                : '⏳ You are in a time-out in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat but not take part. You can appeal from ' + rkTribeWhen(firstAppeal) + '.', 'appeal');
+            rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', (v.type === 'mute' ? '🔇 @' + (v.targetName || 'A member') + ' was muted for ' : '⏳ @' + (v.targetName || 'A member') + ' was given a time-out of ') + rkDurTxt(r.dur) + ' in "' + nm + '", by a member vote.', 'card');
+            return;
+        }
+        if (v.type === 'repeal') {
+            rkTribeNotify(tribeId, t0, [v.target], null, '✅ Your appeal passed: your ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + nm + '" is lifted.', 'chat');
+            rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', '✅ @' + (v.targetName || 'A member') + "'s appeal passed in \"" + nm + '": their ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' is lifted.', 'card');
+            return;
+        }
+        const txt = v.type === 'status' ? (v.to === 'open' ? '🔓 "' + nm + '" is now OPEN: it shows in Find Tribes, and ravers can ask to join.' : '🔒 "' + nm + '" is now CLOSED: it no longer shows in Find Tribes.')
+            : v.type === 'purge' ? '🧹 The "' + nm + '" group chat was purged by a member vote.'
+            : v.type === 'rename' ? '✏️ "' + oldName + '" is now called "' + nm + '", by a member vote.'
+            : v.type === 'founder' ? '👑 @' + (v.targetName || 'A member') + ' is now the founder of "' + nm + '", by a member vote.' : '';
+        if (txt) rkTribeNotify(tribeId, t0, others(st.members, skipUid), 'vote', txt, v.type === 'purge' ? 'chat' : 'card');
+    });
+    // An appeal that ran out of time without passing: the member hears when the next window opens.
+    (st.expired || []).forEach(k => {
+        const v = rkTribeVotesOf(t0)[k]; if (!v) return;
+        const r = st.restrictions[v.target];
+        const nx = r ? rkTribeAppeal(r).nextAt : null;
+        rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ Your appeal in "' + nm + '" did not pass in time. ' + (nx ? 'You can appeal again from ' + rkTribeWhen(nx) + '.' : r ? 'There are no appeals left; it ends ' + rkTribeWhen(r.until) + '.' : ''), 'appeal');
+    });
+    if ((st.applied || []).some(v => v.type === 'purge')) rkTribePurgeMessages(tribeId, st.purgedAt);
+};
+// Refuses actions from a member in a time-out. (The app hides the buttons; this is the backstop.)
+const rkTribeNotTimedOut = (t, uid, now) => {
+    const r = rkTribeRestriction(t, uid, now);
+    if (r && r.type === 'timeout') throw new Error('You are in a time-out until ' + rkTribeWhen(r.until) + '. You can read, but not vote, call votes or invite.');
 };
 export const createTribe = async (creatorUid, creatorName, tribeName, status) => {
     if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
@@ -1774,161 +2146,283 @@ export const createTribe = async (creatorUid, creatorName, tribeName, status) =>
         createdAt: Date.now(),
         memberCount: 1,
         status: status === 'open' ? 'open' : 'closed',
-        pendingVotes: {} // { candidateUid: { name, votes: [uid,...], needed: N } }
+        pendingVotes: {} // { candidateUid: { name, votes: [uid,...], needed: N, at, asked } }
     });
     return ref.id;
 };
 // Propose a raver, or vote in one who asked to join. The proposer's vote counts at once, so in a
-// tribe of one (or two, with a second yes already in) it admits them straight away.
-// Returns { result: 'approved' | 'proposed', needed, votes }.
+// tribe of one it admits them straight away. Someone already up for a vote is not proposed
+// again: it returns 'exists' with the vote's key, and the app takes the raver to that vote.
+// Returns { result: 'approved' | 'proposed' | 'exists', needed, votes, key }.
 export const proposeToTribe = async (tribeId, candidateUid, candidateName, proposerUid) => {
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const key = 'admit:' + candidateUid;
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         const members = t.members || [];
         if (!members.includes(proposerUid)) throw new Error('Only members can propose someone.');
+        rkTribeNotTimedOut(t, proposerUid, now);
         if (members.includes(candidateUid)) throw new Error('Already a member');
-        const prev = (t.pendingVotes || {})[candidateUid];
+        if ((t.pendingVotes || {})[candidateUid]) return { exists: true };
         const req = (t.joinRequests || {})[candidateUid];
-        const nm = (prev && prev.name) || candidateName || (req && req.name) || 'Raver';
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [...((prev && prev.votes) || []), proposerUid], needed: rkTribeNeeded(members.length) } };
+        const nm = candidateName || (req && req.name) || 'Raver';
+        const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [proposerUid], needed: need, at: now, asked: !!req } };
         const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
-        const st = rkTribeSettle({ ...t, pendingVotes: pending, joinRequests: requests });
+        const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
+        const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
-        const left = st.pending[candidateUid];
-        return { t, st, nm, asked: !!req, fresh: !prev, approved: st.admitted.some(a => a.uid === candidateUid), needed: rkTribeNeeded(members.length), votes: left ? left.votes.length : 0 };
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        return { t, st, nm, asked: !!req, approved: st.admitted.some(a => a.uid === candidateUid), needed: need };
     });
-    rkTribeAnnounce(tribeId, out.t, out.st, proposerUid);
-    if (!out.approved && out.fresh) {
-        // V79.5: these carry a TRIBE id with type 'tribe' ('friendreq' would open a profile).
+    if (out.exists) return { result: 'exists', key };
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, proposerUid);
+    if (!out.approved) {
         // V79.6: the candidate is told too, so a stalled vote doesn't look like nothing happened.
-        pushNotif(candidateUid, 'tribe', out.asked
+        rkTribeNotify(tribeId, out.t, [candidateUid], null, out.asked
             ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join.'
-            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now.', tribeId);
-        (out.t.members || []).filter(m => m !== proposerUid).forEach(m => pushNotif(m, 'tribe', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Open Vibe Tribe to vote.', tribeId));
+            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now.', 'find');
+        rkTribeNotify(tribeId, out.t, (out.t.members || []).filter(m => m !== proposerUid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote.', 'vote:' + key);
     }
-    return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.votes };
+    return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.approved ? out.needed : 1, key };
 };
 // Cast a vote; once 2/3 of the current members have said yes, the candidate joins the group chat.
 export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(voterUid)) throw new Error('Only members can vote.');
+        rkTribeNotTimedOut(t, voterUid, now);
         if ((t.members || []).includes(candidateUid)) return { done: true };
         const e = (t.pendingVotes || {})[candidateUid];
         if (!e) throw new Error('No pending vote for this raver');
         const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...e, votes: [...(e.votes || []), voterUid] } };
-        const st = rkTribeSettle({ ...t, pendingVotes: pending });
+        const t1 = { ...t, pendingVotes: pending };
+        const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
         return { t, st, approved: st.admitted.some(a => a.uid === candidateUid) };
     });
     if (out.done) return 'approved';
-    rkTribeAnnounce(tribeId, out.t, out.st, voterUid);
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, voterUid);
     return out.approved ? 'approved' : 'voted';
 };
 // Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the
-// last member out removes the tribe.
+// last member out removes the tribe. A member in a time-out may still leave.
 export const leaveTribe = async (tribeId, myUid) => {
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) return null;
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(myUid)) return null;
         const rest = (t.members || []).filter(m => m !== myUid);
-        if (rest.length === 0) { tx.delete(ref); return null; }
+        if (rest.length === 0) { tx.delete(ref); return { deleted: true }; }
         const names = { ...(t.memberNames || {}) }; delete names[myUid];
-        const st = rkTribeSettle({ ...t, members: rest, memberNames: names });
+        const t1 = { ...t, members: rest, memberNames: names };
+        const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
-        return { t: { ...t, members: rest }, st };
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        return { t: t1, st, who: (t.memberNames || {})[myUid] || 'A member' };
     });
-    if (out) rkTribeAnnounce(tribeId, out.t, out.st, myUid);
+    rkTribeEmit(tribeId, null, true);
+    if (out && !out.deleted) {
+        rkTribeAfter(tribeId, out.t, out.st, myUid);
+        rkTribeNotify(tribeId, out.t, out.st.members, 'member', '👋 @' + out.who + ' left "' + (out.st.name || 'your tribe') + '".', 'card');
+    }
 };
-// Settles votes that already passed: the proposals stuck at 1/1 in a tribe of one, or a vote
-// that reached 2/3 when someone left. Writes only when something passes.
+// Settles what has already passed, expired or run out: proposals stuck at 1/1 in a tribe of one, a
+// vote that reached 2/3 when someone left, an appeal past its window, a time-out served. Writes only
+// when something changes.
 export const settleTribe = async (tribeId, byUid) => {
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) return null;
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(byUid)) return null;
-        const st = rkTribeSettle(t);
-        if (!st.admitted.length && !st.statusChanged) return null;
+        const st = rkTribeSettle(t, now);
+        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length) return null;
         tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t, st, now, {});
         return { t, st };
     });
-    if (out) rkTribeAnnounce(tribeId, out.t, out.st, null);
+    if (out) { rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st)); rkTribeAfter(tribeId, out.t, out.st, null); }
     return !!out;
 };
-// Status. Proposing counts as the proposer's yes; in a tribe of one it applies at once.
-// Returns { result: 'same' | 'changed' | 'proposed', need, votes }.
-export const proposeTribeStatus = async (tribeId, to, uid, name) => {
-    if (!RK_TRIBE_STATUS.includes(to)) throw new Error('Unknown status');
+// Calls a vote. spec: { type, target?, targetName?, to?, name?, dur? }. The caller's yes counts at
+// once, so in a tribe of one it passes straight away.
+// Returns { result: 'same' | 'exists' | 'passed' | 'started', key, need }.
+export const proposeTribeVote = async (tribeId, spec, uid, myName) => {
+    if (!spec || !RK_TRIBE_VOTE_TYPES.includes(spec.type) || spec.type === 'repeal') throw new Error('Unknown vote');
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         const members = t.members || [];
-        if (!members.includes(uid)) throw new Error('Only members can change this.');
-        if (rkTribeStatus(t) === to) return { same: true };
-        const running = t.statusVote && t.statusVote.to === to ? t.statusVote : null;
-        const sv = running ? { ...running, votes: [...(running.votes || []), uid] } : { to, votes: [uid], by: uid, byName: name || 'Raver', at: Date.now() };
-        const st = rkTribeSettle({ ...t, statusVote: sv });
+        if (!members.includes(uid)) throw new Error('Only members can call a vote.');
+        rkTribeNotTimedOut(t, uid, now);
+        const v = { type: spec.type, by: uid, byName: String(myName || 'A member').slice(0, 40), at: now, yes: [uid] };
+        if (['kick', 'founder', 'mute', 'timeout'].includes(spec.type)) {
+            if (!members.includes(spec.target)) throw new Error('That raver is not in this tribe.');
+            if (spec.type === 'kick' && spec.target === uid) throw new Error('To go, use Leave tribe instead.');
+            if ((spec.type === 'mute' || spec.type === 'timeout') && spec.target === uid) throw new Error("You can't call this vote on yourself.");
+            if (spec.type === 'founder' && spec.target === t.creatorUid) throw new Error('They are already the founder.');
+            v.target = spec.target;
+            v.targetName = String(spec.targetName || (t.memberNames || {})[spec.target] || 'Raver').slice(0, 40);
+        }
+        if (spec.type === 'mute' || spec.type === 'timeout') {
+            const dur = Math.round(Number(spec.dur) || 0);
+            if (!(dur >= RK_TRIBE_MIN_RESTRICT && dur <= RK_TRIBE_MAX_RESTRICT)) throw new Error('Pick a length from 5 minutes to 30 days.');
+            const cur = rkTribeRestriction(t, spec.target, now);
+            if (cur && (spec.type === 'mute' || cur.type === 'timeout')) throw new Error('@' + v.targetName + ' is already ' + (cur.type === 'mute' ? 'muted' : 'in a time-out') + ' until ' + rkTribeWhen(cur.until) + '.');
+            v.dur = dur;
+        }
+        if (spec.type === 'status') {
+            if (!RK_TRIBE_STATUS.includes(spec.to)) throw new Error('Unknown status');
+            if (spec.to === rkTribeStatus(t)) return { same: true };
+            v.to = spec.to;
+        }
+        if (spec.type === 'rename') {
+            const nm = String(spec.name || '').trim().slice(0, 40);
+            if (!nm) throw new Error('Type the new name first.');
+            if (nm === t.name) return { same: true };
+            v.name = nm;
+        }
+        const key = rkTribeVoteKey(v);
+        const all = rkTribeVotesOf(t);
+        if (all[key]) return { exists: true, key };
+        const t1 = { ...t, votes: { ...all, [key]: v }, statusVote: null };
+        const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
-        return { t, st, fresh: !running, need: rkTribeNeeded(members.length), votes: st.statusVote ? st.statusVote.votes.length : 0 };
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        const voters = rkTribeVoters(members, v, t.restrictions, now);
+        return { t, st, key, v, voters, need: rkTribeNeeded(voters.length) };
     });
     if (out.same) return { result: 'same' };
-    rkTribeAnnounce(tribeId, out.t, out.st, uid);
-    if (!out.st.statusChanged && out.fresh) {
-        const what = to === 'open' ? 'OPEN (listed in Find Tribes)' : 'CLOSED (hidden from Find Tribes)';
-        const n = (out.t.members || []).length;
-        (out.t.members || []).filter(m => m !== uid).forEach(m => pushNotif(m, 'tribe', '🗳️ @' + (name || 'A member') + ' wants to make "' + out.t.name + '" ' + what + '. Open Vibe Tribe to vote: ' + out.need + ' of ' + n + ' members must say yes.', tribeId));
+    if (out.exists) return { result: 'exists', key: out.key };
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    const passed = out.st.applied.some(a => rkTribeVoteKey(a) === out.key);
+    rkTribeAfter(tribeId, out.t, out.st, uid);
+    if (!passed) {
+        rkTribeNotify(tribeId, out.t, out.voters.filter(m => m !== uid), 'vote', '🗳️ @' + out.v.byName + ' called a vote in "' + (out.t.name || 'your tribe') + '": ' + rkTribeVoteLabel(out.v) + '. Tap to vote; ' + out.need + ' of ' + out.voters.length + ' needed.', 'vote:' + out.key);
+        // V86.78.150.314: the member a vote is about hears about it too, and can watch it.
+        if (out.v.target && RK_TRIBE_ABOUT.includes(out.v.type)) rkTribeNotify(tribeId, out.t, [out.v.target], null, '🗳️ Members of "' + (out.t.name || 'your tribe') + '" are voting to ' + (out.v.type === 'kick' ? 'remove you' : out.v.type === 'mute' ? 'mute you for ' + rkDurTxt(out.v.dur) : 'give you a time-out of ' + rkDurTxt(out.v.dur)) + '.', 'vote:' + out.key);
     }
-    return { result: out.st.statusChanged ? 'changed' : 'proposed', need: out.need, votes: out.votes };
+    return { result: passed ? 'passed' : 'started', key: out.key, need: out.need };
 };
-export const voteTribeStatus = async (tribeId, uid) => {
+export const voteTribeVote = async (tribeId, key, uid) => {
     const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data();
+        const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
-        if (!t.statusVote) throw new Error('This vote has already closed.');
-        const st = rkTribeSettle({ ...t, statusVote: { ...t.statusVote, votes: [...(t.statusVote.votes || []), uid] } });
+        rkTribeNotTimedOut(t, uid, now);
+        const all = rkTribeVotesOf(t);
+        const v = all[key];
+        if (!v) throw new Error('This vote has already closed.');
+        if (v.target === uid && RK_TRIBE_ABOUT.includes(v.type)) throw new Error("This vote is about you, so you don't vote on it.");
+        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: [...(v.yes || []), uid] } }, statusVote: null };
+        const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
         return { t, st };
     });
-    rkTribeAnnounce(tribeId, out.t, out.st, uid);
-    return out.st.statusChanged ? 'changed' : 'voted';
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, uid);
+    return out.st.applied.some(a => rkTribeVoteKey(a) === key) ? 'passed' : 'voted';
 };
-// Only the member who proposed a status change can withdraw it.
-export const withdrawTribeStatus = async (tribeId, uid) => {
+// Only the member who called a vote can withdraw it.
+export const withdrawTribeVote = async (tribeId, key, uid) => {
     const ref = rkTribeRef(tribeId);
-    await runTransaction(db, async (tx) => {
+    const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
-        if (!snap.exists()) return;
-        const t = snap.data();
-        if (!t.statusVote) return;   // nothing running: nothing to withdraw
-        if (t.statusVote.by !== uid) throw new Error('Only the member who proposed it can withdraw it.');
-        tx.update(ref, { statusVote: deleteField() });
+        if (!snap.exists()) return null;
+        const t = snap.data(), now = Date.now();
+        const all = rkTribeVotesOf(t);
+        const v = all[key];
+        if (!v) return null;   // already closed: nothing to withdraw
+        if (v.by !== uid) throw new Error('Only the member who called it can withdraw it.');
+        rkTribeNotTimedOut(t, uid, now);
+        delete all[key];
+        const t1 = { ...t, votes: all, statusVote: null };
+        const st = rkTribeSettle(t1, now);
+        tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t, st, now, { withdrawn: key });
+        return { t, st };
     });
+    if (out) rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+};
+// V86.78.150.314: AN APPEAL (Milli, at 314: "the user being punished can make an apology statement
+// and appeal request after that time period 25% has been served"). Opens a vote to lift the mute or
+// time-out, with the statement attached, for the other members. One appeal per quarter served; it
+// stays open until the next quarter begins (or the restriction ends), then expires.
+export const appealTribeRestriction = async (tribeId, uid, myName, statement) => {
+    const text = String(statement || '').trim().slice(0, 500);
+    if (text.length < 10) throw new Error('Write a few words first: what you are sorry for, and why it should be lifted.');
+    const ref = rkTribeRef(tribeId);
+    const out = await rkTribeTx(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data(), now = Date.now();
+        if (!(t.members || []).includes(uid)) throw new Error('You are not in this tribe.');
+        const r = rkTribeRestriction(t, uid, now);
+        if (!r) throw new Error('There is nothing to appeal: it has already ended.');
+        const ap = rkTribeAppeal(r, now);
+        if (!ap.can) throw new Error(ap.open ? 'Your appeal is already being voted on.' : ap.nextAt ? 'Your next appeal opens ' + rkTribeWhen(ap.nextAt) + '.' : 'There are no appeals left. It ends ' + rkTribeWhen(r.until) + '.');
+        const key = 'repeal:' + uid;
+        const all = rkTribeVotesOf(t);
+        if (all[key]) return { exists: true, key };
+        const nm = String(myName || (t.memberNames || {})[uid] || 'Raver').slice(0, 40);
+        const v = { type: 'repeal', target: uid, targetName: nm, by: uid, byName: nm, at: now, yes: [], statement: text, w: ap.k, rtype: r.type, of: r.log || '', exp: Math.min(Number(r.until), Number(r.start) + (ap.k + 1) * ap.q) };
+        const restrictions = { ...(t.restrictions || {}), [uid]: { ...r, appeals: [...(r.appeals || []), { w: ap.k, at: now, outcome: 'open' }] } };
+        const t1 = { ...t, votes: { ...all, [key]: v }, statusVote: null, restrictions };
+        const st = rkTribeSettle(t1, now);
+        tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        const voters = rkTribeVoters(t.members || [], v, t.restrictions, now);
+        return { t, st, key, v, voters };
+    });
+    if (out.exists) return { result: 'exists', key: out.key };
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, uid);
+    const ex = out.v.statement.length > 90 ? out.v.statement.slice(0, 88) + '…' : out.v.statement;
+    rkTribeNotify(tribeId, out.t, out.voters, 'vote', '🙏 @' + out.v.targetName + ' appealed their ' + (out.v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + (out.t.name || 'your tribe') + '": "' + ex + '" Tap to vote; ' + rkTribeNeeded(out.voters.length) + ' of ' + out.voters.length + ' needed to lift it.', 'vote:' + out.key);
+    return { result: 'started', key: out.key, need: rkTribeNeeded(out.voters.length) };
 };
 // Asking to join an OPEN tribe. The rules let a non-member write only their own entry in
 // joinRequests, and only while the tribe is open. Withdrawing is always allowed.
 export const requestToJoinTribe = async (tribe, uid, name) => {
     const nm = String(name || 'Raver').slice(0, 40);
     await updateDoc(rkTribeRef(tribe.id), { ['joinRequests.' + uid]: { name: nm, at: Date.now() } });
-    (tribe.members || []).slice(0, 50).forEach(m => pushNotif(m, 'tribe', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Open Vibe Tribe to vote.', tribe.id));
+    rkTribeNotify(tribe.id, tribe, (tribe.members || []).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Tap to vote.', 'vote:join:' + uid);
 };
 export const withdrawTribeRequest = async (tribeId, uid) => {
     await updateDoc(rkTribeRef(tribeId), { ['joinRequests.' + uid]: deleteField() });
+};
+// Mutes for one member of one tribe. Stored on the tribe so senders can honour them.
+export const setTribeMutes = async (tribeId, uid, mutes) => {
+    const clean = {};
+    RK_TRIBE_MUTES.forEach(m => { if (mutes && mutes[m.k]) clean[m.k] = true; });
+    await updateDoc(rkTribeRef(tribeId), { ['mutes.' + uid]: Object.keys(clean).length ? clean : deleteField() });
+    rkTribeEmit(tribeId, { __mutes: { uid, mutes: Object.keys(clean).length ? clean : null } });
+};
+// A new tribe message pings the other members, at most once every 2 minutes per sender per
+// tribe, so a conversation doesn't become a notification for every line. No message text goes
+// into the notification: tribe chat is encrypted, and a notification is not.
+const rkTribeMsgPing = (tribeId, t, fromUid, fromName) => {
+    if (!t) return;
+    const k = 'rk_tmsg_' + tribeId;
+    try { const last = Number(localStorage.getItem(k) || 0); if (Date.now() - last < 120000) return; localStorage.setItem(k, String(Date.now())); } catch (e) {}
+    rkTribeNotify(tribeId, t, (t.members || []).filter(m => m !== fromUid), 'msg', '💬 @' + (fromName || 'A raver') + ' sent a message in "' + (t.name || 'your tribe') + '".', 'chat');
 };
 // Send a message to the tribe group chat (stored as a subcollection).
 export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj, extra) => {
@@ -1962,6 +2456,43 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
         // it trains you to ignore the log, which is the one thing this channel cannot afford.
         if (e && e.code === 'already-exists') return;
         try { rkReport('notify ' + type + ' -> ' + String(toUid).slice(0, 6), e); } catch (_) {}
+    }
+};
+
+// V85.78.150.313: WHERE EVERY NOTIFICATION GOES (Milli, at 313: "make sure every single
+// notification links properly to the correct location"). One function serves the in-app list
+// and a tapped phone notification. There used to be two, and the phone one sent almost every
+// type to an 'inbox' page that does not exist. A notification names its destination in refId:
+//   '@<place>'                 a screen: vip, wallet, portal, refdash, orders (orders:buying and
+//                              orders:selling open that tab), vipgift,
+//                              creatorapp, creatorhub, lab, diy, achievements, analytics, banner,
+//                              messages, profile, market, admin:tickets, admin:apps, admin:storage
+//   '<itemId>#trade'           the trade window on that listing
+//   'dm:<uid>'                 the chat with that raver
+//   '<tribeId>#<focus>'        a Vibe Tribe vote, chat or card (type 'tribe')
+//   a plain id                 the item, thread or raver its type implies
+// Older notifications without one fall back to the closest screen for their type.
+const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'admin:tickets', 'admin:apps', 'admin:storage'];
+const rkNotifDest = (n) => {
+    const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
+    if (ref.charAt(0) === '@') { const key = ref.slice(1); return { to: 'place', key: RK_NOTIF_PLACES.includes(key) ? key : 'profile' }; }
+    if (ref.indexOf('dm:') === 0) return { to: 'dm', uid: ref.slice(3) };
+    switch (t) {
+        case 'message': return ref ? { to: 'thread', id: ref } : { to: 'place', key: 'messages' };
+        case 'offer': return ref ? { to: 'dm', uid: ref } : { to: 'place', key: 'messages' };
+        case 'ticket': return { to: 'place', key: 'messages' };   // the admin's reply arrives as a DM
+        case 'friendreq': return ref ? { to: 'profileOf', uid: ref } : { to: 'place', key: 'profile' };
+        case 'tribe': { const parts = ref.split('#'); return { to: 'tribe', tribeId: parts[0] || '', focus: parts[1] || (parts[0] ? 'card' : '') }; }
+        case 'trade': return ref ? { to: 'item', id: ref.split('#')[0], trade: true } : { to: 'none' };
+        case 'comment': case 'like': case 'cart': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'market' };
+        case 'sold': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'orders' };
+        case 'diy': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'diy' };
+        case 'queue': case 'creator': return { to: 'place', key: 'creatorhub' };
+        case 'ailab': return { to: 'place', key: 'lab' };
+        case 'achievement': return { to: 'place', key: 'achievements' };
+        case 'referral': return { to: 'place', key: 'refdash' };
+        case 'admin': return { to: 'place', key: 'profile' };
+        default: return { to: 'none' };
     }
 };
 
@@ -2083,8 +2614,8 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                         });
                     }
                     try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
-                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral');
-                    else pushNotif(referrerUid, 'referral', '⏳ ' + newUsername + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.');
+                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral', '@refdash');
+                    else pushNotif(referrerUid, 'referral', '⏳ ' + newUsername + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.', '@refdash');
                 }
             } catch (e) { console.log('referral credit skipped', e); }
         }
@@ -2652,11 +3183,550 @@ EOF
 
 # Block 6
 cat << 'EOF' >> src/App.js
+// V86.78.150.314: THE BACKGROUND LIBRARY (Milli, at 314: "allow admin to choose between the original
+// background, the current RK custom ... a couple exact replicas with color variations, like gold
+// foil version, white and pastel drip version ... and a few fractal design, cosmic design, and a few
+// other designs ... If possible, make animated versions"). Every design is generated here, in code:
+// SVG tiles for the monogram family and patterns, small canvas renders for the fractals and space.
+// Nothing is downloaded, and each image is drawn once per device (kept in localStorage after that).
+//
+// The choices follow the research on what people find calming, absorbing and good to think in front
+// of, without competing with the content on top:
+// - fractal patterns near dimension 1.3 to 1.5 are the most preferred and reduce physiological stress
+//   (Taylor et al., 2011; Hägerhäll et al., 2015), so the fractals aim for that mid-range complexity
+// - natural, softly varied scenes hold attention gently ("soft fascination") and help it recover
+//   (Kaplan, 1995): mist, branching, aurora
+// - vastness evokes awe, which in studies made time feel more plentiful and lifted mood (Rudd, Vohs &
+//   Aaker, 2012): the space designs
+// - blue and green backgrounds were linked to more creative, exploratory thinking than red (Mehta &
+//   Zhu, 2009; Lichtenfeld et al., 2012; small effects that don't always replicate), so the
+//   palettes lean teal, blue, violet and jade
+// - symmetric, regular forms are processed fluently and liked (Reber et al., 2004): the monogram
+//   lattice and the flower of life; curved forms are preferred to sharp ones (Bar & Neta, 2006)
+// - motion in the corner of the eye pulls attention, so movement is slow and small: drifts, turns,
+//   sways and sweeps take 16 s to 5 minutes; only the stars' twinkle and the neon's glow pulse
+//   faster (every 7 to 11 s), in brightness alone. All of it stops when the phone asks for reduced
+//   motion.
+// All of them stay dark and low in contrast, so white text keeps its contrast on top.
+const rkBgMemo = {};
+const rkBgOnce = (k, f) => (k in rkBgMemo ? rkBgMemo[k] : (rkBgMemo[k] = f()));
+
+// ---- the monogram tile (313's tile is the default; the options recolour it) ----
+function rkMonoTile(o) {
+  o = o || {};
+  const S = 128, H = S / 2;
+  const silver = o.silver || 0.085, gold = o.gold || 0.10, line = o.line || 0.07;
+  const faceC = o.face || '#d6d8e2', crownC = o.crown || '#d9b45a', lineC = o.lineC || '#e6e8f0';
+  const lightC = o.light || '#fff';
+  const dk = o.dark === undefined ? 0.55 : o.dark, dkC = o.darkC === undefined ? 0.5 : o.darkC;
+  // RK monogram, centred on 0,0, about 30 units tall. Stems with small serifs; a thin-to-thick bowl.
+  const rk = [
+    // R: stem, bowl, leg, serifs
+    'M-11 -14 V14', 'M-14.5 -14 H-7.5', 'M-14.5 14 H-7.5',
+    'M-11 -14 H-3.5 C3.2 -14 3.2 -1 -3.5 -1 H-11', 'M-5.5 -1 L1.8 14', 'M-0.6 14 H4.2',
+    // K: stem, arms, serifs
+    'M6.5 -14 V14', 'M3.2 -14 H9.8', 'M3.2 14 H9.8',
+    'M6.5 2 L16 -14', 'M13.3 -14 H18.7', 'M9.4 -1.2 L16.4 14', 'M13.8 14 H19',
+  ].join(' ');
+  // melting crown, centred on 0,0: five points with pearls, a band, and drips running off the band
+  const crown = 'M-15 2 L-15 -7 L-9.5 -1.5 L-4.5 -11 L0 -3 L4.5 -11 L9.5 -1.5 L15 -7 L15 2 Z';
+  const band = 'M-15.5 2 H15.5 V6.5 H-15.5 Z';
+  const dripList = [
+    'M-12.5 6.4 C-12.5 9 -11.6 11.6 -10.6 12.8 C-9.6 11.6 -8.8 9 -8.8 6.4 Z',
+    'M-4.2 6.4 C-4.2 11 -3.1 16.5 -1.9 18.6 C-0.7 16.5 0.3 11 0.3 6.4 Z',
+    'M5.6 6.4 C5.6 8.6 6.3 10.4 7.2 11.4 C8.1 10.4 8.8 8.6 8.8 6.4 Z',
+    'M11.6 6.4 C11.6 9.5 12.3 13 13.2 14.4 C14.1 13 14.8 9.5 14.8 6.4 Z',
+  ];
+  const drips = dripList.join(' ');
+  const dropList = ['<circle cx="-1.9" cy="22.6" r="1.3"/>', '<circle cx="13.2" cy="17.6" r="0.9"/>'];
+  const drops = dropList.join('');
+  const pearls = '<circle cx="-15" cy="-8.6" r="1.5"/><circle cx="-4.5" cy="-12.8" r="1.7"/><circle cx="4.5" cy="-12.8" r="1.7"/><circle cx="15" cy="-8.6" r="1.5"/><circle cx="0" cy="-4.6" r="1.1"/>';
+  const imprint = (body, dx, dy) => '<g transform="translate(' + dx + ' ' + dy + ')">' + body + '</g>';
+  const rkG = (stroke, op) => '<path d="' + rk + '" fill="none" stroke="' + stroke + '" stroke-opacity="' + op + '" stroke-width="' + (o.sw || 2.1) + '" stroke-linecap="square" stroke-linejoin="miter"/>';
+  const crownG = (fill, op) => '<g fill="' + fill + '" fill-opacity="' + op + '"><path d="' + crown + '"/><path d="' + band + '"/><path d="' + drips + '"/>' + drops + pearls + '</g>';
+  // pastel drips: the crown in its colour, each drip (and its drop) in its own
+  const crownFace = () => {
+    if (!o.dripCols) return crownG(o.foil ? 'url(#rkf)' : crownC, gold);
+    const dc = o.dripCols, dop = o.dripOp || gold * 2;
+    return '<g fill="' + crownC + '" fill-opacity="' + gold + '"><path d="' + crown + '"/><path d="' + band + '"/>' + pearls + '</g>'
+      + dripList.map((d, i) => '<path d="' + d + '" fill="' + dc[i % dc.length] + '" fill-opacity="' + dop + '"/>').join('')
+      + '<g fill-opacity="' + dop + '"><circle cx="-1.9" cy="22.6" r="1.3" fill="' + dc[1 % dc.length] + '"/><circle cx="13.2" cy="17.6" r="0.9" fill="' + dc[3 % dc.length] + '"/></g>';
+  };
+  const at = (x, y, inner) => '<g transform="translate(' + x + ' ' + y + ')">' + inner + '</g>';
+  let rkAll, crownAll;
+  if (o.neon) {
+    // emissive: a blurred glow under a fine line, no pressed-in edges
+    rkAll = '<g filter="url(#rkg)">' + rkG(faceC, silver * 1.6) + '</g>' + rkG(faceC, silver);
+    crownAll = '<g filter="url(#rkg)">' + crownG(crownC, gold * 1.4) + '</g>' + crownG(crownC, gold);
+  } else {
+    // deboss: dark offset up-left, light offset down-right, then the face
+    rkAll = imprint(rkG('#000', dk), -0.7, -0.7) + imprint(rkG(lightC, silver * 0.6), 0.7, 0.7) + rkG(o.foil ? 'url(#rkf)' : faceC, silver);
+    crownAll = imprint(crownG('#000', dkC), -0.6, -0.6) + imprint(crownG(lightC, gold * 0.45), 0.6, 0.6) + crownFace();
+  }
+  const lattice = '<path d="M0 ' + H + ' L' + H + ' 0 L' + S + ' ' + H + ' L' + H + ' ' + S + ' Z" fill="none" stroke="' + lineC + '" stroke-opacity="' + line + '" stroke-width="0.9"/>'
+    + '<path d="M7 ' + H + ' L' + H + ' 7 L' + (S - 7) + ' ' + H + ' L' + H + ' ' + (S - 7) + ' Z" fill="none" stroke="' + lineC + '" stroke-opacity="' + (line * 0.55) + '" stroke-width="0.6"/>'
+    + '<g fill="' + lineC + '" fill-opacity="' + (line * 1.6) + '"><circle cx="0" cy="' + H + '" r="1.5"/><circle cx="' + S + '" cy="' + H + '" r="1.5"/><circle cx="' + H + '" cy="0" r="1.5"/><circle cx="' + H + '" cy="' + S + '" r="1.5"/></g>';
+  const defs = (o.foil ? '<linearGradient id="rkf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + o.foil[0] + '"/><stop offset="0.5" stop-color="' + o.foil[1] + '"/><stop offset="1" stop-color="' + o.foil[2] + '"/></linearGradient>' : '')
+    + (o.neon ? '<filter id="rkg" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="1.8"/></filter>' : '');
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + S + '" height="' + S + '" viewBox="0 0 ' + S + ' ' + S + '">'
+    + (defs ? '<defs>' + defs + '</defs>' : '')
+    + lattice
+    + at(H, H, '<g transform="scale(0.92)">' + rkAll + '</g>')
+    + [[0, 0], [S, 0], [0, S], [S, S]].map(p => at(p[0], p[1] - 2, '<g transform="scale(' + (o.cs || 0.9) + ')">' + crownAll + '</g>')).join('')
+    + '</svg>';
+  return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+}
+// brushed metal: two soft highlights over a banded gradient, with a faint vertical grain
+const rkMetal = (s, hi, hi2) => 'radial-gradient(120% 70% at 18% -10%, ' + hi + ', transparent 60%), radial-gradient(90% 60% at 110% 105%, ' + hi2 + ', transparent 60%), linear-gradient(115deg, ' + s[0] + ' 0%, ' + s[1] + ' 24%, ' + s[2] + ' 46%, ' + s[3] + ' 63%, ' + s[4] + ' 82%, ' + s[5] + ' 100%), repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 4px)';
+const RK_BG_METAL = rkMetal(['#0b0b0e', '#17171b', '#0a0a0c', '#1b1b20', '#0c0c0f', '#141418'], 'rgba(255,255,255,0.075)', 'rgba(255,255,255,0.05)');
+
+// ---- small seeded tools for the generated images ----
+const rkRand = (seed) => { let s = (seed >>> 0) || 1; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; };
+// value-noise fBm, 0..1: soft, cloud-like 1/f texture
+function rkFbm(seed) {
+  const r = rkRand(seed), p = new Uint8Array(512), g = new Float32Array(256);
+  const perm = []; for (let i = 0; i < 256; i++) perm.push(i);
+  for (let i = 255; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  for (let i = 0; i < 256; i++) g[i] = r();
+  const sm = (t) => t * t * (3 - 2 * t);
+  const v = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = sm(x - xi), w = sm(y - yi);
+    const a = g[p[(xi & 255) + p[yi & 255]]], b = g[p[((xi + 1) & 255) + p[yi & 255]]];
+    const c = g[p[(xi & 255) + p[(yi + 1) & 255]]], d = g[p[((xi + 1) & 255) + p[(yi + 1) & 255]]];
+    return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w;
+  };
+  return (x, y, oct) => { let f = 0, amp = 0.5, fr = 1, tot = 0; for (let k = 0; k < oct; k++) { f += amp * v(x * fr + k * 17.3, y * fr + k * 9.1); tot += amp; fr *= 2.03; amp *= 0.5; } return f / tot; };
+}
+const rkMix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+// a colour ramp: stops [[t, [r,g,b]], ...]
+const rkRamp = (stops, t) => {
+  if (t <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) return rkMix(stops[i - 1][1], stops[i][1], (t - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]));
+  return stops[stops.length - 1][1];
+};
+// Draws once per device: memory first, then localStorage, then the canvas.
+function rkBgImg(key, w, h, draw, png) {
+  return rkBgOnce('img:' + key, () => {
+    const lk = 'rk_bgimg_' + key + '_v1';
+    try { const c = localStorage.getItem(lk); if (c && c.indexOf('data:image') === 0) return 'url("' + c + '")'; } catch (e) {}
+    try {
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d'); if (!ctx) return 'none';
+      draw(ctx, w, h);
+      const u = png ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.86);
+      try { localStorage.setItem(lk, u); } catch (e) {}
+      return 'url("' + u + '")';
+    } catch (e) { return 'none'; }
+  });
+}
+const rkPix = (ctx, w, h, f) => {
+  const img = ctx.createImageData(w, h), d = img.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const c = f(x, y), i = (y * w + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = c.length > 3 ? c[3] : 255; }
+  ctx.putImageData(img, 0, 0);
+};
+const rkStars = (ctx, w, h, n, seed, maxR, glow) => {
+  const r = rkRand(seed);
+  for (let i = 0; i < n; i++) {
+    const x = r() * w, y = r() * h, s = Math.pow(r(), 3), rad = 0.35 + s * maxR;
+    const tint = r(), col = tint < 0.6 ? '255,255,255' : tint < 0.8 ? '200,220,255' : '255,225,240';
+    if (glow && s > 0.7) { const gr = ctx.createRadialGradient(x, y, 0, x, y, rad * 5); gr.addColorStop(0, 'rgba(' + col + ',0.35)'); gr.addColorStop(1, 'rgba(' + col + ',0)'); ctx.fillStyle = gr; ctx.fillRect(x - rad * 5, y - rad * 5, rad * 10, rad * 10); }
+    ctx.fillStyle = 'rgba(' + col + ',' + (0.25 + s * 0.7).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.2832); ctx.fill();
+  }
+};
+
+// ---- the generated designs ----
+// Julia set (c = -0.8 + 0.156i), turned to run the length of a phone, smooth-coloured from night
+// navy through teal and violet to a pale lilac edge.
+const rkJulia = () => rkBgImg('julia', 240, 520, (ctx, w, h) => {
+  const cr = -0.8, ci = 0.156, maxI = 150, sc = h / 2.7;
+  const ramp = [[0, [5, 6, 14]], [0.3, [7, 18, 32]], [0.55, [12, 52, 66]], [0.78, [44, 36, 92]], [0.93, [92, 74, 146]], [1, [126, 104, 184]]];
+  rkPix(ctx, w, h, (px, py) => {
+    let zx = (py - h / 2) / sc, zy = (px - w / 2) / sc, i = 0, x2 = zx * zx, y2 = zy * zy;
+    while (x2 + y2 < 64 && i < maxI) { zy = 2 * zx * zy + ci; zx = x2 - y2 + cr; x2 = zx * zx; y2 = zy * zy; i++; }
+    if (i >= maxI) return [9, 7, 22];
+    const nu = Math.log(Math.log(x2 + y2) / 2 / Math.LN2) / Math.LN2;
+    const t = Math.min(1, Math.pow(Math.max(0, (i + 1 - nu)) / 52, 0.7));
+    const c = rkRamp(ramp, t), dim = 0.52;
+    return [c[0] * dim, c[1] * dim, c[2] * dim];
+  });
+  // soften into a glow: the escape-time edge is too fine to read as anything but grain when scaled
+  try { const t = document.createElement('canvas'); t.width = w; t.height = h; const tc = t.getContext('2d'); tc.filter = 'blur(1.4px)'; tc.drawImage(ctx.canvas, 0, 0); ctx.globalAlpha = 0.75; ctx.drawImage(t, 0, 0); ctx.globalAlpha = 1; } catch (e) {}
+});
+// fractal mist: two fBm fields mixed through slate, teal and violet
+const rkMist = () => rkBgImg('mist', 300, 650, (ctx, w, h) => {
+  const f1 = rkFbm(11), f2 = rkFbm(23);
+  rkPix(ctx, w, h, (x, y) => {
+    const u = x / 150, v = y / 150;
+    const a = f1(u * 1.6, v * 1.6, 6), b = f2(u * 2.2 + 3, v * 2.2, 6);
+    let c = rkMix([6, 9, 16], [14, 54, 66], Math.max(0, Math.min(1, (a - 0.36) * 2.4)));
+    c = rkMix(c, [44, 30, 82], Math.max(0, Math.min(1, (b - 0.46) * 2.6)) * 0.85);
+    const vg = 1 - 0.45 * Math.pow(Math.hypot((x - w / 2) / w, (y - h / 2) / h) * 1.6, 2);
+    return [c[0] * vg, c[1] * vg, c[2] * vg];
+  });
+});
+// nebula: magenta and teal clouds with dark dust lanes, then stars
+const rkNebula = () => rkBgImg('nebula', 300, 650, (ctx, w, h) => {
+  const f1 = rkFbm(5), f2 = rkFbm(41), f3 = rkFbm(77);
+  rkPix(ctx, w, h, (x, y) => {
+    const u = x / 140, v = y / 140;
+    const m = Math.pow(Math.max(0, f1(u * 1.4, v * 1.4, 6) - 0.42) * 2.2, 1.6), t = Math.pow(Math.max(0, f2(u * 1.8 + 5, v * 1.8, 6) - 0.45) * 2.4, 1.5);
+    const dust = Math.max(0, f3(u * 3, v * 3, 5) - 0.5) * 1.8;
+    let c = [4, 3, 10];
+    c = rkMix(c, [80, 26, 88], Math.min(1, m) * 0.8);
+    c = rkMix(c, [14, 76, 94], Math.min(1, t) * 0.7);
+    const k = 1 - Math.min(0.7, dust);
+    return [c[0] * k, c[1] * k, c[2] * k];
+  });
+  rkStars(ctx, w, h, 300, 9, 0.75, true);
+});
+const rkTwinkle = (seed) => rkBgImg('twinkle' + seed, 300, 650, (ctx, w, h) => rkStars(ctx, w, h, 60, seed, 1.5, true), true);
+// a golden-spiral galaxy: arms that widen by the golden ratio every quarter turn
+const rkGalaxy = () => rkBgImg('galaxy', 640, 640, (ctx, w, h) => {
+  const r = rkRand(314), cx = w / 2, cy = h / 2, b = Math.log((1 + Math.sqrt(5)) / 2) / (Math.PI / 2);
+  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.22);
+  core.addColorStop(0, 'rgba(255,226,190,0.38)'); core.addColorStop(0.3, 'rgba(200,170,255,0.14)'); core.addColorStop(1, 'rgba(120,100,220,0)');
+  ctx.fillStyle = core; ctx.fillRect(0, 0, w, h);
+  for (let arm = 0; arm < 3; arm++) {
+    for (let n = 0; n < 2600; n++) {
+      const t = Math.pow(r(), 0.8) * 3.4 * Math.PI, rad = 9 * Math.exp(b * t);
+      if (rad > w * 0.47) continue;
+      const th = t + arm * (2 * Math.PI / 3), sp = rad * 0.22 * (r() + r() - 1);
+      const x = cx + Math.cos(th) * rad + Math.cos(th + 1.57) * sp, y = cy + Math.sin(th) * rad + Math.sin(th + 1.57) * sp;
+      const q = rad / (w * 0.47), col = rkRamp([[0, [255, 222, 186]], [0.35, [170, 196, 255]], [1, [190, 150, 255]]], q);
+      ctx.fillStyle = 'rgba(' + (col[0] | 0) + ',' + (col[1] | 0) + ',' + (col[2] | 0) + ',' + (0.10 + r() * 0.35 * (1 - q * 0.6)).toFixed(2) + ')';
+      const s = 0.4 + r() * 1.1 * (1 - q * 0.5); ctx.fillRect(x, y, s, s);
+    }
+  }
+}, true);
+const rkStarTile = () => rkBgImg('startile', 320, 320, (ctx, w, h) => { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); rkStars(ctx, w, h, 70, 3, 0.9, false); });
+
+// Flower of Life: 19 circles on a hexagonal lattice in two rings, inside a double circle.
+const rkFlower = () => rkBgOnce('flower', () => {
+  const R = 50, C = 300, pts = [[0, 0]];
+  for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; pts.push([R * Math.cos(a), R * Math.sin(a)]); pts.push([2 * R * Math.cos(a), 2 * R * Math.sin(a)]); pts.push([Math.sqrt(3) * R * Math.cos(a + Math.PI / 6), Math.sqrt(3) * R * Math.sin(a + Math.PI / 6)]); }
+  const circ = (c, op, w) => pts.map(p => '<circle cx="' + (C + p[0]).toFixed(2) + '" cy="' + (C + p[1]).toFixed(2) + '" r="' + R + '"/>').join('');
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><defs><radialGradient id="f" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#e9d8ff" stop-opacity="0.95"/><stop offset="0.75" stop-color="#cbb6ff" stop-opacity="0.75"/><stop offset="1" stop-color="#a98bff" stop-opacity="0.2"/></radialGradient></defs>'
+    + '<g fill="none" stroke="url(#f)" stroke-opacity="0.34" stroke-width="1.1">' + circ() + '<circle cx="300" cy="300" r="' + (3 * R) + '"/><circle cx="300" cy="300" r="' + (3 * R + 6) + '"/></g>'
+    + '<g fill="#f3e6ff" fill-opacity="0.3">' + pts.map(p => '<circle cx="' + (C + p[0]).toFixed(2) + '" cy="' + (C + p[1]).toFixed(2) + '" r="1.4"/>').join('') + '</g></svg>';
+  return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+});
+// Fractal canopy: looking up through branches. Six limbs reach in from the edges toward an open
+// centre, branching mostly in two at about a 0.64 length ratio (mid-range fractal complexity), as
+// thin silver-teal lines with small buds at the tips.
+const rkCanopy = () => rkBgOnce('canopy', () => {
+  const r = rkRand(2718), segs = [], buds = [];
+  // Stochastic: lengths, angles and depth vary, and some twigs stop early, so the crowns are
+  // irregular like real branches rather than neat domes.
+  const grow = (x, y, a, len, d, w) => {
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+    segs.push([x, y, x2, y2, w]);
+    if (d === 0 || (d < 6 && r() < 0.16)) { buds.push([x2, y2]); return; }
+    const kids = r() < 0.18 ? 3 : 2, fan = 0.5 + r() * 0.5;
+    for (let k = 0; k < kids; k++) {
+      const off = kids === 2 ? (k ? 1 : -1) * fan * (0.55 + r() * 0.4) : (k - 1) * fan * 0.8;
+      grow(x2, y2, a + off + (r() - 0.5) * 0.25, len * (0.56 + r() * 0.16), d - 1, w * 0.72);
+    }
+  };
+  [[-10, 1060, -0.9, 230], [490, 1060, -2.25, 220], [-15, 600, -0.25, 160], [495, 470, 3.4, 150], [-10, -20, 0.85, 170], [490, -20, 2.3, 180]]
+    .forEach(([x, y, a, len]) => grow(x, y, a, len, 8, 2.6));
+  const path = (list) => list.map(s => 'M' + s[0].toFixed(1) + ' ' + s[1].toFixed(1) + 'L' + s[2].toFixed(1) + ' ' + s[3].toFixed(1)).join('');
+  const thick = segs.filter(s => s[4] > 1.2), thin = segs.filter(s => s[4] <= 1.2);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="1040" viewBox="0 0 480 1040" preserveAspectRatio="xMidYMid slice">'
+    + '<g fill="none" stroke="#a7e6dc" stroke-linecap="round"><path d="' + path(thick) + '" stroke-opacity="0.09" stroke-width="1.5"/><path d="' + path(thin) + '" stroke-opacity="0.11" stroke-width="0.8"/></g>'
+    + '<g fill="#d9fff4" fill-opacity="0.16">' + buds.map(b => '<circle cx="' + b[0].toFixed(1) + '" cy="' + b[1].toFixed(1) + '" r="1.3"/>').join('') + '</g></svg>';
+  return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+});
+// Contours: a topographic map of an fBm landscape, traced with marching squares. Every fifth line
+// is an index line, slightly brighter, as on survey maps.
+const rkContours = () => rkBgOnce('contours', () => {
+  const f = rkFbm(808), N = 48, M = 104, S = 10, LV = 15, val = [];
+  for (let j = 0; j <= M; j++) { const row = []; for (let i = 0; i <= N; i++) row.push(f(i / 15, j / 15, 4)); val.push(row); }
+  let lo = 1, hi = 0; val.forEach(row => row.forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); }));
+  const minor = [], major = [];
+  for (let l = 1; l < LV; l++) {
+    const L = lo + (hi - lo) * l / LV, out = l % 5 === 0 ? major : minor;
+    for (let j = 0; j < M; j++) for (let i = 0; i < N; i++) {
+      const a = val[j][i], b = val[j][i + 1], c = val[j + 1][i + 1], d = val[j + 1][i];
+      const k = (a > L ? 8 : 0) | (b > L ? 4 : 0) | (c > L ? 2 : 0) | (d > L ? 1 : 0);
+      if (k === 0 || k === 15) continue;
+      const x = i * S, y = j * S, t = (p, q) => (L - p) / (q - p);
+      const T = [x + S * t(a, b), y], R = [x + S, y + S * t(b, c)], B = [x + S * t(d, c), y + S], Lf = [x, y + S * t(a, d)];
+      const seg = { 1: [Lf, B], 2: [B, R], 3: [Lf, R], 4: [T, R], 5: [Lf, T, B, R], 6: [T, B], 7: [Lf, T], 8: [Lf, T], 9: [T, B], 10: [T, R, Lf, B], 11: [T, R], 12: [Lf, R], 13: [B, R], 14: [Lf, B] }[k];
+      for (let s = 0; s < seg.length; s += 2) out.push('M' + seg[s][0].toFixed(1) + ' ' + seg[s][1].toFixed(1) + 'L' + seg[s + 1][0].toFixed(1) + ' ' + seg[s + 1][1].toFixed(1));
+    }
+  }
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="1040" viewBox="0 0 480 1040" preserveAspectRatio="xMidYMid slice"><g fill="none" stroke-linecap="round">'
+    + '<path d="' + minor.join('') + '" stroke="#86d9e6" stroke-opacity="0.10" stroke-width="0.8"/>'
+    + '<path d="' + major.join('') + '" stroke="#c4b5fd" stroke-opacity="0.19" stroke-width="1.2"/></g></svg>';
+  return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+});
+
+// ---- the catalogue ----
+// Each design gives `layers(anim)`: absolutely-positioned layers drawn back to front. With anim on,
+// some layers carry a slow CSS animation (classes rk-bga-*, defined in index.html); with it off, or
+// with reduced motion, the same picture holds still. `color` is the page colour under it all.
+const rkMonoBg = (tile, metal) => (anim, kind) => {
+  const pat = { backgroundImage: tile(), backgroundSize: '128px 128px' };
+  if (!anim) return [{ style: { backgroundImage: tile() + ', ' + metal, backgroundSize: '128px 128px, cover, cover, cover, auto', backgroundRepeat: 'repeat, no-repeat, no-repeat, no-repeat, repeat' } }];
+  if (kind === 'drift') return [{ style: { backgroundImage: metal } }, { cls: 'rk-bga-drift', style: { ...pat, right: '-128px', bottom: '-128px' } }];
+  if (kind === 'breathe') return [{ style: { backgroundImage: metal } }, { cls: 'rk-bga-breathe', style: pat }];
+  return [{ style: { backgroundImage: tile() + ', ' + metal, backgroundSize: '128px 128px, cover, cover, cover, auto', backgroundRepeat: 'repeat, no-repeat, no-repeat, no-repeat, repeat' } },
+    { cls: 'rk-bga-sheen', style: { left: '-50%', right: '-50%', backgroundImage: 'linear-gradient(90deg, transparent 0%, transparent 38%, ' + (kind || 'rgba(255,255,255,0.07)') + ' 50%, transparent 62%, transparent 100%)' } }];
+};
+const RK_BGS = [
+  { id: 'classic', name: 'Original', group: 'Original', color: '#0f001e', layers: () => [{ style: { backgroundColor: '#0f001e' } }] },
+  { id: 'rk_black', name: 'RK Black', group: 'RK Monogram', color: '#0d0d10', anim: 'sheen',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:black', () => rkMonoTile({ silver: 0.08, gold: 0.12, line: 0.07, cs: 0.9 })), RK_BG_METAL)(a, 'rgba(255,255,255,0.06)') },
+  { id: 'rk_gold', name: 'Gold Foil', group: 'RK Monogram', color: '#0e0b06', anim: 'sheen',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:gold', () => rkMonoTile({ silver: 0.15, gold: 0.17, line: 0.08, cs: 0.9, face: '#e8c26a', crown: '#f3cf78', lineC: '#d9b45a', light: '#fff2c2', foil: ['#a8781f', '#ffe7a3', '#c4913a'], dark: 0.6, darkC: 0.55 })),
+      rkMetal(['#0c0905', '#1b150b', '#0a0804', '#1f180c', '#0d0a05', '#17120a'], 'rgba(255,220,150,0.07)', 'rgba(255,200,120,0.05)'))(a, 'rgba(255,224,150,0.10)') },
+  { id: 'rk_pastel', name: 'Pastel Drip', group: 'RK Monogram', color: '#0f0d14', anim: 'drift',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:pastel', () => rkMonoTile({ silver: 0.12, gold: 0.16, line: 0.06, cs: 0.9, face: '#f6f2ff', crown: '#ffffff', lineC: '#efe6ff', light: '#ffffff', dripCols: ['#ffb3d9', '#c9b8ff', '#b6f5d8', '#a8dcff'], dripOp: 0.46, dark: 0.45, darkC: 0.3 })),
+      rkMetal(['#0f0d14', '#1a1622', '#0e0c12', '#1d1827', '#100e15', '#17141e'], 'rgba(230,210,255,0.07)', 'rgba(200,230,255,0.05)'))(a, 'drift') },
+  { id: 'rk_chrome', name: 'Chrome Ice', group: 'RK Monogram', color: '#0a0e14', anim: 'sheen',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:chrome', () => rkMonoTile({ silver: 0.13, gold: 0.15, line: 0.07, cs: 0.9, face: '#d4e6ff', crown: '#b4d2f2', lineC: '#bcd4f0', light: '#eaf4ff', dark: 0.5, darkC: 0.45 })),
+      rkMetal(['#0a0e14', '#151c27', '#090c11', '#18212f', '#0b0f15', '#121924'], 'rgba(190,220,255,0.08)', 'rgba(170,200,255,0.05)'))(a, 'rgba(200,228,255,0.08)') },
+  { id: 'rk_neon', name: 'Neon Outline', group: 'RK Monogram', color: '#07060b', anim: 'breathe',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:neon', () => rkMonoTile({ silver: 0.14, gold: 0.12, line: 0.05, cs: 0.9, face: '#ff6fd8', crown: '#6ff6ff', lineC: '#a99bff', neon: true, sw: 1.6 })),
+      rkMetal(['#07060b', '#0d0b14', '#060509', '#100d18', '#07060b', '#0b0a12'], 'rgba(255,111,216,0.05)', 'rgba(111,246,255,0.04)'))(a, 'breathe') },
+  { id: 'rk_amethyst', name: 'Amethyst', group: 'RK Monogram', color: '#12081b', anim: 'drift',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:amethyst', () => rkMonoTile({ silver: 0.12, gold: 0.17, line: 0.07, cs: 0.9, face: '#dccbff', crown: '#f2b796', lineC: '#cdb8ff', light: '#f3eaff', dark: 0.5, darkC: 0.45 })),
+      rkMetal(['#12081b', '#22102f', '#10071a', '#281236', '#130a1e', '#1d0d29'], 'rgba(216,198,255,0.08)', 'rgba(255,180,200,0.05)'))(a, 'drift') },
+  { id: 'rk_jade', name: 'Jade', group: 'RK Monogram', color: '#06100d', anim: 'sheen',
+    layers: (a) => rkMonoBg(() => rkBgOnce('t:jade', () => rkMonoTile({ silver: 0.115, gold: 0.15, line: 0.065, cs: 0.9, face: '#aef2d3', crown: '#e8cd80', lineC: '#9be7c4', light: '#e6fff4', dark: 0.5, darkC: 0.45 })),
+      rkMetal(['#06100d', '#0e1d18', '#050d0a', '#10231c', '#07120e', '#0c1a15'], 'rgba(170,255,220,0.07)', 'rgba(150,240,210,0.05)'))(a, 'rgba(190,255,225,0.07)') },
+  { id: 'fractal_julia', name: 'Julia Glow', group: 'Fractal', color: '#05060e', anim: 'zoom',
+    layers: (a) => [{ cls: a ? 'rk-bga-zoom' : '', style: { backgroundImage: rkJulia(), backgroundSize: 'cover', backgroundPosition: 'center' } }] },
+  { id: 'fractal_canopy', name: 'Fractal Canopy', group: 'Fractal', color: '#050b10', anim: 'sway',
+    layers: (a) => [{ style: { backgroundImage: 'radial-gradient(90% 60% at 50% 110%, rgba(40,120,110,0.18), transparent 70%), linear-gradient(180deg, #040810 0%, #071319 55%, #0a1c20 100%)' } },
+      { cls: a ? 'rk-bga-sway' : '', style: { backgroundImage: rkCanopy(), backgroundSize: 'cover', backgroundPosition: 'center' } }] },
+  { id: 'fractal_mist', name: 'Fractal Mist', group: 'Fractal', color: '#060910', anim: 'float',
+    layers: (a) => [{ cls: a ? 'rk-bga-float' : '', style: { inset: a ? '-8%' : 0, backgroundImage: rkMist(), backgroundSize: 'cover', backgroundPosition: 'center' } }] },
+  { id: 'cosmic_nebula', name: 'Nebula', group: 'Cosmic', color: '#04030a', anim: 'float',
+    layers: (a) => a ? [{ cls: 'rk-bga-float', style: { inset: '-8%', backgroundImage: rkNebula(), backgroundSize: 'cover', backgroundPosition: 'center' } },
+      { cls: 'rk-bga-twinkle', style: { backgroundImage: rkTwinkle(1), backgroundSize: 'cover' } }, { cls: 'rk-bga-twinkle2', style: { backgroundImage: rkTwinkle(2), backgroundSize: 'cover' } }]
+      : [{ style: { backgroundImage: rkNebula(), backgroundSize: 'cover', backgroundPosition: 'center' } }] },
+  { id: 'cosmic_aurora', name: 'Aurora', group: 'Cosmic', color: '#02040b', anim: 'aurora',
+    layers: (a) => [{ style: { backgroundImage: rkStarTile() + ', linear-gradient(180deg, #02040b 0%, #04101a 55%, #071a22 100%)', backgroundSize: '320px 320px, cover', backgroundBlendMode: 'screen, normal' } },
+      { cls: a ? 'rk-bga-aurora' : '', style: { left: '-20%', right: '-20%', top: '-5%', bottom: '25%', transform: a ? undefined : 'rotate(-10deg)', backgroundImage: 'radial-gradient(55% 16% at 32% 34%, rgba(52,211,153,0.22), transparent 70%), radial-gradient(45% 12% at 66% 24%, rgba(34,211,238,0.16), transparent 70%), radial-gradient(70% 20% at 52% 46%, rgba(167,139,250,0.13), transparent 72%), radial-gradient(40% 10% at 20% 52%, rgba(110,231,183,0.10), transparent 70%)' } }] },
+  { id: 'cosmic_galaxy', name: 'Golden Galaxy', group: 'Cosmic', color: '#03030a', anim: 'spin',
+    layers: (a) => [{ style: { backgroundImage: rkStarTile() + ', radial-gradient(80% 50% at 50% 50%, #0b0a1e 0%, #04040c 70%)', backgroundSize: '320px 320px, cover', backgroundBlendMode: 'screen, normal' } },
+      { cls: 'rk-bg-center' + (a ? ' rk-bga-spin' : ''), style: { width: '230vmin', height: '230vmin', backgroundImage: rkGalaxy(), backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', opacity: 0.8 } }] },
+  { id: 'flower_of_life', name: 'Flower of Life', group: 'More', color: '#0b0714', anim: 'spin',
+    layers: (a) => [{ style: { backgroundImage: 'radial-gradient(70% 45% at 50% 50%, #1a1030 0%, #0b0714 75%)' } },
+      { cls: 'rk-bg-center' + (a ? ' rk-bga-spin' : ''), style: { width: '135vmin', height: '135vmin', backgroundImage: rkFlower(), backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center' } }] },
+  { id: 'holo_liquid', name: 'Holo Liquid', group: 'More', color: '#0a0a12', anim: 'float',
+    layers: (a) => [{ style: { backgroundImage: 'linear-gradient(160deg, #0b0a14 0%, #0a0d16 50%, #0c0a12 100%)' } },
+      { cls: a ? 'rk-bga-float' : '', style: { inset: '-10%', backgroundImage: 'radial-gradient(48% 30% at 24% 30%, rgba(255,154,213,0.2), transparent 72%), radial-gradient(44% 30% at 76% 60%, rgba(143,211,255,0.18), transparent 72%)' } },
+      { cls: a ? 'rk-bga-float2' : '', style: { inset: '-10%', backgroundImage: 'radial-gradient(44% 26% at 70% 20%, rgba(159,240,201,0.15), transparent 72%), radial-gradient(50% 30% at 30% 80%, rgba(196,163,255,0.18), transparent 74%)' } }] },
+  { id: 'contours', name: 'Contours', group: 'More', color: '#060b12', anim: 'float',
+    layers: (a) => [{ style: { backgroundImage: 'linear-gradient(180deg, #050a12 0%, #08111b 60%, #0a1420 100%)' } },
+      { cls: a ? 'rk-bga-float' : '', style: { inset: a ? '-6%' : 0, backgroundImage: rkContours(), backgroundSize: 'cover', backgroundPosition: 'center' } }] },
+];
+const RK_BG_GROUPS = ['Original', 'RK Monogram', 'Fractal', 'Cosmic', 'More'];
+const rkBgById = (id) => RK_BGS.find(b => b.id === id) || RK_BGS[1];
+// The layers for a design, built once per design and mode.
+const rkBgLayers = (id, anim) => { const b = rkBgById(id); const a = !!(anim && b.anim); return rkBgOnce('L:' + b.id + ':' + a, () => b.layers(a)); };
+// The choice: an admin's, kept on the device for the screens shown before sign-in (they can't read
+// the config). Until an admin saves one, it is 313's RK Black, still.
+const RK_BG_DEFAULT = { id: 'rk_black', anim: false };
+const rkBgCached = () => {
+    try { const c = JSON.parse(localStorage.getItem('rk_app_bg') || 'null'); if (c && typeof c.id === 'string' && RK_BGS.some(b => b.id === c.id)) return { id: c.id, anim: !!c.anim }; } catch (e) {}
+    return RK_BG_DEFAULT;
+};
+const rkBgRemember = (cfg) => {
+    const sel = { id: (cfg && RK_BGS.some(b => b.id === cfg.appBg)) ? cfg.appBg : RK_BG_DEFAULT.id, anim: !!(cfg && cfg.appBgAnim) };
+    try { localStorage.setItem('rk_app_bg', JSON.stringify(sel)); } catch (e) {}
+    return sel;
+};
+// Draws a design: fixed behind the app, or filling the screen it sits in (fixed false).
+const RkAppBackground = ({ id, anim, fixed = true }) => {
+    const b = rkBgById(id);
+    const layers = rkBgLayers(b.id, anim);
+    return (
+        <div aria-hidden="true" data-bg={b.id} data-bg-anim={anim && b.anim ? '1' : '0'} className={(fixed ? 'fixed' : 'absolute') + ' inset-0 pointer-events-none overflow-hidden'} style={{ zIndex: fixed ? -1 : 0, backgroundColor: b.color }}>
+            {layers.map((l, i) => <div key={i} className={'absolute ' + ((l.cls || '').indexOf('rk-bg-center') >= 0 ? '' : 'inset-0 ') + (l.cls || '')} style={l.style}/>)}
+        </div>
+    );
+};
+// A miniature of a phone screen with that design, for the admin's picker.
+const RkBgThumb = ({ id, w = 64 }) => {
+    const k = w / 412;
+    return (
+        <div className="relative overflow-hidden rounded-md mx-auto" style={{ width: w, height: Math.round(892 * k) }}>
+            <div className="absolute top-0 left-0" style={{ width: 412, height: 892, transform: 'scale(' + k + ')', transformOrigin: '0 0' }}><RkAppBackground id={id} anim={false} fixed={false}/></div>
+        </div>
+    );
+};
+
+// V85.78.150.313: LOADING-SCREEN POLYHEDRA (Milli, at 313, from a video still: "a multidimensional
+// shifting and spinning [shape] as static lines/connections that reverberate and pulse ... on the
+// upper half over loading and the lower half under loading, moving in random directions").
+// Wireframe icosahedra with a dodecahedron and a small icosahedron nested inside, every layer
+// turning on its own axis. Edges pulse, each shape "rings" every few seconds (a quick decaying
+// wobble) and leaves faint echoes, and shapes drift and bounce in the band above the title and the
+// band below the progress text. The inner layers appear as loading progresses. With reduced motion
+// set, the shapes are a still picture (no drift, turning, ringing or pulsing). Plain canvas, so it
+// costs nothing once loading ends.
+function rkPolyStart(cv, opts) {
+  const ctx = cv.getContext('2d'); if (!ctx) return () => {};
+  const getAvoid = opts.getAvoid || (() => null), getProgress = opts.getProgress || (() => 100);
+  const reduce = !!opts.reduce;
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+  const ico = [[-1, PHI, 0], [1, PHI, 0], [-1, -PHI, 0], [1, -PHI, 0], [0, -1, PHI], [0, 1, PHI], [0, -1, -PHI], [0, 1, -PHI], [PHI, 0, -1], [PHI, 0, 1], [-PHI, 0, -1], [-PHI, 0, 1]].map(norm);
+  const dod = [];
+  [-1, 1].forEach(x => [-1, 1].forEach(y => [-1, 1].forEach(z => dod.push([x, y, z]))));
+  [-1, 1].forEach(a => [-1, 1].forEach(b => { dod.push([0, a / PHI, b * PHI]); dod.push([a / PHI, b * PHI, 0]); dod.push([b * PHI, 0, a / PHI]); }));
+  const edgesOf = (vs) => { let mn = Infinity; const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) mn = Math.min(mn, d(vs[i], vs[j])); const E = []; for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) if (d(vs[i], vs[j]) < mn * 1.01) E.push([i, j]); return E; };
+  const SOLIDS = { ico: { v: ico, e: edgesOf(ico) }, dod: { v: dod.map(norm), e: edgesOf(dod.map(norm)) } };
+  const PAL = ['#ff8ad8', '#7ef0ff', '#b6f25a', '#c9b8ff', '#ffe08a'];
+  let W = 0, H = 0, dpr = 1, raf = 0, alive = true, last = 0;
+  const resize = () => { dpr = Math.min(1.5, window.devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight; cv.width = Math.max(1, Math.round(W * dpr)); cv.height = Math.max(1, Math.round(H * dpr)); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+  resize();
+  const zones = () => {
+    let top = H * 0.32, bot = H * 0.68;
+    const r = getAvoid(); if (r && r.height) { top = r.top - 12; bot = r.bottom + 12; }
+    return [{ y0: 6, y1: Math.max(6, top) }, { y0: Math.min(H - 6, bot), y1: H - 6 }];
+  };
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const shapes = [];
+  const Z0 = zones();
+  Z0.forEach((z, zi) => {
+    const h = z.y1 - z.y0; if (h < 70) return;
+    const count = h > 300 ? 3 : 2;
+    for (let k = 0; k < count; k++) {
+      const R = Math.min(h * 0.32, W * 0.16, 70) * rnd(0.75, 1.05);
+      shapes.push({ zi, R, x: rnd(R + 6, W - R - 6), y: rnd(z.y0 + R, Math.max(z.y0 + R, z.y1 - R)),
+        vx: rnd(-1, 1) * rnd(10, 22), vy: rnd(-1, 1) * rnd(8, 18),
+        ang: [rnd(0, 6), rnd(0, 6), rnd(0, 6)], spin: [rnd(-0.6, 0.6), rnd(0.25, 0.7), rnd(-0.4, 0.4)],
+        innerSpin: [rnd(-0.9, 0.9), rnd(-1.1, -0.4), rnd(-0.6, 0.6)],
+        col: PAL[(shapes.length) % PAL.length], col2: PAL[(shapes.length + 2) % PAL.length],
+        phase: rnd(0, 6.28), ring: -10, nextRing: rnd(0.5, 3), nextTurn: rnd(2, 5), trail: [] });
+    }
+  });
+  const rot = (p, a) => { let [x, y, z] = p; let c = Math.cos(a[0]), s = Math.sin(a[0]); [y, z] = [y * c - z * s, y * s + z * c]; c = Math.cos(a[1]); s = Math.sin(a[1]); [x, z] = [x * c + z * s, -x * s + z * c]; c = Math.cos(a[2]); s = Math.sin(a[2]); [x, y] = [x * c - y * s, x * s + y * c]; return [x, y, z]; };
+  const project = (solid, a, cx, cy, R) => solid.v.map(p => { const q = rot(p, a); const k = 1 / (1 + q[2] * 0.28); return [cx + q[0] * R * k, cy + q[1] * R * k, q[2]]; });
+  const strokeSet = (pts, edges, col, alpha, width, front) => {
+    ctx.beginPath();
+    for (const [i, j] of edges) { const zMid = (pts[i][2] + pts[j][2]) / 2; if ((zMid <= 0) !== front) continue; ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[j][0], pts[j][1]); }
+    ctx.strokeStyle = col; ctx.globalAlpha = Math.max(0, Math.min(1, alpha)); ctx.lineWidth = width; ctx.stroke();
+  };
+  const drawSolid = (pts, edges, col, a) => {
+    // back edges dim, front edges bright; each drawn as a soft glow then a fine core line
+    strokeSet(pts, edges, col, a * 0.10, 4.5, false); strokeSet(pts, edges, col, a * 0.35, 1, false);
+    strokeSet(pts, edges, col, a * 0.22, 5, true); strokeSet(pts, edges, col, a * 0.95, 1.3, true);
+  };
+  const frame = (now) => {
+    if (!alive) return;
+    const t = now / 1000; const dt = last ? Math.min(0.05, t - last) : 0.016; last = t;
+    const tm = reduce ? 0 : t;   // the clock for turning, breathing and pulsing; stopped for reduced motion
+    if (cv.clientWidth !== W || cv.clientHeight !== H) resize();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1; ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    const zs = zones(); const prog = Math.max(0, Math.min(100, getProgress())) / 100;
+    // shapes sharing a band push off each other instead of piling up
+    if (!reduce) for (let i = 0; i < shapes.length; i++) for (let j = i + 1; j < shapes.length; j++) {
+      const a = shapes[i], b = shapes[j]; if (a.zi !== b.zi) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, min = (a.R + b.R) * 0.92;
+      if (d < min) { const nx = dx / d, ny = dy / d, push = (min - d) / 2; a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+        const va = a.vx * nx + a.vy * ny, vb = b.vx * nx + b.vy * ny; if (va - vb > 0) { a.vx += (vb - va) * nx; a.vy += (vb - va) * ny; b.vx += (va - vb) * nx; b.vy += (va - vb) * ny; } }
+    }
+    for (const s of shapes) {
+      const z = zs[s.zi];
+      if (!reduce) {
+        s.x += s.vx * dt; s.y += s.vy * dt;
+        if (s.x < s.R + 4) { s.x = s.R + 4; s.vx = Math.abs(s.vx); } if (s.x > W - s.R - 4) { s.x = W - s.R - 4; s.vx = -Math.abs(s.vx); }
+        if (s.y < z.y0 + s.R) { s.y = z.y0 + s.R; s.vy = Math.abs(s.vy); } if (s.y > z.y1 - s.R) { s.y = Math.max(z.y0 + s.R, z.y1 - s.R); s.vy = -Math.abs(s.vy); }
+        s.nextTurn -= dt; if (s.nextTurn <= 0) { const sp = Math.hypot(s.vx, s.vy) || 14, th = Math.random() * Math.PI * 2; s.vx = Math.cos(th) * sp; s.vy = Math.sin(th) * sp * 0.8; s.nextTurn = rnd(2.5, 5.5); }
+        for (let i = 0; i < 3; i++) s.ang[i] += s.spin[i] * dt;
+        s.nextRing -= dt; if (s.nextRing <= 0) { s.ring = t; s.nextRing = rnd(2.2, 4.2); }
+      }
+      const tau = t - s.ring;
+      const ringAmt = tau >= 0 && tau < 1.6 ? Math.exp(-tau * 3.2) : 0;
+      const wob = 1 + 0.09 * ringAmt * Math.sin(tau * 22);
+      const pulse = 0.62 + 0.38 * Math.sin(tm * 2.3 + s.phase);
+      const R = s.R * wob;
+      const inner = [s.ang[0] * -1.3 + tm * s.innerSpin[0] * 0.3, s.ang[1] * -0.8 + tm * s.innerSpin[1] * 0.3, s.ang[2] + tm * s.innerSpin[2] * 0.3];
+      const breathe = 0.6 + 0.08 * Math.sin(tm * 1.1 + s.phase);
+      const outerPts = project(SOLIDS.ico, s.ang, s.x, s.y, R);
+      // echoes: where the outer shell was a moment ago, fading
+      s.trail.unshift(outerPts); if (s.trail.length > 3) s.trail.pop();
+      for (let k = s.trail.length - 1; k >= 1; k--) strokeSet(s.trail[k], SOLIDS.ico.e, s.col, (0.16 - k * 0.035) * pulse, 1, true);
+      drawSolid(outerPts, SOLIDS.ico.e, s.col, (0.75 + 0.25 * ringAmt) * pulse);
+      const midA = Math.min(1, Math.max(0, (prog - 0.2) / 0.35));
+      if (midA > 0) drawSolid(project(SOLIDS.dod, inner, s.x, s.y, R * breathe), SOLIDS.dod.e, s.col2, midA * 0.8 * (0.7 + 0.3 * Math.sin(tm * 2.3 + s.phase + 1.6)));
+      const inA = Math.min(1, Math.max(0, (prog - 0.55) / 0.3));
+      if (inA > 0) drawSolid(project(SOLIDS.ico, [inner[1] * 1.4, inner[0], inner[2] * -1.2], s.x, s.y, R * 0.3), SOLIDS.ico.e, '#ffffff', inA * 0.8 * pulse);
+    }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+  window.addEventListener('resize', resize);
+  return () => { alive = false; cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+}
+const RkLoadingPolyhedra = ({ progress, avoidRef }) => {
+    const cvRef = useRef(null);
+    const progRef = useRef(progress);
+    useEffect(() => { progRef.current = progress; }, [progress]);
+    useEffect(() => {
+        if (!cvRef.current) return;
+        let reduce = false;
+        try { reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) {}
+        let stop = () => {};
+        try {
+            stop = rkPolyStart(cvRef.current, {
+                getAvoid: () => { try { return avoidRef && avoidRef.current ? avoidRef.current.getBoundingClientRect() : null; } catch (e) { return null; } },
+                getProgress: () => progRef.current,
+                reduce,
+            });
+        } catch (e) { rkReport('loading animation', e); }
+        return () => { try { stop(); } catch (e) {} };
+    }, []);
+    return <canvas ref={cvRef} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none"/>;
+};
 const LoadingBar = ({ progress = 100, className = '' }) => (
     <div className={`w-full h-1 bg-gray-800 rounded-full overflow-hidden mt-2 ${className}`}>
         <div className="h-full bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
     </div>
 );
+// V86.78.150.314: THE LAUNCH SCREEN, AND TAP TO ENTER (Milli, at 314: "once the app loads, instead of
+// going straight to the login/app, add a 'tap to enter' text in place of the loading bar ... Make
+// the entire screen a tap location"). While loading: the bar and percentage. Once ready: TAP TO ENTER
+// where the bar was, and a tap anywhere (or Enter, or Space) goes in.
+const RkLoadingScreen = ({ pct, msg, ready, onEnter, bg }) => {
+    const boxRef = useRef(null);
+    useEffect(() => {
+        if (!ready) return;
+        const k = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEnter(); } };
+        window.addEventListener('keydown', k);
+        return () => window.removeEventListener('keydown', k);
+    }, [ready]);
+    const b = bg || RK_BG_DEFAULT;
+    return (
+        <div className={'fixed inset-0 flex flex-col items-center justify-center p-8 z-[9999] overflow-hidden bg-black' + (ready ? ' cursor-pointer select-none' : '')}
+            onClick={ready ? onEnter : undefined} role={ready ? 'button' : undefined} tabIndex={ready ? 0 : undefined} aria-label={ready ? 'Tap to enter RaveKandi' : undefined} data-ready={ready ? '1' : '0'}>
+            <RkAppBackground id={b.id} anim={b.anim} fixed={false}/>
+            <RkLoadingPolyhedra progress={pct} avoidRef={boxRef}/>
+            <div ref={boxRef} className="relative z-10 flex flex-col items-center w-full" data-box="1">
+                <h1 className="font-black mb-8 animate-pulse text-center leading-none whitespace-nowrap" style={{ ...getTextGlowStyle('primaryGlow'), fontSize: 'clamp(2.25rem, 13vw, 4.5rem)' }}>RAVEKANDI</h1>
+                <div className="w-full max-w-xs text-center">
+                    {ready ? (<>
+                        <p className="rk-tap-enter text-2xl font-black text-white tracking-[0.3em] py-1" data-tap="1">TAP TO ENTER</p>
+                        <p className="text-pink-300 text-sm mt-3 font-bold">{msg}</p>
+                    </>) : (<>
+                        <LoadingBar progress={pct} className="h-2"/>
+                        <p className="text-lime-400 font-mono text-lg mt-3 font-bold">{pct}%</p>
+                        <p className="text-pink-400 text-sm mt-2 animate-bounce">{msg}</p>
+                    </>)}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // V65.38: MultiSelectDropdown works on display strings, so post types need a label<->key map
 // rather than raw keys leaking into the UI.
@@ -2822,16 +3892,29 @@ const useRkBackClose = (isOpen, onClose) => {
     }, [isOpen, onClose]);
 };
 
-const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false }) => {
+// V85.78.150.313: `headerExtra` puts controls beside the close button (the tribe chat's settings).
+// V86.78.150.314: `full` makes it a full-screen sheet: the header stays at the top and the body fills
+// the rest of the screen (Milli, at 314: the Vibe Tribe window "does not fit the whole screen").
+const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false, headerExtra = null, full = false }) => {
     // Hook runs before the early return — bailing out first would break the rules of hooks and
     // React would throw on the second render.
     useRkBackClose(isOpen, onClose);
     if (!isOpen) return null;
+    if (full) return createPortal(
+        <div className={"fixed inset-0 bg-black " + zClass} onClick={(e) => e.stopPropagation()} data-full-modal="1">
+            <div className="mx-auto h-full w-full max-w-2xl flex flex-col bg-white/5 border-x-2 border-white/10" style={{ ...getBoxGlowStyle('primaryGlow'), paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+                <div className="flex justify-between items-center gap-2 px-4 py-3 border-b border-white/20 shrink-0">
+                    <h3 className="text-xl font-bold truncate" style={getTextGlowStyle('primaryGlow')}>{title}</h3>
+                    <div className="flex items-center gap-2 shrink-0">{headerExtra}<button onClick={onClose} aria-label="Close"><XCircle/></button></div>
+                </div>
+                <div className="flex-1 min-h-0 flex flex-col overflow-y-auto px-4 py-3" data-full-body="1">{children}</div>
+            </div>
+        </div>, document.body);
     // V66: clear the header by its MEASURED height (--rk-topbar-h, published by <App/>), not by a
     // guessed constant. The 96px used in 229 was under the real value, so the modal's top edge
     // still sat behind the ticker. The fallback only applies before the first measurement lands.
     // items-start keeps a tall modal scrolling from its own top rather than from the middle.
-    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center px-4 pb-4" style={{ paddingTop: 'calc(var(--rk-topbar-h, 140px) + 14px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><button onClick={onClose}><XCircle/></button></div>{children}</Card></div></div>, document.body );
+    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center px-4 pb-4" style={{ paddingTop: 'calc(var(--rk-topbar-h, 140px) + 14px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><div className="flex items-center gap-2 shrink-0">{headerExtra}<button onClick={onClose}><XCircle/></button></div></div>{children}</Card></div></div>, document.body );
 };
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
@@ -3588,7 +4671,7 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
                 createdAt: now, updatedAt: now,
             });
             // notify the owner
-            pushNotif(item.ownerId, 'trade', '🤝 ' + (profile?.displayName || 'A raver') + ' offered a trade for your "' + (item.name || 'item') + '"! Tap to review.');
+            pushNotif(item.ownerId, 'trade', '🤝 ' + (profile?.displayName || 'A raver') + ' offered a trade for your "' + (item.name || 'item') + '"! Tap to review.', item.id + '#trade');
             setNotice('Offer sent! The owner will review and can accept, decline, or negotiate. 🌈');
             setPicked([]); setMsg('');
             setTimeout(() => { setNotice(''); setView('offers'); }, 1400);
@@ -3601,7 +4684,7 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
             const entry = { uid: myUid, name: profile?.displayName || 'Raver', text: text.trim().slice(0, 500), at: Date.now() };
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeOffers', offer.id), { thread: arrayUnion(entry), updatedAt: Date.now() });
             const other = myUid === offer.itemOwnerId ? offer.offererId : offer.itemOwnerId;
-            pushNotif(other, 'trade', '💬 New message on your trade for "' + offer.itemName + '".');
+            pushNotif(other, 'trade', '💬 New message on your trade for "' + offer.itemName + '".', offer.itemId + '#trade');
         } catch (e) { setNotice("Couldn't send message."); }
     };
 
@@ -3609,8 +4692,8 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
         try {
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeOffers', offer.id), { status, updatedAt: Date.now() });
             const other = myUid === offer.itemOwnerId ? offer.offererId : offer.itemOwnerId;
-            if (status === 'accepted') pushNotif(other, 'trade', '✅ Your trade for "' + offer.itemName + '" was ACCEPTED! Coordinate shipping in the app.');
-            else if (status === 'declined') pushNotif(other, 'trade', 'Your trade offer for "' + offer.itemName + '" was declined.');
+            if (status === 'accepted') pushNotif(other, 'trade', '✅ Your trade for "' + offer.itemName + '" was ACCEPTED! Coordinate shipping in the app.', offer.itemId + '#trade');
+            else if (status === 'declined') pushNotif(other, 'trade', 'Your trade offer for "' + offer.itemName + '" was declined.', offer.itemId + '#trade');
             setNotice(status === 'accepted' ? 'Trade accepted! Now coordinate shipping below. 🚀' : 'Updated.');
             setTimeout(() => setNotice(''), 1600);
         } catch (e) { setNotice("Couldn't update: " + e.message); }
@@ -3621,7 +4704,7 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
             const upd = { ...(offer.shippedBy || {}), [myUid]: Date.now() };
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeOffers', offer.id), { shippedBy: upd, updatedAt: Date.now() });
             const other = myUid === offer.itemOwnerId ? offer.offererId : offer.itemOwnerId;
-            pushNotif(other, 'trade', '📦 The other raver marked their item shipped for "' + offer.itemName + '"!');
+            pushNotif(other, 'trade', '📦 The other raver marked their item shipped for "' + offer.itemName + '"!', offer.itemId + '#trade');
         } catch (e) {}
     };
     const markReceived = async (offer) => {
@@ -3630,8 +4713,8 @@ const TradeOfferModal = ({ user, profile: profileProp, item, isOpen, onClose }) 
             const bothReceived = upd[offer.itemOwnerId] && upd[offer.offererId];
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeOffers', offer.id), { receivedBy: upd, status: bothReceived ? 'completed' : offer.status, updatedAt: Date.now() });
             const other = myUid === offer.itemOwnerId ? offer.offererId : offer.itemOwnerId;
-            if (bothReceived) { pushNotif(other, 'trade', '🎉 Trade complete for "' + offer.itemName + '"! PLUR delivered.'); pushNotif(myUid, 'trade', '🎉 Trade complete! Thanks for keeping the PLUR economy alive.'); }
-            else pushNotif(other, 'trade', '✅ The other raver confirmed they received your item for "' + offer.itemName + '".');
+            if (bothReceived) { pushNotif(other, 'trade', '🎉 Trade complete for "' + offer.itemName + '"! PLUR delivered.', offer.itemId + '#trade'); pushNotif(myUid, 'trade', '🎉 Trade complete! Thanks for keeping the PLUR economy alive.', offer.itemId + '#trade'); }
+            else pushNotif(other, 'trade', '✅ The other raver confirmed they received your item for "' + offer.itemName + '".', offer.itemId + '#trade');
         } catch (e) {}
     };
 
@@ -3783,7 +4866,7 @@ const ReferralModal = ({ user, profile, isOpen, onClose, onOpenWallet, onViewPro
                 uid: user.uid, displayName: profile?.displayName || 'Raver', earnedFromThisUser: 0, timestamp: Date.now()
             });
             await batch.commit();
-            pushNotif(referrerUid, 'referral', '🤝 ' + (profile?.displayName || 'A raver') + ' linked you as their referrer! +1 referral');
+            pushNotif(referrerUid, 'referral', '🤝 ' + (profile?.displayName || 'A raver') + ' linked you as their referrer! +1 referral', '@refdash');
             alert("Referral code accepted!");
         } catch(e) { alert(e.message); } finally { setLoading(false); }
     };
@@ -4506,7 +5589,7 @@ const CreatorApplicationForm = ({ user, onClose, initialType, onOpenCreatorHub }
                 setApps(m => ({ ...m, [d.creatorType]: { id: existingId, data: { ...d, ...(refreshMode ? { status: 'pending', kind: 'refresh' } : {}) } } }));
                 if (refreshMode) setRefreshMode(false);
             }
-            else { const newRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), { ...d, uid: user.uid, status: 'pending', submittedAt: Date.now() }); setApps(m => ({ ...m, [d.creatorType]: { id: newRef.id, data: { ...d } } })); try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '📋 New ' + (d.creatorType || 'Creator') + ' application from ' + (d.name || 'a raver'))); } catch (e) {} }
+            else { const newRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'kandiCreatorApplications'), { ...d, uid: user.uid, status: 'pending', submittedAt: Date.now() }); setApps(m => ({ ...m, [d.creatorType]: { id: newRef.id, data: { ...d } } })); try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '📋 New ' + (d.creatorType || 'Creator') + ' application from ' + (d.name || 'a raver'), '@admin:apps')); } catch (e) {} }
             try { localStorage.removeItem(draftKey(d.creatorType)); } catch (e) {}
             setS('success'); 
         } catch (e) { alert("Error: " + e.message); } finally { setLoading(false); }
@@ -7042,8 +8125,10 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
     );
 };
 
-const AchievementsCard = ({ profile, editable = false, userUid }) => {
+const AchievementsCard = ({ profile, editable = false, userUid, openSig = 0 }) => {
     const [open, setOpen] = useState(false);
+    // V85.78.150.313: an achievement notification opens the full list.
+    useEffect(() => { if (openSig) setOpen(true); }, [openSig]);
     const [diffChart, setDiffChart] = useState(false);
     const all = getDisplayAchievements(profile);
     const unlocked = all.filter(a => a.unlocked);
@@ -7310,7 +8395,7 @@ const PartnershipEditor = ({ managedUser, onSaved }) => {
             await batch.commit();
             setAllocated(a => (a === null ? a : Math.round((a - current + np) * 100) / 100));
             onSaved && onSaved(np);
-            pushNotif(managedUser.id, 'admin', np > 0 ? ('🤝 You\'re officially a RaveKandi PARTNER — ' + np + '% of platform profits now flows to you automatically on every sale. Add a payout wallet (Referral Portal) to collect. PLUR 💜') : 'Your partnership share has ended. Any amounts already accrued remain yours on the ledger.');
+            pushNotif(managedUser.id, 'admin', np > 0 ? ('🤝 You\'re officially a RaveKandi PARTNER — ' + np + '% of platform profits now flows to you automatically on every sale. Add a payout wallet (Referral Portal) to collect. PLUR 💜') : 'Your partnership share has ended. Any amounts already accrued remain yours on the ledger.', '@portal');
             alert('Saved. @' + managedUser.displayName + ' now holds ' + np + '% of profits.');
         } catch (e) { alert(e.message || 'Could not save.'); }
         setSaving(false);
@@ -7350,7 +8435,7 @@ const PayoutQueuePanel = () => {
             g.ids.forEach(id => batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'revLedger', id), { status: 'paid', paidAt: Date.now(), txSig: (sig || '').trim() }));
             batch.update(doc(db, 'artifacts', appId, 'users', g.uid), { revPaidTotal: increment(Math.round(g.total * 100) / 100) });
             await batch.commit();
-            pushNotif(g.uid, 'admin', '💸 Your RevShare payout of $' + g.total.toFixed(2) + ' was sent to your wallet! Check Phantom. PLUR 💜');
+            pushNotif(g.uid, 'admin', '💸 Your RevShare payout of $' + g.total.toFixed(2) + ' was sent to your wallet! Check Phantom. PLUR 💜', '@portal');
         } catch (e) { alert(e.message); }
         setBusy('');
     };
@@ -7634,7 +8719,7 @@ const TicketModal = ({ user, profile, isOpen, onClose }) => {
                 errorTotalFirings: rkTotalFirings(rkReadErrorLogs()),
                 platform: rkIsNative() ? 'android-apk' : 'web'
             });
-            try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim())); } catch (e) {}
+            try { const adminsSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true))); adminsSnap.forEach(a => pushNotif(a.id, 'admin', '🎫 New ' + category + ' ticket: ' + subject.trim(), '@admin:tickets')); } catch (e) {}
             alert("Ticket submitted! The team will review it soon. Thank you for helping improve RaveKandi!");
             setSubject(''); setMessage(''); onClose();
         } catch (e) { alert("Could not submit: " + e.message); } finally { setSending(false); }
@@ -7696,7 +8781,7 @@ const PingBar = ({ show }) => {
     );
 };
 
-const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield };
+const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, creator: Hammer };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
@@ -8437,14 +9522,14 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
                             {visNotifs.map(n => {
                                 const Icon = NOTIF_ICONS[n.type] || Bell;
                                 return (
-                                    <div key={n.id} onClick={() => { try { if (!n.read) setDoc(doc(db, 'artifacts', appId, 'users', myUid, 'notifications', n.id), { read: true }, { merge: true }); } catch (e) {} if (n.type !== 'friendreq' && onNotifNav) onNotifNav(n); }} className={`flex items-start gap-2 p-2 rounded border cursor-pointer hover:brightness-125 transition ${!n.read ? 'bg-pink-900/30 border-pink-500/50' : 'bg-white/5 border-white/10'}`}>
+                                    <div key={n.id} onClick={() => { try { if (!n.read) setDoc(doc(db, 'artifacts', appId, 'users', myUid, 'notifications', n.id), { read: true }, { merge: true }); } catch (e) {} if (onNotifNav) onNotifNav(n); }} className={`flex items-start gap-2 p-2 rounded border cursor-pointer hover:brightness-125 transition ${!n.read ? 'bg-pink-900/30 border-pink-500/50' : 'bg-white/5 border-white/10'}`}>
                                         <Icon size={15} className="text-pink-300 shrink-0 mt-0.5"/>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-[12px] text-white font-medium break-words leading-snug">{n.text}</p>
-                                            <p className="text-[10px] text-cyan-300/70">{new Date(n.at).toLocaleString()}{n.type !== 'friendreq' && <span className="text-pink-300 ml-1">· tap to view →</span>}</p>
+                                            <p className="text-[10px] text-cyan-300">{new Date(n.at).toLocaleString()}{rkNotifDest(n).to !== 'none' && <span className="text-pink-300 ml-1">· tap to view →</span>}</p>
                                             {n.type === 'friendreq' && n.refId && !(profile?.friends || []).includes(n.refId) && (
                                                 <div className="flex gap-2 mt-1">
-                                                    <button onClick={async () => { try { await acceptFriend(myUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your friend request! You are now friends.', myUid); } catch (e) {} }} className="text-[10px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
+                                                    <button onClick={async (e) => { e.stopPropagation(); try { await acceptFriend(myUid, n.refId); pushNotif(n.refId, 'friendreq', '✅ @' + (profile?.displayName || 'A raver') + ' accepted your friend request! You are now friends.', myUid); } catch (e) {} }} className="text-[10px] font-bold bg-lime-600/40 text-lime-200 border border-lime-400/40 rounded px-2 py-0.5">Accept</button>
                                                 </div>
                                             )}
                                             {n.type === 'friendreq' && n.refId && (profile?.friends || []).includes(n.refId) && <p className="text-[10px] text-lime-400 mt-0.5">✅ Friends</p>}
@@ -9388,7 +10473,7 @@ EOF
 
 # Block 11
 cat << 'EOF' >> src/App.js
-const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invOwnerUid, invDocId, tradeDocId }) => {
+const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invOwnerUid, invDocId, tradeDocId, openTrade = false }) => {
     // V69.3: the card showed the brand but this window did not, so opening an item lost the one
     // piece of context a multi-brand seller most needs. Resolved here rather than passed in,
     // because this modal also opens from the feed and profiles, where no brand map exists.
@@ -9421,6 +10506,8 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     const visLockedNow = visLocal ? visLocal.visLocked : !!item?.visLocked;
     const [showMore, setShowMore] = useState(false);
     const [tradeOpen, setTradeOpen] = useState(false);
+    // V85.78.150.313: a trade notification opens the listing with its trade window already up.
+    useEffect(() => { if (isOpen && openTrade && item?.id) setTradeOpen(true); }, [isOpen, openTrade, item?.id]);
     const [trackId, setTrackId] = useState('');
     const [shipCarrier, setShipCarrier] = useState('');
     const [shipPhoto, setShipPhoto] = useState('');
@@ -9490,7 +10577,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
             // 3) Notify + "email" each buyer (the notification system is the in-app inbox; if real
             //    email is wired, pushNotif routes there too). Includes the carrier + clickable link.
             const buyers = item.buyers || [];
-            buyers.forEach(b => pushNotif(b, 'sold', '📦 Your "' + (item.name || 'order') + '" shipped via ' + shipInfo.trackingCarrier + '! Tracking: ' + v.value + (v.url ? ' \u2014 track it in the app.' : '') ));
+            buyers.forEach(b => pushNotif(b, 'sold', '📦 Your "' + (item.name || 'order') + '" shipped via ' + shipInfo.trackingCarrier + '! Tracking: ' + v.value + (v.url ? ' \u2014 track it in the app.' : '') , item.id));   // 313: the listing shows tracking and Confirm I Received This
             setShipErr('');
             alert('Shipment recorded! Buyers have been notified with the tracking number, carrier link, and your package photo as proof. 📦');
         } catch (e) { setShipErr('Couldn\u2019t save: ' + e.message); } finally { setShipBusy(false); }
@@ -9683,7 +10770,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                                 {item.shippedAt && <p className="text-[10px] opacity-50">Shipped {new Date(item.shippedAt).toLocaleDateString()}</p>}
                                 {/* Buyer confirms receipt — closes the loop and builds seller trust */}
                                 {isBuyer && !item.deliveryConfirmed && (
-                                    <Button onClick={async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { deliveryConfirmed: true, deliveryConfirmedAt: Date.now() }); pushNotif(item.ownerId, 'sold', '✅ ' + (item.name || 'Your item') + ' was confirmed delivered by the buyer!'); alert('Thanks for confirming! 🌈'); } catch (e) { alert('Couldn\u2019t confirm: ' + e.message); } }} color="lime" className="w-full text-[10px]">✅ Confirm I Received This</Button>
+                                    <Button onClick={async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { deliveryConfirmed: true, deliveryConfirmedAt: Date.now() }); pushNotif(item.ownerId, 'sold', '✅ ' + (item.name || 'Your item') + ' was confirmed delivered by the buyer!', '@orders:selling'); alert('Thanks for confirming! 🌈'); } catch (e) { alert('Couldn\u2019t confirm: ' + e.message); } }} color="lime" className="w-full text-[10px]">✅ Confirm I Received This</Button>
                                 )}
                                 {item.deliveryConfirmed && <p className="text-[10px] text-lime-300 font-bold text-center">✅ Delivery confirmed by buyer</p>}
                             </div>
@@ -10479,7 +11566,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // and find the design yourself. It cannot link to an ITEM card — at this point the
             // design is only an aiJob and becomes a tradeItem when the user saves it — so it gets
             // its own type that reopens the Design Lab, where the finished result is waiting.
-            try { pushNotif(user.uid, 'ailab', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"'); } catch (e) {}
+            try { pushNotif(user.uid, 'ailab', '🎨 Your AI design is ready: "' + String(prompt).slice(0, 40) + '"', '@lab'); } catch (e) {}
             setJobId(jobRef.id); setResPrompt(prompt);
             setRes(r);
             setImageReady(!!(r && (r.displayUrl || r.imageUrl)));
@@ -10501,9 +11588,9 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             if (jobRef) { try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) { rkReport('ai job fail save', e2); } }
             // V84.151 (309): 'ailab', not 'diy'. A failed design sent people to the feed; it now
             // opens the Lab, where the prompt and Try again are.
-            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'ailab', '😔 Your AI design could not be generated. No credit was used.'); } catch (e2) {}
+            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'ailab', '😔 Your AI design could not be generated. No credit was used.', '@lab'); } catch (e2) {}
             if (e.message === 'AI_SIGNIN_REQUIRED') alert("Please sign in again — the design service needs a valid session.");
-            else if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.'); } catch (e3) {} }
+            else if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.', '@lab'); } catch (e3) {} }
             else if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
             else alert(e.message); 
         } finally { setLoading(false); } 
@@ -11288,7 +12375,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                                     timestamp: Date.now()
                                 });
                                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { requestedBy: arrayUnion(me) });
-                                if (item.ownerId && item.ownerId !== me) pushNotif(item.ownerId, 'diy', '🎨 ' + (profile?.displayName || 'A raver') + ' sent your design "' + (item.name || 'AI design') + '" to the DIY queue.');
+                                if (item.ownerId && item.ownerId !== me) pushNotif(item.ownerId, 'diy', '🎨 ' + (profile?.displayName || 'A raver') + ' sent your design "' + (item.name || 'AI design') + '" to the DIY queue.', item.id);
                                 alert('Sent to the DIY queue. Makers can now pick it up.');
                             } catch (e) { rkReport('design request', e); alert('Could not send: ' + e.message); }
                           }} color="lime" className="text-xs py-1 px-3 flex items-center gap-1"><Eye size={12}/> {(item.requestedBy || []).includes(auth?.currentUser?.uid) ? 'Requested' : 'Request'}</Button>
@@ -12121,6 +13208,69 @@ const rkStableJson = (o) => {
         return JSON.stringify(out);
     } catch (e) { return String(Date.now()); }
 };
+// V86.78.150.314: THE APP BACKGROUND, CHOSEN BY AN ADMIN (Milli, at 314). Tapping a design previews it
+// on the admin's own screen; Save for everyone writes it to the remote config, where every app picks
+// it up live. The Animation switch applies to designs with an animated version.
+const AdminBackgroundPanel = ({ user }) => {
+    const [cur, setCur] = useState(null);     // what everyone has now: { id, anim }
+    const [pick, setPick] = useState(null);   // what the admin is previewing
+    const [saving, setSaving] = useState(false);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => {
+        const d = s.exists() ? s.data() : {};
+        setCur({ id: RK_BGS.some(b => b.id === d.appBg) ? d.appBg : RK_BG_DEFAULT.id, anim: !!d.appBgAnim });
+    }, e => rkReport('background config', e)), []);
+    // closing the panel stops the preview
+    useEffect(() => () => { try { window.dispatchEvent(new CustomEvent('rk:bgpreview', { detail: null })); } catch (e) {} }, []);
+    const preview = (p) => { setPick(p); try { window.dispatchEvent(new CustomEvent('rk:bgpreview', { detail: p })); } catch (e) {} };
+    if (!cur) return <p className="text-xs text-white">Loading…</p>;
+    const sel = pick || cur;
+    const selBg = rkBgById(sel.id);
+    const dirty = !!pick && (pick.id !== cur.id || !!pick.anim !== !!cur.anim);
+    const save = async () => {
+        if (!dirty || saving) return;
+        setSaving(true);
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'global', 'config'), { appBg: sel.id, appBgAnim: !!sel.anim, appBgAt: Date.now(), appBgBy: (user && user.uid) || '' }, { merge: true });
+            preview(null);
+            alert('🎨 Saved: everyone now has ' + selBg.name + (sel.anim && selBg.anim ? ', animated' : '') + '.');
+        } catch (e) { alert('Save failed: ' + e.message); }
+        setSaving(false);
+    };
+    return (
+        <div className="space-y-3" data-bg-panel="1">
+            <p className="text-xs text-white">Tap a design to preview it on your screen. <strong>Save for everyone</strong> sends it to every raver at once. A VIP's own background still replaces it for them.</p>
+            {RK_BG_GROUPS.map(g => (
+                <div key={g}>
+                    <p className="text-xs font-black text-fuchsia-200 mb-1.5">{g}</p>
+                    <div className="grid grid-cols-4 gap-2">
+                        {RK_BGS.filter(b => b.group === g).map(b => {
+                            const on = sel.id === b.id;
+                            return (
+                                <button key={b.id} data-bg-pick={b.id} onClick={() => preview({ id: b.id, anim: sel.anim })} className={'rounded-lg p-1 border-2 text-center ' + (on ? 'border-fuchsia-300 bg-fuchsia-500/20' : 'border-white/20 bg-black/30')}>
+                                    <RkBgThumb id={b.id} w={60}/>
+                                    <span className="block text-[11px] font-bold text-white mt-1 leading-tight">{b.name}{on ? ' ✓' : ''}</span>
+                                    {b.anim && <span className="block text-[10px] font-bold text-fuchsia-200">✨ animates</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+            <div className="flex items-center justify-between gap-2 bg-black/40 border border-white/25 rounded-lg p-2.5">
+                <div className="min-w-0">
+                    <p className="text-sm font-bold text-white">✨ Animation</p>
+                    <p className="text-xs text-white">{selBg.anim ? 'Slow movement for this design. Phones set to reduce motion always get the still version.' : 'This design has no animated version; it stays still either way.'}</p>
+                </div>
+                <button data-bg-toggle="1" onClick={() => preview({ id: sel.id, anim: !sel.anim })} className={'shrink-0 px-3 py-1.5 rounded-full text-xs font-black border ' + (sel.anim ? 'bg-lime-500/25 border-lime-300 text-lime-200' : 'bg-black/40 border-white/40 text-white')}>{sel.anim ? 'ON' : 'OFF'}</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => preview(null)} disabled={!pick} className={'text-xs font-bold rounded-lg py-2 border ' + (pick ? 'border-white/50 text-white' : 'border-white/20 text-white')}>{pick ? 'Stop preview' : 'Previewing nothing'}</button>
+                <Button onClick={save} disabled={!dirty || saving} color="lime" className="text-xs">{saving ? 'Saving…' : 'Save for everyone'}</Button>
+            </div>
+            <p className="text-xs text-white">Live for everyone now: <strong>{rkBgById(cur.id).name}</strong>{cur.anim && rkBgById(cur.id).anim ? ', animated' : ''}{pick ? '. You are previewing ' + selBg.name + (sel.anim && selBg.anim ? ', animated' : '') + '.' : '.'}</p>
+        </div>
+    );
+};
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
     const [saving, setSaving] = useState(false);
@@ -12142,7 +13292,9 @@ const RemoteConfigPanel = () => {
     const save = async () => {
         setSaving(true);
         try {
-            await setDoc(doc(db, 'artifacts', appId, 'global', 'config'), cfg, { merge: true });
+            // V86.78.150.314: the background has its own panel and save; a stale copy here must not undo it.
+            const { appBg, appBgAnim, appBgAt, appBgBy, ...rest } = cfg;
+            await setDoc(doc(db, 'artifacts', appId, 'global', 'config'), rest, { merge: true });
             setSavedJson(rkStableJson(cfg));
             setPushedAt(Date.now());
         } catch (e) { alert('Save failed: ' + e.message); }
@@ -12369,7 +13521,7 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
         if (!window.confirm('Remove @' + (slot.name || 'raver') + "'s banner scheduled for " + fmt(slot.start) + '?\n\nThis cannot be undone.')) return;
         try {
             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', String(slot.id)));
-            if (slot.uid && slot.uid !== user?.uid) pushNotif(slot.uid, 'admin', '📢 Your banner scheduled for ' + fmt(slot.start) + ' was removed by the RaveKandi team. Reply to this message if you think that was a mistake.');
+            if (slot.uid && slot.uid !== user?.uid) pushNotif(slot.uid, 'admin', '📢 Your banner scheduled for ' + fmt(slot.start) + ' was removed by the RaveKandi team. Reply to this message if you think that was a mistake.', '@banner');
         } catch (e) { alert('Failed: ' + e.message); }
     };
 
@@ -12537,6 +13689,7 @@ const RK_ADMIN_TINTS = {
     users:   { border: 'border-cyan-500/40',   bg: 'bg-cyan-900/15',   text: 'text-cyan-300' },
     fees:    { border: 'border-pink-500/40',   bg: 'bg-pink-900/15',   text: 'text-pink-300' },
     apps:    { border: 'border-lime-500/40',   bg: 'bg-lime-900/15',   text: 'text-lime-300' },
+    look:    { border: 'border-fuchsia-500/40', bg: 'bg-fuchsia-900/15', text: 'text-fuchsia-300' },
     reach:   { border: 'border-fuchsia-500/40',bg: 'bg-fuchsia-900/15',text: 'text-fuchsia-300' },
     backfill:{ border: 'border-orange-500/40', bg: 'bg-orange-900/15', text: 'text-orange-300' },
 };
@@ -12583,9 +13736,11 @@ const rkFmtReach = (n) => n >= 1000000 ? (n / 1000000).toFixed(n >= 10000000 ? 0
 
 // Allotment by lifetime referrals (admins can add bonus passes on top via vipGiftBonus).
 const rkVipGiftAllotment = (refs) => refs >= 50 ? 20 : refs >= 25 ? 10 : refs >= 10 ? 5 : refs >= 5 ? 3 : refs >= 1 ? 1 : 0;
-const AdminDashboard = ({ user, profile, onMessageUser }) => {
+const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
     const [adminTab, setAdminTab] = useState('tools');
     const [openSec, setOpenSec] = useState('config');   // V65.24: one Admin Console panel open at a time
+    // V85.78.150.313: a notification for admins opens the right tab and section.
+    useEffect(() => { if (initial) { if (initial.tab) setAdminTab(initial.tab); if (initial.sec) setOpenSec(initial.sec); } }, [initial]);
     const [apps, setApps] = useState([]);
     const [targetUid, setTargetUid] = useState('');
     const [customRate, setCustomRate] = useState('');
@@ -12788,10 +13943,10 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                 // V73.11: type 'creator' (was 'admin', which routed to the profile page and left
                 // the new creator to find the portal themselves). 'creator' opens the Creator Hub
                 // directly — the notification says you are a creator, so it should take you there.
-                await setDoc(doc(db, 'artifacts', appId, 'users', a.uid), flag, { merge: true }); pushNotif(a.uid, 'creator', a.creatorType === 'Music Creator' ? '🎉 You are now a RaveKandi MUSIC CREATOR! Add tracks, samples & streams from your profile — they show in the Radio hub & feed. PLUR!' : a.creatorType === 'Content Creator' ? '🎉 You are now a RaveKandi CONTENT CREATOR! Build your showcase from your profile. PLUR!' : '🎉 Your Creator application was APPROVED! You can now post official drops, take DIY commissions & pin items. PLUR!'); }
-            else if (status === 'denied') { pushNotif(a.uid, 'admin', '📋 Your Creator application was reviewed and not approved this time. You\'re welcome to refine your portfolio and reapply.'); }
-            else if (status === 'waitlist') { pushNotif(a.uid, 'admin', '⏳ Your Creator application has been WAIT-LISTED. You\'re in the queue — we\'ll reach out as spots open up!'); }
-            else if (status === 'pending') { pushNotif(a.uid, 'admin', '📋 Your Creator application is back under review.'); }
+                await setDoc(doc(db, 'artifacts', appId, 'users', a.uid), flag, { merge: true }); pushNotif(a.uid, 'creator', a.creatorType === 'Music Creator' ? '🎉 You are now a RaveKandi MUSIC CREATOR! Add tracks, samples & streams from your profile — they show in the Radio hub & feed. PLUR!' : a.creatorType === 'Content Creator' ? '🎉 You are now a RaveKandi CONTENT CREATOR! Build your showcase from your profile. PLUR!' : '🎉 Your Creator application was APPROVED! You can now post official drops, take DIY commissions & pin items. PLUR!', '@creatorhub'); }
+            else if (status === 'denied') { pushNotif(a.uid, 'admin', '📋 Your Creator application was reviewed and not approved this time. You\'re welcome to refine your portfolio and reapply.', '@creatorapp'); }
+            else if (status === 'waitlist') { pushNotif(a.uid, 'admin', '⏳ Your Creator application has been WAIT-LISTED. You\'re in the queue — we\'ll reach out as spots open up!', '@creatorapp'); }
+            else if (status === 'pending') { pushNotif(a.uid, 'admin', '📋 Your Creator application is back under review.', '@creatorapp'); }
             alert('Application marked: ' + status);
             if (status !== 'pending') setReviewApp(null);
         } catch (e) { alert('Failed: ' + e.message); }
@@ -12806,7 +13961,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { vipGiftBonus: next }, { merge: true });
             setManagedUser({ ...managedUser, vipGiftBonus: next });
-            if (delta > 0) pushNotif(managedUser.id, 'achievement', '🎁 The RaveKandi team gave you ' + delta + ' VIP gift pass' + (delta === 1 ? '' : 'es') + '! Open VIP Gifting to bless a raver with permanent free VIP. PLUR 💜');
+            if (delta > 0) pushNotif(managedUser.id, 'achievement', '🎁 The RaveKandi team gave you ' + delta + ' VIP gift pass' + (delta === 1 ? '' : 'es') + '! Open VIP Gifting to bless a raver with permanent free VIP. PLUR 💜', '@vipgift');
             alert('@' + (managedUser.displayName || 'user') + ' now holds ' + next + ' bonus gift pass' + (next === 1 ? '' : 'es') + '.');
         } catch (e) { alert('Failed: ' + e.message); }
     };
@@ -12837,7 +13992,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         const expires = Date.now() + ms;
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { isVIP: true, vipPlan: 'admin_granted', vipSince: Date.now(), vipExpires: expires }, { merge: true });
-            pushNotif(managedUser.id, 'admin', '⭐ You\'ve been granted VIP for ' + vipQty + ' ' + vipUnit + '! Enjoy 6 Profile Pins, Themes, Banners, Boosts & the Font Selector. PLUR!');
+            pushNotif(managedUser.id, 'admin', '⭐ You\'ve been granted VIP for ' + vipQty + ' ' + vipUnit + '! Enjoy 6 Profile Pins, Themes, Banners, Boosts & the Font Selector. PLUR!', '@vip');
             alert('@' + (managedUser.displayName || 'user') + ' is now VIP until ' + new Date(expires).toLocaleDateString() + '.');
             setManagedUser({ ...managedUser, isVIP: true, vipExpires: expires });
         } catch (e) { alert('Failed: ' + e.message); }
@@ -12846,7 +14001,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         if (!managedUser) { alert("Find & select a user first."); return; }
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipSince: Date.now(), vipExpires: null }, { merge: true });
-            pushNotif(managedUser.id, 'admin', '👑 You\'ve been granted PERMANENT VIP! All premium perks are yours forever. PLUR!');
+            pushNotif(managedUser.id, 'admin', '👑 You\'ve been granted PERMANENT VIP! All premium perks are yours forever. PLUR!', '@vip');
             alert('@' + (managedUser.displayName || 'user') + ' now has PERMANENT VIP.');
             setManagedUser({ ...managedUser, isVIP: true, vipPlan: 'lifetime', vipExpires: null });
         } catch (e) { alert('Failed: ' + e.message); }
@@ -12901,7 +14056,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { [f]: !!grant }, { merge: true });
             setManagedUser({ ...managedUser, [f]: !!grant });
-            if (grant) pushNotif(managedUser.id, 'admin', f === 'isMusicCreator' ? '🎵 You\'ve been granted MUSIC CREATOR status! Add tracks, 30-sec samples & live streams from your profile — they show on your page, in the Radio hub\'s Artists tab & the feed\'s Music tab. PLUR!' : f === 'isContentCreator' ? '🎬 You\'ve been granted CONTENT CREATOR status! Build your showcase from your profile — clips, socials & photos, right on your page. PLUR!' : '🔨 You\'ve been granted Official Kandi Creator status! You can now post official drops, take DIY commissions, and pin featured items. PLUR!');
+            if (grant) pushNotif(managedUser.id, 'admin', f === 'isMusicCreator' ? '🎵 You\'ve been granted MUSIC CREATOR status! Add tracks, 30-sec samples & live streams from your profile — they show on your page, in the Radio hub\'s Artists tab & the feed\'s Music tab. PLUR!' : f === 'isContentCreator' ? '🎬 You\'ve been granted CONTENT CREATOR status! Build your showcase from your profile — clips, socials & photos, right on your page. PLUR!' : '🔨 You\'ve been granted Official Kandi Creator status! You can now post official drops, take DIY commissions, and pin featured items. PLUR!', '@creatorhub');
             alert('@' + managedUser.displayName + (grant ? ' is now a ' + label + '.' : ' is no longer a ' + label + '.'));
         } catch (e) { alert('Failed: ' + e.message); }
     };
@@ -13006,13 +14161,17 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
             <h3 className="font-bold text-red-400 mb-4 uppercase italic">Admin Console</h3>
 
             <div className="flex flex-wrap gap-1.5 mb-3">
-                {[['config', '🛰 Config'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
+                {[['config', '🛰 Config'], ['look', '🎨 Background'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
                     <button key={k} onClick={() => setOpenSec(openSec === k ? null : k)} className={'px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ' + (openSec === k ? 'bg-red-600 text-white border-red-400' : 'bg-black/40 text-white border-white/20')}>{l}</button>
                 ))}
             </div>
 
             <AdminSection id="config" title="🛰 Remote Config — live for all users" tint={RK_ADMIN_TINTS.config} open={openSec === 'config'} onToggle={setOpenSec}>
                 <RemoteConfigPanel />
+            </AdminSection>
+
+            <AdminSection id="look" title="🎨 App Background — live for all users" tint={RK_ADMIN_TINTS.look} open={openSec === 'look'} onToggle={setOpenSec}>
+                <AdminBackgroundPanel user={user} />
             </AdminSection>
 
             <AdminSection id="banners" title="📢 Banner Manager" tint={RK_ADMIN_TINTS.banners} open={openSec === 'banners'} onToggle={setOpenSec}>
@@ -13507,7 +14666,7 @@ const AdminDashboard = ({ user, profile, onMessageUser }) => {
                         <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/10 gap-1">
                             <span className="text-[10px] opacity-60 truncate">@{t.username}</span>
                             <div className="flex gap-1 shrink-0">
-                                {t.uid && t.uid !== 'guest' && <Button onClick={async () => { const txt = prompt('Reply to @' + t.username + ' about "' + t.subject + '":'); if (!txt) return; try { await sendDirectMessage(user.uid, profile?.displayName || 'RaveKandi Admin', t.uid, t.username, '🎫 RE: ' + t.subject + '\n' + txt); pushNotif(t.uid, 'ticket', '🎫 Admin replied to your ticket "' + t.subject + '" — check your messages!', t.id); alert('Reply sent via DM.'); } catch (e) { alert(e.message); } }} color="purple" className="text-[10px] py-1 px-2">Reply via DM</Button>}
+                                {t.uid && t.uid !== 'guest' && <Button onClick={async () => { const txt = prompt('Reply to @' + t.username + ' about "' + t.subject + '":'); if (!txt) return; try { await sendDirectMessage(user.uid, profile?.displayName || 'RaveKandi Admin', t.uid, t.username, '🎫 RE: ' + t.subject + '\n' + txt); pushNotif(t.uid, 'ticket', '🎫 Admin replied to your ticket "' + t.subject + '" — check your messages!', 'dm:' + user.uid); alert('Reply sent via DM.'); } catch (e) { alert(e.message); } }} color="purple" className="text-[10px] py-1 px-2">Reply via DM</Button>}
                                 {(t.status||'open') === 'open'
                                     ? <Button onClick={() => setTicketStatus(t, 'resolved')} color="lime" className="text-[10px] py-1 px-2">Resolved</Button>
                                     : <Button onClick={() => setTicketStatus(t, 'open')} color="accent" className="text-[10px] py-1 px-2">Reopen</Button>}
@@ -14781,8 +15940,10 @@ const RK_ORDER_STAGES = {
     paid_shipped: { label: 'PAID — shipped', color: 'text-cyan-300 bg-cyan-500/15 border-cyan-400/50', next: 'paid_completed', nextLabel: '✅ Confirm Received & Complete', by: 'buyer' },
     paid_completed: { label: 'PAID — completed', color: 'text-lime-300 bg-lime-500/15 border-lime-400/50', next: null, nextLabel: '', by: '' },
 };
-const OrdersModal = ({ user, profile, isOpen, onClose }) => {
+const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
     const [tab, setTab] = useState('buying');
+    // V85.78.150.313: an order notification opens the side it is about (a seller's sale on Selling).
+    useEffect(() => { if (isOpen && (initialTab === 'buying' || initialTab === 'selling')) setTab(initialTab); }, [isOpen, initialTab]);
     const [rows, setRows] = useState([]);
     const [busy, setBusy] = useState('');
     useEffect(() => {
@@ -14818,7 +15979,7 @@ const OrdersModal = ({ user, profile, isOpen, onClose }) => {
             }
             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id), upd);
             const other = tab === 'buying' ? o.sellerId : o.buyerId;
-            pushNotif(other, 'sold', '🧾 Order "' + o.itemName + '" is now: ' + (RK_ORDER_STAGES[st.next]?.label || st.next));
+            pushNotif(other, 'sold', '🧾 Order "' + o.itemName + '" is now: ' + (RK_ORDER_STAGES[st.next]?.label || st.next), tab === 'buying' ? '@orders:selling' : '@orders:buying');
         } catch (e) { alert(e.message || 'Could not update.'); }
         setBusy('');
     };
@@ -14826,25 +15987,25 @@ const OrdersModal = ({ user, profile, isOpen, onClose }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} zClass="z-[140]" title="🧾 My Orders">
             <div className="flex gap-2 mb-3">
-                {['buying', 'selling'].map(t => <button key={t} onClick={() => setTab(t)} className={'flex-1 py-2 rounded-lg text-xs font-black uppercase border ' + (tab === t ? 'bg-lime-500/25 border-lime-400 text-lime-200' : 'bg-white/5 border-white/15 text-white/60')}>{t === 'buying' ? '🛍️ Buying' : '💰 Selling'}</button>)}
+                {['buying', 'selling'].map(t => <button key={t} onClick={() => setTab(t)} className={'flex-1 py-2 rounded-lg text-xs font-black uppercase border ' + (tab === t ? 'bg-lime-500/25 border-lime-400 text-lime-200' : 'bg-white/5 border-white/15 text-white')}>{t === 'buying' ? '🛍️ Buying' : '💰 Selling'}</button>)}
             </div>
-            <p className="text-[11px] text-white/70 mb-3">Every paid order moves through: <span className="text-yellow-300">being made</span> → <span className="text-orange-300">undelivered</span> → <span className="text-cyan-300">shipped</span> → <span className="text-lime-300">completed</span>. The seller advances the first two; the buyer confirms receipt — completion runs a wallet + ledger verification first.</p>
+            <p className="text-[11px] text-white mb-3">Every paid order moves through: <span className="text-yellow-300">being made</span> → <span className="text-orange-300">undelivered</span> → <span className="text-cyan-300">shipped</span> → <span className="text-lime-300">completed</span>. The seller advances the first two; the buyer confirms receipt — completion runs a wallet + ledger verification first.</p>
             <div className="space-y-2 max-h-[52vh] overflow-y-auto pr-1">
-                {rows.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No orders here yet.</p>}
+                {rows.length === 0 && <p className="text-center text-white py-6 text-xs">No orders here yet.</p>}
                 {rows.map(o => { const st = RK_ORDER_STAGES[o.status] || RK_ORDER_STAGES.paid_unfinished; const mine = st.by === (tab === 'buying' ? 'buyer' : 'seller'); return (
                     <div key={o.id} className="bg-black/40 border border-white/15 rounded-lg p-2.5">
                         <div className="flex items-center gap-2">
                             <img src={o.itemImage || rkPh(60, 60, null, null, '•')} className="w-10 h-10 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(60, 60, null, null, '•'); }}/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold truncate">{o.itemName} <span className="text-lime-300">${(o.amountUsd || 0).toFixed(2)}</span></p>
-                                <p className="text-[10px] text-white/60">{tab === 'buying' ? 'from @' + o.sellerName : 'to @' + o.buyerName} · {new Date(o.createdAt || 0).toLocaleDateString()}</p>
+                                <p className="text-[10px] text-white">{tab === 'buying' ? 'from @' + o.sellerName : 'to @' + o.buyerName} · {new Date(o.createdAt || 0).toLocaleDateString()}</p>
                             </div>
                             <span className={'text-[10px] font-black px-1.5 py-0.5 rounded border ' + (o.payMethod === 'crypto' ? 'text-fuchsia-300 bg-fuchsia-500/15 border-fuchsia-400/50' : 'text-blue-300 bg-blue-500/15 border-blue-400/50')}>{o.payMethod === 'crypto' ? '💜 CRYPTO' : '💳 CARD'}</span>
                         </div>
                         <div className="flex items-center justify-between mt-2 gap-2">
                             <span className={'text-[10px] font-black px-2 py-1 rounded border ' + st.color}>{st.label}{o.status === 'paid_completed' && o.walletVerified ? ' · ✔ verified' : ''}</span>
                             {st.next && mine && <button onClick={() => advance(o)} disabled={busy === o.id} className="text-[10px] font-black text-black bg-lime-400 hover:bg-lime-300 rounded px-2.5 py-1.5 disabled:opacity-50">{busy === o.id ? '…' : st.nextLabel}</button>}
-                            {st.next && !mine && <span className="text-[10px] text-white/50">waiting on the {st.by}</span>}
+                            {st.next && !mine && <span className="text-[10px] text-white">waiting on the {st.by}</span>}
                         </div>
                         {o.trackingNumber && <p className="text-[10px] text-cyan-200 font-mono mt-1.5">📦 Tracking: {o.trackingNumber}</p>}
                     </div>
@@ -15005,7 +16166,7 @@ const VipGiftModal = ({ user, profile, isOpen, onClose }) => {
             if (allot > (profile?.vipGiftTierNotified || 0)) {
                 try {
                     await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { vipGiftTierNotified: allot });
-                    pushNotif(user.uid, 'achievement', '🎁 REFERRAL REWARD: you can now gift PERMANENT FREE VIP to ' + allot + ' raver' + (allot > 1 ? 's' : '') + '! Open VIP Gifting to send one.');
+                    pushNotif(user.uid, 'achievement', '🎁 REFERRAL REWARD: you can now gift PERMANENT FREE VIP to ' + allot + ' raver' + (allot > 1 ? 's' : '') + '! Open VIP Gifting to send one.', '@vipgift');
                 } catch (e) {}
             }
         }).catch(() => setRefCount(0));
@@ -15041,8 +16202,8 @@ const VipGiftModal = ({ user, profile, isOpen, onClose }) => {
             if (snap.data().isVIP) { setBusy(false); return alert('@' + (snap.data().displayName || 'That raver') + ' is already VIP — pick someone new to bless!'); }
             await updateDoc(doc(db, 'artifacts', appId, 'users', realUid), { isVIP: true, vipPermanent: true, vipGiftedBy: user.uid, vipGiftedAt: Date.now() });
             await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { vipGiftsSent: increment(1) });
-            pushNotif(realUid, 'achievement', '👑💝 @' + (profile?.displayName || 'A raver') + ' gifted you PERMANENT FREE VIP! All VIP perks are yours forever. PLUR!');
-            pushNotif(user.uid, 'achievement', '💝 Your VIP gift landed! @' + (snap.data().displayName || 'raver') + ' is now permanent VIP thanks to you.');
+            pushNotif(realUid, 'achievement', '👑💝 @' + (profile?.displayName || 'A raver') + ' gifted you PERMANENT FREE VIP! All VIP perks are yours forever. PLUR!', '@vip');
+            pushNotif(user.uid, 'achievement', '💝 Your VIP gift landed! @' + (snap.data().displayName || 'raver') + ' is now permanent VIP thanks to you.', '@vipgift');
             setTarget(''); setSel(null); setQ('');
             setDirUsers(prev => prev.map(u => u.id === realUid ? { ...u, isVIP: true } : u));
             alert('👑 Gift sent! They\'re VIP forever now.');
@@ -15692,7 +16853,73 @@ const rkWalletGuideTxt = () => [
 RK_TAX_NOTE,'', 'PLUR 💜 — RaveKandi'].join('\n');
 
 // Add / view / remove the user's payout wallet. Address is encrypted before it touches Firestore.
+// V85.78.150.313: the sellers, buyers and "really important" notes were three dense paragraphs.
+// Each is now a button that opens the same facts, organised under headings with bullets (Milli,
+// at 313: "broken down and organized for easier reading and understanding").
+const RkInfoSection = ({ title, color = 'text-cyan-200', items }) => (
+    <div className="space-y-1">
+        <p className={'text-sm font-black ' + color}>{title}</p>
+        <ul className="space-y-1.5">
+            {items.map((it, i) => <li key={i} className="flex gap-2 text-sm text-white leading-snug"><span className="shrink-0 text-white">•</span><span>{it}</span></li>)}
+        </ul>
+    </div>
+);
+const RK_WALLET_INFO = {
+    sellers: {
+        title: '💸 Sellers: taxes on what you earn',
+        sections: [
+            { title: 'When it counts as income', color: 'text-yellow-200', items: [
+                'USDC you earn here is income the moment it lands in your wallet.',
+                <span>The IRS taxes crypto earnings <strong className="underline">at receipt</strong>, not when you cash out.</span>,
+                'Leaving it in your wallet doesn\'t hide it or delay it.',
+            ] },
+            { title: 'What to do', color: 'text-lime-300', items: [
+                'Your RevShare ledger records every cent you earn here.',
+                'Set a slice of each payout aside.',
+                'Report it at tax time.',
+            ] },
+        ],
+        closer: 'Future-you at tax time will throw present-you a glowstick. 🥍✨',
+    },
+    buyers: {
+        title: '🧾 Buyers: privacy and receipts',
+        sections: [
+            { title: 'Buying USDC', color: 'text-yellow-200', items: [
+                'Buying USDC with a card creates a normal purchase record, like any online buy. That\'s expected.',
+            ] },
+            { title: 'Privacy', color: 'text-cyan-200', items: [
+                'Solana transactions are public on-chain.',
+                <span>Think of your wallet as a see-through fanny pack: pseudonymous, <strong className="underline">not invisible</strong>.</span>,
+            ] },
+            { title: 'Taxes', color: 'text-lime-300', items: [
+                'USDC is pinned to $1, so spending it usually creates no gain to report.',
+                'Keep your receipts like you keep your kandi. 🧾',
+            ] },
+        ],
+    },
+    important: {
+        title: '🚨 Really important',
+        sections: [
+            { title: 'Your wallet is pseudonymous, NOT anonymous', color: 'text-red-300', items: [
+                'The Solana ledger is public forever.',
+                'Exchanges verify your identity when you cash out.',
+            ] },
+            { title: 'DON\'T', color: 'text-yellow-200', items: [
+                'Don\'t try to hide income by rotating crypto through friends or the community.',
+                '"Washing" money is the move that turns a tax bill into a criminal case.',
+            ] },
+            { title: 'DO', color: 'text-lime-300', items: [
+                'Earn loud.',
+                'Keep records.',
+                'Report it.',
+                'Making real money here? A tax pro costs way less than a lawyer.',
+            ] },
+        ],
+        closer: 'PLUR includes future-you. (Birds still aren\'t real though 🐦🕊️)',
+    },
+};
 const WalletModal = ({ user, profile, isOpen, onClose }) => {
+    const [info, setInfo] = useState(null);   // which info pop-in is open: 'sellers' | 'buyers' | 'important'
     const [addr, setAddr] = useState('');
     const [current, setCurrent] = useState('');
     const [saving, setSaving] = useState(false);
@@ -15748,16 +16975,33 @@ const WalletModal = ({ user, profile, isOpen, onClose }) => {
                     <button onClick={() => rkDownloadTxt('RaveKandi_Wallet_Guide.txt', rkWalletGuideTxt())} className="w-full text-xs font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/40 rounded py-2">⬇ Download the full step-by-step wallet guide</button>
                 </div>
 
-                {/* ---- TAXES & PRIVACY, STRAIGHT UP ---- */}
-                <div className="bg-yellow-900/15 border border-yellow-500/40 rounded-lg p-3">
-                    <p className="text-sm font-black text-yellow-300 leading-relaxed">⚠️ SELLERS — REAL TALK ON TAXES: USDC you earn here is income the moment it lands in your wallet. The IRS taxes crypto earnings <span className="underline">at receipt</span>, not when you cash out — parking it in your wallet doesn't hide it or delay it. Your ledger tracks every cent, so set a slice aside and report it. Future-you at tax time will throw present-you a glowstick. 🥍✨</p>
+                {/* ---- TAXES & PRIVACY: three buttons, each opening its own organised pop-in (313) ---- */}
+                <div className="space-y-2">
+                    <button onClick={() => setInfo('sellers')} className="w-full text-left bg-yellow-900/20 border border-yellow-500/60 rounded-lg p-3 flex items-center gap-3 active:scale-[0.99] transition">
+                        <span className="text-2xl shrink-0">💸</span>
+                        <span className="flex-1 min-w-0"><span className="block text-sm font-black text-yellow-200">Sellers: taxes on what you earn</span><span className="block text-xs text-white">When it counts as income, and what to do</span></span>
+                        <span className="text-xl font-black text-yellow-200 shrink-0">›</span>
+                    </button>
+                    <button onClick={() => setInfo('buyers')} className="w-full text-left bg-yellow-900/20 border border-yellow-500/60 rounded-lg p-3 flex items-center gap-3 active:scale-[0.99] transition">
+                        <span className="text-2xl shrink-0">🧾</span>
+                        <span className="flex-1 min-w-0"><span className="block text-sm font-black text-yellow-200">Buyers: privacy and receipts</span><span className="block text-xs text-white">What a purchase leaves behind</span></span>
+                        <span className="text-xl font-black text-yellow-200 shrink-0">›</span>
+                    </button>
+                    <button onClick={() => setInfo('important')} className="w-full text-left bg-red-900/30 border-2 border-red-500/70 rounded-lg p-3 flex items-center gap-3 active:scale-[0.99] transition rk-alert-glow">
+                        <span className="text-2xl shrink-0">🚨</span>
+                        <span className="flex-1 min-w-0"><span className="block text-sm font-black text-red-200" style={{ textShadow: '0 0 10px rgba(248,113,113,0.8)' }}>Really important: not anonymous</span><span className="block text-xs text-white">Read this before you earn here</span></span>
+                        <span className="text-xl font-black text-red-200 shrink-0">›</span>
+                    </button>
                 </div>
-                <div className="bg-yellow-900/15 border border-yellow-500/40 rounded-lg p-3">
-                    <p className="text-sm font-black text-yellow-300 leading-relaxed">⚠️ BUYERS: Buying USDC with a card creates a normal purchase record — same as any online buy, totally expected. Solana transactions are public on-chain, so think of your wallet as a see-through fanny pack: pseudonymous, <span className="underline">not invisible</span>. Because USDC is pinned to $1, spending it usually creates no gain to report — but keep your receipts like you keep your kandi. 🧾</p>
-                </div>
-                <div className="bg-red-900/25 border-2 border-red-500/60 rounded-lg p-3 animate-pulse" style={{ boxShadow: '0 0 18px rgba(239,68,68,0.45)' }}>
-                    <p className="text-sm font-black text-red-300 leading-relaxed" style={{ textShadow: '0 0 10px rgba(248,113,113,0.8)' }}>🚨 REALLY IMPORTANT: your wallet is PSEUDONYMOUS, NOT ANONYMOUS. The Solana ledger is public forever, and exchanges verify identity when you cash out. <span className="font-black underline decoration-2" style={{ textDecorationColor: '#fde047', textShadow: '0 0 10px rgba(253,224,71,0.95), 0 0 18px rgba(248,113,113,0.8)' }}>DON'T</span> try to hide income by rotating crypto through friends or the community — "washing" money is the move that turns a tax bill into a criminal case. Earn loud, keep records, report it. If you're making real money here, a tax pro costs way less than a lawyer. PLUR includes future-you. (Birds still aren't real though 🐦🕊️)</p>
-                </div>
+                {['sellers', 'buyers', 'important'].map(k => (
+                    <Modal key={k} isOpen={info === k} onClose={() => setInfo(null)} title={RK_WALLET_INFO[k].title} zClass="z-[140]">
+                        <div className="space-y-4">
+                            {RK_WALLET_INFO[k].sections.map((sec, i) => <RkInfoSection key={i} title={sec.title} color={sec.color} items={sec.items}/>)}
+                            {RK_WALLET_INFO[k].closer && <p className="text-sm font-bold text-pink-200 bg-pink-900/20 border border-pink-400/40 rounded-lg p-2.5">{RK_WALLET_INFO[k].closer}</p>}
+                            <Button onClick={() => setInfo(null)} color="primary" className="w-full text-sm">Got it</Button>
+                        </div>
+                    </Modal>
+                ))}
 
                 <div className="text-xs text-white/80 leading-relaxed space-y-1">
                     <p>🔒 Your address is encrypted before it's stored — never saved in plain text. RaveKandi will never ask for your recovery phrase.</p>
@@ -15815,7 +17059,7 @@ const rkStorageAlertCheck = async (stats) => {
         if (level === 0 || (stats?.storageAlertLevel || 0) >= level) return est;
         await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { storageAlertLevel: level }, { merge: true });
         const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true)));
-        snap.forEach(a => pushNotif(a.id, 'admin', '💾 STORAGE ALERT: Firestore is ~' + est.pct + '% of the free 1GB tier (samples ' + (est.sample / 1048576).toFixed(1) + 'MB, images ' + (est.content / 1048576).toFixed(1) + 'MB). Check Admin → Storage Monitor. Consider the Blaze upgrade before uploads start failing.'));
+        snap.forEach(a => pushNotif(a.id, 'admin', '💾 STORAGE ALERT: Firestore is ~' + est.pct + '% of the free 1GB tier (samples ' + (est.sample / 1048576).toFixed(1) + 'MB, images ' + (est.content / 1048576).toFixed(1) + 'MB). Check Admin → Storage Monitor. Consider the Blaze upgrade before uploads start failing.', '@admin:storage'));
         return est;
     } catch (e) { return rkStorageEstimate(stats); }
 };
@@ -17412,7 +18656,468 @@ const FeaturedVideoBlock = ({ user, profile, nowTick, cfg, onViewProfile, onOpen
     );
 };
 
-const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessageUser, initialTab }) => {
+// V85.78.150.313: how many votes a tribe has running, and how many still need this raver's vote.
+// Counted from the settled view, so stale votes and votes about to pass aren't included.
+// V86.78.150.314: the list as the live update has it, with my own committed results on top until the
+// live update catches up (a higher `rev` is newer). A tribe I just left stays hidden for 20 seconds.
+const rkTribeOverlay = (list, ov) => {
+    const out = [];
+    list.forEach(x => {
+        const o = ov[x.id];
+        if (o && o.gone) { if (Date.now() - o.t < 20000) return; delete ov[x.id]; }
+        else if (o && o.doc && (Number(o.doc.rev) || 0) > (Number(x.rev) || 0)) { out.push({ ...o.doc, id: x.id }); return; }
+        else if (o) delete ov[x.id];
+        out.push(x);
+    });
+    return out;
+};
+const rkTribeOpenVotes = (t, uid) => {
+    const now = Date.now(), st = rkTribeSettle(t, now);
+    const members = st.members, rs = st.restrictions;
+    const out = !!(rs[uid] && rs[uid].type === 'timeout');
+    let total = 0, mine = 0;
+    Object.entries(st.pending).forEach(([, e]) => { total++; if (!out && !(e.votes || []).includes(uid)) mine++; });
+    Object.keys(st.requests).forEach(cid => { if (st.pending[cid] || members.includes(cid)) return; total++; if (!out) mine++; });
+    Object.values(st.votes).forEach(v => { total++; if (rkTribeVoters(members, v, rs, now).includes(uid) && !(v.yes || []).includes(uid)) mine++; });
+    return { total, mine };
+};
+// V86.78.150.314: FIND ANY RAVER THE WAY THE FEED DOES (Milli, at 314: "Use the user search function
+// from the feed"). The same directory load (the 50 newest by join date, topped up to 100 so older
+// accounts are not missing), the same exact Friend UID or name lookup for anyone outside it, and the
+// same ranking (rkSuggestRavers: exact, prefix, contains, then near-misses).
+let rkRaverDir = null, rkRaverDirAt = 0;
+const rkLoadRaverDir = async () => {
+    if (rkRaverDir && Date.now() - rkRaverDirAt < 5 * 60000) return rkRaverDir;
+    const seen = {};
+    try { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50))); s.docs.forEach(d => { seen[d.id] = { ...d.data(), id: d.id }; }); } catch (e) {}
+    try { const s2 = await getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100))); s2.docs.forEach(d => { if (!seen[d.id]) seen[d.id] = { ...d.data(), id: d.id }; }); } catch (e) {}
+    rkRaverDir = Object.values(seen); rkRaverDirAt = Date.now();
+    return rkRaverDir;
+};
+const RkRaverPicker = ({ exclude = [], tags = {}, picked = '', onPick }) => {
+    const [term, setTerm] = useState('');
+    const [dir, setDir] = useState(rkRaverDir || []);
+    const [extra, setExtra] = useState([]);
+    useEffect(() => { let live = true; rkLoadRaverDir().then(d => { if (live) setDir(d); }); return () => { live = false; }; }, []);
+    useEffect(() => {
+        const t = rkCleanSearch(term);
+        if (t.length < 3) return;
+        const h = setTimeout(async () => {
+            try {
+                let s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
+                if (s.empty) s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
+                if (!s.empty) { const f = { ...s.docs[0].data(), id: s.docs[0].id }; setExtra(p => p.some(x => x.id === f.id) ? p : [f, ...p]); }
+            } catch (e) {}
+        }, 600);
+        return () => clearTimeout(h);
+    }, [term]);
+    const q = rkCleanSearch(term).toLowerCase();
+    const pool = [...extra, ...dir.filter(u => !extra.some(x => x.id === u.id))].filter(u => !exclude.includes(u.id));
+    const shown = q.length >= 2 ? rkSuggestRavers(pool, q, 20) : [];
+    return (
+        <div className="space-y-2" data-raver-picker="1">
+            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/40 rounded-xl px-3 py-1 focus-within:border-cyan-300 transition">
+                <Search size={18} className="text-cyan-300 shrink-0"/>
+                <input value={term} onChange={e => setTerm(e.target.value)} placeholder="Search UID or Username..." className="flex-1 bg-transparent text-sm py-2 outline-none text-white"/>
+            </div>
+            {q.length < 2 ? <p className="text-xs text-white">Type at least 2 letters of their name or Friend UID.</p>
+            : shown.length === 0 ? <p className="text-xs text-white">No ravers match "{rkCleanSearch(term)}". Names ignore spaces, dashes and @, so try just the letters.</p>
+            : shown.map(u => (
+                <button key={u.id} data-raver={u.id} onClick={() => onPick && onPick(u)} className={'w-full flex items-center gap-2.5 rounded-lg p-2 border text-left ' + (picked === u.id ? 'border-lime-300 bg-lime-500/15' : 'border-white/20 bg-black/30')}>
+                    <img src={u.photoURL || rkPh(72, 72, '2a0a3a', 'fff', (u.displayName || 'R').charAt(0).toUpperCase())} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-pink-500/60 shrink-0"/>
+                    <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-bold text-white truncate"><RkName name={u.displayName || 'Raver'} style={u.nameStyle}/></span>
+                        <span className="block text-xs text-white truncate">UID: {u.publicUid || u.id}</span>
+                    </span>
+                    {tags[u.id] ? <span className="text-xs font-bold text-yellow-200 shrink-0">{tags[u.id]}</span> : picked === u.id ? <span className="text-xs font-black text-lime-200 shrink-0">✓ Selected</span> : null}
+                </button>
+            ))}
+        </div>
+    );
+};
+// V86.78.150.314: the timer for a mute or time-out: the usual lengths, or any length typed in.
+const RkTimerPicker = ({ value, onChange }) => {
+    const [custom, setCustom] = useState('');
+    const [unit, setUnit] = useState(3600000);
+    const apply = (n, u) => { const ms = Math.round((Number(n) || 0) * u); if (ms >= RK_TRIBE_MIN_RESTRICT && ms <= RK_TRIBE_MAX_RESTRICT) onChange(ms); };
+    const customMs = Math.round((Number(custom) || 0) * unit);
+    const bad = custom !== '' && !(customMs >= RK_TRIBE_MIN_RESTRICT && customMs <= RK_TRIBE_MAX_RESTRICT);
+    return (
+        <div className="space-y-2" data-timer="1">
+            <p className="text-xs font-bold text-white">⏱️ How long?</p>
+            <div className="flex flex-wrap gap-1.5">
+                {RK_TRIBE_TIMES.map(x => <button key={x.ms} onClick={() => { setCustom(''); onChange(x.ms); }} className={'text-xs font-bold rounded-full px-2.5 py-1 border ' + (value === x.ms && custom === '' ? 'bg-pink-600 border-pink-300 text-white' : 'bg-black/40 border-white/30 text-white')}>{x.label}</button>)}
+            </div>
+            <div className="flex items-center gap-2">
+                <span className="text-xs text-white">Or exactly</span>
+                <input type="number" min="1" inputMode="numeric" value={custom} onChange={e => { setCustom(e.target.value); apply(e.target.value, unit); }} className="w-20 bg-black border border-white/30 text-sm text-white rounded p-1.5"/>
+                <select value={unit} onChange={e => { const u = Number(e.target.value); setUnit(u); if (custom !== '') apply(custom, u); }} className="bg-black border border-white/30 text-sm text-white rounded p-1.5">
+                    <option value={60000}>minutes</option><option value={3600000}>hours</option><option value={86400000}>days</option>
+                </select>
+            </div>
+            {bad && <p className="text-xs font-bold text-amber-200">Pick a length from 5 minutes to 30 days.</p>}
+            <p className="text-xs text-white">{rkDurTxt(value)}. If it passes now, it ends {rkTribeWhen(Date.now() + value)}. Appeals open after {rkDurTxt(value / 4)}, {rkDurTxt(value / 2)} and {rkDurTxt(value * 0.75)} are served.</p>
+        </div>
+    );
+};
+// V86.78.150.314: what a muted or timed-out member sees, and where they appeal.
+const RkTribeAppealBox = ({ tribe, r, myUid, myName }) => {
+    const [text, setText] = useState('');
+    const [busy, setBusy] = useState(false);
+    const now = Date.now();
+    const ap = rkTribeAppeal(r, now);
+    const span = Math.max(1, Number(r.until) - Number(r.start));
+    const served = Math.min(100, Math.max(0, Math.round(100 * (now - Number(r.start)) / span)));
+    const openVote = rkTribeVotesOf(tribe)['repeal:' + myUid];
+    const send = async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            const res = await appealTribeRestriction(tribe.id, myUid, myName, text);
+            if (res.result === 'exists') alert('🗳️ Your appeal is already being voted on.');
+            else { alert('🙏 Appeal sent. The other members have been asked to vote; ' + res.need + ' yes vote' + (res.need === 1 ? '' : 's') + ' will lift it.'); setText(''); }
+        } catch (e) { alert(e.message); }
+        setBusy(false);
+    };
+    const word = (a) => a.outcome === 'open' ? 'being voted on' : a.outcome === 'failed' ? "didn't pass" : a.outcome === 'passed' ? 'passed' : 'closed';
+    return (
+        <div data-appeal="1" className={'rounded-lg p-3 border-2 ' + (r.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')}>
+            <p className="text-sm font-black text-white">{r.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(r.until)}</p>
+            <p className="text-xs text-white mt-0.5">{r.type === 'timeout' ? "You can read the chat and see votes, but you can't post, vote, call votes or invite until it ends." : "You can read and vote, but you can't post in the group chat until it ends."} {rkDurTxt(Number(r.until) - now)} left.</p>
+            <div className="mt-2 h-2.5 rounded-full bg-black/60 overflow-hidden relative">
+                <div className="h-full bg-gradient-to-r from-pink-400 to-cyan-300" style={{ width: served + '%' }}/>
+                {[25, 50, 75].map(m => <span key={m} className="absolute top-0 bottom-0 w-0.5 bg-white" style={{ left: m + '%' }}/>)}
+            </div>
+            <div className="mt-2 space-y-0.5">
+                {ap.windows.map(w => <p key={w.w} className="text-xs text-white">Appeal {w.w}: after {w.w * 25}% served, {rkTribeWhen(w.at)}{w.a ? ' · ' + word(w.a) : now >= w.at ? (ap.can && ap.k === w.w ? ' · open now' : ' · not used') : ''}</p>)}
+            </div>
+            {ap.open ? <p className="text-xs font-bold text-yellow-200 mt-2">🗳️ Your appeal is being voted on{openVote && openVote.exp ? ', until ' + rkTribeWhen(openVote.exp) : ''}.</p>
+            : ap.can ? (
+                <div className="mt-2 space-y-2">
+                    <p className="text-xs font-bold text-white">🙏 You can appeal now. Say sorry, and why it should be lifted.</p>
+                    <textarea value={text} onChange={e => setText(e.target.value.slice(0, 500))} rows={3} placeholder="Your apology and appeal…" className="w-full bg-black/60 border border-white/40 rounded-lg p-2 text-sm text-white"/>
+                    <button disabled={busy || text.trim().length < 10} onClick={send} className={'w-full text-sm font-bold rounded-lg py-2 ' + (busy || text.trim().length < 10 ? 'bg-pink-900/60 text-white border border-pink-400/40' : 'bg-pink-600 text-white')}>{busy ? 'Sending…' : 'Send appeal'}</button>
+                </div>
+            ) : <p className="text-xs text-white mt-2">{ap.nextAt ? 'Your next appeal opens ' + rkTribeWhen(ap.nextAt) + '.' : 'There are no appeals left. It ends ' + rkTribeWhen(r.until) + '.'}</p>}
+        </div>
+    );
+};
+// V86.78.150.314: THE VOTE LOG, in the same layout as Your recent generations in the Design Lab
+// (Milli, at 314). A scroll block of every vote, with a type filter, a search and a sort, and a View
+// pop-in for each vote's timeline, notes and appeals.
+const RK_LOG_KINDS = [['all', 'All votes'], ['members', 'Members in and out'], ['restrict', 'Mutes and time-outs'], ['appeal', 'Appeals'], ['tribe', 'Tribe changes']];
+const rkLogKind = (type) => (type === 'admit' || type === 'kick') ? 'members' : (type === 'mute' || type === 'timeout') ? 'restrict' : type === 'repeal' ? 'appeal' : 'tribe';
+const RK_LOG_ICON = { admit: '👤', kick: '🚪', status: '🔓', purge: '🧹', rename: '✏️', founder: '👑', mute: '🔇', timeout: '⏳', repeal: '🙏' };
+const RK_LOG_WORD = { open: 'Open', passed: 'Passed', expired: 'Ran out of time', withdrawn: 'Withdrawn', closed: 'Closed' };
+const RK_LOG_DOT = { open: 'bg-amber-300 animate-pulse', passed: 'bg-lime-400', expired: 'bg-red-400', withdrawn: 'bg-sky-300', closed: 'bg-white' };
+const RK_LOG_EV = { start: 'Vote called', vote: 'A vote was cast', pass: 'Passed', expire: 'Ran out of time', withdraw: 'Withdrawn by the member who called it', close: 'Closed: it no longer applied', served: 'Time served', lifted: 'Lifted on appeal', replaced: 'Ended: replaced by a time-out' };
+const RkVoteLogView = ({ e, all, status, onOpen }) => {
+    const hist = (e.history || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+    const of = Number(e.of) || 0, needN = rkTribeNeeded(of), needPct = of ? Math.round(100 * needN / of) : 67;
+    const n = e.note || {};
+    const appeals = (all || []).filter(x => x.type === 'repeal' && x.note && x.note.appealOf === e.id).sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+    const parent = e.type === 'repeal' && n.appealOf ? (all || []).find(x => x.id === n.appealOf) : null;
+    const notes = [];
+    const passAt = (hist.find(h => h.ev === 'pass') || {}).at;
+    if (n.dur) notes.push(['Length', rkDurTxt(n.dur) + (passAt ? ', from ' + rkTribeWhen(passAt) + ' to ' + rkTribeWhen(Number(passAt) + Number(n.dur)) : '') + (e.doneAt ? '. Ended ' + rkTribeWhen(e.doneAt) + (hist.find(h => h.ev === 'lifted') ? ', lifted on appeal' : hist.find(h => h.ev === 'replaced') ? ', replaced by a time-out' : '') : '')]);
+    if (n.name) notes.push(['New name', n.name]);
+    if (n.to) notes.push(['Change', n.to === 'open' ? 'Open: listed in Find Tribes' : 'Closed: hidden from Find Tribes']);
+    if (e.type === 'purge' && e.status === 'passed') notes.push(['Effect', 'Every message sent before ' + rkTribeWhen(e.endedAt) + ' was deleted for everyone.']);
+    if (e.type === 'admit') notes.push(['How it started', n.asked ? 'They asked to join from Find Tribes.' : 'A member invited them.']);
+    if (e.type === 'repeal') notes.push(['Appeal', 'Made after ' + ((n.w || 1) * 25) + '% of the ' + (n.rtype === 'mute' ? 'mute' : 'time-out') + ' was served.']);
+    return (
+        <div className="space-y-2.5" data-log-view={e.id}>
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className={'text-xs font-black rounded-full px-2 py-0.5 border ' + (status === 'passed' ? 'border-lime-300 text-lime-200 bg-lime-500/15' : status === 'open' ? 'border-amber-300 text-amber-200 bg-amber-500/15' : status === 'expired' ? 'border-red-300 text-red-200 bg-red-500/15' : 'border-white/50 text-white bg-white/10')}>{RK_LOG_WORD[status] || status}</span>
+                <span className="text-xs text-white">Called {rkTribeWhen(e.startedAt)}{e.endedAt ? ' · ended ' + rkTribeWhen(e.endedAt) : ''}</span>
+            </div>
+            <div className="bg-black/40 border border-white/15 rounded-lg p-2.5">
+                <p className="text-xs font-bold text-cyan-300 mb-1">Support</p>
+                <div className="relative h-3 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-lime-400/80" style={{ width: Math.min(100, Number(e.pct) || 0) + '%' }}/>
+                    <span className="absolute top-0 bottom-0 w-0.5 bg-yellow-200" style={{ left: needPct + '%' }}/>
+                </div>
+                <p className="text-xs text-white mt-1">{Number(e.pct) || 0}% said yes ({Number(e.yes) || 0} of {of}). It needed {needPct}% ({needN} of {of}).</p>
+            </div>
+            {(notes.length > 0 || n.statement) && (
+                <div className="bg-black/40 border border-white/15 rounded-lg p-2.5 space-y-1">
+                    <p className="text-xs font-bold text-cyan-300">Notes</p>
+                    {notes.map(([k, v]) => <p key={k} className="text-xs text-white"><span className="font-bold">{k}:</span> {v}</p>)}
+                    {n.statement && <p className="text-sm text-white bg-pink-900/25 border border-pink-400/40 rounded-lg p-2 whitespace-pre-wrap break-words" data-statement="1">“{n.statement}”</p>}
+                </div>
+            )}
+            <div className="bg-black/40 border border-white/15 rounded-lg p-2.5">
+                <p className="text-xs font-bold text-cyan-300 mb-1">What happened</p>
+                {hist.length === 0 ? <p className="text-xs text-white">No changes recorded.</p> : hist.map((h, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-white py-0.5" data-log-ev={h.ev}>
+                        <span className="shrink-0 w-28">{rkTribeWhen(h.at)}</span>
+                        <span className="flex-1">{RK_LOG_EV[h.ev] || h.ev}{h.of ? ' · ' + h.pct + '% yes (' + h.n + ' of ' + h.of + ')' : ''}</span>
+                    </div>
+                ))}
+            </div>
+            {appeals.length > 0 && (
+                <div className="bg-black/40 border border-white/15 rounded-lg p-2.5 space-y-1.5">
+                    <p className="text-xs font-bold text-cyan-300">Appeals</p>
+                    {appeals.map(a => (
+                        <button key={a.id} onClick={() => onOpen(a)} className="w-full text-left bg-white/5 border border-white/15 rounded-lg p-2">
+                            <span className="block text-xs text-white">{rkTribeWhen(a.startedAt)} · {RK_LOG_WORD[a.status] || a.status} · {Number(a.pct) || 0}% yes</span>
+                            {a.note && a.note.statement && <span className="block text-xs text-white truncate">“{a.note.statement}”</span>}
+                            <span className="block text-xs font-bold text-cyan-200 underline">View</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+            {parent && <button onClick={() => onOpen(parent)} className="text-xs font-bold text-cyan-200 underline">View the {parent.type === 'mute' ? 'mute' : 'time-out'} this appeal was about</button>}
+            <p className="text-xs text-white">Votes are anonymous: the log keeps how many said yes, never who.</p>
+        </div>
+    );
+};
+const RkTribeVoteLog = ({ tribe }) => {
+    const [rows, setRows] = useState(null);
+    const [kind, setKind] = useState('all');
+    const [q, setQ] = useState('');
+    const [sort, setSort] = useState('new');
+    const [view, setView] = useState(null);
+    useEffect(() => {
+        if (!tribe || !tribe.id) return;
+        return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribe.id, 'voteLog'), orderBy('startedAt', 'desc'), limit(300)),
+            s => setRows(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => { rkReport('tribe vote log read', e); setRows([]); });
+    }, [tribe && tribe.id]);
+    if (!tribe) return null;
+    // An entry still marked open whose vote is no longer running is shown as closed.
+    const liveRows = rkTribeVoteRows(tribe, Date.now());
+    const live = new Set(Object.keys(liveRows).map(k => rkTribeLogId(k, liveRows[k].at)));
+    const statusOf = (e) => (e.status === 'open' || !e.status) && !live.has(e.id) ? 'closed' : (e.status || 'open');
+    const t = q.trim().toLowerCase();
+    const list = (rows || [])
+        .filter(e => kind === 'all' || rkLogKind(e.type) === kind)
+        .filter(e => !t || [e.label, e.targetName, e.note && e.note.statement, e.note && e.note.name, RK_LOG_WORD[statusOf(e)]].some(x => String(x || '').toLowerCase().includes(t)))
+        .sort((a, b) => sort === 'old' ? (a.startedAt || 0) - (b.startedAt || 0)
+            : sort === 'most' ? (Number(b.pct) || 0) - (Number(a.pct) || 0) || (b.startedAt || 0) - (a.startedAt || 0)
+            : sort === 'least' ? (Number(a.pct) || 0) - (Number(b.pct) || 0) || (b.startedAt || 0) - (a.startedAt || 0)
+            : sort === 'open' ? ((statusOf(a) === 'open' ? 0 : 1) - (statusOf(b) === 'open' ? 0 : 1)) || (b.startedAt || 0) - (a.startedAt || 0)
+            : (b.startedAt || 0) - (a.startedAt || 0));
+    const viewing = view ? ((rows || []).find(x => x.id === view.id) || view) : null;
+    return (
+        <div className="border-t border-white/15 pt-3" data-votelog="1">
+            <p className="text-xs font-black text-cyan-200 mb-1">📜 VOTE LOG</p>
+            <p className="text-xs text-white mb-2">Every vote in this tribe, past and present. Votes are anonymous: only the share of members who said yes is kept.</p>
+            <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                <select value={kind} onChange={e => setKind(e.target.value)} data-log-kind="1" className="bg-black border border-white/30 text-xs text-white rounded p-1.5">{RK_LOG_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                <select value={sort} onChange={e => setSort(e.target.value)} data-log-sort="1" className="bg-black border border-white/30 text-xs text-white rounded p-1.5">
+                    <option value="new">Newest first</option><option value="old">Oldest first</option><option value="most">Most support</option><option value="least">Least support</option><option value="open">Open first</option>
+                </select>
+            </div>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search the log: a name, a word from an appeal…" className="w-full bg-black/50 border border-white/30 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-cyan-400"/>
+            <div className="mt-2 space-y-1.5 max-h-[45vh] overflow-y-auto pr-1 rk-scroll" data-log-list="1">
+                {rows === null ? <p className="text-xs text-white py-2">Loading the log…</p>
+                : list.length === 0 ? <p className="text-xs text-white py-2">{rows.length ? 'No votes match.' : 'No votes logged yet. Every vote from now on is kept here.'}</p>
+                : list.map(e => {
+                    const s = statusOf(e);
+                    return (
+                        <div key={e.id} data-log={e.id} className="bg-white/5 border border-white/10 rounded-lg p-2 flex items-center gap-2">
+                            <span className={'w-2 h-2 rounded-full shrink-0 ' + (RK_LOG_DOT[s] || 'bg-white')}/>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs text-white truncate">{RK_LOG_ICON[e.type] || '🗳️'} {e.label || 'Vote'}</p>
+                                <p className="text-[11px] text-white">{RK_LOG_WORD[s] || s} · {Number(e.pct) || 0}% yes · {rkTribeWhen(e.startedAt)}</p>
+                            </div>
+                            <button onClick={() => setView(e)} className="shrink-0 text-[11px] font-bold text-cyan-200 border border-cyan-400/50 rounded px-2 py-1 active:scale-95">View</button>
+                        </div>
+                    );
+                })}
+            </div>
+            <Modal isOpen={!!viewing} onClose={() => setView(null)} title={viewing ? (RK_LOG_ICON[viewing.type] || '🗳️') + ' ' + (viewing.label || 'Vote') : ''} zClass="z-[140]">
+                {viewing && <RkVoteLogView e={viewing} all={rows} status={statusOf(viewing)} onOpen={setView}/>}
+            </Modal>
+        </div>
+    );
+};
+// V85.78.150.313: EVERYTHING A TRIBE HAS OUT FOR A VOTE, AND THE VOTES A MEMBER CAN CALL (Milli, at
+// 313). Shown in ⚙️ Tribe settings on the tribe's card and in the group chat's ⚙️ settings, so
+// votes stay in one organised place. `focusKey` highlights one vote and scrolls to it: from a
+// notification, or when a raver tries to call a vote that is already running.
+// V86.78.150.314: adds mute, time-out (with the timer), invite (with the feed's search), the appeal
+// box for a member who is muted or timed out, and the vote log.
+const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus }) => {
+    const [pick, setPick] = useState('');      // which "call a vote" form is open
+    const [target, setTarget] = useState('');
+    const [newName, setNewName] = useState('');
+    const [dur, setDur] = useState(3600000);
+    const [invitee, setInvitee] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const boxRef = useRef(null);
+    useEffect(() => {
+        if (!focusKey || !boxRef.current) return;
+        const el = boxRef.current.querySelector('[data-vote="' + focusKey + '"]');
+        if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+    }, [focusKey]);
+    useEffect(() => {
+        if (!appealFocus || !boxRef.current) return;
+        const el = boxRef.current.querySelector('[data-appeal]');
+        if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+    }, [appealFocus]);
+    if (!tribe) return null;
+    const now = Date.now();
+    const st = rkTribeSettle(tribe, now);
+    const members = st.members, rs = st.restrictions;
+    const names = tribe.memberNames || {};
+    const meR = rs[myUid] || null;
+    const out = !!(meR && meR.type === 'timeout');
+    const status = rkTribeStatus(tribe);
+    const admitVoters = rkTribeVoters(members, { type: 'admit' }, rs, now);
+    const need = rkTribeNeeded(admitVoters.length);
+    const rows = [];
+    Object.entries(st.pending).forEach(([cid, e]) => rows.push({ key: 'admit:' + cid, kind: 'admit', cid, cname: e.name || 'Raver', icon: '👤', label: 'Add @' + (e.name || 'Raver') + ' to the tribe', yes: (e.votes || []).filter(u => admitVoters.includes(u)), need, canVote: !out }));
+    Object.entries(st.requests).forEach(([cid, e]) => { if (st.pending[cid]) return; rows.push({ key: 'join:' + cid, kind: 'join', cid, cname: (e && e.name) || 'Raver', icon: '🙋', label: '@' + ((e && e.name) || 'Raver') + ' asked to join', yes: [], need, canVote: !out }); });
+    Object.entries(st.votes).forEach(([key, v]) => {
+        const voters = rkTribeVoters(members, v, rs, now);
+        const icon = RK_LOG_ICON[v.type] || '🗳️';
+        rows.push({ key, kind: 'item', icon: v.type === 'status' ? (v.to === 'open' ? '🔓' : '🔒') : icon, label: rkTribeVoteLabel(v), yes: v.yes || [], need: rkTribeNeeded(voters.length), canVote: voters.includes(myUid), by: v.by, byName: v.byName, aboutMe: RK_TRIBE_ABOUT.includes(v.type) && v.target === myUid, statement: v.type === 'repeal' ? v.statement : '', exp: v.exp });
+    });
+    const allVotes = rkTribeVotesOf(tribe);
+    const vote = async (r) => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            if (r.kind === 'admit') { const res = await voteForTribeMember(tribe.id, r.cid, myUid); alert(res === 'approved' ? '✅ Passed: @' + r.cname + ' joined!' : '✅ Vote counted.'); }
+            else if (r.kind === 'join') { const res = await proposeToTribe(tribe.id, r.cid, r.cname, myUid); alert(res.result === 'approved' ? '✅ Passed: @' + r.cname + ' joined!' : res.result === 'exists' ? '🗳️ A vote on @' + r.cname + ' is already running.' : '✅ Vote counted: ' + res.votes + ' of ' + res.needed + '.'); }
+            else { const res = await voteTribeVote(tribe.id, r.key, myUid); alert(res === 'passed' ? '✅ Passed: ' + r.label + '.' : '✅ Vote counted.'); }
+        } catch (e) { alert(e.message); }
+        setBusy(false);
+    };
+    const withdraw = async (r) => {
+        if (!window.confirm('Withdraw this vote?')) return;
+        try { await withdrawTribeVote(tribe.id, r.key, myUid); } catch (e) { alert(e.message); }
+    };
+    const call = async (spec, confirmText) => {
+        // One vote per item. If it is already running, say so and go to it so they can vote.
+        const key = rkTribeVoteKey(spec);
+        if (allVotes[key]) {
+            alert('🗳️ A vote on this is already running: ' + rkTribeVoteLabel(allVotes[key]) + '. Taking you to it so you can vote.');
+            if (onFocus) onFocus(key);
+            setPick('');
+            return;
+        }
+        if (confirmText && !window.confirm(confirmText)) return;
+        setBusy(true);
+        try {
+            const res = await proposeTribeVote(tribe.id, spec, myUid, myName);
+            if (res.result === 'exists') { alert('🗳️ That vote is already running. Taking you to it so you can vote.'); if (onFocus) onFocus(res.key); }
+            else if (res.result === 'passed') alert('✅ Done: ' + rkTribeVoteLabel(spec) + '.');
+            else if (res.result === 'started') { alert('🗳️ Vote started: 1 of ' + res.need + ' so far. The other members have been notified.'); if (onFocus) onFocus(res.key); }
+            setPick(''); setTarget(''); setNewName('');
+        } catch (e) { alert(e.message); }
+        setBusy(false);
+    };
+    const invite = async () => {
+        if (!invitee || busy) return;
+        const nm = invitee.displayName || 'Raver';
+        if (!window.confirm('Start a vote to invite @' + nm + ' into "' + (tribe.name || 'the tribe') + '"? ' + need + ' of ' + admitVoters.length + ' members must say yes; yours counts as the first.')) return;
+        setBusy(true);
+        try {
+            const r = await proposeToTribe(tribe.id, invitee.id, nm, myUid);
+            if (r.result === 'exists') { alert('🗳️ A vote on @' + nm + ' is already running. Taking you to it so you can vote.'); if (onFocus) onFocus(r.key); }
+            else { alert(r.result === 'approved' ? '🎉 @' + nm + ' joined.' : '🗳️ Invite vote started for @' + nm + ': ' + r.votes + ' of ' + r.needed + ' so far.'); if (onFocus && r.result !== 'approved') onFocus(r.key); }
+            setInvitee(null); setPick('');
+        } catch (e) { alert(e.message); }
+        setBusy(false);
+    };
+    const restricted = (u) => rs[u] || null;
+    const pickable = pick === 'kick' ? members.filter(m => m !== myUid)
+        : pick === 'mute' ? members.filter(m => m !== myUid && !restricted(m))
+        : pick === 'timeout' ? members.filter(m => m !== myUid && !(restricted(m) && restricted(m).type === 'timeout'))
+        : pick === 'founder' ? members.filter(m => m !== tribe.creatorUid) : [];
+    const CALLS = [
+        ['kick', '🚪 Remove a member'], ['mute', '🔇 Mute a member'], ['timeout', '⏳ Time-out a member'], ['invite', '➕ Invite someone'],
+        ['status', status === 'open' ? '🔒 Close the tribe' : '🔓 Open the tribe'], ['purge', '🧹 Purge the chat'],
+        ['rename', '✏️ Rename the tribe'], ['founder', '👑 Change founder'],
+    ];
+    const onCall = (k) => {
+        if (k === 'status') return call({ type: 'status', to: status === 'open' ? 'closed' : 'open' }, members.length > 1 ? 'Call a vote to ' + (status === 'open' ? 'CLOSE the tribe (hidden from Find Tribes)' : 'OPEN the tribe (listed in Find Tribes, where anyone can ask to join)') + '? ' + need + ' of ' + members.length + ' members must say yes.' : null);
+        if (k === 'purge') return call({ type: 'purge' }, 'Call a vote to purge the group chat? If it passes, every message so far is deleted for everyone.');
+        // the same item already running? go straight to it instead of opening a form
+        if (k === 'rename' && allVotes.rename) return call({ type: 'rename' });
+        if (k === 'founder' && allVotes.founder) return call({ type: 'founder' });
+        setPick(pick === k ? '' : k); setTarget(''); setNewName(''); setInvitee(null);
+    };
+    const tags = {};
+    Object.keys(st.pending).forEach(cid => { tags[cid] = '🗳️ vote running'; });
+    return (
+        <div ref={boxRef} className="space-y-3">
+            {meR && <RkTribeAppealBox tribe={tribe} r={meR} myUid={myUid} myName={myName}/>}
+            <div>
+                <p className="text-xs font-black text-cyan-200 mb-1.5">🗳️ CURRENT VOTES ({rows.length})</p>
+                {rows.length === 0 ? <p className="text-xs text-white">No votes running right now.</p> : rows.map(r => {
+                    const voted = r.yes.includes(myUid);
+                    const focus = focusKey === r.key;
+                    return (
+                        <div key={r.key} data-vote={r.key} className={'rounded-lg p-2.5 mb-1.5 border ' + (focus ? 'border-yellow-300 bg-yellow-500/15 rk-focus-glow' : 'border-white/20 bg-black/30')}>
+                            <p className="text-sm font-bold text-white">{r.icon} {r.label}</p>
+                            {r.statement && <p className="text-xs text-white bg-pink-900/25 border border-pink-400/40 rounded p-1.5 my-1 whitespace-pre-wrap break-words">“{r.statement}”</p>}
+                            <p className="text-xs text-white">{r.yes.length}/{r.need} votes{r.byName && r.kind === 'item' && r.statement === '' ? ' · called by @' + r.byName : ''}{r.exp ? ' · open until ' + rkTribeWhen(r.exp) : ''}</p>
+                            <div className="flex items-center gap-3 mt-1.5">
+                                {r.aboutMe ? <span className="text-xs font-bold text-amber-200">This vote is about you, so you don't vote on it.</span>
+                                    : out ? <span className="text-xs font-bold text-amber-200">You can't vote during a time-out.</span>
+                                    : !r.canVote ? null
+                                    : voted ? <span className="text-xs font-bold text-lime-300">✓ voted</span>
+                                    : <button disabled={busy} onClick={() => vote(r)} className="bg-lime-600/40 text-lime-100 border border-lime-400/60 rounded px-2.5 py-1 text-xs font-bold">Vote Yes</button>}
+                                {r.kind === 'item' && r.by === myUid && !out && !r.statement && <button onClick={() => withdraw(r)} className="text-xs font-bold text-white underline">Withdraw</button>}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            {out ? <p className="text-xs font-bold text-amber-200">⏳ While you are in a time-out you can't call votes or invite anyone.</p> : (
+            <div>
+                <p className="text-xs font-black text-cyan-200 mb-1">CALL A VOTE</p>
+                <p className="text-xs text-white mb-2">{members.length > 1 ? 'A vote passes at 2/3 of the members who can vote on it: ' + need + ' of ' + admitVoters.length + ' for most votes. Yours counts as the first yes. A member a vote is about doesn\'t vote on it, and members in a time-out don\'t vote.' : 'You are the only member, so what you choose happens at once.'}</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                    {CALLS.map(([k, l]) => <button key={k} disabled={busy} onClick={() => onCall(k)} className={'text-xs font-bold rounded-lg py-2 px-1.5 border text-white ' + (pick === k ? 'bg-purple-600/60 border-purple-300' : 'bg-black/40 border-white/30')}>{l}</button>)}
+                </div>
+                {['kick', 'founder', 'mute', 'timeout'].includes(pick) && (
+                    <div className="mt-2 bg-black/40 border border-white/20 rounded-lg p-2 space-y-2">
+                        {pickable.length === 0 ? <p className="text-xs text-white">{pick === 'founder' ? 'There is no one else to make founder.' : pick === 'kick' ? 'There is no one else in the tribe.' : 'There is no one else this can apply to right now.'}</p> : (<>
+                            <select value={target} onChange={e => setTarget(e.target.value)} className="w-full bg-black border border-white/30 text-sm text-white rounded p-2">
+                                <option value="">{pick === 'kick' ? 'Choose who to remove…' : pick === 'founder' ? 'Choose the new founder…' : pick === 'mute' ? 'Choose who to mute…' : 'Choose who gets a time-out…'}</option>
+                                {pickable.map(u => <option key={u} value={u}>@{names[u] || 'Raver'}{restricted(u) ? ' (muted)' : ''}</option>)}
+                            </select>
+                            {(pick === 'mute' || pick === 'timeout') && <>
+                                <p className="text-xs text-white">{pick === 'mute' ? '🔇 A muted member can read and vote, but not post in the group chat.' : '⏳ A member in a time-out can read the chat, but not post, vote, call votes or invite.'} They can appeal after each quarter of the time is served.</p>
+                                <RkTimerPicker value={dur} onChange={setDur}/>
+                            </>}
+                            <button disabled={busy || !target} onClick={() => call(
+                                pick === 'mute' || pick === 'timeout' ? { type: pick, target, targetName: names[target] || 'Raver', dur } : { type: pick, target, targetName: names[target] || 'Raver' },
+                                pick === 'kick' ? 'Call a vote to remove @' + (names[target] || 'this raver') + ' from the tribe?'
+                                : pick === 'founder' ? 'Call a vote to make @' + (names[target] || 'this raver') + ' the founder?'
+                                : 'Call a vote to ' + (pick === 'mute' ? 'mute' : 'give a time-out to') + ' @' + (names[target] || 'this raver') + ' for ' + rkDurTxt(dur) + '?'
+                            )} className="w-full text-sm font-bold bg-pink-600 text-white rounded-lg py-2">Start the vote</button>
+                        </>)}
+                    </div>
+                )}
+                {pick === 'invite' && (
+                    <div className="mt-2 bg-black/40 border border-white/20 rounded-lg p-2 space-y-2" data-invite="1">
+                        <p className="text-xs text-white">Find anyone on RaveKandi, choose them, then start the vote. They join when it passes.</p>
+                        <RkRaverPicker exclude={members} tags={tags} picked={invitee ? invitee.id : ''} onPick={(u) => {
+                            if (st.pending[u.id]) { alert('🗳️ A vote on @' + (u.displayName || 'this raver') + ' is already running. Taking you to it so you can vote.'); if (onFocus) onFocus('admit:' + u.id); setPick(''); return; }
+                            setInvitee(u);
+                        }}/>
+                        <button disabled={busy || !invitee} onClick={invite} className="w-full text-sm font-bold bg-pink-600 text-white rounded-lg py-2">{invitee ? 'Start the vote to invite @' + (invitee.displayName || 'Raver') : 'Choose someone first'}</button>
+                    </div>
+                )}
+                {pick === 'rename' && (
+                    <div className="mt-2 bg-black/40 border border-white/20 rounded-lg p-2 space-y-2">
+                        <input value={newName} maxLength={40} onChange={e => setNewName(e.target.value)} placeholder="New tribe name" className="w-full bg-black border border-white/30 text-sm text-white rounded p-2"/>
+                        <button disabled={busy || !newName.trim()} onClick={() => call({ type: 'rename', name: newName }, 'Call a vote to rename the tribe to "' + newName.trim() + '"?')} className="w-full text-sm font-bold bg-pink-600 text-white rounded-lg py-2">Start the vote</button>
+                    </div>
+                )}
+            </div>
+            )}
+            <p className="text-xs text-white">{status === 'open' ? '🔓 Open: listed in Find Tribes. Any raver can ask to join, and the members vote them in.' : '🔒 Closed: not listed in Find Tribes. Members invite people in.'}</p>
+            <RkTribeVoteLog tribe={tribe}/>
+        </div>
+    );
+};
+const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessageUser, initialTab, onEditBio, onEditUid, onUploadPic }) => {
     const [tab, setTab] = useState('friends');
     const [friends, setFriends] = useState([]);
     const [tribes, setTribes] = useState([]);
@@ -17433,8 +19138,6 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [showMembers, setShowMembers] = useState(false);           // member list popup
     const [memberProfiles, setMemberProfiles] = useState([]);        // loaded member cards
     const [memberSearch, setMemberSearch] = useState('');            // search within tribe members
-    const [tribeAddSearch, setTribeAddSearch] = useState('');        // add-by-search in tribe view
-    const [tribeAddResults, setTribeAddResults] = useState([]);
     // V84.78.150.312: open and closed tribes, and the Find Tribes page.
     const [tribeMode, setTribeMode] = useState('mine');              // 'mine' | 'find'
     const [newTribeStatus, setNewTribeStatus] = useState('closed');  // status picked when creating
@@ -17443,6 +19146,20 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [findLoading, setFindLoading] = useState(false);
     const [settingsFor, setSettingsFor] = useState(null);            // id of the tribe whose settings are open
     const settlingRef = useRef({});
+    // V85.78.150.313: votes panel, mutes, deep links from notifications.
+    const [tribesLoaded, setTribesLoaded] = useState(false);
+    const [voteFocus, setVoteFocus] = useState(null);       // { tribeId, key, n }: a vote to highlight
+    const [cardFocus, setCardFocus] = useState(null);       // { tribeId, n }: a card to scroll to
+    const [pendingFocus, setPendingFocus] = useState(null); // a deep link waiting for the tribe list
+    const [muteFor, setMuteFor] = useState(null);           // id of the tribe whose mute options are open
+    const [chatSettings, setChatSettings] = useState(false);
+    const purgeRef = useRef({});
+    const tribesRef = useRef([]);
+    // V86.78.150.314: my own votes' results, applied at once (rkTribeEmit); a deep link to my appeal;
+    // and a clock so timers, appeal windows and expiries move while the window is open.
+    const overlayRef = useRef({});
+    const [appealFocus, setAppealFocus] = useState(null);
+    const [tick, setTick] = useState(0);
     // Search all ravers by name/UID (excludes self + existing friends) for the "Find Ravers" tab.
     const runUserSearch = async (term) => {
         const t = (term || '').trim().toLowerCase();
@@ -17460,6 +19177,10 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         setSearching(false);
     };
     const myUid = user?.uid;
+    // V85.78.150.313: the gate. Tribes unlock once the bio, picture and custom Friend ID are set.
+    const tribeReqs = rkTribeReqs(profile, myUid);
+    const unlocked = tribeReqs.every(r => r.ok);
+    tribesRef.current = tribes;
 
     // Load friends' profiles
     useEffect(() => {
@@ -17473,9 +19194,11 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     // Load tribes I'm in
     useEffect(() => {
         if (!isOpen || !myUid) return;
+        setTribesLoaded(false);
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('members', 'array-contains', myUid)), s => {
-            const list = s.docs.map(d => ({ ...d.data(), id: d.id }));
+            const list = rkTribeOverlay(s.docs.map(d => ({ ...d.data(), id: d.id })), overlayRef.current);
             setTribes(list);
+            setTribesLoaded(true);
             // update achievement metrics (best-effort)
             const biggest = list.reduce((m, t) => Math.max(m, (t.memberCount || (t.members || []).length)), 0);
             try { setDoc(doc(db, 'artifacts', appId, 'users', myUid), { tribesJoined: list.length, biggestTribe: biggest }, { merge: true }); } catch (e) {}
@@ -17483,13 +19206,81 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         return () => unsub();
     }, [isOpen, myUid]);
 
-    // V84.78.150.312: a tribe notification opens the Tribes tab (App sends 'vibeTribe:tribes').
+    // V86.78.150.314: the results of my own votes arrive here the moment they commit, so a vote that
+    // passed leaves the list at once instead of waiting for the live update. A fresh server copy
+    // (fetched when settings open) replaces the list's copy when it is as new or newer.
     useEffect(() => {
-        if (isOpen && initialTab && initialTab.tab) { setTab(initialTab.tab); if (initialTab.tab === 'tribes') setTribeMode('mine'); }
-    }, [isOpen, initialTab]);
-    // Find Tribes lists OPEN tribes only, live while the page is showing.
+        const h = (e) => {
+            const d = e && e.detail;
+            if (!d || !d.id) return;
+            if (d.doc && d.doc.__mutes) {
+                const m = d.doc.__mutes;
+                setTribes(list => list.map(x => { if (x.id !== d.id) return x; const mutes = { ...(x.mutes || {}) }; if (m.mutes) mutes[m.uid] = m.mutes; else delete mutes[m.uid]; return { ...x, mutes }; }));
+                return;
+            }
+            if (d.fresh) { setTribes(list => list.map(x => (x.id === d.id && (Number(d.doc.rev) || 0) >= (Number(x.rev) || 0)) ? { ...d.doc, id: d.id } : x)); return; }
+            overlayRef.current[d.id] = { doc: d.doc, gone: !!d.gone, t: Date.now() };
+            setTribes(list => rkTribeOverlay(list, overlayRef.current));
+        };
+        window.addEventListener('rk:tribe', h);
+        return () => window.removeEventListener('rk:tribe', h);
+    }, []);
     useEffect(() => {
-        if (!isOpen || tab !== 'tribes' || tribeMode !== 'find') return;
+        if (!isOpen) return;
+        const h = setInterval(() => setTick(x => x + 1), 30000);
+        return () => clearInterval(h);
+    }, [isOpen]);
+    // Settings about to show votes: read the tribe fresh from the server.
+    useEffect(() => { if (isOpen && settingsFor) rkTribeFresh(settingsFor); }, [isOpen, settingsFor]);
+    useEffect(() => { if (isOpen && chatSettings && activeTribe) rkTribeFresh(activeTribe.id); }, [isOpen, chatSettings, activeTribe && activeTribe.id]);
+
+    // V84.78.150.312: a tribe notification opens the Tribes tab.
+    // V85.78.150.313: and the exact place it is about: a vote, the group chat, or the tribe's card
+    // (App sends 'vibeTribe:<tribeId>#<vote:key|chat|card|find|gone>'). Until the raver has
+    // unlocked tribes, it opens on the checklist instead.
+    useEffect(() => {
+        if (!isOpen || !initialTab || !initialTab.tab) return;
+        setTab(initialTab.tab);
+        if (initialTab.tab !== 'tribes') return;
+        const f = String(initialTab.focus || '');
+        setTribeMode(f === 'find' ? 'find' : 'mine');
+        setPendingFocus(unlocked && initialTab.tribeId && f && f !== 'find' && f !== 'gone' ? { tribeId: initialTab.tribeId, focus: f, n: initialTab.n || Date.now() } : null);
+    }, [isOpen, initialTab, unlocked]);
+    // A deep link waits for the tribe list, then opens its target.
+    useEffect(() => {
+        if (!pendingFocus || !isOpen) return;
+        const t = tribes.find(x => x.id === pendingFocus.tribeId);
+        if (!t) {
+            if (tribesLoaded) { setPendingFocus(null); alert("That tribe isn't in your list anymore."); }
+            return;
+        }
+        const f = pendingFocus.focus;
+        setPendingFocus(null);
+        if (f === 'chat') { setActiveTribe(t); return; }
+        setActiveTribe(null);
+        if (f.indexOf('vote:') === 0) { setSettingsFor(t.id); setVoteFocus({ tribeId: t.id, key: f.slice(5), n: Date.now() }); }
+        if (f === 'appeal') { setSettingsFor(t.id); setAppealFocus({ tribeId: t.id, n: Date.now() }); }
+        setCardFocus({ tribeId: t.id, n: Date.now() });
+    }, [pendingFocus, tribes, tribesLoaded, isOpen]);
+    useEffect(() => {
+        if (!cardFocus) return;
+        const t1 = setTimeout(() => { try { const el = document.querySelector('[data-tribe="' + cardFocus.tribeId + '"]'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
+        const t2 = setTimeout(() => setCardFocus(null), 5000);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+    }, [cardFocus]);
+    useEffect(() => {
+        if (!voteFocus) return;
+        const t = setTimeout(() => setVoteFocus(null), 6000);
+        return () => clearTimeout(t);
+    }, [voteFocus]);
+    // Removed from the tribe whose chat is open: close it and say so.
+    useEffect(() => {
+        if (!activeTribe || !tribesLoaded) return;
+        if (!tribes.some(x => x.id === activeTribe.id)) { setActiveTribe(null); setChatSettings(false); alert('You are no longer in "' + (activeTribe.name || 'that tribe') + '".'); }
+    }, [tribes, tribesLoaded, activeTribe]);
+    // Find Tribes lists OPEN tribes only, live while the page is showing (and on the locked page).
+    useEffect(() => {
+        if (!isOpen || tab !== 'tribes' || (tribeMode !== 'find' && unlocked)) return;
         setFindLoading(true);
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('status', '==', 'open'), limit(200)), snap => {
             const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -17497,18 +19288,20 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
             setOpenTribes(list); setFindLoading(false);
         }, e => { setFindLoading(false); rkReport('find tribes', e); });
         return () => unsub();
-    }, [isOpen, tab, tribeMode]);
+    }, [isOpen, tab, tribeMode, unlocked]);
     // Votes that have already passed are settled when they are seen: a tribe of one used to sit
     // at 1/1 for good. One attempt per tribe at a time; the transaction re-checks.
+    // V86.78.150.314: also appeals past their window, restrictions served, and votes that no longer
+    // apply; the clock re-checks every 30 seconds while the window is open.
     useEffect(() => {
         if (!isOpen || !myUid) return;
         tribes.forEach(t => {
             const st = rkTribeSettle(t);
-            if ((!st.admitted.length && !st.statusChanged) || settlingRef.current[t.id]) return;
+            if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length) || settlingRef.current[t.id]) return;
             settlingRef.current[t.id] = true;
             settleTribe(t.id, myUid).catch(e => rkReport('tribe settle', e)).finally(() => { delete settlingRef.current[t.id]; });
         });
-    }, [tribes, isOpen, myUid]);
+    }, [tribes, isOpen, myUid, tick]);
 
     // Load active tribe's messages
     // Secure mode + screenshot detection while a tribe chat is open. On capture: blank + notify the
@@ -17523,7 +19316,9 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                 setTribeBlanked(true);
                 setTimeout(() => setTribeBlanked(false), 2500);
                 try {
-                    (activeTribe.members || []).forEach(uid => { if (uid !== myUid) pushNotif(uid, 'message', '📸 ' + (profile?.displayName || 'Someone') + ' may have screenshotted or recorded the "' + activeTribe.name + '" tribe chat.', null); });
+                    // V85.78.150.313: a tribe alert, so it opens the chat and honours screenshot mutes.
+                    const lt = tribesRef.current.find(x => x.id === activeTribe.id) || activeTribe;
+                    rkTribeNotify(activeTribe.id, lt, (lt.members || []).filter(u => u !== myUid), 'shot', '📸 ' + (profile?.displayName || 'Someone') + ' may have screenshotted or recorded the "' + (lt.name || 'tribe') + '" chat.', 'chat');
                 } catch (e) {}
             });
         })();
@@ -17540,6 +19335,17 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         return () => unsub();
     }, [activeTribe]);
 
+    // V85.78.150.313: messages from before a purge are deleted by whoever opens the chat next, if
+    // the member whose vote passed it didn't finish.
+    useEffect(() => {
+        const lt = activeTribe ? tribes.find(x => x.id === activeTribe.id) : null;
+        const pa = Number(lt && lt.purgedAt) || 0;
+        if (!lt || !pa || purgeRef.current[lt.id] === pa) return;
+        if (!tribeMsgs.some(m => (m.at || 0) <= pa)) return;
+        purgeRef.current[lt.id] = pa;
+        rkTribePurgeMessages(lt.id, pa);
+    }, [activeTribe, tribes, tribeMsgs]);
+
     // Load tribe member profiles (for the member-list popup).
     useEffect(() => {
         if (!showMembers || !activeTribe) { return; }
@@ -17547,20 +19353,6 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         Promise.all(ids.map(id => getDoc(doc(db, 'artifacts', appId, 'users', id)).then(s => s.exists() ? { ...s.data(), id: s.id } : null).catch(() => null)))
             .then(list => setMemberProfiles(list.filter(Boolean)));
     }, [showMembers, activeTribe]);
-
-    // Search all ravers to add to the active tribe (excludes existing members).
-    const runTribeAddSearch = async (term) => {
-        const t = (term || '').trim().toLowerCase();
-        if (t.length < 2) { setTribeAddResults([]); return; }
-        try {
-            const snap = await getDocs(collection(db, 'artifacts', appId, 'users'));
-            const mem = (activeTribe?.members || []);
-            const res = snap.docs.map(d => ({ ...d.data(), id: d.id }))
-                .filter(u => u.id !== myUid && !mem.includes(u.id) && ((u.displayName || '').toLowerCase().includes(t) || (u.publicUid || '').toLowerCase().includes(t)))
-                .slice(0, 25);
-            setTribeAddResults(res);
-        } catch (e) { setTribeAddResults([]); }
-    };
 
     if (!isOpen) return null;
 
@@ -17574,25 +19366,18 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         }
         catch (e) { alert("Couldn't create tribe: " + e.message); }
     };
+    // V85.78.150.313: a raver already up for a vote is not proposed twice; the app goes to the vote.
+    const goToVote = (tribeId, key) => { setActiveTribe(null); setChatSettings(false); setTribeMode('mine'); setSettingsFor(tribeId); setVoteFocus({ tribeId, key, n: Date.now() }); setCardFocus({ tribeId, n: Date.now() }); };
     const proposeFriend = async (tribe, friendId, friendName) => {
         try {
             const r = await proposeToTribe(tribe.id, friendId, friendName, myUid);
+            if (r.result === 'exists') { alert('🗳️ A vote on @' + friendName + ' is already running in "' + tribe.name + '". Taking you to it so you can vote.'); goToVote(tribe.id, r.key); return; }
             alert(r.result === 'approved' ? '🎉 @' + friendName + ' joined "' + tribe.name + '".' : 'Proposed @' + friendName + ' to "' + tribe.name + '". ' + r.votes + ' of ' + r.needed + ' member votes so far.');
         }
         catch (e) { alert(e.message); }
     };
-    // V84.78.150.312: status changes, join requests.
-    const doProposeStatus = async (t, to) => {
-        if (rkTribeStatus(t) === to) return;
-        const n = (t.members || []).length, need = rkTribeNeeded(n);
-        const what = to === 'open' ? 'OPEN (listed in Find Tribes, where anyone can ask to join)' : 'CLOSED (hidden from Find Tribes)';
-        if (!window.confirm(n > 1 ? 'Propose making "' + t.name + '" ' + what + '? ' + need + ' of ' + n + ' members must vote yes. Yours counts as the first.' : 'Make "' + t.name + '" ' + what + '?')) return;
-        try {
-            const r = await proposeTribeStatus(t.id, to, myUid, profile?.displayName || 'Raver');
-            if (r.result === 'changed') alert(to === 'open' ? '🔓 "' + t.name + '" is now Open. It shows in Find Tribes.' : '🔒 "' + t.name + '" is now Closed. It no longer shows in Find Tribes.');
-            else if (r.result === 'proposed') alert('🗳️ Vote started: ' + r.votes + ' of ' + r.need + ' votes so far. The other members have been notified.');
-        } catch (e) { alert(e.message); }
-    };
+    const doMute = async (t, m) => { try { await setTribeMutes(t.id, myUid, m); } catch (e) { alert("Couldn't save: " + e.message); } };
+    // V84.78.150.312: join requests. (312's status helper is now a vote in RkTribeGovern.)
     const doAskToJoin = async (t) => {
         if (!myUid) { alert('Sign in to join a tribe.'); return; }
         const n = (t.members || []).length;
@@ -17603,10 +19388,17 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         if (!window.confirm('Withdraw your request to join "' + t.name + '"?')) return;
         try { await withdrawTribeRequest(t.id, myUid); } catch (e) { alert(e.message); }
     };
+    const liveTribe = activeTribe ? (tribes.find(x => x.id === activeTribe.id) || activeTribe) : null;
+    // V86.78.150.314: my mute or time-out in the open chat, if any
+    const myR = liveTribe ? rkTribeRestriction(liveTribe, myUid) : null;
     const sendTMsg = async () => {
         if (!tribeInput.trim() || !activeTribe) return;
+        if (myR) { alert((myR.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted') + ' until ' + rkTribeWhen(myR.until) + ", so you can't post yet."); return; }
         const txt = tribeInput; setTribeInput('');
-        try { await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null, { style: profile?.msgTextStyle || profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null, photoURL: profile?.photoURL || '', publicUid: profile?.publicUid || myUid }); } catch (e) {}
+        try {
+            await sendTribeMessage(activeTribe.id, myUid, profile?.displayName || 'Raver', txt, profile?.featuredBadge || null, { style: profile?.msgTextStyle || profile?.textStyle || null, ns: profile?.[RK_NAME_STYLE_FIELD] || null, photoURL: profile?.photoURL || '', publicUid: profile?.publicUid || myUid });
+            rkTribeMsgPing(activeTribe.id, liveTribe, myUid, profile?.displayName || 'Raver');   // V85.78.150.313
+        } catch (e) {}
     };
     // Delete your OWN tribe message (members can only remove their own; admins can remove any).
     const delTribeMsg = async (m) => {
@@ -17617,9 +19409,12 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={() => { setActiveTribe(null); onClose(); }} title="🌈 Vibe Tribe" wide={true}>
+        <Modal isOpen={isOpen} onClose={() => { setActiveTribe(null); setChatSettings(false); onClose(); }} title="🌈 Vibe Tribe" wide={true} full={true}
+            headerExtra={activeTribe ? (() => { const need = liveTribe ? rkTribeOpenVotes(liveTribe, myUid).mine : 0; return (
+                <button onClick={() => setChatSettings(true)} title="Group chat settings and votes" className="relative w-9 h-9 rounded-full bg-purple-600/70 border border-purple-300/70 text-white flex items-center justify-center"><Settings size={18}/>{need > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-yellow-400 text-black text-[10px] font-black flex items-center justify-center">{need}</span>}</button>
+            ); })() : null}>
             {!activeTribe ? (
-                <div>
+                <div className="pb-6">
                     <div className="flex gap-2 mb-3">
                         <button onClick={() => setTab('friends')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='friends' ? 'bg-pink-600 text-white' : 'bg-white/5 text-white'}`}>👥 Friends ({(profile?.friends||[]).length})</button>
                         <button onClick={() => setTab('tribes')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${tab==='tribes' ? 'bg-purple-600 text-white' : 'bg-white/5 text-white'}`}>🌈 Tribes ({tribes.length})</button>
@@ -17641,7 +19436,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                             <input value={friendSearch} onChange={e => setFriendSearch(e.target.value)} placeholder="Search your friends..." className="w-full bg-black/50 border border-white/20 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-pink-500/60 outline-none"/>
                                         </div>
                                     )}
-                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                    <div className="space-y-2">
                                         {loading ? <p className="text-center opacity-50 text-sm py-6">Loading your friends…</p> : friends.length === 0 ? (
                                             <div className="text-center py-8"><Users size={36} className="mx-auto text-white/20 mb-2"/><p className="text-sm opacity-60">No friends yet! Switch to <strong>Find Ravers</strong> to search for people, or tap "Add Friend" on any raver's profile.</p></div>
                                         ) : (() => {
@@ -17668,7 +19463,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
                                         <input value={friendSearch} onChange={e => { setFriendSearch(e.target.value); runUserSearch(e.target.value); }} placeholder="Search ravers by name or UID..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:border-cyan-500/60 outline-none"/>
                                     </div>
-                                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                                    <div className="space-y-2">
                                         {friendSearch.trim().length < 2 ? <p className="text-center opacity-50 text-sm py-8">Type at least 2 characters to search for ravers to add.</p>
                                         : searching ? <p className="text-center opacity-50 text-sm py-6">Searching…</p>
                                         : userResults.length === 0 ? <p className="text-center opacity-50 text-sm py-6">No ravers found matching "{friendSearch}".</p>
@@ -17688,51 +19483,77 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                         </div>
                     )}
 
-                    {tab === 'tribes' && (
+                    {tab === 'tribes' && (() => {
+                        // Find Tribes: open tribes only. Read-only until the raver has unlocked tribes.
+                        const findList = (interactive) => (
+                            <div className="space-y-2">
+                                <div className="relative">
+                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white"/>
+                                    <input value={tribeQuery} onChange={e => setTribeQuery(e.target.value)} placeholder="Search open tribes by name..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm text-white focus:border-cyan-500/60 outline-none"/>
+                                </div>
+                                {interactive && <p className="text-xs text-white">Only <strong>open</strong> tribes are listed here. Ask to join, and the members vote you in (2/3 of them must say yes).</p>}
+                                <div className="space-y-2">
+                                    {findLoading ? <p className="text-center text-white text-sm py-6">Loading open tribes…</p> : (() => {
+                                        const q = tribeQuery.trim().toLowerCase();
+                                        const shown = openTribes.filter(t => !q || String(t.name || '').toLowerCase().includes(q));
+                                        if (openTribes.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes yet.</p>;
+                                        if (shown.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes match "{tribeQuery}".</p>;
+                                        return shown.map(t => {
+                                            const mem = t.members || [];
+                                            const n = mem.length || t.memberCount || 0;
+                                            const need = rkTribeNeeded(n);
+                                            const pv = (t.pendingVotes || {})[myUid];
+                                            const pvVotes = pv ? Array.from(new Set(pv.votes || [])).filter(v => mem.includes(v)).length : 0;
+                                            const founder = (t.memberNames || {})[t.creatorUid];
+                                            return (
+                                                <div key={t.id} className="flex items-center justify-between gap-2 bg-white/5 border border-cyan-500/30 rounded-lg p-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-black text-white truncate">🌈 {t.name}</p>
+                                                        <p className="text-xs text-white">{n} member{n === 1 ? '' : 's'}{founder ? ' · founded by @' + founder : ''}</p>
+                                                    </div>
+                                                    {!interactive ? <span className="text-xs font-bold text-amber-200 shrink-0">🔐 Locked</span>
+                                                    : mem.includes(myUid) ? <span className="text-xs font-bold text-lime-300 shrink-0">✓ You're in</span>
+                                                    : pv ? <span className="text-xs font-bold text-yellow-200 shrink-0 text-right">🗳️ Voting on you<br/>{pvVotes}/{need} votes</span>
+                                                    : (t.joinRequests || {})[myUid] ? <button onClick={() => doWithdrawRequest(t)} className="text-xs font-bold text-white bg-black/40 border border-white/40 rounded-full px-3 py-1 shrink-0">✓ Requested · Withdraw</button>
+                                                    : <button onClick={() => doAskToJoin(t)} className="text-xs font-bold bg-cyan-600 text-white rounded-full px-3 py-1 shrink-0">🙋 Ask to join</button>}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            </div>
+                        );
+                        if (!unlocked) return (
+                            <div className="space-y-3">
+                                {/* V85.78.150.313: THE REQUIREMENTS (Milli, at 313). Each box ticks itself as the profile
+                                    changes; once all three are done this list disappears and tribes unlock. Tapping a row
+                                    opens that editor (the picture row is the file picker itself). */}
+                                <div className="bg-black/50 border-2 border-amber-400/70 rounded-lg p-3">
+                                    <p className="text-sm font-black text-amber-200">🔐 Unlock Vibe Tribes</p>
+                                    <p className="text-xs text-white mt-0.5 mb-2">Finish these three to create, join and chat in tribes. Each box ticks itself when it's done.</p>
+                                    {tribeReqs.map(r => {
+                                        const inner = (<>
+                                            <span className={'w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 text-sm font-black ' + (r.ok ? 'bg-lime-500 border-lime-300 text-black' : 'border-white text-transparent')}>✓</span>
+                                            <span className="flex-1 min-w-0"><span className={'block text-sm font-bold ' + (r.ok ? 'text-lime-200' : 'text-white')}>{r.label}{r.ok ? ' · done' : ''}</span>{!r.ok && <span className="block text-xs text-white">{r.how}</span>}</span>
+                                        </>);
+                                        if (r.ok) return <div key={r.key} data-req={r.key} className="flex items-start gap-2.5 py-1.5">{inner}</div>;
+                                        if (r.key === 'photo') return <label key={r.key} data-req={r.key} className="relative flex items-start gap-2.5 py-1.5 cursor-pointer">{inner}<input type="file" accept="image/*" onChange={e => { if (onUploadPic) onUploadPic(e); }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/></label>;
+                                        return <div key={r.key} data-req={r.key} role="button" onClick={() => { if (r.key === 'bio' && onEditBio) onEditBio(); if (r.key === 'uid' && onEditUid) onEditUid(); }} className="flex items-start gap-2.5 py-1.5 cursor-pointer">{inner}</div>;
+                                    })}
+                                </div>
+                                <p className="text-xs font-bold text-white">🔍 Open tribes you can ask to join once you're unlocked:</p>
+                                {findList(false)}
+                            </div>
+                        );
+                        return (
                         <div>
                             {/* V84.78.150.312: My Tribes | Find Tribes, the same switch as My Friends | Find Ravers. */}
                             <div className="flex gap-1 mb-3 bg-black/40 rounded-lg p-1">
                                 <button onClick={() => setTribeMode('mine')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='mine' ? 'bg-purple-600 text-white' : 'text-white'}`}>🌈 My Tribes</button>
                                 <button onClick={() => setTribeMode('find')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='find' ? 'bg-cyan-600 text-white' : 'text-white'}`}>🔍 Find Tribes</button>
                             </div>
-                            {tribeMode === 'find' ? (
-                                <div className="space-y-2">
-                                    <div className="relative">
-                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white"/>
-                                        <input value={tribeQuery} onChange={e => setTribeQuery(e.target.value)} placeholder="Search open tribes by name..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2.5 text-sm text-white focus:border-cyan-500/60 outline-none"/>
-                                    </div>
-                                    <p className="text-xs text-white">Only <strong>open</strong> tribes are listed here. Ask to join, and the members vote you in (2/3 of them must say yes).</p>
-                                    <div className="space-y-2 max-h-[46vh] overflow-y-auto pr-1">
-                                        {findLoading ? <p className="text-center text-white text-sm py-6">Loading open tribes…</p> : (() => {
-                                            const q = tribeQuery.trim().toLowerCase();
-                                            const shown = openTribes.filter(t => !q || String(t.name || '').toLowerCase().includes(q));
-                                            if (openTribes.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes yet. Members can open a tribe in its ⚙️ Tribe settings.</p>;
-                                            if (shown.length === 0) return <p className="text-center text-white text-sm py-6">No open tribes match "{tribeQuery}".</p>;
-                                            return shown.map(t => {
-                                                const mem = t.members || [];
-                                                const n = mem.length || t.memberCount || 0;
-                                                const need = rkTribeNeeded(n);
-                                                const pv = (t.pendingVotes || {})[myUid];
-                                                const pvVotes = pv ? Array.from(new Set(pv.votes || [])).filter(v => mem.includes(v)).length : 0;
-                                                const founder = (t.memberNames || {})[t.creatorUid];
-                                                return (
-                                                    <div key={t.id} className="flex items-center justify-between gap-2 bg-white/5 border border-cyan-500/30 rounded-lg p-3">
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-black text-white truncate">🌈 {t.name}</p>
-                                                            <p className="text-xs text-white">{n} member{n === 1 ? '' : 's'}{founder ? ' · founded by @' + founder : ''}</p>
-                                                        </div>
-                                                        {mem.includes(myUid) ? <span className="text-xs font-bold text-lime-300 shrink-0">✓ You're in</span>
-                                                        : pv ? <span className="text-xs font-bold text-yellow-200 shrink-0 text-right">🗳️ Voting on you<br/>{pvVotes}/{need} votes</span>
-                                                        : (t.joinRequests || {})[myUid] ? <button onClick={() => doWithdrawRequest(t)} className="text-xs font-bold text-white bg-black/40 border border-white/40 rounded-full px-3 py-1 shrink-0">✓ Requested · Withdraw</button>
-                                                        : <button onClick={() => doAskToJoin(t)} className="text-xs font-bold bg-cyan-600 text-white rounded-full px-3 py-1 shrink-0">🙋 Ask to join</button>}
-                                                    </div>
-                                                );
-                                            });
-                                        })()}
-                                    </div>
-                                </div>
-                            ) : (
-                        <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
+                            {tribeMode === 'find' ? findList(true) : (
+                        <div className="space-y-3">
                             <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
                                 <p className="text-xs font-bold text-purple-200 mb-1">Start a new Vibe Tribe</p>
                                 <p className="text-xs text-white mb-2">A tribe is a named group with a shared group chat. New members need a 2/3 vote of current members to join.</p>
@@ -17749,54 +19570,45 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                             </div>
                             {tribes.length === 0 ? <p className="text-center text-white text-xs py-4">You're not in any tribes yet. Create one above, or ask to join an open one in 🔍 Find Tribes.</p> : tribes.map(t => {
                                 const members = t.members || [];
-                                const need = rkTribeNeeded(members.length);
                                 const st = rkTribeStatus(t);
                                 const myFriendsNotIn = (friends || []).filter(f => !members.includes(f.id));
-                                const pendingList = Object.entries(t.pendingVotes || {}).filter(([cid]) => !members.includes(cid));
-                                const requestList = Object.entries(t.joinRequests || {}).filter(([cid]) => !members.includes(cid) && !(t.pendingVotes || {})[cid]);
-                                const sv = t.statusVote && RK_TRIBE_STATUS.includes(t.statusVote.to) && t.statusVote.to !== st ? t.statusVote : null;
-                                const svVotes = sv ? Array.from(new Set(sv.votes || [])).filter(v => members.includes(v)) : [];
                                 const showSettings = settingsFor === t.id;
+                                const myMutes = (t.mutes || {})[myUid] || {};
+                                const mutedCount = RK_TRIBE_MUTES.filter(m => myMutes[m.k]).length;
+                                const ov = rkTribeOpenVotes(t, myUid);
+                                const focused = !!(cardFocus && cardFocus.tribeId === t.id);
+                                const cardR = rkTribeRestriction(t, myUid);
+                                const cardOut = !!(cardR && cardR.type === 'timeout');
                                 return (
-                                    <div key={t.id} className="bg-white/5 border border-purple-500/30 rounded-lg p-3">
+                                    <div key={t.id} data-tribe={t.id} className={'bg-white/5 border rounded-lg p-3 ' + (focused ? 'border-yellow-300 ring-2 ring-yellow-300/60' : 'border-purple-500/30')}>
                                         <div className="flex items-center justify-between gap-2 mb-2">
                                             <div className="min-w-0">
                                                 <p className="text-sm font-black text-purple-200 flex items-center gap-1.5 flex-wrap">🌈 {t.name} <span className={'text-[11px] font-black rounded-full px-2 py-0.5 border ' + (st === 'open' ? 'bg-lime-500/20 border-lime-400/60 text-lime-200' : 'bg-white/10 border-white/30 text-white')}>{st === 'open' ? '🔓 OPEN' : '🔒 CLOSED'}</span></p>
-                                                <p className="text-xs text-white">{members.length} member{members.length === 1 ? '' : 's'}</p>
+                                                <p className="text-xs text-white">{members.length} member{members.length === 1 ? '' : 's'}{t.creatorUid === myUid ? ' · you are the founder' : ''}</p>
                                             </div>
-                                            <button onClick={() => setActiveTribe(t)} className="text-xs font-bold bg-purple-600 text-white rounded-full px-3 py-1 flex items-center gap-1 shrink-0"><MessageSquare size={12}/> Group Chat</button>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {/* V85.78.150.313: mute notifications from this tribe, by kind. */}
+                                                <button onClick={() => setMuteFor(muteFor === t.id ? null : t.id)} title="Mute notifications from this tribe" className={'w-8 h-8 rounded-full border flex items-center justify-center text-base ' + (mutedCount ? 'bg-white/15 border-white/50' : 'bg-black/30 border-purple-400/60')}>{mutedCount ? '🔕' : '🔔'}</button>
+                                                <button onClick={() => setActiveTribe(t)} className="text-xs font-bold bg-purple-600 text-white rounded-full px-3 py-1 flex items-center gap-1"><MessageSquare size={12}/> Group Chat</button>
+                                            </div>
                                         </div>
-                                        {sv && (
-                                            <div className="bg-cyan-900/30 border border-cyan-400/50 rounded p-2 mb-2">
-                                                <p className="text-xs font-bold text-cyan-100">🗳️ Vote: make this tribe {sv.to === 'open' ? '🔓 OPEN (listed in Find Tribes)' : '🔒 CLOSED (hidden from Find Tribes)'}</p>
-                                                <p className="text-xs text-white mt-0.5">Proposed by @{sv.byName || 'a member'} · {svVotes.length}/{need} votes</p>
-                                                <div className="flex items-center gap-3 mt-1.5">
-                                                    {!svVotes.includes(myUid) ? <button onClick={async () => { try { const r = await voteTribeStatus(t.id, myUid); alert(r === 'changed' ? (sv.to === 'open' ? '✅ Passed: the tribe is now Open.' : '✅ Passed: the tribe is now Closed.') : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 text-xs font-bold">Vote Yes</button> : <span className="text-xs font-bold text-lime-300">✓ voted</span>}
-                                                    {sv.by === myUid && <button onClick={async () => { if (!window.confirm('Withdraw your proposal?')) return; try { await withdrawTribeStatus(t.id, myUid); } catch (e) { alert(e.message); } }} className="text-xs font-bold text-white underline">Withdraw</button>}
-                                                </div>
-                                            </div>
-                                        )}
-                                        {(pendingList.length > 0 || requestList.length > 0) && (
-                                            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded p-2 mb-2">
-                                                <p className="text-xs font-bold text-yellow-200 mb-1">🗳️ Pending votes:</p>
-                                                {pendingList.map(([cid, info]) => {
-                                                    const votes = Array.from(new Set(info.votes || [])).filter(v => members.includes(v));
-                                                    return (
-                                                        <div key={cid} className="flex items-center justify-between gap-2 text-xs text-white mb-1">
-                                                            <span>@{info.name} · {votes.length}/{need} votes</span>
-                                                            {!votes.includes(myUid) ? <button onClick={async () => { try { const r = await voteForTribeMember(t.id, cid, myUid); alert(r === 'approved' ? '✅ Approved: they joined!' : '✅ Vote counted.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 font-bold shrink-0">Vote Yes</button> : <span className="text-lime-300 font-bold shrink-0">✓ voted</span>}
-                                                        </div>
-                                                    );
-                                                })}
-                                                {requestList.map(([cid, info]) => (
-                                                    <div key={'jr_' + cid} className="flex items-center justify-between gap-2 text-xs text-white mb-1">
-                                                        <span>🙋 @{(info && info.name) || 'Raver'} asked to join · 0/{need} votes</span>
-                                                        <button onClick={async () => { try { const r = await proposeToTribe(t.id, cid, (info && info.name) || 'Raver', myUid); alert(r.result === 'approved' ? '✅ Approved: they joined!' : '✅ Vote counted: ' + r.votes + ' of ' + r.needed + '.'); } catch (e) { alert(e.message); } }} className="bg-lime-600/40 text-lime-100 border border-lime-400/50 rounded px-2 py-0.5 font-bold shrink-0">Vote Yes</button>
-                                                    </div>
+                                        {muteFor === t.id && (
+                                            <div className="bg-black/40 border border-white/25 rounded-lg p-2.5 mb-2 space-y-1">
+                                                <p className="text-xs font-black text-white mb-1">🔕 MUTE NOTIFICATIONS FROM "{String(t.name || '').toUpperCase()}"</p>
+                                                {RK_TRIBE_MUTES.map(m => (
+                                                    <label key={m.k} className="flex items-center gap-2 text-sm text-white py-0.5 cursor-pointer">
+                                                        <input type="checkbox" checked={!!myMutes[m.k]} onChange={() => doMute(t, { ...myMutes, [m.k]: !myMutes[m.k] })} className="w-4 h-4 accent-pink-500"/> {m.label}
+                                                    </label>
                                                 ))}
+                                                <label className="flex items-center gap-2 text-sm font-bold text-white pt-1 mt-1 border-t border-white/15 cursor-pointer">
+                                                    <input type="checkbox" checked={mutedCount === RK_TRIBE_MUTES.length} onChange={() => { const on = mutedCount !== RK_TRIBE_MUTES.length; const m = {}; RK_TRIBE_MUTES.forEach(x => { m[x.k] = on; }); doMute(t, m); }} className="w-4 h-4 accent-pink-500"/> Mute everything
+                                                </label>
+                                                <p className="text-xs text-white">Anything about you personally still arrives: a vote on your request, being added, or being removed.</p>
                                             </div>
                                         )}
-                                        {myFriendsNotIn.length > 0 && (
+                                        {ov.mine > 0 && <p className="text-xs font-bold text-yellow-200 mb-2">🗳️ {ov.mine} vote{ov.mine === 1 ? '' : 's'} waiting for you in ⚙️ Tribe settings.</p>}
+                                        {cardR && <p className={'text-xs font-bold mb-2 ' + (cardOut ? 'text-amber-200' : 'text-sky-200')}>{cardOut ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(cardR.until)}. Appeal in ⚙️ Tribe settings.</p>}
+                                        {myFriendsNotIn.length > 0 && !cardOut && (
                                             <div>
                                                 <p className="text-xs text-white mb-1">Invite a friend (starts a vote):</p>
                                                 <div className="flex flex-wrap gap-1">
@@ -17807,21 +19619,13 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between mt-2">
-                                            <button onClick={() => setSettingsFor(showSettings ? null : t.id)} className="text-xs font-bold text-cyan-200 underline">⚙️ Tribe settings</button>
+                                            <button onClick={() => setSettingsFor(showSettings ? null : t.id)} className="text-xs font-bold text-cyan-200 underline">⚙️ Tribe settings{ov.total ? ' · 🗳️ ' + ov.total : ''}</button>
                                             <button onClick={async () => { if (window.confirm('Leave "' + t.name + '"?')) { try { await leaveTribe(t.id, myUid); } catch (e) { alert("Couldn't leave: " + e.message); } } }} className="text-xs font-bold text-red-300 underline">Leave tribe</button>
                                         </div>
                                         {showSettings && (
-                                            <div className="mt-2 bg-black/40 border border-cyan-500/40 rounded-lg p-3 space-y-2">
-                                                <p className="text-xs font-black text-cyan-200">⚙️ TRIBE SETTINGS · Status</p>
-                                                {sv ? <p className="text-xs text-white">A vote to make it {sv.to === 'open' ? 'Open' : 'Closed'} is running above.</p> : (
-                                                    <div className="flex gap-2">
-                                                        {['closed', 'open'].map(opt => (
-                                                            <button key={opt} onClick={() => doProposeStatus(t, opt)} className={'flex-1 text-xs font-bold rounded-lg py-2 border ' + (st === opt ? (opt === 'open' ? 'bg-lime-600/40 border-lime-300 text-white' : 'bg-purple-600/50 border-purple-300 text-white') : 'bg-black/40 border-white/30 text-white')}>{opt === 'open' ? '🔓 Open' : '🔒 Closed'}{st === opt ? ' ✓' : ''}</button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                <p className="text-xs text-white">{st === 'open' ? 'Open: listed in Find Tribes. Any raver can ask to join, and the members vote them in.' : 'Closed: not listed in Find Tribes. Members invite people in.'}</p>
-                                                <p className="text-xs text-white">{members.length > 1 ? 'Changing it takes a 2/3 vote: ' + need + ' of ' + members.length + ' members.' : 'You are the only member, so your choice applies at once.'}</p>
+                                            <div className="mt-2 bg-black/40 border border-cyan-500/40 rounded-lg p-3">
+                                                <p className="text-xs font-black text-cyan-200 mb-2">⚙️ TRIBE SETTINGS</p>
+                                                <RkTribeGovern tribe={t} myUid={myUid} myName={profile?.displayName || 'Raver'} focusKey={voteFocus && voteFocus.tribeId === t.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: t.id, key, n: Date.now() })} appealFocus={appealFocus && appealFocus.tribeId === t.id ? appealFocus.n : null}/>
                                             </div>
                                         )}
                                     </div>
@@ -17830,11 +19634,12 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                         </div>
                             )}
                         </div>
-                    )}
+                        );
+                    })()}
                 </div>
             ) : (
-                <div>
-                    <div className="flex items-center justify-between mb-2 bg-purple-900/30 border border-purple-500/40 rounded-lg p-2">
+                <div className="flex flex-col flex-1 min-h-0">
+                    <div className="flex items-center justify-between mb-2 bg-purple-900/30 border border-purple-500/40 rounded-lg p-2 shrink-0">
                         <button onClick={() => setActiveTribe(null)} className="text-cyan-400 text-xs font-bold flex items-center gap-1"><ChevronLeft size={16}/> Back</button>
                         <span className="text-sm font-black truncate px-2">🌈 {activeTribe.name}</span>
                         <div className="flex items-center gap-2 shrink-0">
@@ -17842,9 +19647,11 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                             <button onClick={() => setShowMembers(true)} className="text-[10px] font-bold bg-purple-600/60 hover:bg-purple-600 border border-purple-400/40 rounded-full px-2 py-1 flex items-center gap-1" title="View members"><Users size={12}/> {activeTribe.memberCount || (activeTribe.members||[]).length}</button>
                         </div>
                     </div>
-                    <div className="h-[46vh] overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col mb-2">
-                        {tribeMsgs.length === 0 && <p className="text-center opacity-40 text-sm py-10">No messages yet. Say hi to your tribe! 🌈</p>}
-                        {tribeMsgs.map(m => {
+                    <div className="flex-1 min-h-0 overflow-y-auto bg-black/40 rounded-lg p-3 space-y-3 flex flex-col mb-2" data-chat-scroll="1">
+                        {/* V85.78.150.313: messages from before a purge are hidden at once, for everyone. */}
+                        {Number(liveTribe?.purgedAt) > 0 && <p className="text-xs text-white text-center">🧹 Messages before {new Date(liveTribe.purgedAt).toLocaleString()} were purged by a member vote.</p>}
+                        {tribeMsgs.filter(m => !(Number(liveTribe?.purgedAt) > 0) || (m.at || 0) > Number(liveTribe.purgedAt)).length === 0 && <p className="text-center text-white text-sm py-10">No messages yet. Say hi to your tribe! 🌈</p>}
+                        {tribeMsgs.filter(m => !(Number(liveTribe?.purgedAt) > 0) || (m.at || 0) > Number(liveTribe.purgedAt)).map(m => {
                             const mine = m.sender === myUid;
                             const ts = getUserTextStyle(m.style);
                             return (
@@ -17856,7 +19663,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         </div>
                                         <div className="group flex items-center gap-1">
                                             <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${mine ? 'bg-purple-600/70 rounded-br-md' : 'bg-white/15 rounded-bl-md'}`}><p className={'whitespace-pre-wrap break-words ' + ts.className} style={ts.style}>{m._plain != null ? m._plain : '…'}</p></div>
-                                            {(mine || profile?.isAdmin || activeTribe.creatorUid === myUid) && <button onClick={() => delTribeMsg(m)} className="text-red-400/50 hover:text-red-400 shrink-0 p-1" title="Delete message"><Trash size={13}/></button>}
+                                            {(mine || profile?.isAdmin || activeTribe.creatorUid === myUid) && !(myR && myR.type === 'timeout') && <button onClick={() => delTribeMsg(m)} className="text-red-400/50 hover:text-red-400 shrink-0 p-1" title="Delete message"><Trash size={13}/></button>}
                                         </div>
                                         <p className="text-[10px] opacity-40 mt-0.5">{new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
@@ -17864,14 +19671,21 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                             );
                         })}
                     </div>
-                    <div className="flex gap-2 items-center">
+                    {myR ? (
+                        <div className={'shrink-0 rounded-lg p-2.5 border-2 flex items-center gap-2 ' + (myR.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')} data-restricted="1">
+                            <p className="flex-1 text-xs font-bold text-white">{myR.type === 'timeout' ? '⏳ You are in a time-out until ' + rkTribeWhen(myR.until) + '. You can read the chat.' : '🔇 You are muted until ' + rkTribeWhen(myR.until) + '. You can read and vote, not post.'}</p>
+                            <button onClick={() => { setChatSettings(true); }} className="shrink-0 text-xs font-bold bg-pink-600 text-white rounded-full px-3 py-1">Appeal</button>
+                        </div>
+                    ) : (
+                    <div className="flex gap-2 items-center shrink-0">
                         <button onClick={() => { if (!isEffVIP(profile)) { alert('🔤 The Font & Style selector is a VIP perk — unlock it, or enjoy it free during launch!'); return; } setTribeFontOpen(true); }} title="Chat font & style" className={"shrink-0 w-10 h-10 rounded-lg border flex items-center justify-center " + (isEffVIP(profile) ? "bg-fuchsia-600/30 border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-600/50" : "bg-white/5 border-white/15 text-white/40")}><Type size={16}/></button>
                         <Input value={tribeInput} onChange={setTribeInput} placeholder="Message your tribe..." className="mb-0 flex-1"/>
                         <Button onClick={sendTMsg} disabled={!tribeInput.trim()} color="purple" className="px-4"><Send size={18}/></Button>
                     </div>
+                    )}
 
                     {/* Member list popup with search + add-by-search */}
-                    <Modal isOpen={showMembers} onClose={() => { setShowMembers(false); setMemberSearch(''); setTribeAddSearch(''); setTribeAddResults([]); }} zClass="z-[130]" title={'🌈 ' + activeTribe.name + ' — Members'}>
+                    <Modal isOpen={showMembers} onClose={() => { setShowMembers(false); setMemberSearch(''); }} zClass="z-[130]" title={'🌈 ' + activeTribe.name + ' — Members'}>
                         <div className="space-y-3">
                             <div className="relative">
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
@@ -17886,7 +19700,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         <div key={p.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 hover:bg-white/10 transition">
                                             <img src={p.photoURL || rkPh(48, 48, null, null, 'U')} onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }} className="w-10 h-10 rounded-full object-cover border-2 border-purple-500/40 cursor-pointer"/>
                                             <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setShowMembers(false); onClose(); onViewProfile(p.publicUid || p.id); }}>
-                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{p.displayName || 'Raver'}{p.id === activeTribe.creatorUid && <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-1 rounded">FOUNDER</span>}{p.featuredBadge && <BadgeChip badge={p.featuredBadge} />}</p>
+                                                <p className="text-sm font-bold truncate flex items-center gap-1">@{p.displayName || 'Raver'}{p.id === (liveTribe || activeTribe).creatorUid && <span className="text-[11px] font-black bg-yellow-500/20 text-yellow-200 px-1.5 rounded">FOUNDER</span>}{p.featuredBadge && <BadgeChip badge={p.featuredBadge} />}</p>
                                                 <p className="text-[10px] opacity-50">{p.itemsSold || 0} sold · {(p.friends||[]).length} friends</p>
                                             </div>
                                             {p.id !== myUid && <button onClick={() => { if (onMessageUser) { setShowMembers(false); onClose(); onMessageUser(p.id, p.displayName); } }} className="text-cyan-400 p-2 hover:bg-white/10 rounded-lg" title="Message"><Mail size={16}/></button>}
@@ -17894,28 +19708,30 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     ));
                                 })()}
                             </div>
+                            {!(myR && myR.type === 'timeout') && (
                             <div className="border-t border-white/10 pt-3">
-                                <p className="text-[10px] font-bold text-cyan-300 mb-2">➕ Add a raver to this tribe (starts a vote)</p>
-                                <div className="relative mb-2">
-                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"/>
-                                    <input value={tribeAddSearch} onChange={e => { setTribeAddSearch(e.target.value); runTribeAddSearch(e.target.value); }} placeholder="Search ravers by name or UID..." className="w-full bg-black/50 border border-cyan-500/30 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-cyan-500/60"/>
-                                </div>
-                                <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
-                                    {tribeAddSearch.trim().length < 2 ? <p className="text-center opacity-50 text-[11px] py-3">Type at least 2 characters to search.</p>
-                                    : tribeAddResults.length === 0 ? <p className="text-center opacity-50 text-[11px] py-3">No ravers found.</p>
-                                    : tribeAddResults.map(u => (
-                                        <div key={u.id} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg p-2">
-                                            <img src={u.photoURL || rkPh(48, 48, null, null, 'U')} className="w-8 h-8 rounded-full object-cover border border-cyan-500/40"/>
-                                            <div className="flex-1 min-w-0"><p className="text-xs font-bold truncate">@{u.displayName || 'Raver'}</p></div>
-                                            <button onClick={async () => { try { const r = await proposeToTribe(activeTribe.id, u.id, u.displayName || 'Raver', myUid); alert(r.result === 'approved' ? '🎉 @' + (u.displayName||'raver') + ' joined.' : 'Proposed @' + (u.displayName||'raver') + '. ' + r.votes + ' of ' + r.needed + ' votes so far.'); setTribeAddSearch(''); setTribeAddResults([]); } catch (e) { alert(e.message); } }} className="text-[10px] font-bold bg-cyan-600 text-white rounded-full px-3 py-1">Propose</button>
-                                        </div>
-                                    ))}
-                                </div>
+                                <p className="text-xs font-bold text-cyan-300 mb-2">➕ Invite a raver into this tribe (starts a vote)</p>
+                                <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} tags={Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {})} onPick={async (u) => {
+                                    const nm = u.displayName || 'Raver';
+                                    if (!window.confirm('Start a vote to invite @' + nm + '?')) return;
+                                    try {
+                                        const r = await proposeToTribe(activeTribe.id, u.id, nm, myUid);
+                                        if (r.result === 'exists') { alert('🗳️ A vote on @' + nm + ' is already running. Taking you to it so you can vote.'); setShowMembers(false); setChatSettings(true); setVoteFocus({ tribeId: activeTribe.id, key: r.key, n: Date.now() }); return; }
+                                        alert(r.result === 'approved' ? '🎉 @' + nm + ' joined.' : '🗳️ Invite vote started for @' + nm + ': ' + r.votes + ' of ' + r.needed + ' so far.');
+                                    } catch (e) { alert(e.message); }
+                                }}/>
                             </div>
+                            )}
                         </div>
                     </Modal>
 
                     <FontSelectorModal user={user} profile={profile} isOpen={tribeFontOpen} onClose={() => setTribeFontOpen(false)} field="msgTextStyle" titleLabel="Tribe Chat Font" zClass="z-[130]" />
+
+                    {/* V85.78.150.313: GROUP CHAT SETTINGS, from the button beside the X. Current votes, and the
+                        votes a member can call: remove a member, open or close, purge, rename, change founder. */}
+                    <Modal isOpen={chatSettings && !!liveTribe} onClose={() => setChatSettings(false)} zClass="z-[130]" title={'⚙️ ' + (liveTribe ? liveTribe.name : '') + ' · Group settings'}>
+                        {liveTribe && <RkTribeGovern tribe={liveTribe} myUid={myUid} myName={profile?.displayName || 'Raver'} focusKey={voteFocus && voteFocus.tribeId === liveTribe.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: liveTribe.id, key, n: Date.now() })} appealFocus={myR ? 1 : null}/>}
+                    </Modal>
 
                     {/* Transient privacy blank for tribe chat — fires on detected screenshot/recording */}
                     {tribeBlanked && createPortal(
@@ -17970,6 +19786,9 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
     const [modals, setModals] = useState({ username: false, bio: false, settings: false, collection: false, inventory: false, socials: false, referrals: false, analytics: false, vip: false, theme: false, font: false, vibeTribe: false });
     // V84.78.150.312: the Vibe Tribe tab to open on. A tribe notification asks for Tribes.
     const [vibeTab, setVibeTab] = useState(null);
+    // V85.78.150.313: notifications open the achievements list and admin sections directly.
+    const [achSig, setAchSig] = useState(0);
+    const [adminInit, setAdminInit] = useState(null);
     const [showCreatorHub, setShowCreatorHub] = useState(false);
     const [pinOpen, setPinOpen] = useState(false);
     const [showMyProjects, setShowMyProjects] = useState(false);
@@ -18002,7 +19821,20 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
             const k = ev?.detail;
             if (!k) return;
             if (k === 'admin') { if (profile?.isAdmin) setShowAdminPortal(true); return; }
-            if (k === 'vibeTribe:tribes') { setVibeTab({ tab: 'tribes', n: Date.now() }); setModals(m => ({ ...m, vibeTribe: true })); return; }
+            // V85.78.150.313: 'vibeTribe:<tribeId>#<focus>' opens a vote, chat or card; 'vibeTribe:tribes' the tab.
+            if (typeof k === 'string' && k.indexOf('vibeTribe:') === 0) {
+                const rest = k.slice(10);
+                if (rest === 'tribes') setVibeTab({ tab: 'tribes', n: Date.now() });
+                else { const parts = rest.split('#'); setVibeTab({ tab: 'tribes', tribeId: parts[0], focus: parts[1] || 'card', n: Date.now() }); }
+                setModals(m => ({ ...m, vibeTribe: true }));
+                return;
+            }
+            if (k === 'achievements') { setAchSig(Date.now()); return; }
+            if (k === 'banner') { setShowBanner(true); return; }
+            if (typeof k === 'string' && k.indexOf('admin:') === 0) {
+                if (profile?.isAdmin) { const w = k.slice(6); setAdminInit(w === 'tickets' ? { tab: 'tickets', n: Date.now() } : { tab: 'tools', sec: w === 'storage' ? 'config' : w, n: Date.now() }); setShowAdminPortal(true); }
+                return;
+            }
             if (['vibeTribe', 'inventory', 'analytics', 'settings', 'referrals', 'socials', 'vip'].includes(k)) setModals(m => ({ ...m, [k]: true }));
         };
         window.addEventListener('rk:open', h);
@@ -18052,7 +19884,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <h2 className="text-2xl font-black italic text-red-500 uppercase tracking-widest">Admin Portal</h2>
                 <button onClick={() => setShowAdminPortal(false)} className="text-white"><XCircle size={32}/></button>
             </div>
-            <AdminDashboard user={user} profile={profile} onMessageUser={(uid, name) => { if (onMessageUser) onMessageUser(uid, name || 'Applicant'); }}/>
+            <AdminDashboard user={user} profile={profile} initial={adminInit} onMessageUser={(uid, name) => { if (onMessageUser) onMessageUser(uid, name || 'Applicant'); }}/>
         </div>
     );
 
@@ -18073,7 +19905,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
                 <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
-                <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} initialTab={vibeTab} onClose={() => { setVibeTab(null); setModals({...modals, vibeTribe: false}); }} onViewProfile={onViewProfile} onMessageUser={onMessageUser} />
+                <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} initialTab={vibeTab} onClose={() => { setVibeTab(null); setModals(m => ({ ...m, vibeTribe: false })); }} onViewProfile={onViewProfile} onMessageUser={onMessageUser}
+                    onEditBio={() => setModals(m => ({ ...m, bio: true }))} onEditUid={() => setUidModalOpen(true)} onUploadPic={uploadPic} />
                 <FontSelectorModal user={user} profile={profile} isOpen={modals.font} onClose={() => setModals({...modals, font: false})} field="textStyle" titleLabel="Profile Font & Style" zClass="z-[200]" />
                 <BadgeSelectorModal user={user} profile={profile} isOpen={showBadges} onClose={() => setShowBadges(false)} />
                 <FontSelectorModal user={user} profile={profile} isOpen={nameFontOpen} onClose={() => setNameFontOpen(false)} field={RK_NAME_STYLE_FIELD} titleLabel="Your Name Style" />
@@ -18343,7 +20176,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 </div>
                 <ColInvInfoModal isOpen={colInvInfo} onClose={() => setColInvInfo(false)} onOpenCollection={() => { setColInvInfo(false); setModals(m => ({ ...m, collection: true })); }} onOpenInventory={() => { setColInvInfo(false); setModals(m => ({ ...m, inventory: true })); }}/>
 
-                <AchievementsCard profile={profile} editable={true} userUid={user.uid} />
+                <AchievementsCard profile={profile} editable={true} userUid={user.uid} openSig={achSig} />
                 <InventoryManager user={user} profile={profile}/>
             </div>
             
@@ -18421,7 +20254,7 @@ const WelcomeCarousel = ({ onDone }) => {
     );
 };
 
-const AuthScreen = ({ setLoadMsg }) => {
+const AuthScreen = ({ setLoadMsg, bg }) => {
     const [isReg, setIsReg] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -18689,7 +20522,8 @@ const AuthScreen = ({ setLoadMsg }) => {
     };
 
     return (
-        <div className="min-h-screen bg-[#0a0014] flex flex-col items-center justify-center p-4 text-white">
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 text-white">
+            <RkAppBackground id={(bg || RK_BG_DEFAULT).id} anim={!!(bg && bg.anim)}/>
             <Card glow="primaryGlow" className="w-full max-w-md p-6">
                 <div className="flex justify-center mb-6"><Zap className="text-yellow-400" size={48} fill="currentColor"/></div>
                 <h2 className="text-3xl font-black mb-1 text-center italic tracking-tighter" style={getTextGlowStyle('primaryGlow')}>{isReg ? 'JOIN THE RAVE' : 'WELCOME BACK'}</h2>
@@ -18978,6 +20812,7 @@ const App = () => {
     }, []);
     const [showRevSharePortal, setShowRevSharePortal] = useState(false);
     const [ordersOpen, setOrdersOpen] = useState(false);
+    const [ordersTab, setOrdersTab] = useState(null);   // V85.78.150.313: 'buying' | 'selling', set by an order notification
     // V65.11.01: user choice — left-edge side panel vs a simple floating ⚡ button.
     const [qlDockMode, setQlDockMode] = useState(() => { try { return localStorage.getItem('rk_ql_dock_mode') || 'panel'; } catch (e) { return 'panel'; } });
     // V65.15: radio dock mode — 'panel' (edge dock) or 'button' (the classic free-float draggable
@@ -19130,6 +20965,23 @@ const App = () => {
     const [loadPct, setLoadPct] = useState(0);
     const [showWelcome, setShowWelcome] = useState(() => { try { return localStorage.getItem('rk_welcome_seen') !== '1'; } catch (e) { return true; } });
     const [loadMsg, setLoadMsg] = useState('Initializing RaveKandi OS...');
+    // V85.78.150.313: a tapped phone notification waits here until the app has finished loading.
+    const pendingNotifRef = useRef(null);
+    const [notifTick, setNotifTick] = useState(0);
+    const [notifTrade, setNotifTrade] = useState(false);
+    // V86.78.150.314: the background an admin chose (Admin Tools → 🎨 App Background), a preview while
+    // the admin is choosing, and the tap past the loading screen.
+    const [bgSel, setBgSel] = useState(() => rkBgCached());
+    const [bgPreview, setBgPreview] = useState(null);
+    const [entered, setEntered] = useState(false);
+    useEffect(() => {
+        const h = (e) => setBgPreview((e && e.detail) || null);
+        window.addEventListener('rk:bgpreview', h);
+        return () => window.removeEventListener('rk:bgpreview', h);
+    }, []);
+    const bgNow = bgPreview || bgSel;
+    // the page behind the app (what shows past the edges on overscroll) matches the design
+    useEffect(() => { try { document.body.style.backgroundColor = rkBgById(bgNow.id).color; } catch (e) {} }, [bgNow.id]);
 
     useEffect(() => {
         if(page === 'feed' && isSyncing) {
@@ -19177,14 +21029,14 @@ const App = () => {
             if(u) { try{ await SplashScreen.hide(); }catch(e){} }
         });
         // Tapping a delivered notification opens the relevant screen instead of a cold home.
+        // V85.78.150.313: the same router as the in-app list (rkNotifDest). This used to send every
+        // type except designs to setPage('inbox'), and there is no 'inbox' page. The tap is held
+        // until loading finishes, so a cold start from a notification still lands in the right place.
         rkAttachPushHandlers((data) => {
             try {
                 if (!data || !data.type) return;
-                if (data.type === 'message') setPage('inbox');
-                // V84.151 (309): the Lab is the 'custom' tab. Opening the shop alone landed on
-                // whichever tab was last used, which is how a design notification opened DIY.
-                else if (data.type === 'ailab') { setPage('shop'); setTab('custom'); }
-                else setPage('inbox');
+                pendingNotifRef.current = { type: String(data.type), refId: String(data.refId || '') };
+                setNotifTick(x => x + 1);
             } catch (e) {}
         });
         setTimeout(() => { 
@@ -19440,6 +21292,37 @@ const App = () => {
     const [boostSlots, setBoostSlots] = useState([]);
     const [nowTick, setNowTick] = useState(Date.now());
     const [merchPopup, setMerchPopup] = useState(false);
+    // V85.78.150.313: open what a notification is about (rkNotifDest says where). `fromList` is true
+    // for taps in the messenger's notification list: an item then opens above the list, so the
+    // raver can carry on working through their notifications.
+    const rkBus = (k) => { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: k })); } catch (e) {} }, 250); };
+    const rkGoPlace = (key) => {
+        if (key === 'wallet') setWalletModalOpen(true);
+        else if (key === 'portal') setShowRevSharePortal(true);
+        else if (key === 'refdash') setOpenReferrals(true);
+        else if (key === 'orders' || key.indexOf('orders:') === 0) { setOrdersTab(key.slice(7) || null); setOrdersOpen(true); }
+        else if (key === 'vipgift') setVipGiftOpen(true);
+        else if (key === 'creatorapp') setCreatorAppOpen(true);
+        else if (key === 'creatorhub') { setPage('profile'); setForceCreatorHub(true); }
+        else if (key === 'lab') { setPage('shop'); setTab('custom'); }
+        else if (key === 'diy') { setPage('shop'); setTab('diy'); }
+        else if (key === 'messages') setMsgOpen(true);
+        else if (key === 'market') setPage('feed');
+        else if (key === 'vip' || key === 'achievements' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
+        else setPage('profile');
+    };
+    const routeNotif = (n, fromList) => {
+        const d = rkNotifDest(n);
+        if (d.to === 'none') return;
+        const stayInList = fromList && (d.to === 'item' || d.to === 'thread' || d.to === 'dm');
+        if (!stayInList) setMsgOpen(false);
+        if (d.to === 'item') { setNotifTrade(!!d.trade); setNotifItemId(d.id); }
+        else if (d.to === 'thread') { setMsgTarget({ threadId: d.id }); setMsgOpen(true); }
+        else if (d.to === 'dm') { setMsgTarget({ uid: d.uid }); setMsgOpen(true); }
+        else if (d.to === 'profileOf') setViewingProfileId(d.uid);
+        else if (d.to === 'tribe') rkBus('vibeTribe:' + (d.tribeId ? d.tribeId + '#' + (d.focus || 'card') : 'tribes'));
+        else if (d.to === 'place') rkGoPlace(d.key);
+    };
     // V70.2: the listing a notification points at, fetched on demand. Held here rather than in the
     // messenger because the item detail window must sit above it.
     const [notifItemId, setNotifItemId] = useState(null);
@@ -19456,6 +21339,11 @@ const App = () => {
             .catch(e => { if (!dead) { rkReport('notification item fetch', e); setNotifItemId(null); } });
         return () => { dead = true; };
     }, [notifItemId]);
+    useEffect(() => {
+        if (loading || !entered || !user || !pendingNotifRef.current) return;
+        const n = pendingNotifRef.current; pendingNotifRef.current = null;
+        routeNotif(n, false);
+    }, [notifTick, loading, entered, user]);
     const [videoSubmitOpen, setVideoSubmitOpen] = useState(false);
     const [videoSlotsForSubmit, setVideoSlotsForSubmit] = useState([]);
     useEffect(() => {
@@ -19482,7 +21370,7 @@ const App = () => {
         if (!user?.uid || !profile?.isVIP) return;
         if (profile.vipPlan === 'monthly' && profile.vipExpires && Date.now() > profile.vipExpires) {
             setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: false, vipPlan: 'expired' }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore 6 Profile Pins, Themes, Banner Messages & Post Boosts. (Your first 3 pins stay free!)');
+            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore 6 Profile Pins, Themes, Banner Messages & Post Boosts. (Your first 3 pins stay free!)', '@vip');
         }
     }, [user, profile?.isVIP, profile?.vipPlan, profile?.vipExpires, nowTick]);
 
@@ -19501,7 +21389,7 @@ const App = () => {
 
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => {
-            if (s.exists()) { const c = { ...RK_CFG, ...s.data() }; RK_CFG = c; setRkConfig(c); }
+            if (s.exists()) { const c = { ...RK_CFG, ...s.data() }; RK_CFG = c; setRkConfig(c); setBgSel(rkBgRemember(s.data())); }
         }, e => console.log('config', e));
         return () => unsub();
     }, []);
@@ -19607,7 +21495,7 @@ const App = () => {
                 const sig = user.uid + '|' + msgs.join('|');
                 if (sig === rkAchNoticeSig) return;
                 rkAchNoticeSig = sig;
-                pushNotif(user.uid, 'achievement', msgs.join(' '));
+                pushNotif(user.uid, 'achievement', msgs.join(' '), '@achievements');
             })
             .catch(e => rkReport('achievement sync', e));
     }, [user, rkAchKey, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined, profile?.ratingSum, profile?.ratingCount, profile?.referrals, profile?.achCommBonus, profile?.achRefBonus, profile?.achRewardsLive, profile?.achFreeVip, profile?.rankNotified]);
@@ -19664,7 +21552,7 @@ const App = () => {
         if (!RK_CFG.launchPerks) return;           // only grant during the free period
         if (profile.isVIP && profile.lifetimeVipGranted) return; // already locked in
         setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipSince: profile.vipSince || Date.now(), vipExpires: null }, { merge: true })
-            .then(() => { if (!profile.lifetimeVipGranted) pushNotif(user.uid, 'admin', '🎉 Early Adopter perk: your VIP is now PERMANENT — Radio, Themes, Banners, Boosts & Font Selector are yours forever, even after launch pricing returns. PLUR! 💖'); })
+            .then(() => { if (!profile.lifetimeVipGranted) pushNotif(user.uid, 'admin', '🎉 Early Adopter perk: your VIP is now PERMANENT — Radio, Themes, Banners, Boosts & Font Selector are yours forever, even after launch pricing returns. PLUR! 💖', '@vip'); })
             .catch(() => {});
     }, [user, profile?.joined, profile?.isVIP, profile?.lifetimeVipGranted]);
 
@@ -19686,7 +21574,7 @@ const App = () => {
             // Grant VIP for this month.
             const expires = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime();
             setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: 'rating', ratingVipMonth: monthKey, vipExpires: expires }, { merge: true })
-                .then(() => pushNotif(user.uid, 'admin', '⭐ You earned FREE VIP this month for your ' + avg.toFixed(1) + '★ rating! Keep it above 4.5★ to keep your perks. 💖'))
+                .then(() => pushNotif(user.uid, 'admin', '⭐ You earned FREE VIP this month for your ' + avg.toFixed(1) + '★ rating! Keep it above 4.5★ to keep your perks. 💖', '@vip'))
                 .catch(() => {});
         } else if (!qualifies && profile.vipPlan === 'rating' && profile.ratingVipMonth && profile.ratingVipMonth !== monthKey) {
             // Lapsed: previously had rating-VIP but no longer qualifies in the new month — remove it.
@@ -19704,7 +21592,7 @@ const App = () => {
         if (profile.commissionLockedIn) return;          // already locked
         const lockRate = Math.min(0.10, (profile.customCommissionRate !== null && profile.customCommissionRate !== undefined) ? profile.customCommissionRate : 0.10);
         setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { lockedCommissionRate: lockRate, commissionLockedIn: true, commissionLockedAt: Date.now() }, { merge: true })
-            .then(() => pushNotif(user.uid, 'admin', '🔒 Early Adopter perk: your seller commission is now LOCKED at ' + (lockRate * 100).toFixed(0) + '% forever — even after launch ends and new sellers move to 20%. PLUR! 💖'))
+            .then(() => pushNotif(user.uid, 'admin', '🔒 Early Adopter perk: your seller commission is now LOCKED at ' + (lockRate * 100).toFixed(0) + '% forever — even after launch ends and new sellers move to 20%. PLUR! 💖', '@analytics'))
             .catch(() => {});
     }, [user, profile?.joined, profile?.commissionLockedIn]);
 
@@ -19719,7 +21607,7 @@ const App = () => {
         if (topStats.creator.id === user.uid && (topStats.creator.creatorPoints || 0) > 0 && !crownNotifiedRef.current) {
             crownNotifiedRef.current = true; // lock immediately, before the async write
             setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { topCreatorUnlocked: 1 }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.');
+            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.', '@achievements');
         }
     }, [topStats, user, profile?.topCreatorUnlocked]);
     
@@ -19965,11 +21853,12 @@ const App = () => {
         </div>
     );
 
-    if(loading) return ( <div className="fixed inset-0 bg-[#0a0014] flex flex-col items-center justify-center p-8 z-[9999]"><h1 className="text-7xl font-black mb-8 animate-pulse text-center" style={getTextGlowStyle('primaryGlow')}>RAVEKANDI</h1><div className="w-full max-w-xs text-center"><LoadingBar progress={loadPct} className="h-2"/><p className="text-lime-400 font-mono text-lg mt-3 font-bold">{loadPct}%</p><p className="text-pink-400 text-sm mt-2 animate-bounce">{loadMsg}</p></div></div> );
+    // V85.78.150.313: the metallic background, and the polyhedra drifting above and below.
+    if (loading || !entered) return <RkLoadingScreen pct={loadPct} msg={loadMsg} ready={!loading} onEnter={() => setEntered(true)} bg={bgNow}/>;
     // onUnlocked re-runs the status check rather than just clearing the flag — that is what arms
     // the re-lock timer for the window that just opened.
     if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => { rkLastAct.current = Date.now(); rkLastBeat.current = 0; setLocked(false); rkCheckLock(); }} />;
-    if(!user) return <AuthScreen setLoadMsg={setLoadMsg} />;
+    if(!user) return <AuthScreen setLoadMsg={setLoadMsg} bg={bgNow} />;
 
     const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
     if (banActive) return (
@@ -20176,13 +22065,17 @@ cat << 'EOF' >> src/App.js
     const isHostedVideoUrl = typeof bgUrl === 'string' && /^https?:\/\/.+\.(mp4|webm|mov|m4v)(\?|$)/i.test(bgUrl);
     const isVideoBg = !!(bgUrl && isHostedVideoUrl);
     const isImageBg = bgUrl && !isHostedVideoUrl && !(typeof bgUrl === 'string' && bgUrl.startsWith('data:video'));
-    const appBackgroundStyle = isImageBg ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: '#0f001e', fontSize: (textScale * 100) + '%' };
+    const appBackgroundStyle = isImageBg ? { backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed', fontSize: (textScale * 100) + '%' } : { backgroundColor: 'transparent', fontSize: (textScale * 100) + '%' };
+    // V86.78.150.314: the chosen design sits on a fixed layer behind everything, so it stays put while
+    // the page scrolls. Not shown when a VIP has set their own background.
+    const showAppBg = !isImageBg && !isVideoBg;
     // V59: hide the scrolling marquee when an admin banner is set to "announce only" mode.
     const bannerMsgActive = rkConfig.maintenanceMessage && !(rkConfig.maintenanceExpiry > 0 && Date.now() > rkConfig.maintenanceExpiry);
     const hideMarquee = rkConfig.bannerAnnounceOnly && bannerMsgActive;
 
     return (
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30 relative" style={appBackgroundStyle}>
+            {showAppBg && <RkAppBackground id={bgNow.id} anim={bgNow.anim}/>}
             {isVideoBg && <video src={bgUrl} autoPlay loop muted playsInline className="fixed inset-0 w-full h-full object-cover -z-10" style={{ pointerEvents: 'none' }}/>}
             <WelcomeAlphaModal />
             <AnnouncementPopIn cfg={rkConfig} />
@@ -20195,7 +22088,7 @@ cat << 'EOF' >> src/App.js
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
             <WalletModal user={user} profile={profile} isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
-            {user && <OrdersModal user={user} profile={profile} isOpen={ordersOpen} onClose={() => setOrdersOpen(false)} />}
+            {user && <OrdersModal user={user} profile={profile} isOpen={ordersOpen} initialTab={ordersTab} onClose={() => { setOrdersOpen(false); setOrdersTab(null); }} />}
             {staleBuild && (
                 <div className="fixed left-1/2 -translate-x-1/2 z-[1500] w-[92%] max-w-sm" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom))' }}>
                     <div className="bg-lime-900/90 border-2 border-lime-400 rounded-xl p-3 shadow-[0_0_24px_rgba(163,230,53,0.4)] flex items-center gap-3">
@@ -20237,46 +22130,14 @@ cat << 'EOF' >> src/App.js
             <TicketModal user={user} profile={profile} isOpen={ticketOpen} onClose={() => setTicketOpen(false)} />
             <ItemDetailModal item={viewingItem ? (items.find(x => x.id === viewingItem.id) || viewingItem) : null} user={user} isOpen={!!viewingItem} onClose={() => setViewingItem(null)} onViewFeed={(uid) => { setViewingItem(null); handleViewFeed(uid); }} />
             {user && <MessengerModal user={user} profile={profile} isOpen={msgOpen} onClose={() => setMsgOpen(false)} threads={threads} notifs={notifs} initialTarget={msgTarget} onConsumeTarget={() => setMsgTarget(null)} onViewProfile={(uid) => setViewingProfileId(uid)} onNotifNav={(n) => {
-                // Route a tapped notification to the right place. Profile hosts achievements,
-                // Vibe Tribe & referrals; feed hosts comments/likes/sales/DIY.
-                const t = n.type;
-                // V70.2: open the ITEM, not the feed. The old branch called setPage('feed') and
-                // discarded n.refId, so every comment and like notification landed at the top of the
-                // feed and left you to hunt for the post. Opening it in place also keeps you in the
-                // notification list you were working through — the detail window still offers
-                // "View in Feed" for when you actually want to go there.
-                // V73.13: 'diy' joins these. A submission or stage-change notification used to
-                // drop you at the top of the feed with no idea which project it meant — the same
-                // bug V70.2 fixed for comments and likes, left in place for the one notification
-                // type where the item IS the whole message.
-                // V79.4: 'trade' was the big miss — eight call sites, no branch, so every offer
-                // and counter-offer notification fell through to the feed. 'message' had five and
-                // did the same. The old shape put a catch-all `setPage('feed')` at the end, which
-                // meant any type without an explicit branch LOOKED handled while quietly going
-                // nowhere useful, and every new type inherited that by default.
-                //
-                // Now: item-bearing types open the item, thread types open the thread, and the
-                // final else does NOTHING rather than guessing. A notification that cannot say
-                // where it belongs should leave the person where they are, not move them.
-                if ((t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'trade') && n.refId) { setNotifItemId(n.refId); return; }
-                // 'message' refIds are THREAD ids; 'trade' and 'offer' refIds are the sender's uid.
-                // Two different shapes behind one field, so they cannot share a branch.
-                if (t === 'message') { if (n.refId) setMsgTarget({ threadId: n.refId }); setMsgOpen(true); return; }
-                if (t === 'trade') { if (n.refId) setMsgTarget({ uid: n.refId }); setMsgOpen(true); return; }
-                if (t === 'friendreq') { if (n.refId) { setMsgOpen(false); setViewingProfileId(n.refId); return; } setMsgOpen(false); setPage('profile'); return; }
-                if (t === 'tribe') { setMsgOpen(false); setPage('profile'); try { setTimeout(() => window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe:tribes' })), 250); } catch (e) {} return; }
-                if (t === 'comment' || t === 'like' || t === 'sold' || t === 'cart' || t === 'diy' || t === 'queue') { setMsgOpen(false); setPage('feed'); }
-                // V73.15: an offer notification opens the CHAT it lives in — the negotiation is
-                // carried as messages, so the thread is the destination, not a page.
-                else if (t === 'offer') { if (n.refId) setMsgTarget({ uid: n.refId }); setMsgOpen(true); return; }
-                else if (t === 'ailab') { setMsgOpen(false); setPage('shop'); setTab('custom'); }
-                else if (t === 'creator') { setMsgOpen(false); setPage('profile'); setForceCreatorHub(true); }
-                else if (t === 'achievement' || t === 'referral' || t === 'ticket' || t === 'admin') { setMsgOpen(false); setPage('profile'); }
+                // V85.78.150.313: one router for every notification (see rkNotifDest). The branches that
+                // lived here are in it now, with the destinations the old ones guessed at made exact.
+                routeNotif(n, true);
             }} />}
             {notifItem && (
                 <ItemDetailModal
-                    item={notifItem} user={user} isOpen={!!notifItem}
-                    onClose={() => { setNotifItemId(null); setNotifItem(null); }}
+                    item={notifItem} user={user} isOpen={!!notifItem} openTrade={notifTrade}
+                    onClose={() => { setNotifItemId(null); setNotifItem(null); setNotifTrade(false); }}
                     onViewFeed={() => { const id = notifItem?.id; setNotifItemId(null); setNotifItem(null); setMsgOpen(false); handleViewPost(id); }}
                     zClass="z-[120]"
                 />
@@ -20668,7 +22529,7 @@ cat << 'EOF' >> src/App.js
                     <div className="max-w-4xl mx-auto">
                         <div className="flex gap-2 justify-center mb-6">{['custom', 'diy', 'official'].map(t => (<button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest ${tab===t ? 'bg-pink-600 shadow-neon-pink text-white' : 'bg-white/5 text-white/50'}`}>{t === 'custom' ? 'AI KANDI LAB' : t}</button>))}</div>
                         {tab === 'custom' && <AICustomLab user={user} profile={profile} onSubmitRequest={(i) => addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, timestamp: Date.now()})}/>}
-                        {tab === 'diy' && <DIYBuilder onSubmitRequest={async (i) => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()}); if (i.assignedCreatorId) pushNotif(i.assignedCreatorId, 'queue', '🔨 New direct build request from ' + (profile?.displayName || 'a raver') + ' — $' + (i.price || 0).toFixed(2) + ' (' + (i.idleWindowHours || 24) + 'h priority window)'); }}/>}
+                        {tab === 'diy' && <DIYBuilder onSubmitRequest={async (i) => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), {...i, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, timestamp: Date.now()}); if (i.assignedCreatorId) pushNotif(i.assignedCreatorId, 'queue', '🔨 New direct build request from ' + (profile?.displayName || 'a raver') + ' — $' + (i.price || 0).toFixed(2) + ' (' + (i.idleWindowHours || 24) + 'h priority window)', '@creatorhub'); }}/>}
                         {tab === 'official' && ( 
                             <div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
