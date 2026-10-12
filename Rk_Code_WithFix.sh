@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=87
-RK_MINOR=79
+RK_MINOR=81
 RK_PATCH=150
-RK_BUILD=316
+RK_BUILD=318
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -8461,30 +8461,33 @@ const QuickLaunchModal = ({ dockMode, onDockMode, isOpen, onClose, go, isAdmin }
         { k: 'messages', label: 'Messages', e: '💬' }, { k: 'vibeTribe', label: 'Vibe Tribes', e: '🫂' }, { k: 'radio', label: 'Rave Radio', e: '📻' },
         { k: 'artists', label: 'Artists & Music', e: '🎤' }, { k: 'cart', label: 'My Cart', e: '🛒' }, { k: 'orders', label: 'My Orders', e: '🧾' }, { k: 'portal', label: 'RevShare Portal', e: '💰' },
         { k: 'refdash', label: 'Referral Dashboard', e: '👥' }, { k: 'wallet', label: 'Crypto Wallet & Info', e: '👛' }, { k: 'inventory', label: 'Inventory Hub', e: '📦' },
-        { k: 'analytics', label: 'Analytics', e: '📊' }, { k: 'settings', label: 'Settings', e: '⚙️' }, { k: 'help', label: 'Help & Guide', e: '❓' }, { k: 'ticket', label: 'Report a Bug', e: '🐞' },
+        { k: 'analytics', label: 'Analytics', e: '📊' }, { k: 'settings', label: 'Settings', e: '⚙️' }, { k: 'help', label: 'Help & Guide', e: '❓' },
+        // V87.80.150.317: the tutorial hub (queue item 4). kw: other words people search for it by.
+        { k: 'tutorials', label: 'Tutorials', e: '🎓', kw: 'tutorial walkthrough tour guide replay' }, { k: 'ticket', label: 'Report a Bug', e: '🐞' },
         ...(isAdmin ? [{ k: 'admin', label: 'Admin Panel', e: '🛡️' }] : [])
     ];
-    const shown = items.filter(i => i.label.toLowerCase().includes(q.toLowerCase()));
+    const qq = q.trim().toLowerCase();
+    const shown = items.filter(i => (i.label + ' ' + (i.kw || '')).toLowerCase().includes(qq));
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="⚡ Quick Launch" zClass="z-[110]">
             <Input label="" value={q} onChange={setQ} placeholder="Search functions…" className="mb-2"/>
             <div className="mb-3">
-                <p className="text-[10px] font-bold text-white/60 uppercase mb-1">Quick Launch style</p>
+                <p className="text-xs font-bold text-white uppercase mb-1">Quick Launch style</p>
                 <div className="flex gap-2">
-                    <button onClick={() => onDockMode && onDockMode('panel')} className={'flex-1 py-2 rounded-lg text-[11px] font-black border transition ' + (dockMode === 'panel' ? 'bg-pink-500/25 border-pink-400 text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/15 text-white/50')}>◧ Side Panel</button>
-                    <button onClick={() => onDockMode && onDockMode('button')} className={'flex-1 py-2 rounded-lg text-[11px] font-black border transition ' + (dockMode === 'button' ? 'bg-pink-500/25 border-pink-400 text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/15 text-white/50')}>⚡ Free Button</button>
+                    <button onClick={() => onDockMode && onDockMode('panel')} className={'flex-1 py-2 rounded-lg text-[11px] font-black border transition ' + (dockMode === 'panel' ? 'bg-pink-500/25 border-pink-400 text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/30 text-white')}>◧ Side Panel</button>
+                    <button onClick={() => onDockMode && onDockMode('button')} className={'flex-1 py-2 rounded-lg text-[11px] font-black border transition ' + (dockMode === 'button' ? 'bg-pink-500/25 border-pink-400 text-pink-100 shadow-[0_0_10px_rgba(236,72,153,0.5)]' : 'bg-white/5 border-white/30 text-white')}>⚡ Free Button</button>
                 </div>
-                <p className="text-[9px] text-white/40 mt-1">Free Button floats anywhere — drag to move, tap-hold to hide.</p>
+                <p className="text-xs text-white mt-1">Free Button floats anywhere: drag to move, tap-hold to hide.</p>
             </div>
             <div className="grid grid-cols-4 gap-2">
                 {shown.map(i => (
-                    <button key={i.k} onClick={() => go(i.k)} className="flex flex-col items-center gap-1 bg-white/5 hover:bg-white/15 border border-white/10 rounded-xl p-2">
+                    <button key={i.k} data-ql={i.k} onClick={() => go(i.k)} className="flex flex-col items-center gap-1 bg-white/5 hover:bg-white/15 border border-white/20 rounded-xl p-2">
                         <span className="text-xl">{i.e}</span>
-                        <span className="text-[10px] font-bold text-white/80 text-center leading-tight">{i.label}</span>
+                        <span className="text-xs font-bold text-white text-center leading-tight">{i.label}</span>
                     </button>
                 ))}
             </div>
-            {shown.length === 0 && <p className="text-center text-xs text-white/40 py-4">Nothing matches "{q}"</p>}
+            {shown.length === 0 && <p className="text-center text-xs text-white py-4">Nothing matches "{q}"</p>}
         </Modal>
     );
 };
@@ -12550,8 +12553,28 @@ const PostHelpModal = ({ isOpen, onClose }) => {
     );
 };
 
+// V87.81.150.318: open a view that lives inside a page from anywhere (Help's "🏷️ Post an item"). The page
+// may not be on screen yet when it's asked for, so the request waits up to 5 seconds for it to mount.
+let rkPendingOpen = null;
+const rkRequestOpen = (k) => { rkPendingOpen = { k, at: Date.now() }; try { window.dispatchEvent(new CustomEvent('rk:want', { detail: k })); } catch (e) {} };
+const rkTakeOpen = (k) => { if (rkPendingOpen && rkPendingOpen.k === k && Date.now() - rkPendingOpen.at < 5000) { rkPendingOpen = null; return true; } return false; };
 const SellKandiForm = ({ user, profile }) => {
     const [isOpen, setIsOpen] = useState(false);
+    // V65.06: remote open — the pinned-items pop-in (and future entry points) can pop this form.
+    // V87.81.150.318: and Help → 🏷️ Post an item. Both ask through rkRequestOpen('post'), which waits for
+    // this form to mount; the old 'rk:postform' event, sent 450 ms after switching to the feed, was lost
+    // whenever the feed took longer than that to appear.
+    useEffect(() => {
+        const take = () => {
+            if (!rkTakeOpen('post')) return;
+            setIsOpen(true);
+            setTimeout(() => { try { const el = document.querySelector('[data-rk-postform]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
+        };
+        take();
+        const h = (e) => { if (e && e.detail === 'post') take(); };
+        window.addEventListener('rk:want', h);
+        return () => window.removeEventListener('rk:want', h);
+    }, []);
     // V70.4: brand selector for Business accounts. Personal accounts have no brands, so this
     // loads nothing and renders nothing rather than showing an empty control.
     const [postBrand, setPostBrand] = useState('');
@@ -12563,12 +12586,6 @@ const SellKandiForm = ({ user, profile }) => {
             e => rkReport('post brands', e));
     }, [profile?.accountType, user?.uid]);
     const [postHelp, setPostHelp] = useState(false);
-    // V65.06: remote open — the pinned-items pop-in (and future entry points) can pop this form.
-    useEffect(() => {
-        const h = () => { setIsOpen(true); try { setTimeout(() => { const el = document.querySelector('[data-rk-postform]'); el && el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150); } catch (e) {} };
-        window.addEventListener('rk:postform', h);
-        return () => window.removeEventListener('rk:postform', h);
-    }, []);
     const [form, setForm] = useState({ name: '', price: '', description: '', videoLink: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false, isForTrade: false, tradeCategories: [], tradeNote: '', tradeEvent: '', wantsToSell: false });
     const [mediaFiles, setMediaFiles] = useState([]);
     const [eventDropOpen, setEventDropOpen] = useState(false);
@@ -12633,7 +12650,10 @@ const SellKandiForm = ({ user, profile }) => {
 
     if(!isOpen) return <div className="mb-6"><p className="text-center text-[10px] text-yellow-300/80 mb-2">Not seeing any posts? Tap <strong>Clear Filters</strong> above to reset your search. 🔄</p><button onClick={() => setIsOpen(true)} className="w-full py-4 rounded-xl border-2 border-dashed border-white/20 hover:bg-white/10 flex items-center justify-center gap-2"><PlusCircle className="text-pink-500"/><span className="font-bold">Post Your Kandi</span></button></div>;
     return ( 
-        <Card glow="primaryGlow" className="mb-6 relative" data-rk-postform="1">
+        // V87.81.150.318: the wrapper carries data-rk-postform. On Card it was dropped (Card passes on only
+        // className and glow), so the scroll into view after a remote open never found the form.
+        <div data-rk-postform="1">
+        <Card glow="primaryGlow" className="mb-6 relative">
             <button onClick={() => setIsOpen(false)} className="absolute top-2 right-2"><XCircle/></button>
             <div className="flex items-center justify-between mb-4 pr-8">
                 <h3 className="text-xl font-bold">New Post</h3>
@@ -12787,7 +12807,8 @@ const SellKandiForm = ({ user, profile }) => {
             )}
             
             <Button onClick={sub} disabled={loading} color="lime" className="w-full flex justify-center items-center gap-2">{loading ? "Processing Media..." : "Post Now"}</Button>
-        </Card> 
+        </Card>
+        </div>
     );
 };
 EOF
@@ -13020,7 +13041,7 @@ const TUTORIAL_STEPS = [
     { tut: 'inbox', title: 'Inbox 📬', body: "Messages and news land here. Tap one to open it." },
     { tut: 'cart', title: 'Cart 🛒', body: "Things you want to buy wait here until you're ready." },
     { tut: 'home', title: 'Home 🏠', body: "Tap the logo any time to come back to the start." },
-    { tut: null, center: true, title: "All done! 🎉", body: "That's it! Tap around — almost everything opens something. You can watch this again in Settings. Welcome to the tribe! 🌈" }
+    { tut: null, center: true, title: "All done! 🎉", body: "That's it! Tap around — almost everything opens something. Watch this again any time: HELP at the bottom of the screen → 🎓 Tutorials. Welcome to the tribe! 🌈" }
 ];
 
 // V76: takes its steps as a prop. It was hard-wired to TUTORIAL_STEPS, which was fine while
@@ -13048,6 +13069,8 @@ const RK_CREATOR_TOURS = {
     isKandiCreator: {
         key: 'tutKandiDone',
         label: 'Kandi Maker walkthrough',
+        // V87.80.150.317: emoji and covers describe each tour in the tutorial hub (Help → 🎓 Tutorials).
+        emoji: '🔨', covers: 'Your Creator Portal: taking a job, work stages, agreeing a price and finishing.',
         steps: [
             { tut: null, center: true, title: "You're a Kandi Maker now 🔨", body: "Approved. There are a few places that only open up for makers — let's walk them so you know where they are. About a minute." },
             { tut: 'profile', requireTap: true, title: 'Start on your profile', body: 'Everything a maker needs hangs off your profile. Tap it — this step needs the real tap.' },
@@ -13056,12 +13079,13 @@ const RK_CREATOR_TOURS = {
             { tut: null, center: true, title: 'Keep them updated', body: "On an active job you set the stage — Sourcing, Building, Finishing, Ready. Every change tells your client. It's the difference between a good maker and a silent one." },
             { tut: null, center: true, title: 'Agreeing a price', body: "Send an asking price from the job card. It arrives in your chat with them, where they can accept it or counter. Nothing is agreed until one of you accepts." },
             { tut: null, center: true, title: 'Finishing up', body: "To close a job you need three things: the stage on Ready, a price agreed, and a photo of the finished piece. RaveKandi never holds your money — you and your client settle it directly." },
-            { tut: null, center: true, title: "That's the loop 🌈", body: 'Request → accept → build → agree → deliver. You can replay this from Settings any time.' }
+            { tut: null, center: true, title: "That's the loop 🌈", body: 'Request → accept → build → agree → deliver. Replay this any time: HELP → 🎓 Tutorials.' }
         ]
     },
     isMusicCreator: {
         key: 'tutMusicDone',
         label: 'Music Creator walkthrough',
+        emoji: '🎵', covers: 'Your music block, and adding your first track.',
         steps: [
             { tut: null, center: true, title: "You're a Music Creator 🎵", body: "Approved. You've got a music section on your profile now — let's set it up." },
             { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your music section lives here. Tap Profile.' },
@@ -13074,6 +13098,7 @@ const RK_CREATOR_TOURS = {
     isContentCreator: {
         key: 'tutContentDone',
         label: 'Content Creator walkthrough',
+        emoji: '🎬', covers: 'Your showcase, your services and ad spots, and getting paid.',
         steps: [
             { tut: null, center: true, title: "You're a Content Creator 🎬", body: "Approved. You've got a showcase and something most ravers don't — a way to sell your work." },
             { tut: 'profile', requireTap: true, unlockSkip: true, title: 'Head to your profile', body: 'Your showcase lives here. Tap Profile.' },
@@ -13084,7 +13109,7 @@ const RK_CREATOR_TOURS = {
     }
 };
 
-const TutorialOverlay = ({ active, onFinish, steps }) => {
+const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     const STEPS = steps && steps.length ? steps : TUTORIAL_STEPS;
     const [step, setStep] = useState(0);
     const [rect, setRect] = useState(null);
@@ -13094,6 +13119,9 @@ const TutorialOverlay = ({ active, onFinish, steps }) => {
     // Always begin at step 1 each time the tutorial opens (fresh launch or replay from Settings).
     useEffect(() => { if (active) { setStep(0); setSkipUnlocked(false); } }, [active]);
     const cur = STEPS[step];
+    // V87.80.150.317: a tour the raver chose (the tutorial hub, Settings) offers Skip the rest from the
+    // first step. The forced first run still unlocks it only at the UID step.
+    const canSkip = skipUnlocked || !!replay;
 
     // A requireTap step advances only when the spotlighted control is actually used. The cutout
     // already lets taps through — the four dark panels surround the hole rather than covering it —
@@ -13156,11 +13184,11 @@ const TutorialOverlay = ({ active, onFinish, steps }) => {
             <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
                 <div className="absolute left-1/2 -translate-x-1/2 w-[92%] max-w-sm" style={{ bottom: 'calc(12px + env(safe-area-inset-bottom))', pointerEvents: 'auto' }}>
                     <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
-                        <p className="text-[10px] uppercase font-black tracking-widest text-pink-200 mb-1">Step {step + 1} of {TUTORIAL_STEPS.length}</p>
+                        <p className="text-xs uppercase font-black tracking-widest text-pink-100 mb-1">Step {step + 1} of {STEPS.length}</p>
                         <h3 className="text-lg font-black text-white mb-1">{cur.title}</h3>
-                        <p className="text-xs text-white/90 leading-relaxed mb-3">{cur.body}</p>
+                        <p className="text-xs text-white leading-relaxed mb-3">{cur.body}</p>
                         <div className="flex items-center justify-between gap-2">
-                            <button onClick={finish} className="text-white/70 hover:text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>
+                            <button onClick={finish} className="text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>
                             <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full active:scale-95 transition">Next →</button>
                         </div>
                     </div>
@@ -13171,7 +13199,9 @@ const TutorialOverlay = ({ active, onFinish, steps }) => {
     const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
     const noteTop = hole ? (hole.top < window.innerHeight / 2 ? hole.top + hole.height + 16 : null) : null;
     const noteBottom = hole ? (hole.top >= window.innerHeight / 2 ? (window.innerHeight - hole.top) + 16 : null) : null;
-    const pct = Math.round(((step + 1) / TUTORIAL_STEPS.length) * 100);
+    // V87.80.150.317: the tour's own length. Every tour counted against the app tutorial's 12, so the
+    // Kandi Maker walkthrough ended on "Step 8 of 12" with the bar two-thirds full.
+    const pct = Math.round(((step + 1) / STEPS.length) * 100);
     return createPortal(
         <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
             {hole ? (
@@ -13187,17 +13217,17 @@ const TutorialOverlay = ({ active, onFinish, steps }) => {
             )}
             <div className="absolute left-1/2 -translate-x-1/2 w-[88%] max-w-sm" style={{ pointerEvents: 'auto', ...(cur.center ? { top: '50%', transform: 'translate(-50%,-50%)' } : noteTop != null ? { top: noteTop } : { bottom: noteBottom }) }}>
                 <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-5 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
-                    <p className="text-[10px] uppercase font-black tracking-widest text-pink-200 mb-1">Step {step + 1} of {TUTORIAL_STEPS.length}</p>
+                    <p className="text-xs uppercase font-black tracking-widest text-pink-100 mb-1">Step {step + 1} of {STEPS.length}</p>
                     <div className="h-1.5 w-full rounded-full bg-black/40 overflow-hidden mb-2.5"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-pink-300 transition-all duration-300" style={{ width: pct + '%' }}/></div>
                     <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
-                    <p className="text-sm text-white/90 leading-relaxed mb-4">{cur.body}</p>
+                    <p className="text-sm text-white leading-relaxed mb-4">{cur.body}</p>
                     <div className="flex items-center justify-between gap-2">
                         {/* Skip stays hidden until the UID step is done, then remains available. */}
-                        <div>{skipUnlocked && !last && <button onClick={finish} className="text-white/70 hover:text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>}</div>
+                        <div>{canSkip && !last && <button onClick={finish} className="text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>}</div>
                         <div className="flex items-center gap-2">
                             {step > 0 && <button onClick={back} className="bg-white/15 text-white font-bold text-sm px-4 py-2 rounded-full hover:bg-white/25 active:scale-95 transition flex items-center gap-1"><ChevronLeft size={16}/> Back</button>}
                             {cur.requireTap
-                                ? <span className="text-[11px] font-black uppercase tracking-wider text-pink-200 px-2 py-2 animate-pulse">👆 Tap it to continue</span>
+                                ? <span className="text-xs font-black uppercase tracking-wider text-pink-100 px-2 py-2 animate-pulse">👆 Tap it to continue</span>
                                 : <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>}
                         </div>
                     </div>
@@ -13214,11 +13244,73 @@ const TutorialReminderPopIn = ({ active, onClose }) => {
                 <button onClick={onClose} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
                 <div className="text-4xl mb-2">🧭</div>
                 <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Need a refresher?</p>
-                <p className="text-white text-sm leading-relaxed">You can replay the app tutorial anytime — find <strong>"Replay Tutorial"</strong> in your Settings. Happy raving! 🌈</p>
+                <p className="text-white text-sm leading-relaxed">Every tutorial is a tap away: <strong>HELP</strong> at the bottom of the screen → <strong>🎓 Tutorials</strong>, or <strong>⚡ Quick Launch → Tutorials</strong>. Happy raving! 🌈</p>
                 <button onClick={onClose} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Got it!</button>
             </div>
         </div>, document.body);
 };
+
+// ============================================================================================
+// V87.80.150.317: THE TUTORIAL HUB (queue item 4, raised at 278: "Add a tutorial entry to the Quick
+// Launch button. Add a Tutorials section to the footer Help function listing every tutorial the user
+// has permission for — the general one always, creator tours only while the relevant permission is
+// held"). One list, in Help → 🎓 Tutorials and in ⚡ Quick Launch → Tutorials:
+//  - the app tutorial, always. It needs an account: it starts by having you choose a name and Friend
+//    UID, and a guest's profile can't be tapped, so a guest is told why instead of getting a ▶ that
+//    would leave them on a step they can't pass.
+//  - each creator walkthrough only while that permission is held, as Settings has done since 277.
+// Done comes from where each run is recorded: rk_tutorial_done on this phone for the app tutorial,
+// the user document (RK_CREATOR_TOURS[flag].key) for the walkthroughs.
+// ============================================================================================
+const RK_APP_TUTORIAL = { emoji: '🌈', label: 'App tutorial', covers: 'Choosing your name and Friend UID, then the Feed, the Custom Lab, your Profile, Inbox and Cart.' };
+const rkTutorialMinutes = (steps) => Math.max(1, Math.round((Number(steps) || 0) * 10 / 60));
+const rkTutorialMatch = (x, q) => !q || (x.label + ' ' + x.covers + ' tutorials walkthrough tour guide').toLowerCase().includes(q);
+const rkTutorialList = (user, profile) => {
+    let appDone = false;
+    try { appDone = localStorage.getItem('rk_tutorial_done') === 'true'; } catch (e) {}
+    const list = [{ id: 'app', ...RK_APP_TUTORIAL, steps: TUTORIAL_STEPS.length, done: appDone,
+        locked: (!user || user.isAnonymous) ? 'Needs an account: it starts with choosing your name and Friend UID.' : '' }];
+    Object.keys(RK_CREATOR_TOURS).forEach(f => {
+        if (!profile || !profile[f]) return;
+        const t = RK_CREATOR_TOURS[f];
+        list.push({ id: f, emoji: t.emoji, label: t.label, covers: t.covers, steps: t.steps.length, done: !!profile[t.key], locked: '' });
+    });
+    return list;
+};
+const RkTutorialList = ({ user, profile, onStart, term }) => {
+    const q = String(term || '').trim().toLowerCase();
+    const list = rkTutorialList(user, profile).filter(x => rkTutorialMatch(x, q));
+    if (!list.length) return null;
+    return (
+        <div className="space-y-2" data-tutorial-list="1">
+            {list.map(x => { const m = rkTutorialMinutes(x.steps); return (
+                <div key={x.id} data-tutorial={x.id} className="flex items-center gap-3 bg-fuchsia-900/30 border border-fuchsia-400/50 rounded-xl p-3">
+                    <span className="text-2xl leading-none shrink-0" aria-hidden="true">{x.emoji}</span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-black text-white flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span>{x.label}</span>
+                            <span data-tutorial-done={x.done ? '1' : '0'} className={'text-xs font-bold px-2 py-0.5 rounded-full border ' + (x.done ? 'text-lime-200 border-lime-400/60 bg-lime-500/15' : 'text-pink-100 border-pink-300/60 bg-pink-500/15')}>{x.done ? '✓ Done' : 'Not taken yet'}</span>
+                        </p>
+                        <p className="text-xs text-white mt-1 leading-snug">{x.covers}</p>
+                        <p className="text-xs text-white mt-1">{x.steps} steps, about {m === 1 ? 'a minute' : m + ' minutes'}.</p>
+                        {x.locked && <p className="text-xs font-bold text-amber-200 mt-1" data-tutorial-locked="1">{x.locked}</p>}
+                    </div>
+                    {!x.locked && <button data-tutorial-start={x.id} onClick={() => { if (onStart) onStart(x.id); }} aria-label={(x.done ? 'Replay the ' : 'Start the ') + x.label} className="shrink-0 bg-fuchsia-600 border border-fuchsia-300 text-white font-black text-sm px-3 py-2 rounded-full active:scale-95 transition">▶ {x.done ? 'Replay' : 'Start'}</button>}
+                </div>
+            ); })}
+        </div>
+    );
+};
+// ⚡ Quick Launch → Tutorials opens the same list in its own window.
+const RkTutorialHubModal = ({ isOpen, onClose, user, profile, onStart }) => (
+    <Modal isOpen={isOpen} onClose={onClose} title="🎓 Tutorials" zClass="z-[110]">
+        <div className="space-y-3" data-tutorial-hub="1">
+            <p className="text-sm text-white leading-relaxed">Each one walks you through the real screens. On a replay, <strong>Skip the rest</strong> is there from the first step.</p>
+            <RkTutorialList user={user} profile={profile} onStart={onStart}/>
+            <p className="text-xs text-white">They're also in <strong>HELP</strong>, at the bottom of the screen.</p>
+        </div>
+    </Modal>
+);
 
 const POPIN_THEMES = {
     message: { grad: 'from-purple-600 via-fuchsia-600 to-purple-700', border: 'border-purple-300', icon: '💬', label: 'Message' },
@@ -15993,43 +16085,53 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
     );
 };
 
-// V65.26: 'Reporting' is its own category and sits FIRST — when something is broken, hunting
-// through nine categories to find help is the last thing anyone wants to do.
+// V87.81.150.318: THE GUIDE, REORGANISED (queue item 5, raised at 278: "Getting Started first, then
+// reordered by importance. Each item gets a link that takes the user to the place being described
+// rather than only telling them where it is"). Topics are in importance order within RK_HELP_CATS,
+// and each `go` names a place for App's helpGo, shown as a button under the topic. Corrected while
+// moving them: card checkout isn't live yet; payouts are USDC to the saved wallet, not Stripe Connect;
+// orders are followed in My Orders; there is no report button on listings or profiles (reports go
+// through BUG REPORT). Checkout Options merged into Paying with Crypto; Radio, Marketplace, Payments
+// and Referrals merged into the categories around them. New: the Design Lab, Vibe Tribes, App PIN Lock.
+// The home page's How RaveKandi Works shows the first six (InfoSection).
+const RK_HELP_CATS = ['Getting Started', 'Buying', 'Selling', 'Custom Lab', 'Community', 'Creators', 'Rewards', 'VIP', 'Help & Safety'];
 const HELP_TOPICS = [
+    { cat: 'Getting Started', title: '🌈 What is RaveKandi?', content: "RaveKandi is a marketplace and community for ravers to buy, sell, and trade kandi (beaded bracelets, cuffs, perler art), festival fashion, and handmade gear. Create a profile, list items, follow creators, chat, listen to rave radio, and earn rewards for spreading the PLUR.", go: { to: 'market', label: '🛍️ Browse the feed' } },
+    { cat: 'Getting Started', title: '🆔 Your Friend UID', content: "Every account gets a unique Friend UID. Others use it to find your profile, and it's your referral code. Tap your UID anywhere to copy it. Share it (or your invite link) so friends can find you and you both earn RevShare.", go: { to: 'profile', label: '👤 Open my profile' } },
+    { cat: 'Getting Started', title: '📲 Installing the App', content: "RaveKandi runs in your browser at ravekandi.web.app. For an app-like experience, tap the install prompt (or your browser menu → Add to Home Screen). Installed, it launches fullscreen with its own icon. Updates are automatic — just reopen it.", go: { to: 'install', label: '📲 Show me how' } },
+    { cat: 'Buying', title: '🛒 How to Buy', content: "Tap any item to view details, then Add to Cart. In your cart, choose a quantity (up to the seller's stock); bulk discounts apply automatically if the seller set them. Check out with 💜 Pay with Crypto (USDC on Solana): card payment is coming soon. After buying, you can leave a review on the item.", go: { to: 'cart', label: '🛒 Open my cart' } },
+    { cat: 'Buying', title: '💜 Paying with Crypto (USDC)', content: "RaveKandi checkout runs on USDC — a digital dollar (1 USDC = $1) on Solana. At checkout, tap Pay with Crypto: a QR + one-tap Phantom button appears with the exact amount pre-filled. Pay, and the app watches the blockchain and confirms your order automatically — usually within seconds. You need: the free Phantom app, USDC for the total, and about $0.25 of SOL for network fees. Your payment carries a unique order code, so it can never be lost or confused — if the app ever misses it, tap 'check now' and the chain answers. Sellers, referrers & partners are credited on the ledger the instant your order confirms. Card payment is coming soon.", go: { to: 'wallet', label: '👛 Open the Crypto Wallet Center' } },
+    { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item.", go: { to: 'cart', label: '🛒 Open my cart' } },
+    { cat: 'Buying', title: '📦 Your Orders & Delivery', content: "Every purchase becomes an order in 🧾 My Orders, on its Buying tab (sellers see theirs on the Selling tab). It moves through four stages: being made, ready to ship, shipped and completed. The seller marks it finished, then shipped. When they ship, they add a tracking number (checked for a real format) and a photo of the labelled package, and you get a notification with the carrier and tracking. When it arrives, confirm you received it, and the order completes.", go: { to: 'orders:buying', label: '🧾 Open My Orders' } },
+    { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight.", go: { to: 'post', label: '🏷️ Post an item' } },
+    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Every achievement you complete trims your commission a little more, permanently (up to 5% off in total), and checkout applies it automatically. A custom rate set by RaveKandi replaces these rewards. Your current rate is in your Analytics Dashboard and in Achievements → 📊 REWARDS.\n\nPayouts are in USDC, sent to the wallet saved in your 👛 Crypto Wallet Center, typically within 1–3 business days of a request. Without a wallet on file, a payout has nowhere to go.", go: { to: 'analytics', label: '📊 Open my Analytics' } },
+    // V68.1: sharing hands another raver write access to your stock, which is the most consequential
+    // permission in the app. It gets a proper entry rather than a line buried in Settings.
+    { cat: 'Selling', title: '🤝 Sharing Your Inventory', content: "You can let a friend, partner, or employee help run your stock. Go to Settings and open \"Let someone help with my inventory\", search for the raver, then choose what they can do: View only, Add only, Edit only, Add + Edit, or Full control. You can change or remove access at any time, and it takes effect immediately.\n\nTwo protections always apply, whatever you grant. They can never change who your items are visible to — visibility stays yours alone, so nobody can accidentally publish your private stash. And they can only delete items THEY added; every item records who created it, so your own work cannot be removed by a helper.\n\nOnly share with people you trust. Someone with Edit can change prices and stock on anything, and there is no history to restore from.", go: { to: 'settings', label: '⚙️ Open Settings' } },
+    { cat: 'Custom Lab', title: '🎨 The Design Lab', content: "Describe anything you'd make or wear for a rave: kandi, clothing, jewelry, accessories, stickers and more. The Design Lab sends back a cost, materials and time breakdown, plus an AI concept picture.\n\nYou get 5 designs a day, and each picture counts, rerolls included. They come back at midnight UTC, with a notification. Save the ones you like to your collection, or let other ravers request one from a maker. Designs you generate are never for sale by you.\n\nThe Design Lab shares a daily AI allowance with every raver. If that runs out, it says so, and none of your designs is used.", go: { to: 'lab', label: '🎨 Open the Design Lab' } },
+    { cat: 'Custom Lab', title: '🛠️ DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone.", go: { to: 'diy', label: '🛠️ Open the DIY Builder' } },
+    { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP).", go: { to: 'messages', label: '💬 Open Messages' } },
+    { cat: 'Community', title: '🫂 Vibe Tribes', content: "A tribe is a named group with its own group chat. To create, join or chat in tribes, first finish three things: a bio, a profile picture and your own Friend UID. The boxes tick themselves as you do.\n\nOpen tribes are listed in 🔍 Find Tribes: ask to join, and the members vote you in. Everything else a tribe changes passes the same way, with 2 of every 3 members voting yes, from ⚙️ Tribe settings: inviting or removing someone, opening or closing, renaming, a mute or a time-out. The vote log keeps a record.\n\nTribe messages are encrypted on your phone before they're sent.", go: { to: 'vibeTribe', label: '🫂 Open Vibe Tribes' } },
+    { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number.", go: { to: 'profile', label: '👤 Open my profile' } },
+    { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Each one permanently improves your rates: standard achievements trim your seller commission, referral achievements raise your referral share, and checkout applies both (capped at 5% each). Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all; 📊 REWARDS shows what you have earned at each difficulty and the rates you are charged and paid right now.", go: { to: 'achievements', label: '🏅 Open my achievements' } },
+    { cat: 'Community', title: '🎬 Spotlight Yourself', content: "Share a rave clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day.", go: { to: 'spotlight', label: '🎬 Feature a clip' } },
+    { cat: 'Community', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone: 57 live stations from SomaFM and Radio Record, grouped by genre (chill, house, techno, EDM, breaks, trance, bass, drum & bass and hard dance). Each button's colour shows its intensity, from cool blues for chill through greens and yellows to warm pinks for the hardest, and each shows its typical BPM. SomaFM stations work with the built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen.", go: { to: 'radio', label: '📻 Open Rave Radio' } },
+    { cat: 'Creators', title: '👑 Becoming a Creator', content: "There are three kinds of creator: Kandi Maker, Music Creator and Content Creator. Apply from your profile and pick the kind. Approved creators get an Official badge and their own tools: Kandi Makers take DIY commission requests, post official drops and pin featured items; Music Creators get a music block and a place in Rave Radio's Artists browser; Content Creators get a showcase with services and ad spots. Each comes with a short walkthrough, in Help → 🎓 Tutorials.", go: { to: 'creatorapp', label: '👑 Apply to be a creator' } },
+    { cat: 'Creators', title: '🎵 Music Creators', content: "Approved Music Creators add tracks from their profile (under pinned items): YouTube/SoundCloud/Twitch links, LIVE stream links, or 30-second samples — pick exactly which 30 seconds with the chop slider and preview it before saving. Music shows on their profile, in the Radio hub's RaveKandi Artists browser, and the feed's 🎵 Music tab. Selling: prices display now; purchases unlock when payments go live. Free tracks deliver TODAY via a link — Dropbox (end the link with ?dl=1 for instant download; ?dl=0 opens a preview), Google Drive (set 'Anyone with the link'), or SoundCloud (turn ON 'Enable downloads' on the track). Note: anyone with a delivery link can grab the file — fine for free tracks; buy-to-reveal gating comes with payments. Apply via the Creator application — pick 'Music Creator'.", go: { to: 'creatorapp:Music Creator', label: '🎵 Apply as a Music Creator' } },
+    { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your rank (up to 25%), and referral achievements add up to 5% more on top. Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up.", go: { to: 'portal', label: '💰 Open the RevShare Portal' } },
+    { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio.", go: { to: 'portal', label: '🔗 Get my invite link' } },
+    { cat: 'Rewards', title: '🏆 RevShare Ranks & Badges', content: "There are 11 RevShare ranks, from Neon Pink (1 referral) to Eternal Rave (5,000). Every rank you reach is an achievement and a badge. The badges grow brighter in four bands: Glow (ranks I–III), Neon (IV–VI), Prism (VII–IX) and Legend (X–XI). Feature one from My Badges and it shows beside your name across the app. Your current rank is highlighted in RevShare Tiers & Benefits.", go: { to: 'portal', label: '🏆 See the ranks' } },
     // V70.1: written for someone who has just been told "you hit your limit" and wants to know
     // why. Numbers first, reasoning second, and no jargon — a raver reading this is annoyed, not
     // curious about anti-fraud design.
-    { cat: 'Referrals', title: '🔢 Daily Referral Limits', content: "There is a limit on how many referrals you can earn credit for in one day:\n\n\u2022 Standard account \u2014 60 per day\n\u2022 VIP \u2014 150 per day\n\u2022 Creator \u2014 500 per day, plus 1 more for every 200 verified followers, up to 5,000\n\nThe count resets at midnight UTC every night. You can see how many you have used today at the top of your Referrals screen.\n\nIf you reach the limit, nothing breaks. Anyone signing up with your code still joins normally and is still linked to you as their referrer \u2014 you just do not earn the reward for that one until the reset. You will get a notification telling you so.\n\nWhy limits exist: referral rewards are permanent, so without a ceiling someone could make hundreds of fake accounts overnight and drain the reward pool that everyone else shares. The limits are set high enough that normal use never touches them.\n\nIf you legitimately go over \u2014 a big set, a festival weekend, a post that took off \u2014 it raises a review for us to look at, not a ban. Message us and we will sort it." },
-    // V68.1: sharing hands another raver write access to your stock, which is the most consequential
-    // permission in the app. It gets a proper entry rather than a line buried in Settings.
-    { cat: 'Selling', title: '🤝 Sharing Your Inventory', content: "You can let a friend, partner, or employee help run your stock. Go to Settings and open \"Let someone help with my inventory\", search for the raver, then choose what they can do: View only, Add only, Edit only, Add + Edit, or Full control. You can change or remove access at any time, and it takes effect immediately.\n\nTwo protections always apply, whatever you grant. They can never change who your items are visible to — visibility stays yours alone, so nobody can accidentally publish your private stash. And they can only delete items THEY added; every item records who created it, so your own work cannot be removed by a helper.\n\nOnly share with people you trust. Someone with Edit can change prices and stock on anything, and there is no history to restore from." },
-    { cat: 'Reporting', title: '🐞 Report a Bug or Get Help', content: "Something broken, confusing, or just wrong? Tap the BUG REPORT button at the very bottom of any screen — it's next to LEGAL. Pick a category (bug, crash, help, idea, payment, account), describe what happened, and send. Replies arrive in your Inbox. The more detail the better: what you tapped, what you expected, and what actually happened." },
-    { cat: 'Reporting', title: '🚩 Reporting Content or Users', content: "Found a listing or raver breaking the rules? Report it from the item or profile. Admins can take down content and moderate the community. Scams, counterfeits, harassment, and anything unsafe get removed — repeat offenders lose their accounts." },
-    { cat: 'Getting Started', title: '🌈 What is RaveKandi?', content: "RaveKandi is a marketplace and community for ravers to buy, sell, and trade kandi (beaded bracelets, cuffs, perler art), festival fashion, and handmade gear. Create a profile, list items, follow creators, chat, listen to rave radio, and earn rewards for spreading the PLUR." },
-    { cat: 'Getting Started', title: '📲 Installing the App', content: "RaveKandi runs in your browser at ravekandi.web.app. For an app-like experience, tap the install prompt (or your browser menu → Add to Home Screen). Installed, it launches fullscreen with its own icon. Updates are automatic — just reopen it." },
-    { cat: 'Getting Started', title: '🆔 Your Friend UID', content: "Every account gets a unique Friend UID. Others use it to find your profile, and it's your referral code. Tap your UID anywhere to copy it. Share it (or your invite link) so friends can find you and you both earn RevShare." },
-    { cat: 'Buying', title: '🛒 How to Buy', content: "Tap any item to view details, then Add to Cart. In your cart, choose a quantity (up to the seller's stock) — bulk discounts apply automatically if the seller set them. Check out with card (Stripe) or crypto (Solana). After buying, you can leave a review on the item." },
-    { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item." },
-    { cat: 'Buying', title: '📦 Tracking & Delivery', content: "For physical items, sellers must add a tracking number, which is permanently locked once entered and visible only to you and the seller. Check your Collection to follow an order: Pending → Active → Completed." },
-    { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight." },
-    { cat: 'Selling', title: '💸 Commission & Payouts', content: "RaveKandi takes a back-end commission (up to 20%, often less, and 10% during launch perks) to cover payment fees, servers, and RevShare. You keep the rest. Every achievement you complete trims your commission a little more, permanently (up to 5% off in total), and checkout applies it automatically. A custom rate set by RaveKandi replaces these rewards. Your current rate is in your Analytics Dashboard and in Achievements → 📊 REWARDS. Sellers manage payouts through their secure Stripe Connect portal." },
-    { cat: 'Selling', title: '👑 Becoming a Creator', content: "Apply to become a verified Creator from your profile. Creators get an Official badge, can take DIY commission requests, post official drops, and pin featured items to their profile. Top creators climb the leaderboard." },
-    { cat: 'Creating (DIY)', title: '🎨 DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone." },
-    { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP)." },
-    { cat: 'Community', title: '❤️ Likes, Comments & Profiles', content: "Like and comment on posts to spread vibes. Tap any user to view their full profile — stats, achievements, collection, and socials. Your own profile stats (items sold, bought, likes, etc.) are tappable to see the actual items behind each number." },
-    { cat: 'Community', title: '🏅 Achievements & Badges', content: "Earn achievements for selling, buying, referring, listening to radio, posting, and more. Each one permanently improves your rates: standard achievements trim your seller commission, referral achievements raise your referral share, and checkout applies both (capped at 5% each). Choose your favorite 5 to feature on your profile, and pick one as your displayed badge. Tap your achievements box to see them all; 📊 REWARDS shows what you have earned at each difficulty and the rates you are charged and paid right now." },
-    { cat: 'Marketplace', title: '💜 Paying with Crypto (USDC)', content: "RaveKandi checkout runs on USDC — a digital dollar (1 USDC = $1) on Solana. At checkout, tap Pay with Crypto: a QR + one-tap Phantom button appears with the exact amount pre-filled. Pay, and the app watches the blockchain and confirms your order automatically — usually within seconds. You need: the free Phantom app, USDC for the total, and about $0.25 of SOL for network fees. Your payment carries a unique order code, so it can never be lost or confused — if the app ever misses it, tap 'check now' and the chain answers. Sellers, referrers & partners are credited on the ledger the instant your order confirms." },
-    { cat: 'Community', title: '🎵 Music Creators', content: "Approved Music Creators add tracks from their profile (under pinned items): YouTube/SoundCloud/Twitch links, LIVE stream links, or 30-second samples — pick exactly which 30 seconds with the chop slider and preview it before saving. Music shows on their profile, in the Radio hub's RaveKandi Artists browser, and the feed's 🎵 Music tab. Selling: prices display now; purchases unlock when payments go live. Free tracks deliver TODAY via a link — Dropbox (end the link with ?dl=1 for instant download; ?dl=0 opens a preview), Google Drive (set 'Anyone with the link'), or SoundCloud (turn ON 'Enable downloads' on the track). Note: anyone with a delivery link can grab the file — fine for free tracks; buy-to-reveal gating comes with payments. Apply via the Creator application — pick 'Music Creator'." },
-    { cat: 'Community', title: '🎬 Spotlight Yourself', content: "Share a rave clip (YouTube/TikTok/Instagram/Facebook link) on the homepage Spotlight. Your clip plays in a rotating 30-minute window with your profile button beside it — great for advertising yourself, your products, streams, or socials. Up to 4 clips/day." },
-    { cat: 'Rewards', title: '🤝 RevShare (Referrals)', content: "Refer friends with your Friend UID or invite link. You earn 2%–25% of RaveKandi's commission on every purchase your referrals make, forever. The more you refer, the higher your rank (up to 25%), and referral achievements add up to 5% more on top. Put your invite link in your IG/Telegram bio — it auto-applies your code when someone signs up." },
-    { cat: 'Rewards', title: '🏆 RevShare Ranks & Badges', content: "There are 11 RevShare ranks, from Neon Pink (1 referral) to Eternal Rave (5,000). Every rank you reach is an achievement and a badge. The badges grow brighter in four bands: Glow (ranks I–III), Neon (IV–VI), Prism (VII–IX) and Legend (X–XI). Feature one from My Badges and it shows beside your name across the app. Your current rank is highlighted in RevShare Tiers & Benefits." },
-    { cat: 'Rewards', title: '🔗 Invite Links', content: "From the RevShare panel, copy your invite link. Anyone who opens it gets your referral auto-applied at signup. Share it anywhere — DMs, stories, or your bio." },
-    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. In Rave Radio chat, VIP also removes the message cooldown, lets you share your social links (limited per day), and lets you share collection items in chat. During launch perks, VIP is free for everyone." },
-    { cat: 'Radio', title: '📻 Rave Radio (Free!)', content: "Rave Radio is free for everyone: 57 live stations from SomaFM and Radio Record, grouped by genre (chill, house, techno, EDM, breaks, trance, bass, drum & bass and hard dance). Each button's colour shows its intensity, from cool blues for chill through greens and yellows to warm pinks for the hardest, and each shows its typical BPM. SomaFM stations work with the built-in equalizer. A separate YouTube tab links full DJ sets and livestreams. Drag the radio button anywhere on your screen." },
-    { cat: 'Payments', title: '🛡️ Checkout Options', content: "Pay by card through Stripe's encrypted portal, or with Solana crypto (Phantom, Coinbase, MetaMask) for near-zero fees. Your payment details are never stored by RaveKandi." },
+    { cat: 'Rewards', title: '🔢 Daily Referral Limits', content: "There is a limit on how many referrals you can earn credit for in one day:\n\n\u2022 Standard account \u2014 60 per day\n\u2022 VIP \u2014 150 per day\n\u2022 Creator \u2014 500 per day, plus 1 more for every 200 verified followers, up to 5,000\n\nThe count resets at midnight UTC every night. You can see how many you have used today at the top of your Referrals screen.\n\nIf you reach the limit, nothing breaks. Anyone signing up with your code still joins normally and is still linked to you as their referrer \u2014 you just do not earn the reward for that one until the reset. You will get a notification telling you so.\n\nWhy limits exist: referral rewards are permanent, so without a ceiling someone could make hundreds of fake accounts overnight and drain the reward pool that everyone else shares. The limits are set high enough that normal use never touches them.\n\nIf you legitimately go over \u2014 a big set, a festival weekend, a post that took off \u2014 it raises a review for us to look at, not a ban. Message us and we will sort it.", go: { to: 'refdash', label: '👥 Open my referrals' } },
+    { cat: 'VIP', title: '⭐ VIP Perks', content: "VIP unlocks 6 profile pins (the free tier includes 3), custom profile backgrounds (Theme Selector), banner messages, post boosts, and the Font Selector for stylized text in your bio, posts, comments, and messages. In Rave Radio chat, VIP also removes the message cooldown, lets you share your social links (limited per day), and lets you share collection items in chat. During launch perks, VIP is free for everyone.", go: { to: 'vip', label: '⭐ Open VIP' } },
+    { cat: 'Help & Safety', title: '🐞 Report a Bug or Get Help', content: "Something broken, confusing, or just wrong? Tap the BUG REPORT button at the very bottom of any screen — it's next to LEGAL. Pick a category (bug, crash, help, idea, payment, account), describe what happened, and send. Replies arrive in your Inbox. The more detail the better: what you tapped, what you expected, and what actually happened.", go: { to: 'ticket', label: '🐞 Report a bug' } },
+    { cat: 'Help & Safety', title: '🚩 Reporting a Listing or Raver', content: "Found a listing or a raver breaking the rules? Tap 🐞 BUG REPORT at the bottom of the screen, choose Help Request, and name the listing or the raver's Friend UID. Admins can take content down and moderate the community: scams, counterfeits, harassment and anything unsafe get removed, and repeat offenders lose their accounts.", go: { to: 'ticket', label: '🐞 Open a report' } },
+    { cat: 'Help & Safety', title: '🔐 App PIN Lock', content: "A 4 to 6 digit PIN asked for when you open RaveKandi. It stops someone who picks up your unlocked phone from reading your messages, your collection or your earnings. Set it in Settings → Help & Support → 🔐 App PIN Lock, and choose how long the app can sit untouched before it locks.\n\nNobody can remove the lock for you, including RaveKandi. If you forget your PIN, your account password removes it. It locks the app, not the account, so keep your password strong too.", go: { to: 'settings', label: '⚙️ Open Settings' } },
 ];
 
-const HelpModal = ({ isOpen, onClose, onReportBug }) => {
+const HelpModal = ({ isOpen, onClose, onReportBug, user, profile, onStartTutorial, onGo }) => {
     const [q, setQ] = useState('');
     const [openIdx, setOpenIdx] = useState(null);
     const catRefs = useRef({});
@@ -16039,7 +16141,17 @@ const HelpModal = ({ isOpen, onClose, onReportBug }) => {
     if (!isOpen) return null;
     const term = q.trim().toLowerCase();
     const filtered = HELP_TOPICS.map((t, i) => ({ ...t, i })).filter(t => !term || t.title.toLowerCase().includes(term) || t.content.toLowerCase().includes(term) || t.cat.toLowerCase().includes(term));
-    const cats = [...new Set(filtered.map(t => t.cat))];
+    // V87.81.150.318: sections in RK_HELP_CATS order (queue item 5), any other category after them.
+    const cats = RK_HELP_CATS.filter(c => filtered.some(t => t.cat === c)).concat([...new Set(filtered.map(t => t.cat))].filter(c => !RK_HELP_CATS.includes(c)));
+    // V87.80.150.317: the search covers 🎓 Tutorials too. V87.81.150.318: they follow Getting Started.
+    const tutHits = rkTutorialList(user, profile).filter(x => rkTutorialMatch(x, term)).length;
+    const tutBlock = tutHits > 0 && (
+        <div key="__tutorials" ref={el => { catRefs.current['Tutorials'] = el; }} className="scroll-mt-2" data-help-tutorials="1">
+            <p className="text-xs font-black uppercase tracking-widest mb-1 text-fuchsia-200">🎓 Tutorials</p>
+            <RkTutorialList user={user} profile={profile} term={term} onStart={(id) => { if (onStartTutorial) onStartTutorial(id); }}/>
+        </div>
+    );
+    const chipCats = RK_HELP_CATS.concat([...new Set(HELP_TOPICS.map(t => t.cat))].filter(c => !RK_HELP_CATS.includes(c)));
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="❓ Help & How It Works">
             <div className="space-y-3">
@@ -16051,15 +16163,17 @@ const HelpModal = ({ isOpen, onClose, onReportBug }) => {
                     </button>
                 )}
                 <div className="flex flex-wrap gap-1.5">
-                    {[...new Set(HELP_TOPICS.map(t => t.cat))].map(cat => (
-                        <button key={cat} onClick={() => jumpTo(cat)} className={'px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ' + (cat === 'Reporting' ? 'bg-red-600 text-white border-red-400' : 'bg-black/40 text-white border-white/25')}>{cat}</button>
-                    ))}
+                    {chipCats.map(cat => (<React.Fragment key={cat}>
+                        <button onClick={() => jumpTo(cat)} data-help-chip={cat} className={'px-2.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border ' + (cat === 'Help & Safety' ? 'bg-red-600 text-white border-red-400' : 'bg-black/40 text-white border-white/25')}>{cat}</button>
+                        {cat === 'Getting Started' && <button onClick={() => jumpTo('Tutorials')} data-help-chip="Tutorials" className="px-2.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border bg-fuchsia-600 text-white border-fuchsia-300">🎓 Tutorials</button>}
+                    </React.Fragment>))}
                 </div>
                 <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
-                    {cats.length === 0 && <p className="text-center opacity-50 text-xs py-6">No help topics match "{q}".</p>}
-                    {cats.map(cat => (
-                        <div key={cat} ref={el => { catRefs.current[cat] = el; }} className="scroll-mt-2">
-                            <p className={'text-[10px] font-black uppercase tracking-widest mb-1 ' + (cat === 'Reporting' ? 'text-red-300' : 'text-cyan-400')}>{cat}</p>
+                    {cats.length === 0 && tutHits === 0 && <p className="text-center text-white text-xs py-6">No help topics match "{q}".</p>}
+                    {!cats.includes('Getting Started') && tutBlock}
+                    {cats.map(cat => [(
+                        <div key={cat} ref={el => { catRefs.current[cat] = el; }} className="scroll-mt-2" data-help-cat={cat}>
+                            <p className={'text-xs font-black uppercase tracking-widest mb-1 ' + (cat === 'Help & Safety' ? 'text-red-300' : 'text-cyan-300')}>{cat}</p>
                             <div className="space-y-1.5">
                                 {filtered.filter(t => t.cat === cat).map(t => (
                                     <div key={t.i} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
@@ -16067,12 +16181,17 @@ const HelpModal = ({ isOpen, onClose, onReportBug }) => {
                                             <span>{t.title}</span>
                                             {openIdx === t.i ? <ChevronUp size={14} className="shrink-0"/> : <ChevronDown size={14} className="shrink-0"/>}
                                         </button>
-                                        {openIdx === t.i && <div className="p-3 pt-2 text-[11px] text-gray-100 leading-relaxed bg-black/40 border-t border-white/10">{t.content}</div>}
+                                        {openIdx === t.i && <div className="p-3 pt-2 text-xs text-white leading-relaxed bg-black/40 border-t border-white/10">
+                                            {/* V87.81.150.318: pre-line keeps a topic's paragraphs and lists (they ran together). */}
+                                            <p className="whitespace-pre-line">{t.content}</p>
+                                            {/* V87.81.150.318: the place this topic describes, one tap away (queue item 5). */}
+                                            {t.go && onGo && <button data-help-go={t.go.to} onClick={() => onGo(t.go.to)} className="mt-3 w-full bg-cyan-600 border border-cyan-300 text-white font-black text-sm rounded-lg py-2 active:scale-95 transition">{t.go.label}</button>}
+                                        </div>}
                                     </div>
                                 ))}
                             </div>
                         </div>
-                    ))}
+                    ), cat === 'Getting Started' ? tutBlock : null])}
                 </div>
             </div>
         </Modal>
@@ -21188,7 +21307,7 @@ const App = () => {
     const [walletModalOpen, setWalletModalOpen] = useState(false);
     const [quickLaunchOpen, setQuickLaunchOpen] = useState(false);
     useEffect(() => {
-        const h = (ev) => { const k = ev?.detail; if (k === 'wallet') setWalletModalOpen(true); else if (k === 'portal') setShowRevSharePortal(true); else if (k === 'creatorapp') setCreatorAppOpen(true); else if (k === 'vipgift') setVipGiftOpen(true); else if (k === 'postform') { setPage('feed'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:postform')); } catch (e) {} }, 450); } };
+        const h = (ev) => { const k = ev?.detail; if (k === 'wallet') setWalletModalOpen(true); else if (k === 'portal') setShowRevSharePortal(true); else if (k === 'creatorapp') setCreatorAppOpen(true); else if (k === 'vipgift') setVipGiftOpen(true); else if (k === 'postform') { setPage('feed'); rkRequestOpen('post'); } };
         window.addEventListener('rk:open', h);
         return () => window.removeEventListener('rk:open', h);
     }, []);
@@ -21217,6 +21336,10 @@ const App = () => {
     const [tutorialReminder, setTutorialReminder] = useState(false);
     // V76: which creator tour is running, by permission key. null when none.
     const [creatorTour, setCreatorTour] = useState(null);
+    // V87.80.150.317: true while a tour runs because the raver chose it (the tutorial hub, Settings), so
+    // Skip the rest is there from its first step; false for the forced first runs. And the hub's window.
+    const [tutReplay, setTutReplay] = useState(false);
+    const [tutHubOpen, setTutHubOpen] = useState(false);
     const [profileGap, setProfileGap] = useState(null);
     const gapDismissedRef = useRef({});
     const [showVipModal, setShowVipModal] = useState(false);
@@ -21469,26 +21592,39 @@ const App = () => {
         try { if (localStorage.getItem('rk_tutorial_done') !== 'true') return; } catch (e) { return; }
         const owed = Object.keys(RK_CREATOR_TOURS).find(flag => profile[flag] && !profile[RK_CREATOR_TOURS[flag].key]);
         if (!owed) return;
-        const t = setTimeout(() => setCreatorTour(owed), 900);
+        const t = setTimeout(() => { setTutReplay(false); setCreatorTour(owed); }, 900);
         return () => clearTimeout(t);
     }, [user?.uid, profile, tutorialActive, tutorialPending, creatorTour]);
 
     const finishCreatorTour = async () => {
         const flag = creatorTour;
         setCreatorTour(null);
+        setTutReplay(false);
         if (!flag || !user?.uid) return;
         try {
             await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { [RK_CREATOR_TOURS[flag].key]: true }, { merge: true });
         } catch (e) { rkReport('creator tour done flag', e); }
     };
 
-    const replayCreatorTour = (flag) => { setCreatorTour(flag); };
+    const replayCreatorTour = (flag) => { setTutReplay(true); setCreatorTour(flag); };
 
+    // V87.80.150.317: a replay no longer clears rk_tutorial_done. Clearing it meant a replay left halfway
+    // (the app closed mid-tour) came back as the forced first run on the next launch.
     const replayTutorial = () => {
-        try { localStorage.removeItem('rk_tutorial_done'); } catch (e) {}
         setPage('home');
         setTutorialReminder(false);
+        setTutReplay(true);
         setTimeout(() => setTutorialActive(true), 250);
+    };
+
+    // V87.80.150.317: ▶ in the tutorial hub (Help → 🎓 Tutorials, Quick Launch → Tutorials). The window it
+    // was tapped in closes first, so the tour's spotlight isn't underneath it. setHelpOpen is declared
+    // further down; this only ever runs from a tap, after both exist.
+    const startTutorial = (id) => {
+        setHelpOpen(false);
+        setTutHubOpen(false);
+        if (id === 'app') replayTutorial();
+        else if (RK_CREATOR_TOURS[id]) replayCreatorTour(id);
     };
 
     useEffect(() => { if(!user || user.isAnonymous) return; const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid), s => setProfile(s.data() || {})); return () => unsub(); }, [user]);
@@ -21786,7 +21922,7 @@ const App = () => {
             let popInUp = false;
             try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
             if (!showAlphaModal && !popInUp) {
-                const t = setTimeout(() => { setTutorialActive(true); setTutorialPending(false); }, 400);
+                const t = setTimeout(() => { setTutReplay(false); setTutorialActive(true); setTutorialPending(false); }, 400);
                 return () => clearTimeout(t);
             }
         }
@@ -21804,6 +21940,23 @@ const App = () => {
         if (IS_STANDALONE) return; // already installed — never nag
         try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
     }, []);
+    // V87.81.150.318: Help's links (queue item 5: "Each item gets a link that takes the user to the place
+    // being described"). Help closes, then the place opens, through the same openers Quick Launch and
+    // the notifications use, plus the few only Help needs.
+    const helpGo = (to) => {
+        setHelpOpen(false);
+        if (to === 'cart') setCartOpen(true);
+        else if (to === 'radio') setRadioOpen(true);
+        else if (to === 'ticket') setTicketOpen(true);
+        else if (to === 'install') setIosGuide(true);
+        else if (to === 'tutorials') setTutHubOpen(true);
+        else if (to === 'spotlight') { setPage('home'); setVideoSubmitOpen(true); }
+        else if (to === 'post') { setPage('feed'); rkRequestOpen('post'); }
+        else if (to === 'profile') setPage('profile');
+        else if (to === 'vibeTribe' || to === 'settings' || to === 'inventory') rkBus(to);
+        else if (to.indexOf('creatorapp:') === 0) setCreatorAppOpen(to.slice(11));
+        else rkGoPlace(to);
+    };
 
     // V42.21 Phase 6: if opened via a shared item link (?item=ID), open that item once
     // the feed has loaded. One-shot via a ref so it doesn't reopen on every render.
@@ -22469,8 +22622,8 @@ cat << 'EOF' >> src/App.js
             <DiscoveryTip cfg={rkConfig} />
             {profileGap && <CreatorProfileCompletion user={user} profile={profile} gapKey={profileGap}
                 onClose={() => { gapDismissedRef.current[profileGap] = true; setProfileGap(null); }} />}
-            <TutorialOverlay active={!!creatorTour} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
-            <TutorialOverlay active={tutorialActive} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); }} />
+            <TutorialOverlay active={!!creatorTour} replay={tutReplay} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
+            <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
             <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
@@ -22504,13 +22657,16 @@ cat << 'EOF' >> src/App.js
                 else if (key === 'orders') setOrdersOpen(true);
                 else if (key === 'refdash') setOpenReferrals(true);
                 else if (key === 'help') setHelpOpen(true);
+                else if (key === 'tutorials') setTutHubOpen(true);
                 else if (key === 'ticket') setTicketOpen(true);
                 else if (key === 'admin') bus('admin');
                 else bus(key);
             }}/>
+            <RkTutorialHubModal isOpen={tutHubOpen} onClose={() => setTutHubOpen(false)} user={user} profile={profile} onStart={startTutorial}/>
             <RevShareShareModal user={user} profile={profile} isOpen={showRevSharePortal} onClose={() => setShowRevSharePortal(false)} onViewProfile={(u) => { setShowRevSharePortal(false); setViewingProfileId(u); }} onOpenWallet={() => setWalletModalOpen(true)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
-            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial}/>}
+            {/* V87.80.150.317: onReplayCreatorTour was missing here, so this window's ▶ Replay walkthrough buttons did nothing. */}
+            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial} onReplayCreatorTour={replayCreatorTour}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)} profile={profile} onNeedWallet={() => { window.__rkWalletNudged = true; setWalletNudge({ open: true, next: null }); }}/>}
             <KandiCreatorApplicationModal user={user} profile={profile} isOpen={!!creatorAppOpen} onOpenCreatorHub={() => { setPage('profile'); setForceCreatorHub(true); }} initialType={typeof creatorAppOpen === 'string' ? creatorAppOpen : null} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} onOpenWallet={() => setWalletModalOpen(true)} onViewProfile={(u) => { setOpenReferrals(false); setViewingProfileId(u); }} />
@@ -22541,7 +22697,7 @@ cat << 'EOF' >> src/App.js
                 </div>
             </Modal>
             {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
-            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} onReportBug={() => setTicketOpen(true)} />
+            <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} onReportBug={() => setTicketOpen(true)} user={user} profile={profile} onStartTutorial={startTutorial} onGo={helpGo} />
             <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Get RaveKandi">
                 <div className="space-y-3 text-sm">
                     <p className="text-xs opacity-80">RaveKandi works right here in your browser — or install it for a fullscreen, app-like experience. Pick whatever suits your device:</p>
