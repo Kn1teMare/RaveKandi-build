@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=86
-RK_MINOR=78
+RK_MAJOR=87
+RK_MINOR=79
 RK_PATCH=150
-RK_BUILD=314
+RK_BUILD=316
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -197,6 +197,10 @@ cat << 'EOF' > public/index.html
       /* V85.78.150.313: a highlighted item (a vote opened from a notification) glows; its text stays at full brightness. */
       @keyframes rkFocusGlow { 0%, 100% { box-shadow: 0 0 0 2px rgba(253,224,71,0.55), 0 0 8px rgba(253,224,71,0.30); } 50% { box-shadow: 0 0 0 2px rgba(253,224,71,1), 0 0 22px rgba(253,224,71,0.75); } }
       .rk-focus-glow { animation: rkFocusGlow 1.2s ease-in-out infinite; }
+      /* V87.78.150.315: the NEW tag on an achievement not yet seen pulses its glow; the text stays white. */
+      @keyframes rkNewGlow { 0%, 100% { box-shadow: 0 0 4px rgba(236,72,153,0.55); } 50% { box-shadow: 0 0 12px rgba(236,72,153,0.95), 0 0 2px rgba(255,255,255,0.6) inset; } }
+      .rk-new-tag { animation: rkNewGlow 1.6s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .rk-new-tag { animation: none; box-shadow: 0 0 8px rgba(236,72,153,0.8); } }
       @keyframes rkAlertGlow { 0%, 100% { box-shadow: 0 0 10px rgba(239,68,68,0.35); } 50% { box-shadow: 0 0 24px rgba(239,68,68,0.85), 0 0 4px rgba(254,202,202,0.6) inset; } }
       .rk-alert-glow { animation: rkAlertGlow 1.6s ease-in-out infinite; }
       @media (prefers-reduced-motion: reduce) { .rk-focus-glow { animation: none; box-shadow: 0 0 0 2px rgba(253,224,71,0.95), 0 0 14px rgba(253,224,71,0.5); } .rk-alert-glow { animation: none; box-shadow: 0 0 18px rgba(239,68,68,0.6); } }
@@ -2466,15 +2470,18 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
 //   '@<place>'                 a screen: vip, wallet, portal, refdash, orders (orders:buying and
 //                              orders:selling open that tab), vipgift,
 //                              creatorapp, creatorhub, lab, diy, achievements, analytics, banner,
-//                              messages, profile, market, admin:tickets, admin:apps, admin:storage
+//                              messages, profile, market, admin:tickets, admin:apps, admin:storage,
+//                              admin:usage (V87.79.150.316: storage now opens 📊 Usage & Limits too)
 //   '<itemId>#trade'           the trade window on that listing
 //   'dm:<uid>'                 the chat with that raver
 //   '<tribeId>#<focus>'        a Vibe Tribe vote, chat or card (type 'tribe')
 //   a plain id                 the item, thread or raver its type implies
 // Older notifications without one fall back to the closest screen for their type.
-const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'admin:tickets', 'admin:apps', 'admin:storage'];
+const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage'];
 const rkNotifDest = (n) => {
     const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
+    // V87.78.150.315: '@achievements:<id>' opens the Achievements window at that achievement.
+    if (ref.indexOf('@achievements:') === 0) return { to: 'place', key: 'achievements', focus: ref.slice(14) };
     if (ref.charAt(0) === '@') { const key = ref.slice(1); return { to: 'place', key: RK_NOTIF_PLACES.includes(key) ? key : 'profile' }; }
     if (ref.indexOf('dm:') === 0) return { to: 'dm', uid: ref.slice(3) };
     switch (t) {
@@ -2680,12 +2687,17 @@ const compressImage = (file, onProgress) => new Promise((resolve, reject) => {
 // disabled for now — see UI note).
 // V72: image generation runs in a Cloud Function now. The provider token stays server-side,
 // where build 248 proved it needs to be — a key in the bundle is a key in public.
+// V87.79.150.316: Cloudflare's free AI allowance, shared by every raver, is used up for the day (the
+// functions say so with reason 'ai_allowance'). Not the raver's own 5-a-day limit, so its own message.
+const rkIsAiAllowance = (e) => !!e && ((e.details && e.details.reason === 'ai_allowance') || /RK_AI_ALLOWANCE/.test(String(e.message || '')));
+const RK_AI_ALLOWANCE_MSG = "The Design Lab has used today's free AI allowance for everyone. Please try again later; none of your designs was used.";
 const rkGenerateImage = async (visualPrompt) => {
     try {
         const fn = httpsCallable(getFunctions(app), 'generateDesignImage');
         const r = await fn({ prompt: visualPrompt, appId });
         return (r && r.data && r.data.url) || '';
     } catch (e) {
+        if (rkIsAiAllowance(e)) throw new Error('AI_ALLOWANCE');
         // Surfaced by name so the Design Lab can tell "you are out of designs today" apart from
         // "the service is down" — they need different messages.
         if (e && e.code === 'functions/resource-exhausted') throw new Error('IMG_DAILY_CAP');
@@ -2755,7 +2767,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             const fn = httpsCallable(getFunctions(app), 'generateDesignAnalysis');
             // The request is already the FIRST thing in `instruction`. Appending it again here is
             // what pushed the payload past the slice in the first place.
-            const r = await fn({ prompt: instruction });
+            const r = await fn({ prompt: instruction, appId });
             const t = r && r.data && r.data.text;
             // Accept an object too — if the function ever returns one again, this parses rather
             // than silently falling back to placeholder costs.
@@ -2766,6 +2778,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             // Distinguish "not signed in" from "service down" — they need different messages and
             // only one of them is worth retrying.
             if (code === 'functions/unauthenticated') throw new Error('AI_SIGNIN_REQUIRED');
+            if (rkIsAiAllowance(e)) throw new Error('AI_ALLOWANCE');
             throw new Error('ANALYSIS_FAILED');
         }
         if (!rawText) throw new Error("ANALYSIS_FAILED");
@@ -2844,6 +2857,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             // The analysis is the expensive half and it already succeeded. Losing it because the
             // picture failed would be the wrong trade — the breakdown is what people came for.
             if (imgErr && imgErr.message === 'IMG_DAILY_CAP') analysis.imageNote = 'Daily design limit reached — the breakdown below is still yours.';
+            else if (imgErr && imgErr.message === 'AI_ALLOWANCE') analysis.imageNote = "The Design Lab has used today's free AI allowance for everyone, so there is no picture this time. The breakdown below is still yours, and none of your designs was used.";
             else analysis.imageNote = 'The image could not be generated this time. The breakdown below is still accurate.';
         }
         if (!imageUrl && !analysis.imageNote) analysis.imageNote = 'No image was returned. The breakdown below is still accurate.';
@@ -2906,7 +2920,7 @@ const generateCustomKandi = async (prompt, onProgress = () => {}) => {
             imageUrl: imageUrl,
             displayUrl: displayUrl
         };
-    } catch (e) { if (e.message === 'ANALYSIS_FAILED') throw e; throw new Error("AI Analysis Failed: " + e.message); }
+    } catch (e) { if (e.message === 'ANALYSIS_FAILED' || e.message === 'AI_ALLOWANCE' || e.message === 'AI_SIGNIN_REQUIRED') throw e; throw new Error("AI Analysis Failed: " + e.message); }
 };
 
 
@@ -3098,6 +3112,31 @@ const getDisplayAchievements = (profile) => {
     // of the same name, instead of silently reading 0 forever.
     const val = (m) => (m in stats) ? stats[m] : (Number(profile?.[m]) || 0);
     return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: val(ach.metric) >= ach.threshold }));
+};
+// V87.78.150.315: WHICH ACHIEVEMENTS ARE NEW (Milli, at 315: "notifications should take the user
+// directly to the achievement. When a user unlocks a new achievement, mark the achievement with a
+// 'new' until the user views the achievement in the achievements window, then remove the new tag").
+// `achKnown` lists what was unlocked at the last sync, so anything unlocked since is fresh: it gets a
+// NEW tag (`achNew.<id>`, cleared once it has been seen in the Achievements window) and the
+// notification opens it. The first sync records the baseline only, so nothing earned before 315
+// shows as NEW. Returns the fields to save, and the fresh ids.
+const rkAchFresh = (profile, unlockedIds) => {
+    const known = Array.isArray(profile && profile.achKnown) ? profile.achKnown : null;
+    if (!known) return { known: null, fresh: [], upd: { achKnown: unlockedIds.slice() } };
+    const fresh = unlockedIds.filter(id => !known.includes(id));
+    if (!fresh.length) return { known, fresh, upd: {} };
+    const now = Date.now(), achNew = {};
+    fresh.forEach(id => { achNew[id] = now; });
+    return { known, fresh, upd: { achKnown: known.concat(fresh), achNew } };
+};
+// The notification for fresh achievements: named, and opening the first. Crowned Creator has its own
+// notification (in App), which opens it too.
+const rkAchFreshNote = (fresh, allAch) => {
+    const told = (fresh || []).filter(id => id !== 'top_creator');
+    const nm = (id) => ((allAch || []).find(a => a.id === id) || {}).name || 'an achievement';
+    if (!told.length) return { text: '', focus: '' };
+    if (told.length === 1) return { text: '🏅 Achievement unlocked: ' + nm(told[0]) + '! Tap to see it.', focus: told[0] };
+    return { text: '🏅 ' + told.length + ' achievements unlocked: ' + told.slice(0, 3).map(nm).join(', ') + (told.length > 3 ? ' and ' + (told.length - 3) + ' more' : '') + '. Tap to see them.', focus: told[0] };
 };
 // V84.77.150.311: ACHIEVEMENT REWARDS, APPLIED (queue item 22).
 // Since V65.19 the REWARDS chart has promised that each achievement permanently trims the seller's
@@ -6521,12 +6560,18 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     //  - Offline, it waits up to 30 s for the connection instead of failing.
     //  - SomaFM always takes the EQ path and Radio Record the plain one, decided by host. One
     //    failed EQ attempt used to switch a station's EQ off on that phone for good.
+    //    (V87.78.150.315: SomaFM falls back to the plain path for one try when the EQ path is
+    //    refused, without remembering it; see playStation.)
     //  - A stream that drops or stalls mid-song reconnects by itself, up to 3 times in a row.
     //  - A failure is reported once, with what was tried. The audio elements are marked
     //    data-rk-quiet, so each refused address no longer adds its own log line.
     const RK_CONNECT_MS = 15000, RK_QUICK_RETRY_MS = 1500, RK_CONNECT_BUDGET_MS = 75000, RK_STALL_MS = 20000;
     const rkWait = (ms) => new Promise(r => setTimeout(r, ms));
     const eqCapable = (url) => /\.somafm\.com\//i.test(url) ? true : /\.hostingradio\.ru\//i.test(url) ? false : null;
+    // V87.78.150.315: helpers for the SomaFM plain fallback and the failure report (see playStation).
+    const rkIsFormatErr = (e) => !!e && (e.name === 'NotSupportedError' || /media error 4|format error|no supported source/i.test(String(e.message || '')));
+    const rkErrCode = (r) => r.slow ? 'silent' : (r.err && /media error (\d)/.exec(String(r.err.message || ''))) ? 'error ' + /media error (\d)/.exec(String(r.err.message))[1] : ((r.err && r.err.name) || 'failed');
+    const rkHostOf = (u) => String(u || '').replace(/^https?:\/\//, '').split('/')[0].replace('.somafm.com', '');
     const waitOnline = (ms) => new Promise(res => {
         try { if (navigator.onLine !== false) { res(true); return; } } catch (e) { res(true); return; }
         let t = null;
@@ -6561,6 +6606,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         const knownNoCors = noCorsGet().has(st.id);
         const started = Date.now();
         let lastErr = null, tries = 0;
+        const tried = {};   // per server, the answers each path gave (for the report)
         outer:
         for (let round = 0; round < 2; round++) {
             if (round > 0) { setStatus('Still connecting to ' + st.name + '…'); await rkWait(2500); if (stale()) return; }
@@ -6576,8 +6622,19 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                     setStatus('Connecting to ' + st.name + '…');
                 }
                 const cap = eqCapable(url);
-                const paths = cap === true ? ['eq'] : cap === false ? ['plain'] : (knownNoCors ? ['plain'] : ['eq', 'plain']);
+                // V87.78.150.315: SOMAFM GETS THE PLAIN PATH TOO (Milli's log at 315: "radio could not
+                // connect house (20 tries over 44 s): media error 4: Format error"). SomaFM has moved
+                // Beat Blender to ice5 and ice6, the last two mirrors tried, and the EQ path had been
+                // the only one ever tried there. The EQ path needs the server's CORS header; a server
+                // without it refuses that path with exactly this "Format error", as does an address
+                // with no such stream. So a Format error on the EQ path now gets one immediate try on
+                // the plain element: if that plays, the station plays with the EQ off; if it fails
+                // too, the address has no such stream and the next one is tried. Nothing is remembered
+                // against the station, so the next play tries the EQ path first again.
+                const paths = cap === true ? ['eq', 'plain'] : cap === false ? ['plain'] : (knownNoCors ? ['plain'] : ['eq', 'plain']);
+                let nextUrl = false;
                 for (const path of paths) {
+                    if (nextUrl) break;
                     for (let rep = 0; rep < 2; rep++) {
                         if (stale()) return;
                         const el = path === 'eq' ? a : p;
@@ -6603,8 +6660,13 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                             return;
                         }
                         lastErr = r.err;
+                        (tried[rkHostOf(url)] = tried[rkHostOf(url)] || new Set()).add(path + ':' + rkErrCode(r));
                         if (r.err && r.err.name === 'NotAllowedError') { connectingRef.current = false; setPlaying(false); setStatus('Tap ▶ to start ' + st.name + '.'); return; }
-                        if (r.slow || Date.now() - t0 > 4000) break;   // it had its full chance
+                        if (cap === true) {
+                            if (path === 'eq' && !r.slow && rkIsFormatErr(r.err)) break;   // straight to one plain try
+                            if (path === 'plain') { nextUrl = true; break; }                 // the plain try was its last
+                        }
+                        if (r.slow || Date.now() - t0 > 4000) { if (cap === true) nextUrl = true; break; }   // it had its full chance
                         await rkWait(RK_QUICK_RETRY_MS);              // a quick failure gets one more go
                     }
                 }
@@ -6620,7 +6682,9 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
         usingPlainRef.current = false; setEqBypassed(false);
         setPlaying(false);
         setStatus(st.name + ' is not responding right now. Try again, or pick another station.');
-        rkReport('radio could not connect ' + st.id + ' (' + tries + ' tries over ' + Math.round((Date.now() - started) / 1000) + ' s)', lastErr);
+        // V87.78.150.315: the report says what each server answered on each path, so a missing CORS
+        // header (eq refused, plain fine) can be told from a missing stream (both refused).
+        rkReport('radio could not connect ' + st.id + ' (' + tries + ' tries over ' + Math.round((Date.now() - started) / 1000) + ' s; ' + Object.keys(tried).map(h => h + ' ' + [...tried[h]].join(' ')).join(', ') + ')', lastErr);
     };
 
     // A stream that errors or stalls while playing gets up to 3 reconnects in a row before stopping.
@@ -8076,8 +8140,50 @@ const StatDetailModal = ({ statKey, uid, profile, isOpen, onClose, onViewProfile
     );
 };
 
-const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
+// V87.78.150.315: a NEW tag, once its achievement has been seen in the Achievements window, is cleared
+// for good.
+const rkAchSeen = (uid, id) => {
+    if (!uid || !id) return;
+    updateDoc(doc(db, 'artifacts', appId, 'users', uid), { ['achNew.' + id]: deleteField() }).catch(e => rkReport('achievement seen', e));
+};
+const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid, focus = null }) => {
     const [saving, setSaving] = useState(false);
+    // V87.78.150.315 (Milli, at 315: "notifications should take the user directly to the achievement
+    // ... mark the achievement with a 'new' until the user views the achievement in the achievements
+    // window, then remove the new tag").
+    const listRef = useRef(null);
+    const [glowId, setGlowId] = useState('');
+    const [fading, setFading] = useState({});
+    const newMap = (editable && profile && profile.achNew) || {};
+    const newKey = Object.keys(newMap).sort().join(',');
+    // A notification's achievement: scrolled to the middle of the list and lit up for a few seconds.
+    useEffect(() => {
+        if (!isOpen || !focus || !focus.id) return;
+        const t = setTimeout(() => {
+            const el = listRef.current && listRef.current.querySelector('[data-ach="' + focus.id + '"]');
+            if (!el) return;
+            try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+            setGlowId(focus.id);
+        }, 150);
+        const off = setTimeout(() => setGlowId(''), 5000);
+        return () => { clearTimeout(t); clearTimeout(off); };
+    }, [isOpen, focus && focus.n]);
+    // A NEW tag stays until its achievement has been on screen here for 1.5 seconds; then it fades
+    // out and is cleared on the raver's document, so it is gone everywhere.
+    useEffect(() => {
+        if (!isOpen || !editable || !userUid || !newKey || typeof IntersectionObserver === 'undefined') return;
+        const timers = {};
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach(en => {
+                const id = en.target.getAttribute('data-ach');
+                if (en.isIntersecting && en.intersectionRatio >= 0.6) {
+                    if (!timers[id]) timers[id] = setTimeout(() => { setFading(f => ({ ...f, [id]: true })); setTimeout(() => rkAchSeen(userUid, id), 700); }, 1500);
+                } else if (timers[id]) { clearTimeout(timers[id]); delete timers[id]; }
+            });
+        }, { threshold: [0, 0.6, 1] });
+        const t = setTimeout(() => { (listRef.current ? [...listRef.current.querySelectorAll('[data-ach-new="1"]')] : []).forEach(el => io.observe(el)); }, 200);
+        return () => { clearTimeout(t); io.disconnect(); Object.values(timers).forEach(clearTimeout); };
+    }, [isOpen, editable, userUid, newKey]);
     if (!isOpen) return null;
     const all = getDisplayAchievements(profile);
     const unlocked = all.filter(a => a.unlocked);
@@ -8094,16 +8200,21 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
     };
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`🏅 Achievements (${unlocked.length}/${all.length})`}>
-            <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+            <div ref={listRef} className="space-y-2 max-h-[65vh] overflow-y-auto pr-1" data-ach-list="1">
                 {editable && <p className="text-[10px] text-cyan-300 bg-cyan-900/20 border border-cyan-500/30 rounded p-2">Tap the ⭐ on any unlocked achievement to feature it on your profile (up to 5).</p>}
                 {all.map((ach, idx) => {
                     const isTop = top.includes(ach.id);
                     // V84.77.150.311: a reached rank wears its tier colour; the current rank is highlighted.
                     const isCurRank = !!ach.rank && ach.unlocked && ach.rank === curRank;
+                    const isNew = !!(ach.unlocked && newMap[ach.id]);
                     return (
-                        <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10 ') + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/15 bg-black/40'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, isCurRank) : undefined}>
+                        <div key={idx} data-ach={ach.id} data-ach-new={isNew ? '1' : undefined} className={'rounded-lg' + (glowId === ach.id ? ' rk-focus-glow' : '')}>
+                        <div className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10 ') + RK_DIFF_META[rkAchDiff(ach)].fx : 'border-white/15 bg-black/40'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, isCurRank) : undefined}>
                             {/* V84.78.150.312: emblems replace the icons; a locked one is its own outline, so the row is no longer greyed out. */}
-                            <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="mr-3 shrink-0" />
+                            <span className="relative mr-3 shrink-0">
+                                <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="block" />
+                                {isNew && <span data-new-tag={ach.id} className={'rk-new-tag absolute -top-2 -left-2 text-[11px] leading-none font-black px-1.5 py-1 rounded bg-pink-600 text-white transition-opacity duration-700 ' + (fading[ach.id] ? 'opacity-0' : 'opacity-100')}>NEW</span>}
+                            </span>
                             <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-center gap-2">
                                     <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
@@ -8118,6 +8229,7 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
                                 </button>
                             )}
                         </div>
+                        </div>
                     );
                 })}
             </div>
@@ -8127,11 +8239,16 @@ const AchievementsModal = ({ profile, isOpen, onClose, editable, userUid }) => {
 
 const AchievementsCard = ({ profile, editable = false, userUid, openSig = 0 }) => {
     const [open, setOpen] = useState(false);
-    // V85.78.150.313: an achievement notification opens the full list.
-    useEffect(() => { if (openSig) setOpen(true); }, [openSig]);
+    // V85.78.150.313: an achievement notification opens the full list. V87.78.150.315: at the
+    // achievement it is about (openSig.focus).
+    const [focus, setFocus] = useState(null);
+    useEffect(() => { if (openSig) { setOpen(true); setFocus(openSig.focus ? { id: openSig.focus, n: openSig.n || Date.now() } : null); } }, [openSig]);
     const [diffChart, setDiffChart] = useState(false);
     const all = getDisplayAchievements(profile);
     const unlocked = all.filter(a => a.unlocked);
+    // V87.78.150.315: achievements unlocked and not yet seen in the Achievements window (owner only).
+    const newMap = (editable && profile && profile.achNew) || {};
+    const newCount = unlocked.filter(a => newMap[a.id]).length;
     // V84.77.150.311: saving the rewards and the 80% free-VIP grant moved to App, beside the
     // achievement counter. Here they only ran while this card was on screen, and they wrote the
     // reward down without anything ever charging it. They are now applied at checkout.
@@ -8143,7 +8260,7 @@ const AchievementsCard = ({ profile, editable = false, userUid, openSig = 0 }) =
     const display = featured.length > 0 ? featured : all.slice(0, 5);
     return (
         <>
-            <AchievementsModal profile={profile} isOpen={open} onClose={() => setOpen(false)} editable={editable} userUid={userUid} />
+            <AchievementsModal profile={profile} isOpen={open} onClose={() => { setOpen(false); setFocus(null); }} editable={editable} userUid={userUid} focus={focus} />
             <Card glow="goldGlow" className="cursor-pointer hover:bg-white/10 transition-colors" >
                 <div onClick={() => setOpen(true)}>
                     {/* V84.151 (309): the title is centred on its own line, and REWARDS and the view-all
@@ -8154,6 +8271,7 @@ const AchievementsCard = ({ profile, editable = false, userUid, openSig = 0 }) =
                         <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
                             <button onClick={(e) => { e.stopPropagation(); setDiffChart(true); }} className="h-8 inline-flex items-center px-3 rounded-full text-xs font-black whitespace-nowrap text-cyan-300 bg-cyan-500/10 border border-cyan-400/40">📊 REWARDS</button>
                             <span className="h-8 inline-flex items-center px-3 rounded-full text-xs font-bold whitespace-nowrap text-cyan-300 bg-cyan-500/10 border border-cyan-400/40">{unlocked.length}/{all.length} · tap to view all</span>
+                            {newCount > 0 && <span data-ach-newcount={newCount} className="rk-new-tag h-8 inline-flex items-center px-3 rounded-full text-xs font-black whitespace-nowrap text-white bg-pink-600 border border-pink-300">🆕 {newCount} new</span>}
                         </div>
                     <Modal isOpen={diffChart} onClose={() => setDiffChart(false)} zClass="z-[170]" title="📊 Difficulty & Rewards"><p className="text-base font-black text-cyan-300 mb-2">📊 Difficulty & Permanent Rewards</p>
                             <p className="text-xs text-white mb-3 leading-relaxed">Every achievement you complete permanently improves your rates, and they are applied at checkout. Standard achievements trim your seller commission; referral achievements, including your RevShare ranks, raise your referral share instead. Complete <strong className="text-yellow-300">80% of all achievements</strong> (ranks not counted) and you earn <strong className="text-yellow-300">permanent free VIP</strong>. 👑</p>
@@ -8189,7 +8307,10 @@ const AchievementsCard = ({ profile, editable = false, userUid, openSig = 0 }) =
                     <div className="space-y-3">
                         {display.map((ach, idx) => (
                             <div key={idx} className={`flex items-center p-3 rounded-lg border transition-all ${ach.unlocked ? (ach.rank ? '' : 'border-lime-500/50 bg-lime-900/10') : 'border-white/15 bg-black/40'}`} style={ach.rank && ach.unlocked ? rkRankRowStyle(ach.rank, ach.rank === curRank) : undefined}>
-                                <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="mr-3 shrink-0" />
+                                <span className="relative mr-3 shrink-0">
+                                    <img src={rkEmblemUri(ach.id, { size: 48, locked: !ach.unlocked })} width={48} height={48} alt="" className="block" />
+                                    {ach.unlocked && newMap[ach.id] && <span className="rk-new-tag absolute -top-2 -left-2 text-[11px] leading-none font-black px-1.5 py-1 rounded bg-pink-600 text-white">NEW</span>}
+                                </span>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center gap-2">
                                         <p className="font-bold text-sm truncate">{ach.name} <span className="text-[9px] font-black px-1 py-0.5 rounded align-middle" style={{ color: RK_DIFF_META[rkAchDiff(ach)].c, border: '1px solid ' + RK_DIFF_META[rkAchDiff(ach)].c, textShadow: '0 0 6px ' + RK_DIFF_META[rkAchDiff(ach)].glow }}>{RK_DIFF_META[rkAchDiff(ach)].n}</span></p>
@@ -8781,7 +8902,7 @@ const PingBar = ({ show }) => {
     );
 };
 
-const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, creator: Hammer };
+const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, labcap: Sparkles, creator: Hammer };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
@@ -11242,7 +11363,7 @@ const AIConceptImage = ({ res, onReady, onReroll, rerollsLeft }) => {
         try { url = await onReroll(); }
         catch (e) {
             setState('ok');
-            setNote(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up, so this image stays. They reset at midnight UTC." : FAIL_NOTE);
+            setNote(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up, so this image stays. They come back at midnight UTC, and you'll get a notification then." : e && e.message === 'AI_ALLOWANCE' ? "The Design Lab has used today's free AI allowance for everyone, so this image stays. Try again later; nothing was used." : FAIL_NOTE);
             return;
         }
         // A new URL resets everything through the effect above. No URL, or the same one, would
@@ -11521,7 +11642,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
     const [genPct, setGenPct] = useState(0);
     const gen = async () => { 
         if(!prompt || !user?.uid) return;
-        if(remaining <= 0) return alert("Daily design limit reached. It resets at midnight UTC — the same moment the server's own counter rolls over.");
+        if(remaining <= 0) return alert("Daily design limit reached. It resets at midnight UTC (the same moment the server's own counter rolls over), and you'll get a notification then.");
         if (!RK_CFG.aiLabEnabled) return alert("The AI Design Lab is temporarily disabled by the admin team — check back soon!");
         setLoading(true); setGenPct(3); setImageReady(false); setRes(null); await ensureUserExists(user.uid);
         
@@ -11586,10 +11707,14 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
             // optionally submit; we don't auto-write an image-less item to the collection.
         } catch(e){ 
             if (jobRef) { try { await setDoc(jobRef, { status: 'failed', error: String(e && e.message || e), doneAt: Date.now() }, { merge: true }); } catch (e2) { rkReport('ai job fail save', e2); } }
-            // V84.151 (309): 'ailab', not 'diy'. A failed design sent people to the feed; it now
+            // V84.151 (309): not 'diy'. A failed design sent people to the feed; it now
             // opens the Lab, where the prompt and Try again are.
-            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'ailab', '😔 Your AI design could not be generated. No credit was used.', '@lab'); } catch (e2) {}
-            if (e.message === 'AI_SIGNIN_REQUIRED') alert("Please sign in again — the design service needs a valid session.");
+            // V87.79.150.316: 'labcap', not 'ailab'. The phone's title for 'ailab' is "🎨 Your Design Is
+            // Ready", above a body saying it wasn't made; 'labcap' is titled "🎨 Design Lab". The '@lab'
+            // refId still opens the Lab.
+            try { if (e.message !== 'AI_KEY_REQUIRED') pushNotif(user.uid, 'labcap', e.message === 'AI_ALLOWANCE' ? "🌙 Your AI design wasn't made: the Design Lab has used today's free AI allowance for everyone. None of your designs was used; try again later." : '😔 Your AI design could not be generated. No credit was used.', '@lab'); } catch (e2) {}
+            if (e.message === 'AI_ALLOWANCE') alert('🌙 ' + RK_AI_ALLOWANCE_MSG);
+            else if (e.message === 'AI_SIGNIN_REQUIRED') alert("Please sign in again — the design service needs a valid session.");
             else if (e.message === 'AI_KEY_REQUIRED') { alert("🔑 The AI design service is no longer available on the free tier — it returned \"payment required\". This needs an API key configured before the Design Lab can work again. Nothing was charged and no credit was used."); try { pushNotif(user.uid, 'diy', '🔑 AI Design Lab is unavailable — the image service now requires an API key.', '@lab'); } catch (e3) {} }
             else if (e.message === 'ANALYSIS_FAILED') alert("😔 The AI design service was busy and couldn't analyze your idea this time. Please try again in a moment — no credit was used."); 
             else alert(e.message); 
@@ -11655,7 +11780,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
         if (imgBusy) return;
         setImgBusy(true);
         try { await rerollImage(); }
-        catch (e) { alert(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up. They reset at midnight UTC." : 'The image could not be made this time, and nothing was used. Try again in a moment.'); }
+        catch (e) { alert(e && e.message === 'IMG_DAILY_CAP' ? "Today's designs are used up. They come back at midnight UTC, and you'll get a notification then." : e && e.message === 'AI_ALLOWANCE' ? RK_AI_ALLOWANCE_MSG : 'The image could not be made this time, and nothing was used. Try again in a moment.'); }
         finally { setImgBusy(false); }
     };
     // V84.151 (309): save straight from Your recent generations. Returns true so the sheet can
@@ -11749,7 +11874,7 @@ const AICustomLab = ({ user, onSubmitRequest, profile }) => {
                             <p className="text-xs text-white mb-2">🎨 {res.imageNote || 'This design has no image yet.'}</p>
                             {remaining > 0
                                 ? <Button onClick={makeImage} disabled={imgBusy} color="cyan" className="text-xs">{imgBusy ? 'Painting…' : 'Make the image now · uses 1 of ' + remaining + ' left today'}</Button>
-                                : <p className="text-[11px] text-white">No designs left today. They reset at midnight UTC.</p>}
+                                : <p className="text-[11px] text-white">No designs left today. They come back at midnight UTC, and you'll get a notification then.</p>}
                         </div>
                     )}
                     <p className="text-sm mb-4 leading-relaxed text-white">{res.visual_description}</p>
@@ -13208,37 +13333,197 @@ const rkStableJson = (o) => {
         return JSON.stringify(out);
     } catch (e) { return String(Date.now()); }
 };
-// V86.78.150.314: THE APP BACKGROUND, CHOSEN BY AN ADMIN (Milli, at 314). Tapping a design previews it
-// on the admin's own screen; Save for everyone writes it to the remote config, where every app picks
-// it up live. The Animation switch applies to designs with an animated version.
+// V87.78.150.315: THE FULL-SCREEN PREVIEW (Milli, at 315: "the background preview changes the entire app
+// background. The preview should be a button that creates an actual preview of the background in full
+// view, only for the admin until the change is saved"). The design is drawn on its own layer above
+// everything, on this screen only; the app's own background is never touched until Save for everyone.
+const RkBgPreview = ({ sel, onClose }) => {
+    useRkBackClose(!!sel, onClose);
+    if (!sel) return null;
+    const b = rkBgById(sel.id);
+    const moving = !!(sel.anim && b.anim);
+    return createPortal(
+        <div className="fixed inset-0 z-[300]" data-bg-preview={b.id} data-bg-preview-anim={moving ? '1' : '0'} style={{ backgroundColor: b.color }}>
+            <RkAppBackground id={b.id} anim={sel.anim} fixed={false}/>
+            <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between gap-3 px-4 pb-3 bg-black/60 border-b border-white/20" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}>
+                <div className="min-w-0">
+                    <p className="text-base font-black text-white truncate">👁 {b.name}{moving ? ', animated' : ''}</p>
+                    <p className="text-xs text-white">Preview: only you can see it. Nothing changes for anyone until you save.</p>
+                </div>
+                <button onClick={onClose} aria-label="Close the preview" className="shrink-0 text-white"><XCircle size={32}/></button>
+            </div>
+        </div>, document.body);
+};
+// V87.79.150.316: USAGE AND LIMITS (queue item 3, raised at 257: "Neither the image-generation ceiling
+// nor the stored-GB figure is surfaced"). Three meters in one place:
+//  - Design Lab AI: what the functions counted against Cloudflare's free 10,000 neurons a day
+//    (aiUsage/{UTC day}). That allowance, shared by every raver, is the real ceiling: each raver's own
+//    5 designs a day add up to far more than it covers once a few ravers are designing.
+//  - Firebase Storage: measured by the adminStorageNow function (every file, by folder), daily at
+//    00:10 UTC and on opening this when the last count is over an hour old (storageUsage/*).
+//  - Firestore: the estimate that used to sit under Remote Config, moved here.
+// Admins are told at 80% of the AI allowance, when Cloudflare refuses, and at 70/85/95% of free storage.
+const RK_AI_FREE_NEURONS = 10000;
+// Typical costs until something has been counted: an analysis of about 2,000 tokens in and 1,200 out,
+// and a 1024x1024 picture, at Cloudflare's published rates (see rk_image.js).
+const RK_AI_TYPICAL = { analysis: (2000 * 25608 + 1200 * 75147) / 1e6, picture: 4 * 4.8 + 4 * 9.6 };
+const RK_AI_DEFAULT_MODELS = { analysis: '@cf/meta/llama-3.1-8b-instruct', image: '@cf/black-forest-labs/flux-1-schnell', scan: '@cf/llava-hf/llava-1.5-7b-hf' };
+// Models Cloudflare has deprecated (developers.cloudflare.com/changelog, 8 May 2026).
+const RK_AI_DEPRECATED = { '@cf/meta/llama-3.1-8b-instruct': 'May 30, 2026' };
+const rkSize = (b) => { const n = Number(b) || 0; return n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; };
+const rkAgo = (t) => { const m = Math.round((Date.now() - (Number(t) || 0)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+// From the counted days: what one analysis and one picture cost, and what the free allowance buys.
+const rkAiCapacity = (days) => {
+    const sum = (k) => (days || []).reduce((a, d) => a + (Number(d && d[k]) || 0), 0);
+    const na = sum('analyses'), ni = sum('images');
+    const a = na ? sum('analysisNeurons') / na : RK_AI_TYPICAL.analysis;
+    const p = ni ? sum('imageNeurons') / ni : RK_AI_TYPICAL.picture;
+    return { analysis: a, picture: p, designs: Math.floor(RK_AI_FREE_NEURONS / (a + p)), pictures: Math.floor(RK_AI_FREE_NEURONS / p), counted: !!(na && ni) };
+};
+// Storage growth a day, from the oldest and newest of the snapshots read.
+const rkStorageGrowth = (snaps) => {
+    const s = (snaps || []).filter(x => x && x.measuredAt).sort((a, b) => a.measuredAt - b.measuredAt);
+    if (s.length < 2) return null;
+    const a = s[0], b = s[s.length - 1], days = (b.measuredAt - a.measuredAt) / 86400000;
+    if (days < 0.5) return null;
+    return { perDay: (b.totalBytes - a.totalBytes) / days, days: Math.max(1, Math.round(days)) };
+};
+const AdminUsagePanel = ({ user }) => {
+    const [days, setDays] = useState(null);       // the last 8 UTC days of AI use, today first
+    const [st, setSt] = useState(null);           // storage: the latest measure
+    const [snaps, setSnaps] = useState([]);       // storage: daily snapshots, for growth
+    const [measuring, setMeasuring] = useState(false);
+    const [mErr, setMErr] = useState('');
+    const [fsStats, setFsStats] = useState(null); // global/stats, for the Firestore estimate
+    useEffect(() => {
+        let live = true;
+        const ids = Array.from({ length: 8 }, (_, i) => rkUtcDay(Date.now() - i * 86400000));
+        Promise.all(ids.map(id => getDoc(doc(db, 'artifacts', appId, 'aiUsage', id)).then(s => (s.exists() ? { ...s.data(), day: id } : { day: id })).catch(e => { rkReport('ai usage read', e); return { day: id }; })))
+            .then(list => { if (live) setDays(list); });
+        Promise.all(ids.map(id => getDoc(doc(db, 'artifacts', appId, 'storageUsage', id)).then(s => (s.exists() ? s.data() : null)).catch(() => null)))
+            .then(list => { if (live) setSnaps(p => [...p, ...list.filter(Boolean).filter(x => !p.some(y => y.day === x.day))]); });
+        getDoc(doc(db, 'artifacts', appId, 'storageUsage', 'latest')).then(s => {
+            if (!live) return;
+            const d = s.exists() ? s.data() : null;
+            setSt(d);
+            if (d && Date.now() - (Number(d.measuredAt) || 0) <= 3600000) return;
+            setMeasuring(true);
+            httpsCallable(getFunctions(app), 'adminStorageNow')({ appId })
+                .then(r => { const x = r && r.data; if (live && x && x.measuredAt) { setSt(x); setSnaps(p => [...p.filter(y => y.day !== x.day), x]); } })
+                .catch(e => { if (live) setMErr((e && e.message) || 'Storage could not be measured.'); rkReport('storage measure', e); })
+                .finally(() => { if (live) setMeasuring(false); });
+        }).catch(e => { if (live) setMErr((e && e.message) || 'Storage could not be read.'); });
+        const unsub = onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => { const x = s.exists() ? s.data() : {}; setFsStats(x); rkStorageAlertCheck(x); }, e => rkReport('stats', e));
+        return () => { live = false; unsub(); };
+    }, []);
+    const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+    const plural = (n, w) => fmt(n) + ' ' + w + (Math.round(Number(n) || 0) === 1 ? '' : 's');
+    const today = (days && days[0]) || {};
+    const used = Number(today.neurons) || 0;
+    const pct = Math.min(100, Math.round(used / RK_AI_FREE_NEURONS * 1000) / 10);
+    const barC = pct >= 100 ? '#ef4444' : pct >= 80 ? '#f97316' : pct >= 60 ? '#eab308' : '#a3e635';
+    const cap = rkAiCapacity(days || []);
+    const leftDesigns = Math.floor(Math.max(0, RK_AI_FREE_NEURONS - used) / (cap.analysis + cap.picture));
+    const models = { ...RK_AI_DEFAULT_MODELS, ...(((days || []).find(d => d && d.models) || {}).models || {}) };
+    const dep = RK_AI_DEPRECATED[models.analysis];
+    const resetLocal = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const free = (st && st.free) || {};
+    const fpct = st && free.bytes > 0 ? Math.round(st.totalBytes / free.bytes * 1000) / 10 : null;
+    const fC = fpct === null ? '#a3e635' : fpct >= 95 ? '#ef4444' : fpct >= 85 ? '#f97316' : fpct >= 70 ? '#eab308' : '#a3e635';
+    const over = st ? Math.max(0, st.totalBytes - (free.bytes || 0)) : 0;
+    const g = rkStorageGrowth(snaps);
+    const est = rkStorageEstimate(fsStats);
+    const estC = est.pct >= 95 ? '#ef4444' : est.pct >= 85 ? '#f97316' : est.pct >= 70 ? '#eab308' : '#a3e635';
+    const report = 'RaveKandi Firestore storage report%0A%0AEstimated usage: ' + est.pct + '%25 of the free 1GB tier%0AMusic samples: ' + (est.sample / 1048576).toFixed(1) + ' MB (' + (fsStats?.musicSampleCount || 0) + ' samples)%0AShowcase images: ' + (est.content / 1048576).toFixed(1) + ' MB (' + (fsStats?.contentPostCount || 0) + ' posts)%0A%0AExact numbers: Firebase Console > Firestore > Usage';
+    return (
+        <div className="space-y-4" data-usage-panel="1">
+            <div className="space-y-2" data-usage-ai="1">
+                <p className="text-sm font-black text-sky-200">🎨 Design Lab AI (Cloudflare)</p>
+                <p className="text-xs text-white">Each raver gets 5 designs a day, but all of them share Cloudflare's free <strong>10,000 neurons a day</strong>. When those run out, Cloudflare refuses every design until the allowance resets.</p>
+                {days === null ? <p className="text-xs text-white">Loading…</p> : <>
+                    <div>
+                        <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: Math.max(1, pct) + '%', backgroundColor: barC }}/></div>
+                        <p className="text-xs font-bold mt-1" style={{ color: barC }} data-ai-today={used}>Today (UTC): {fmt(used)} of 10,000 neurons ({pct}%)</p>
+                    </div>
+                    <p className="text-xs text-white">Today: {plural(today.analyses, 'design')} analysed, {plural(today.images, 'picture')}, {plural(today.scans, 'photo scan')}. {plural(today.capHits, 'raver')} used all 5 of their designs.</p>
+                    {(Number(today.refused) || 0) > 0 && <p className="text-xs font-bold text-white bg-red-600/30 border border-red-400 rounded-lg p-2" data-ai-refused={today.refused}>⛔ Cloudflare refused {plural(today.refused, 'request')} today: the free allowance ran out{today.alertRefused ? ' at ' + new Date(today.alertRefused).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}. Ravers are told to try again later.</p>}
+                    <p className="text-xs text-white" data-ai-capacity={cap.designs}>The free allowance buys about <strong>{fmt(cap.designs)} designs a day for everyone together</strong> (an analysis ≈ {fmt(cap.analysis)} neurons, a picture ≈ {fmt(cap.picture)}), or {fmt(cap.pictures)} extra pictures. Left today: about {plural(leftDesigns, 'design')}. {cap.counted ? 'Averaged over the days below.' : 'Estimated from typical sizes until designs have been counted.'}</p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-[11px] text-white" data-ai-days="1">
+                            <thead><tr className="text-left text-sky-200"><th className="pr-2 py-1">Day (UTC)</th><th className="pr-2">Designs</th><th className="pr-2">Pictures</th><th className="pr-2">Neurons</th><th className="pr-2">Of free</th><th>Refused</th></tr></thead>
+                            <tbody>{days.map(d => (
+                                <tr key={d.day} className="border-t border-white/10" data-ai-day={d.day}>
+                                    <td className="pr-2 py-1 whitespace-nowrap">{new Date(d.day + 'T12:00:00Z').toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>
+                                    <td className="pr-2">{fmt(d.analyses)}</td><td className="pr-2">{fmt(d.images)}</td><td className="pr-2">{fmt(d.neurons)}</td>
+                                    <td className="pr-2">{Math.round((Number(d.neurons) || 0) / RK_AI_FREE_NEURONS * 100)}%</td><td>{fmt(d.refused)}</td>
+                                </tr>))}</tbody>
+                        </table>
+                    </div>
+                    <p className="text-xs text-white">Models: analysis {models.analysis}, pictures {models.image}, photo scans {models.scan}.</p>
+                    {dep && <p className="text-xs font-bold text-white bg-amber-600/25 border border-amber-400 rounded-lg p-2" data-ai-deprecated="1">⚠ Cloudflare deprecated the analysis model on {dep}. {(Number(today.analyses) || 0) > 0 ? 'It answered today, but' : 'It may still answer, but'} it can be withdrawn without notice, and then every design would fail at the analysis step. Moving to a supported model is queued (item 27).</p>}
+                    <p className="text-xs text-white">Counted by RaveKandi's functions at Cloudflare's published prices; Cloudflare's dashboard (AI → Workers AI) has the exact figure. Photo scans have no published price, so they are counted but not in the total. Cloudflare says the allowance resets at 00:00 UTC ({resetLocal} your time); an open report from October 2026 says it can stay used up for up to a day after it runs out.</p>
+                </>}
+            </div>
+            <div className="space-y-2 border-t border-white/15 pt-3" data-usage-storage="1">
+                <p className="text-sm font-black text-sky-200">💾 Firebase Storage (pictures and uploads)</p>
+                {!st ? <p className="text-xs text-white" data-storage-state="1">{measuring ? 'Measuring storage… It lists every file once.' : mErr ? '⚠ ' + mErr : 'Not measured yet.'}</p> : <>
+                    {fpct !== null && <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: Math.max(1, Math.min(100, fpct)) + '%', backgroundColor: fC }}/></div>}
+                    <p className="text-xs font-bold" style={{ color: fC }} data-storage-total={st.totalBytes}>{rkSize(st.totalBytes)} in {plural(st.files, 'file')}{fpct !== null ? ': ' + fpct + '% of the free ' + rkSize(free.bytes) : ''}</p>
+                    <p className="text-xs text-white">{free.note}</p>
+                    {over > 0 && free.perGiBMonth > 0 && <p className="text-xs text-white" data-storage-over={over}>Above the free amount: {rkSize(over)}, about ${(over / 1073741824 * free.perGiBMonth).toFixed(2)} a month.</p>}
+                    <p className="text-xs text-white" data-storage-growth={g ? Math.round(g.perDay) : ''}>{!g ? 'Growth: measured once so far. The daily count builds the trend.'
+                        : g.perDay > 0 ? 'Growing about ' + rkSize(g.perDay) + ' a day over the last ' + plural(g.days, 'day') + '.' + (free.bytes > st.totalBytes ? ' At that rate the free ' + rkSize(free.bytes) + ' is used up in about ' + plural(Math.ceil((free.bytes - st.totalBytes) / g.perDay), 'day') + ' (' + new Date(Date.now() + (free.bytes - st.totalBytes) / g.perDay * 86400000).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + ').' : '')
+                        : 'No growth over the last ' + plural(g.days, 'day') + '.'}</p>
+                    <div className="space-y-1" data-storage-folders="1">{(st.folders || []).slice(0, 6).map(f => (
+                        <div key={f.name} className="flex justify-between gap-2 text-xs text-white bg-black/30 border border-white/15 rounded px-2 py-1"><span className="truncate">{f.name === '(top level)' ? f.name : f.name + '/'}</span><span className="shrink-0">{rkSize(f.bytes)} · {plural(f.files, 'file')}</span></div>))}</div>
+                    {(st.folders || []).some(f => f.name === 'aiDesigns') && <p className="text-xs text-white">aiDesigns/ holds every Design Lab picture, saved or not. Nothing deletes them yet (queue item 15).</p>}
+                    <p className="text-xs text-white">Bucket {st.bucket} ({st.location || 'location unknown'}{st.storageClass ? ', ' + st.storageClass : ''}). Measured {rkAgo(st.measuredAt)}{measuring ? '; measuring again…' : ''}. It's measured daily at 00:10 UTC, and when you open this if the last count is over an hour old. Downloads aren't counted here: Firebase Console → Storage → Usage.</p>
+                    {mErr && <p className="text-xs text-white">⚠ {mErr}</p>}
+                </>}
+            </div>
+            <div className="space-y-2 border-t border-white/15 pt-3" data-usage-firestore="1">
+                <p className="text-sm font-black text-sky-200">🗄️ Firestore database (estimate)</p>
+                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: Math.max(2, est.pct) + '%', backgroundColor: estC }}/></div>
+                <p className="text-xs font-bold" style={{ color: estC }}>About {est.pct}% of Firestore's free 1 GB</p>
+                <p className="text-xs text-white">🎵 Samples: {(est.sample / 1048576).toFixed(1)} MB ({fsStats?.musicSampleCount || 0}) · 🖼️ Showcase images: {(est.content / 1048576).toFixed(1)} MB ({fsStats?.contentPostCount || 0}) · plus a 50 MB cushion for everything else.</p>
+                <p className="text-xs text-white">An estimate of the heavy collections, kept by the app; the exact figure is in Firebase Console → Firestore → Usage. (Moved here from Remote Config.)</p>
+                <a href={'mailto:wyldnightzco@gmail.com?subject=RaveKandi%20Storage%20Report&body=' + report} className="inline-block text-xs font-black bg-lime-500/15 border border-lime-400/40 text-lime-300 rounded px-3 py-1.5">📧 Email me this report</a>
+            </div>
+            <p className="text-xs text-white border-t border-white/15 pt-3">🔔 Every admin is told when the AI allowance passes 80%, when Cloudflare refuses, and when storage passes 70%, 85% and 95% of its free amount (Firestore too). Each notice opens this section.</p>
+        </div>
+    );
+};
+// V86.78.150.314: THE APP BACKGROUND, CHOSEN BY AN ADMIN (Milli, at 314). Save for everyone writes it to
+// the remote config, where every app picks it up live. The Animation switch applies to designs with an
+// animated version. V87.78.150.315: tapping a design only selects it; 👁 Preview full screen shows it.
 const AdminBackgroundPanel = ({ user }) => {
     const [cur, setCur] = useState(null);     // what everyone has now: { id, anim }
-    const [pick, setPick] = useState(null);   // what the admin is previewing
+    const [pick, setPick] = useState(null);   // what the admin has selected, not yet saved
+    const [pv, setPv] = useState(null);       // the full-screen preview, while open
     const [saving, setSaving] = useState(false);
     useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => {
         const d = s.exists() ? s.data() : {};
         setCur({ id: RK_BGS.some(b => b.id === d.appBg) ? d.appBg : RK_BG_DEFAULT.id, anim: !!d.appBgAnim });
     }, e => rkReport('background config', e)), []);
-    // closing the panel stops the preview
-    useEffect(() => () => { try { window.dispatchEvent(new CustomEvent('rk:bgpreview', { detail: null })); } catch (e) {} }, []);
-    const preview = (p) => { setPick(p); try { window.dispatchEvent(new CustomEvent('rk:bgpreview', { detail: p })); } catch (e) {} };
+    const closePv = React.useCallback(() => setPv(null), []);
     if (!cur) return <p className="text-xs text-white">Loading…</p>;
     const sel = pick || cur;
     const selBg = rkBgById(sel.id);
+    const curBg = rkBgById(cur.id);
     const dirty = !!pick && (pick.id !== cur.id || !!pick.anim !== !!cur.anim);
     const save = async () => {
         if (!dirty || saving) return;
         setSaving(true);
         try {
             await setDoc(doc(db, 'artifacts', appId, 'global', 'config'), { appBg: sel.id, appBgAnim: !!sel.anim, appBgAt: Date.now(), appBgBy: (user && user.uid) || '' }, { merge: true });
-            preview(null);
+            setPick(null);
             alert('🎨 Saved: everyone now has ' + selBg.name + (sel.anim && selBg.anim ? ', animated' : '') + '.');
         } catch (e) { alert('Save failed: ' + e.message); }
         setSaving(false);
     };
-    return (
+    return (<>
         <div className="space-y-3" data-bg-panel="1">
-            <p className="text-xs text-white">Tap a design to preview it on your screen. <strong>Save for everyone</strong> sends it to every raver at once. A VIP's own background still replaces it for them.</p>
+            <p className="text-xs text-white">Tap a design to select it, then <strong>👁 Preview full screen</strong> to see it on your screen alone. <strong>Save for everyone</strong> sends it to every raver at once. A VIP's own background still replaces it for them.</p>
             {RK_BG_GROUPS.map(g => (
                 <div key={g}>
                     <p className="text-xs font-black text-fuchsia-200 mb-1.5">{g}</p>
@@ -13246,9 +13531,10 @@ const AdminBackgroundPanel = ({ user }) => {
                         {RK_BGS.filter(b => b.group === g).map(b => {
                             const on = sel.id === b.id;
                             return (
-                                <button key={b.id} data-bg-pick={b.id} onClick={() => preview({ id: b.id, anim: sel.anim })} className={'rounded-lg p-1 border-2 text-center ' + (on ? 'border-fuchsia-300 bg-fuchsia-500/20' : 'border-white/20 bg-black/30')}>
+                                <button key={b.id} data-bg-pick={b.id} onClick={() => setPick({ id: b.id, anim: sel.anim })} className={'rounded-lg p-1 border-2 text-center ' + (on ? 'border-fuchsia-300 bg-fuchsia-500/20' : 'border-white/20 bg-black/30')}>
                                     <RkBgThumb id={b.id} w={60}/>
                                     <span className="block text-[11px] font-bold text-white mt-1 leading-tight">{b.name}{on ? ' ✓' : ''}</span>
+                                    {cur.id === b.id && <span className="block text-[10px] font-black text-lime-200" data-bg-live="1">● LIVE</span>}
                                     {b.anim && <span className="block text-[10px] font-bold text-fuchsia-200">✨ animates</span>}
                                 </button>
                             );
@@ -13261,15 +13547,16 @@ const AdminBackgroundPanel = ({ user }) => {
                     <p className="text-sm font-bold text-white">✨ Animation</p>
                     <p className="text-xs text-white">{selBg.anim ? 'Slow movement for this design. Phones set to reduce motion always get the still version.' : 'This design has no animated version; it stays still either way.'}</p>
                 </div>
-                <button data-bg-toggle="1" onClick={() => preview({ id: sel.id, anim: !sel.anim })} className={'shrink-0 px-3 py-1.5 rounded-full text-xs font-black border ' + (sel.anim ? 'bg-lime-500/25 border-lime-300 text-lime-200' : 'bg-black/40 border-white/40 text-white')}>{sel.anim ? 'ON' : 'OFF'}</button>
+                <button data-bg-toggle="1" onClick={() => setPick({ id: sel.id, anim: !sel.anim })} className={'shrink-0 px-3 py-1.5 rounded-full text-xs font-black border ' + (sel.anim ? 'bg-lime-500/25 border-lime-300 text-lime-200' : 'bg-black/40 border-white/40 text-white')}>{sel.anim ? 'ON' : 'OFF'}</button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => preview(null)} disabled={!pick} className={'text-xs font-bold rounded-lg py-2 border ' + (pick ? 'border-white/50 text-white' : 'border-white/20 text-white')}>{pick ? 'Stop preview' : 'Previewing nothing'}</button>
+                <button data-bg-preview-open="1" onClick={() => setPv({ id: sel.id, anim: !!sel.anim })} className="text-xs font-bold rounded-lg py-2 border border-fuchsia-300 bg-fuchsia-500/20 text-white">👁 Preview full screen</button>
                 <Button onClick={save} disabled={!dirty || saving} color="lime" className="text-xs">{saving ? 'Saving…' : 'Save for everyone'}</Button>
             </div>
-            <p className="text-xs text-white">Live for everyone now: <strong>{rkBgById(cur.id).name}</strong>{cur.anim && rkBgById(cur.id).anim ? ', animated' : ''}{pick ? '. You are previewing ' + selBg.name + (sel.anim && selBg.anim ? ', animated' : '') + '.' : '.'}</p>
+            <p className="text-xs text-white">Live for everyone now: <strong>{curBg.name}</strong>{cur.anim && curBg.anim ? ', animated' : ''}.{dirty ? <> Selected, not saved yet: <strong>{selBg.name}</strong>{sel.anim && selBg.anim ? ', animated' : ''}.</> : ''}</p>
         </div>
-    );
+        <RkBgPreview sel={pv} onClose={closePv}/>
+    </>);
 };
 const RemoteConfigPanel = () => {
     const [cfg, setCfg] = useState(null);
@@ -13280,8 +13567,6 @@ const RemoteConfigPanel = () => {
     const [savedJson, setSavedJson] = useState(null);
     const [pushedAt, setPushedAt] = useState(0);
     const rkApplyCfg = (merged) => { setCfg(merged); setSavedJson(rkStableJson(merged)); };
-    const [cfgStats, setCfgStats] = useState(null);
-    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'stats'), s => { const st = s.exists() ? s.data() : {}; setCfgStats(st); rkStorageAlertCheck(st); }, e => console.log('stats', e)), []);
     useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'config'), s => rkApplyCfg({ newRaverHours: 24, checkoutEnabled: true, paymentsLive: false, bannersEnabled: true, boostsEnabled: true, aiLabEnabled: true, launchPerks: true, maintenanceMessage: '', minVersion: '', marqueeSpeed: 60, videoRotateSec: 8, videoWindowMin: 30, bannerAnnounceOnly: false, maintenanceExpiry: 0, popInActive: false, popInMessage: '', popInTheme: 'message', popInMedia: '', popInMediaType: '', popInExpiry: 0, popInId: '', discoveryTipMin: 0, spotlightPlaceholderActive: false, spotlightPlaceholderUrl: '', spotlightPlaceholderCaption: '', spotlightPlaceholderName: 'RaveKandi', chatDelaySec: 8, chatVipShareMax: 5, chatCollectionShareMax: 5, storyImageUrl: RK_STORY_BG, storyImageActive: true, partnerRotateSec: 15, cryptoPayLive: false, autoPayoutsEnabled: false, cryptoCluster: 'mainnet-beta', ...(s.exists() ? s.data() : {}) }), e => console.log(e)), []);
     // clear the green "pushed live" flash on its own instead of waiting for the next render
     useEffect(() => { if (!pushedAt) return; const t = setTimeout(() => setPushedAt(0), 4000); return () => clearTimeout(t); }, [pushedAt]);
@@ -13441,21 +13726,7 @@ const RemoteConfigPanel = () => {
             <div className="border-t border-white/10 pt-3 mt-2">
                 <h4 className="text-[11px] font-black uppercase text-yellow-300 mb-2">💸 Payout Queue</h4>
                 <PayoutQueuePanel/>
-                <h4 className="text-[11px] font-black uppercase text-lime-300 mb-2">💾 Storage Monitor</h4>
-                {(() => {
-                    const est = rkStorageEstimate(cfgStats);
-                    const barColor = est.pct >= 95 ? '#ef4444' : est.pct >= 85 ? '#f97316' : est.pct >= 70 ? '#eab308' : '#a3e635';
-                    const report = 'RaveKandi Firestore storage report%0A%0AEstimated usage: ' + est.pct + '%25 of the free 1GB tier%0AMusic samples: ' + (est.sample / 1048576).toFixed(1) + ' MB (' + (cfgStats?.musicSampleCount || 0) + ' samples)%0AShowcase images: ' + (est.content / 1048576).toFixed(1) + ' MB (' + (cfgStats?.contentPostCount || 0) + ' posts)%0A%0AExact numbers: Firebase Console > Firestore > Usage%0AUpgrade path: Blaze plan (pay as you go).';
-                    return (
-                        <div className="mb-4">
-                            <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden mb-1"><div className="h-full rounded-full transition-all" style={{ width: Math.max(2, est.pct) + '%', backgroundColor: barColor }}/></div>
-                            <p className="text-[10px] font-bold" style={{ color: barColor }}>~{est.pct}% of free 1GB Firestore tier (estimate)</p>
-                            <p className="text-[10px] opacity-70 mt-1">🎵 Samples: {(est.sample / 1048576).toFixed(1)} MB ({cfgStats?.musicSampleCount || 0}) · 🖼️ Showcase images: {(est.content / 1048576).toFixed(1)} MB ({cfgStats?.contentPostCount || 0}) · +50MB overhead cushion</p>
-                            <p className="text-[10px] opacity-50 mt-1">In-app alerts fire to all admins at 70% / 85% / 95%. This is a client-side estimate of the heavy collections — exact usage: Firebase Console → Firestore → Usage. Near the cap? Upgrade to Blaze (pay-as-you-go) — with sample traffic that high, you have a revenue stream.</p>
-                            <a href={'mailto:wyldnightzco@gmail.com?subject=RaveKandi%20Storage%20Report&body=' + report} className="inline-block mt-2 text-[10px] font-black bg-lime-500/15 border border-lime-400/40 text-lime-300 rounded px-3 py-1.5">📧 Email me this report</a>
-                        </div>
-                    );
-                })()}
+                <p className="text-xs text-white mb-3">💾 The Firestore storage estimate moved to 📊 Usage & Limits, beside the Design Lab AI and Firebase Storage.</p>
                 <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Spotlight Control</h4>
                 <ForceClipPanel cfg={cfg} setCfg={setCfg} />
                 <p className="text-[10px] opacity-50 mt-1">Placeholder settings need a Push. Forced clips push live immediately on their own.</p>
@@ -13690,6 +13961,7 @@ const RK_ADMIN_TINTS = {
     fees:    { border: 'border-pink-500/40',   bg: 'bg-pink-900/15',   text: 'text-pink-300' },
     apps:    { border: 'border-lime-500/40',   bg: 'bg-lime-900/15',   text: 'text-lime-300' },
     look:    { border: 'border-fuchsia-500/40', bg: 'bg-fuchsia-900/15', text: 'text-fuchsia-300' },
+    usage:   { border: 'border-sky-500/40',    bg: 'bg-sky-900/15',    text: 'text-sky-300' },
     reach:   { border: 'border-fuchsia-500/40',bg: 'bg-fuchsia-900/15',text: 'text-fuchsia-300' },
     backfill:{ border: 'border-orange-500/40', bg: 'bg-orange-900/15', text: 'text-orange-300' },
 };
@@ -14161,7 +14433,7 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
             <h3 className="font-bold text-red-400 mb-4 uppercase italic">Admin Console</h3>
 
             <div className="flex flex-wrap gap-1.5 mb-3">
-                {[['config', '🛰 Config'], ['look', '🎨 Background'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
+                {[['config', '🛰 Config'], ['look', '🎨 Background'], ['usage', '📊 Usage'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
                     <button key={k} onClick={() => setOpenSec(openSec === k ? null : k)} className={'px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ' + (openSec === k ? 'bg-red-600 text-white border-red-400' : 'bg-black/40 text-white border-white/20')}>{l}</button>
                 ))}
             </div>
@@ -14174,6 +14446,9 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
                 <AdminBackgroundPanel user={user} />
             </AdminSection>
 
+            <AdminSection id="usage" title="📊 Usage & Limits — Design Lab AI and storage" tint={RK_ADMIN_TINTS.usage} open={openSec === 'usage'} onToggle={setOpenSec}>
+                <AdminUsagePanel user={user}/>
+            </AdminSection>
             <AdminSection id="banners" title="📢 Banner Manager" tint={RK_ADMIN_TINTS.banners} open={openSec === 'banners'} onToggle={setOpenSec}>
                 <AdminBannerManager user={user} profile={profile} onMessageUser={onMessageUser} />
             </AdminSection>
@@ -14866,7 +15141,7 @@ const rkScanInventoryImage = async (file, onProgress) => {
         // The on-device fallback below is untouched and still catches a failure here, so a scan that
         // cannot reach the service degrades to a category hint rather than nothing at all.
         const fn = httpsCallable(getFunctions(app), 'scanInventoryPhoto');
-        const resp = await fn({ imageBase64: dataUrl, prompt: promptText });
+        const resp = await fn({ imageBase64: dataUrl, prompt: promptText, appId });
         clearInterval(tick);
         prog(92, 'Reading the results…');
         const raw = (resp && resp.data && resp.data.text) || '';
@@ -14882,7 +15157,7 @@ const rkScanInventoryImage = async (file, onProgress) => {
     } catch (e) {
         clearInterval(tick);
         // Fallback: the instant on-device classifier still gives a category hint.
-        try { const labels = await rkClassifyImage(file); const g = rkGuessCategory(labels); prog(100, 'Done (quick scan)'); if (g) return { type: g.type, subType: g.subType, confidence_0_100: 40, description: '', market_note: '' }; } catch (er) {}
+        try { const labels = await rkClassifyImage(file); const g = rkGuessCategory(labels); prog(100, rkIsAiAllowance(e) ? "Done (quick scan: today's free AI allowance is used up)" : 'Done (quick scan)'); if (g) return { type: g.type, subType: g.subType, confidence_0_100: 40, description: '', market_note: '' }; } catch (er) {}
         prog(100, 'Scan unavailable');
         return null;
     }
@@ -17059,7 +17334,7 @@ const rkStorageAlertCheck = async (stats) => {
         if (level === 0 || (stats?.storageAlertLevel || 0) >= level) return est;
         await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { storageAlertLevel: level }, { merge: true });
         const snap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('isAdmin', '==', true)));
-        snap.forEach(a => pushNotif(a.id, 'admin', '💾 STORAGE ALERT: Firestore is ~' + est.pct + '% of the free 1GB tier (samples ' + (est.sample / 1048576).toFixed(1) + 'MB, images ' + (est.content / 1048576).toFixed(1) + 'MB). Check Admin → Storage Monitor. Consider the Blaze upgrade before uploads start failing.', '@admin:storage'));
+        snap.forEach(a => pushNotif(a.id, 'admin', '💾 STORAGE ALERT: Firestore is ~' + est.pct + '% of the free 1GB tier (samples ' + (est.sample / 1048576).toFixed(1) + 'MB, images ' + (est.content / 1048576).toFixed(1) + 'MB). See Admin → 📊 Usage & Limits.', '@admin:storage'));
         return est;
     } catch (e) { return rkStorageEstimate(stats); }
 };
@@ -18694,44 +18969,150 @@ const rkLoadRaverDir = async () => {
     rkRaverDir = Object.values(seen); rkRaverDirAt = Date.now();
     return rkRaverDir;
 };
-const RkRaverPicker = ({ exclude = [], tags = {}, picked = '', onPick }) => {
+// V87.78.150.315: REACHING EVERY RAVER (Milli, at 315: "the invite someone function on tribe system is
+// having issues searching. Expand the search function by providing view of accounts with similar names.
+// As the user types after the first 3 letters in a name search, start suggesting the closest related
+// accounts"). 314's directory held at most 150 accounts, and anyone outside it could only be found by
+// typing their exact name or Friend UID. Now the server is asked for every account whose name or Friend
+// UID starts with what was typed. Both are stored as typed and Firestore matches case exactly, so each
+// prefix is asked as typed, in lower case, Capitalised and in capitals. The first three letters are
+// asked once, so a typo after them still finds the name; the whole term is asked too once it is longer,
+// so a crowded start cannot hide an exact prefix. Answers are kept for the session.
+const rkRaverPrefixCache = {};
+const rkRaverPrefixVariants = (s) => Array.from(new Set([s, s.toLowerCase(), s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(), s.toUpperCase()]));
+const rkRaverPrefix = async (term) => {
+    const t = rkCleanSearch(term);
+    if (t.length < 3) return [];
+    const stems = Array.from(new Set([t.slice(0, 3), t.length > 3 ? t.slice(0, 24) : ''].filter(Boolean)));
+    const col = collection(db, 'artifacts', appId, 'users');
+    const out = {};
+    for (const st of stems) {
+        const key = st.toLowerCase();
+        if (!rkRaverPrefixCache[key]) {
+            const qs = [];
+            rkRaverPrefixVariants(st).forEach(v => {
+                qs.push(query(col, where('displayName', '>=', v), where('displayName', '<=', v + ''), limit(20)));
+                qs.push(query(col, where('publicUid', '>=', v), where('publicUid', '<=', v + ''), limit(10)));
+            });
+            rkRaverPrefixCache[key] = Promise.all(qs.map(q => getDocs(q).then(sn => sn.docs.map(d => ({ ...d.data(), id: d.id }))).catch(() => [])))
+                .then(lists => [].concat(...lists));
+        }
+        (await rkRaverPrefixCache[key]).forEach(u => { out[u.id] = u; });
+    }
+    return Object.values(out);
+};
+// V87.78.150.315: the raver's friends, for searching the friends list (Milli, at 315: "Allow users to
+// search from friends list"). One read per friend, kept for 5 minutes.
+const rkFriendsCache = { key: '', at: 0, list: [] };
+const rkLoadFriends = async (ids) => {
+    const list = Array.from(new Set((ids || []).filter(Boolean))).slice(0, 200);
+    const key = list.slice().sort().join(',');
+    if (rkFriendsCache.key === key && Date.now() - rkFriendsCache.at < 5 * 60000) return rkFriendsCache.list;
+    const docs = await Promise.all(list.map(id => getDoc(doc(db, 'artifacts', appId, 'users', id)).then(s => s.exists() ? { ...s.data(), id: s.id } : null).catch(() => null)));
+    const out = docs.filter(Boolean).sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
+    rkFriendsCache.key = key; rkFriendsCache.at = Date.now(); rkFriendsCache.list = out;
+    return out;
+};
+// A similar name while it is still being typed: the typed letters against the start of the name (or of
+// any word in it, or the Friend UID) a letter or two apart, so "mili" finds Millie Moon and "mola"
+// finds Molly Kandi. rkNameScore only compares whole names, which a half-typed name never is.
+const rkRaverNear = (u, term) => {
+    const t = rkNormName(term);
+    if (t.length < 3) return 0;
+    const name = String((u && u.displayName) || '');
+    const cands = [rkNormName(name), ...name.split(/[\s_\-.]+/).map(rkNormName), String((u && (u.publicUid || u.id)) || '').toLowerCase()].filter(c => c.length >= 3);
+    const maxD = t.length <= 5 ? 1 : 2;
+    let best = 99;
+    cands.forEach(c => { [t.length - 1, t.length, t.length + 1].forEach(L => { if (L >= 3 && L <= c.length) best = Math.min(best, rkEditDist(c.slice(0, L), t)); }); });
+    return best <= maxD ? 30 - best * 5 : 0;
+};
+const rkRaverScore = (u, term) => Math.max(rkNameScore(u.displayName, u.publicUid || u.id, term), rkRaverNear(u, term));
+// Ranks a pool against what was typed: matches (exact, starts with, contains) first, then similar names
+// (a letter or two apart). Friends come first among equals.
+const rkRankRavers = (pool, term, friends) => {
+    const isF = (id) => (friends || []).includes(id);
+    const rows = (pool || []).map(u => ({ u, s: rkRaverScore(u, term) })).filter(x => x.s > 0)
+        .sort((a, b) => (b.s + (isF(b.u.id) ? 5 : 0)) - (a.s + (isF(a.u.id) ? 5 : 0)) || String(a.u.displayName || '').localeCompare(String(b.u.displayName || '')));
+    return { best: rows.filter(x => x.s >= 60).slice(0, 12).map(x => x.u), similar: rows.filter(x => x.s < 60).slice(0, 8).map(x => x.u) };
+};
+const RkRaverPicker = ({ exclude = [], tags = {}, picked = '', onPick, friends = [] }) => {
+    const [mode, setMode] = useState('all');   // 'all' (everyone) or 'friends'
     const [term, setTerm] = useState('');
     const [dir, setDir] = useState(rkRaverDir || []);
-    const [extra, setExtra] = useState([]);
+    const [extra, setExtra] = useState([]);    // found on the server: prefixes, exact Friend UID or name
+    const [busy, setBusy] = useState(false);
+    const [fr, setFr] = useState(null);        // the friends' accounts, once loaded
     useEffect(() => { let live = true; rkLoadRaverDir().then(d => { if (live) setDir(d); }); return () => { live = false; }; }, []);
+    const friendKey = (friends || []).slice().sort().join(',');
+    useEffect(() => {
+        if (mode !== 'friends') return;
+        let live = true;
+        rkLoadFriends(friends).then(list => { if (live) setFr(list); });
+        return () => { live = false; };
+    }, [mode, friendKey]);
     useEffect(() => {
         const t = rkCleanSearch(term);
-        if (t.length < 3) return;
+        if (mode !== 'all' || t.length < 3) { setBusy(false); return; }
+        setBusy(true);
+        let live = true;
         const h = setTimeout(async () => {
+            const found = await rkRaverPrefix(t);
             try {
                 let s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', t)));
                 if (s.empty) s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('displayName', '==', t)));
-                if (!s.empty) { const f = { ...s.docs[0].data(), id: s.docs[0].id }; setExtra(p => p.some(x => x.id === f.id) ? p : [f, ...p]); }
+                if (!s.empty) found.push({ ...s.docs[0].data(), id: s.docs[0].id });
             } catch (e) {}
-        }, 600);
-        return () => clearTimeout(h);
-    }, [term]);
-    const q = rkCleanSearch(term).toLowerCase();
-    const pool = [...extra, ...dir.filter(u => !extra.some(x => x.id === u.id))].filter(u => !exclude.includes(u.id));
-    const shown = q.length >= 2 ? rkSuggestRavers(pool, q, 20) : [];
+            if (!live) return;
+            setExtra(p => { const m = {}; p.forEach(u => { m[u.id] = u; }); found.forEach(u => { m[u.id] = u; }); return Object.values(m); });
+            setBusy(false);
+        }, 350);
+        return () => { live = false; clearTimeout(h); };
+    }, [term, mode]);
+    const q = rkCleanSearch(term);
+    const isF = (id) => (friends || []).includes(id);
+    const pool = (mode === 'friends' ? (fr || []) : [...extra, ...dir.filter(u => !extra.some(x => x.id === u.id))]).filter(u => !exclude.includes(u.id));
+    const ranked = mode === 'friends'
+        ? (q ? rkRankRavers(pool, q, friends) : { best: pool, similar: [] })
+        : (q.length >= 3 ? rkRankRavers(pool, q, friends) : { best: [], similar: [] });
+    const row = (u) => (
+        <button key={u.id} data-raver={u.id} onClick={() => onPick && onPick(u)} className={'w-full flex items-center gap-2.5 rounded-lg p-2 border text-left ' + (picked === u.id ? 'border-lime-300 bg-lime-500/15' : 'border-white/20 bg-black/30')}>
+            <img src={u.photoURL || rkPh(72, 72, '2a0a3a', 'fff', (u.displayName || 'R').charAt(0).toUpperCase())} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-pink-500/60 shrink-0"/>
+            <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold text-white truncate"><RkName name={u.displayName || 'Raver'} style={u.nameStyle}/></span>
+                <span className="block text-xs text-white truncate">UID: {u.publicUid || u.id}</span>
+            </span>
+            {tags[u.id] ? <span className="text-xs font-bold text-yellow-200 shrink-0">{tags[u.id]}</span>
+                : picked === u.id ? <span className="text-xs font-black text-lime-200 shrink-0">✓ Selected</span>
+                : isF(u.id) && mode === 'all' ? <span className="text-xs font-bold text-cyan-200 shrink-0">👥 Friend</span> : null}
+        </button>
+    );
+    const nFriends = (friends || []).filter(id => !exclude.includes(id)).length;
     return (
-        <div className="space-y-2" data-raver-picker="1">
+        <div className="space-y-2" data-raver-picker="1" data-picker-mode={mode}>
+            <div className="grid grid-cols-2 gap-2">
+                {[['all', '🌐 Everyone'], ['friends', '👥 My friends (' + nFriends + ')']].map(([k, label]) => (
+                    <button key={k} data-picker-tab={k} onClick={() => setMode(k)} className={'text-xs font-black rounded-lg py-2 border ' + (mode === k ? 'bg-cyan-500/25 border-cyan-300 text-white' : 'bg-black/40 border-white/30 text-white')}>{label}</button>
+                ))}
+            </div>
             <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/40 rounded-xl px-3 py-1 focus-within:border-cyan-300 transition">
                 <Search size={18} className="text-cyan-300 shrink-0"/>
-                <input value={term} onChange={e => setTerm(e.target.value)} placeholder="Search UID or Username..." className="flex-1 bg-transparent text-sm py-2 outline-none text-white"/>
+                <input value={term} onChange={e => setTerm(e.target.value)} placeholder={mode === 'friends' ? 'Search your friends...' : 'Search UID or Username...'} className="flex-1 bg-transparent text-sm py-2 outline-none text-white"/>
             </div>
-            {q.length < 2 ? <p className="text-xs text-white">Type at least 2 letters of their name or Friend UID.</p>
-            : shown.length === 0 ? <p className="text-xs text-white">No ravers match "{rkCleanSearch(term)}". Names ignore spaces, dashes and @, so try just the letters.</p>
-            : shown.map(u => (
-                <button key={u.id} data-raver={u.id} onClick={() => onPick && onPick(u)} className={'w-full flex items-center gap-2.5 rounded-lg p-2 border text-left ' + (picked === u.id ? 'border-lime-300 bg-lime-500/15' : 'border-white/20 bg-black/30')}>
-                    <img src={u.photoURL || rkPh(72, 72, '2a0a3a', 'fff', (u.displayName || 'R').charAt(0).toUpperCase())} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-pink-500/60 shrink-0"/>
-                    <span className="flex-1 min-w-0">
-                        <span className="block text-sm font-bold text-white truncate"><RkName name={u.displayName || 'Raver'} style={u.nameStyle}/></span>
-                        <span className="block text-xs text-white truncate">UID: {u.publicUid || u.id}</span>
-                    </span>
-                    {tags[u.id] ? <span className="text-xs font-bold text-yellow-200 shrink-0">{tags[u.id]}</span> : picked === u.id ? <span className="text-xs font-black text-lime-200 shrink-0">✓ Selected</span> : null}
-                </button>
-            ))}
+            {mode === 'friends' ? (
+                fr === null ? <p className="text-xs text-white">Loading your friends…</p>
+                : pool.length === 0 ? <p className="text-xs text-white">{nFriends ? 'All your friends are already in this tribe.' : 'You have no friends on RaveKandi yet. Add them from their profiles, or search Everyone.'}</p>
+                : ranked.best.length + ranked.similar.length === 0 ? <p className="text-xs text-white">None of your friends match "{q}".</p>
+                : null
+            ) : q.length < 3 ? <p className="text-xs text-white">Type at least 3 letters of their name or Friend UID, and the closest accounts appear as you type.</p>
+            : ranked.best.length + ranked.similar.length === 0 ? <p className="text-xs text-white">{busy ? 'Searching all of RaveKandi…' : 'No ravers match "' + q + '". Names ignore spaces, dashes and @, so try just the letters.'}</p>
+            : busy ? <p className="text-xs text-white" data-picker-busy="1">Searching all of RaveKandi…</p> : null}
+            {ranked.best.length > 0 && <div className="space-y-2" data-picker-best="1">{ranked.best.map(row)}</div>}
+            {ranked.similar.length > 0 && (
+                <div className="space-y-2" data-picker-similar="1">
+                    <p className="text-xs font-black text-cyan-200">≈ Similar names</p>
+                    {ranked.similar.map(row)}
+                </div>
+            )}
         </div>
     );
 };
@@ -18938,7 +19319,7 @@ const RkTribeVoteLog = ({ tribe }) => {
 // notification, or when a raver tries to call a vote that is already running.
 // V86.78.150.314: adds mute, time-out (with the timer), invite (with the feed's search), the appeal
 // box for a member who is muted or timed out, and the vote log.
-const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus }) => {
+const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, friends = [] }) => {
     const [pick, setPick] = useState('');      // which "call a vote" form is open
     const [target, setTarget] = useState('');
     const [newName, setNewName] = useState('');
@@ -19097,7 +19478,7 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus })
                 {pick === 'invite' && (
                     <div className="mt-2 bg-black/40 border border-white/20 rounded-lg p-2 space-y-2" data-invite="1">
                         <p className="text-xs text-white">Find anyone on RaveKandi, choose them, then start the vote. They join when it passes.</p>
-                        <RkRaverPicker exclude={members} tags={tags} picked={invitee ? invitee.id : ''} onPick={(u) => {
+                        <RkRaverPicker exclude={members} tags={tags} friends={friends} picked={invitee ? invitee.id : ''} onPick={(u) => {
                             if (st.pending[u.id]) { alert('🗳️ A vote on @' + (u.displayName || 'this raver') + ' is already running. Taking you to it so you can vote.'); if (onFocus) onFocus('admit:' + u.id); setPick(''); return; }
                             setInvitee(u);
                         }}/>
@@ -19625,7 +20006,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         {showSettings && (
                                             <div className="mt-2 bg-black/40 border border-cyan-500/40 rounded-lg p-3">
                                                 <p className="text-xs font-black text-cyan-200 mb-2">⚙️ TRIBE SETTINGS</p>
-                                                <RkTribeGovern tribe={t} myUid={myUid} myName={profile?.displayName || 'Raver'} focusKey={voteFocus && voteFocus.tribeId === t.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: t.id, key, n: Date.now() })} appealFocus={appealFocus && appealFocus.tribeId === t.id ? appealFocus.n : null}/>
+                                                <RkTribeGovern tribe={t} myUid={myUid} myName={profile?.displayName || 'Raver'} friends={profile?.friends || []} focusKey={voteFocus && voteFocus.tribeId === t.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: t.id, key, n: Date.now() })} appealFocus={appealFocus && appealFocus.tribeId === t.id ? appealFocus.n : null}/>
                                             </div>
                                         )}
                                     </div>
@@ -19711,7 +20092,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                             {!(myR && myR.type === 'timeout') && (
                             <div className="border-t border-white/10 pt-3">
                                 <p className="text-xs font-bold text-cyan-300 mb-2">➕ Invite a raver into this tribe (starts a vote)</p>
-                                <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} tags={Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {})} onPick={async (u) => {
+                                <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} friends={profile?.friends || []} tags={Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {})} onPick={async (u) => {
                                     const nm = u.displayName || 'Raver';
                                     if (!window.confirm('Start a vote to invite @' + nm + '?')) return;
                                     try {
@@ -19730,7 +20111,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     {/* V85.78.150.313: GROUP CHAT SETTINGS, from the button beside the X. Current votes, and the
                         votes a member can call: remove a member, open or close, purge, rename, change founder. */}
                     <Modal isOpen={chatSettings && !!liveTribe} onClose={() => setChatSettings(false)} zClass="z-[130]" title={'⚙️ ' + (liveTribe ? liveTribe.name : '') + ' · Group settings'}>
-                        {liveTribe && <RkTribeGovern tribe={liveTribe} myUid={myUid} myName={profile?.displayName || 'Raver'} focusKey={voteFocus && voteFocus.tribeId === liveTribe.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: liveTribe.id, key, n: Date.now() })} appealFocus={myR ? 1 : null}/>}
+                        {liveTribe && <RkTribeGovern tribe={liveTribe} myUid={myUid} myName={profile?.displayName || 'Raver'} friends={profile?.friends || []} focusKey={voteFocus && voteFocus.tribeId === liveTribe.id ? voteFocus.key : null} onFocus={(key) => setVoteFocus({ tribeId: liveTribe.id, key, n: Date.now() })} appealFocus={myR ? 1 : null}/>}
                     </Modal>
 
                     {/* Transient privacy blank for tribe chat — fires on detected screenshot/recording */}
@@ -19829,10 +20210,11 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 setModals(m => ({ ...m, vibeTribe: true }));
                 return;
             }
-            if (k === 'achievements') { setAchSig(Date.now()); return; }
+            // V87.78.150.315: 'achievements:<id>' opens the list at that achievement.
+            if (typeof k === 'string' && (k === 'achievements' || k.indexOf('achievements:') === 0)) { setAchSig({ n: Date.now(), focus: k.slice(13) }); return; }
             if (k === 'banner') { setShowBanner(true); return; }
             if (typeof k === 'string' && k.indexOf('admin:') === 0) {
-                if (profile?.isAdmin) { const w = k.slice(6); setAdminInit(w === 'tickets' ? { tab: 'tickets', n: Date.now() } : { tab: 'tools', sec: w === 'storage' ? 'config' : w, n: Date.now() }); setShowAdminPortal(true); }
+                if (profile?.isAdmin) { const w = k.slice(6); setAdminInit(w === 'tickets' ? { tab: 'tickets', n: Date.now() } : { tab: 'tools', sec: w === 'storage' ? 'usage' : w, n: Date.now() }); setShowAdminPortal(true); }
                 return;
             }
             if (['vibeTribe', 'inventory', 'analytics', 'settings', 'referrals', 'socials', 'vip'].includes(k)) setModals(m => ({ ...m, [k]: true }));
@@ -20969,17 +21351,12 @@ const App = () => {
     const pendingNotifRef = useRef(null);
     const [notifTick, setNotifTick] = useState(0);
     const [notifTrade, setNotifTrade] = useState(false);
-    // V86.78.150.314: the background an admin chose (Admin Tools → 🎨 App Background), a preview while
-    // the admin is choosing, and the tap past the loading screen.
+    // V86.78.150.314: the background an admin chose (Admin Tools → 🎨 App Background), and the tap past
+    // the loading screen. V87.78.150.315: an admin's preview no longer passes through here; it is drawn
+    // full screen over the panel, on the admin's screen alone.
     const [bgSel, setBgSel] = useState(() => rkBgCached());
-    const [bgPreview, setBgPreview] = useState(null);
     const [entered, setEntered] = useState(false);
-    useEffect(() => {
-        const h = (e) => setBgPreview((e && e.detail) || null);
-        window.addEventListener('rk:bgpreview', h);
-        return () => window.removeEventListener('rk:bgpreview', h);
-    }, []);
-    const bgNow = bgPreview || bgSel;
+    const bgNow = bgSel;
     // the page behind the app (what shows past the edges on overscroll) matches the design
     useEffect(() => { try { document.body.style.backgroundColor = rkBgById(bgNow.id).color; } catch (e) {} }, [bgNow.id]);
 
@@ -21296,7 +21673,7 @@ const App = () => {
     // for taps in the messenger's notification list: an item then opens above the list, so the
     // raver can carry on working through their notifications.
     const rkBus = (k) => { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: k })); } catch (e) {} }, 250); };
-    const rkGoPlace = (key) => {
+    const rkGoPlace = (key, focus) => {
         if (key === 'wallet') setWalletModalOpen(true);
         else if (key === 'portal') setShowRevSharePortal(true);
         else if (key === 'refdash') setOpenReferrals(true);
@@ -21308,7 +21685,8 @@ const App = () => {
         else if (key === 'diy') { setPage('shop'); setTab('diy'); }
         else if (key === 'messages') setMsgOpen(true);
         else if (key === 'market') setPage('feed');
-        else if (key === 'vip' || key === 'achievements' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
+        else if (key === 'achievements') rkBus(focus ? 'achievements:' + focus : 'achievements');
+        else if (key === 'vip' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
         else setPage('profile');
     };
     const routeNotif = (n, fromList) => {
@@ -21321,7 +21699,7 @@ const App = () => {
         else if (d.to === 'dm') { setMsgTarget({ uid: d.uid }); setMsgOpen(true); }
         else if (d.to === 'profileOf') setViewingProfileId(d.uid);
         else if (d.to === 'tribe') rkBus('vibeTribe:' + (d.tribeId ? d.tribeId + '#' + (d.focus || 'card') : 'tribes'));
-        else if (d.to === 'place') rkGoPlace(d.key);
+        else if (d.to === 'place') rkGoPlace(d.key, d.focus);
     };
     // V70.2: the listing a notification points at, fetched on demand. Held here rather than in the
     // messenger because the item detail window must sit above it.
@@ -21479,11 +21857,20 @@ const App = () => {
         const rank = rkRankOf(profile.referrals);
         const prevRank = Number(profile.rankNotified) || 0;
         if (rank > prevRank) upd.rankNotified = rank;
+        // V87.78.150.315: achievements unlocked since the last sync get a NEW tag, and the notification
+        // opens the first of them (rkAchFresh, rkAchFreshNote).
+        const af = rkAchFresh(profile, unlockedList.map(a => a.id));
+        Object.assign(upd, af.upd);
         if (Object.keys(upd).length === 0) return;
         const p2 = { ...profile, ...upd };
         const aw = rkAchApplied(p2);
         const msgs = [];
-        if (unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
+        const an = rkAchFreshNote(af.fresh, allAch);
+        if (an.text) msgs.push(an.text);
+        else if (!af.known && unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
+        // The notification opens the first new achievement; a rank alone opens that rank's achievement.
+        const rankAch = rank > prevRank ? allAch.find(a => a.rank === rank) : null;
+        const focusId = an.focus || (rankAch && rankAch.id) || '';
         if (rank > prevRank) { const t = REFERRAL_TIERS[rank - 1]; msgs.push('🏆 ' + (profile.rankNotified === undefined ? 'Your RevShare rank: ' : 'New RevShare rank: ') + t.badge + ' (rank ' + RK_RANK_ROMAN[rank - 1] + '). You earn ' + rkPctTxt(rkRefSharePct(p2)) + ' of the commission on everything your referrals buy, and the ' + t.badge + ' badge is yours: feature it from My Badges.'); }
         if (roseComm || roseRef || (firstLive && (aw.comm > 0 || aw.ref > 0))) msgs.push((firstLive ? '💸 Your achievement rewards are now applied at checkout: ' : '💸 Achievement reward earned: ') + 'seller commission ' + rkRatePct(rkSellerRate(p2)) + (aw.comm > 0 ? ' (−' + rkRatePct(aw.comm) + ' earned)' : '') + ', referral share ' + rkPctTxt(rkRefSharePct(p2)) + (aw.ref > 0 ? ' (+' + rkPctTxt(aw.ref * 100) + ' earned)' : '') + '.');
         if (vipNow) msgs.push('👑 LEGENDARY: you completed 80% of all achievements — PERMANENT FREE VIP unlocked. Thank you for being the heartbeat of RaveKandi!');
@@ -21495,7 +21882,7 @@ const App = () => {
                 const sig = user.uid + '|' + msgs.join('|');
                 if (sig === rkAchNoticeSig) return;
                 rkAchNoticeSig = sig;
-                pushNotif(user.uid, 'achievement', msgs.join(' '), '@achievements');
+                pushNotif(user.uid, 'achievement', msgs.join(' '), focusId ? '@achievements:' + focusId : '@achievements');
             })
             .catch(e => rkReport('achievement sync', e));
     }, [user, rkAchKey, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined, profile?.ratingSum, profile?.ratingCount, profile?.referrals, profile?.achCommBonus, profile?.achRefBonus, profile?.achRewardsLive, profile?.achFreeVip, profile?.rankNotified]);
@@ -21607,7 +21994,7 @@ const App = () => {
         if (topStats.creator.id === user.uid && (topStats.creator.creatorPoints || 0) > 0 && !crownNotifiedRef.current) {
             crownNotifiedRef.current = true; // lock immediately, before the async write
             setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { topCreatorUnlocked: 1 }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.', '@achievements');
+            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.', '@achievements:top_creator');
         }
     }, [topStats, user, profile?.topCreatorUnlocked]);
     
@@ -24012,6 +24399,7 @@ const TITLES = {
   order:       '📦 Order Update',
   admin:       '📢 RaveKandi',
   ailab:       '🎨 Your Design Is Ready',
+  labcap:      '🎨 Design Lab',
   banner:      '📢 Banner Update',
   diy:         '🎨 Custom Request',
 };
@@ -24090,6 +24478,7 @@ echo "  functions/rk_push.js written (script-owned, regenerated every build)."
 # Script-owned like rk_push.js: regenerated every build, never edited by hand.
 cat << 'CFEOF' > "$RK_FN_DIR/rk_image.js"
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 if (!admin.apps.length) admin.initializeApp();
@@ -24102,6 +24491,39 @@ const CF_API_TOKEN  = defineSecret('CF_API_TOKEN');
 
 const DAILY_CAP = 5;
 const MODEL = '@cf/black-forest-labs/flux-1-schnell';
+const ANALYSIS_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const SCAN_MODEL = '@cf/llava-hf/llava-1.5-7b-hf';
+const ANALYSIS_SYSTEM = 'You are a rave-craft costing expert. Reply with ONLY valid JSON. Your entire response must begin with { and end with }. Never use markdown fences. Never add commentary.';
+// The app's own appId, as the client sends it. Scheduled jobs (which have no caller) work on these.
+const RK_LAB_APP_IDS = ['ravekandi-core-prod'];
+// V87.79.150.316: a caller's appId is only ever taken if it is the app's own; anything else counts as
+// the app's. The app has always sent 'ravekandi-core-prod'. A made-up one would give a raver a fresh
+// daily count of designs under a different path, and put that use where Usage & Limits can't see it.
+function rkAppId(req) {
+  const a = String((req && req.data && req.data.appId) || '');
+  return RK_LAB_APP_IDS.includes(a) ? a : RK_LAB_APP_IDS[0];
+}
+
+// V87.79.150.316: USAGE AND LIMITS (queue item 3: "Neither the image-generation ceiling nor the
+// stored-GB figure is surfaced").
+//
+// THE REAL CEILING is not the 5 designs a raver gets each day; it is Cloudflare's free allocation of
+// 10,000 neurons a day, shared by every raver, after which Workers AI refuses requests outright
+// (error 4006) on the Workers Free plan. Every call made here is counted into
+// artifacts/{appId}/aiUsage/{UTC day}, priced in neurons from Cloudflare's published rates
+// (developers.cloudflare.com/workers-ai/platform/pricing, checked 11 Oct 2026):
+//  - llama-3.1-8b-instruct: 25,608 neurons per million input tokens, 75,147 per million output
+//    (the model's own usage figures when it returns them, else an estimate of 4 characters a token)
+//  - flux-1-schnell: 4.80 neurons per 512x512 tile of the image and 9.60 per step (4 steps, the
+//    model's default; the tiles come from the real image's size)
+//  - llava-1.5-7b-hf (photo scans): no published price, so scans are counted, not priced.
+// Cloudflare's dashboard holds the exact figure; this is the app's own count of what it asked for.
+const AI_FREE_NEURONS = 10000;
+const AI_RATES = {
+  '@cf/meta/llama-3.1-8b-instruct': { in: 25608, out: 75147 },
+  '@cf/black-forest-labs/flux-1-schnell': { tile: 4.8, step: 9.6 },
+};
+const FLUX_STEPS = 4;
 
 // V72.4: name the bucket explicitly.
 // admin.storage().bucket() with no argument guesses "<project>.appspot.com" — the old Firebase
@@ -24135,9 +24557,11 @@ exports.generateDesignAnalysis = onCall(
     // detail, and this ceiling is high enough that it should not bite at all.
     const prompt = String((req.data && req.data.prompt) || '').trim().slice(0, 8000);
     if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
+    const db = admin.firestore();
+    const appId = rkAppId(req);
 
     const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
-                '/ai/run/@cf/meta/llama-3.1-8b-instruct';
+                '/ai/run/' + ANALYSIS_MODEL;
     let out;
     try {
       const r = await fetch(url, {
@@ -24145,7 +24569,7 @@ exports.generateDesignAnalysis = onCall(
         headers: { Authorization: 'Bearer ' + CF_API_TOKEN.value(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            { role: 'system', content: 'You are a rave-craft costing expert. Reply with ONLY valid JSON. Your entire response must begin with { and end with }. Never use markdown fences. Never add commentary.' },
+            { role: 'system', content: ANALYSIS_SYSTEM },
             { role: 'user', content: prompt }
           ],
           // V73: ask the MODEL to guarantee valid JSON rather than hoping the prompt is obeyed.
@@ -24161,6 +24585,7 @@ exports.generateDesignAnalysis = onCall(
       });
       out = await r.json();
       if (!r.ok || out.success === false) {
+        if (rkIsAllowance(r, out)) { await rkMeter(db, appId, { refused: 1 }, { analysis: ANALYSIS_MODEL }); throw rkAllowanceError(); }
         const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
         throw new HttpsError('unavailable', 'Analysis service: ' + msg);
       }
@@ -24177,6 +24602,18 @@ exports.generateDesignAnalysis = onCall(
     if (text && typeof text === 'object') text = JSON.stringify(text);
     text = String(text || '');
     if (!text) throw new HttpsError('internal', 'Analysis service returned nothing.');
+    // V87.79.150.316: counted, from the model's own token figures when it returns them.
+    const usage = (out.result && out.result.usage) || {};
+    const ti = Number(usage.prompt_tokens != null ? usage.prompt_tokens : usage.input_tokens) || 0;
+    const to = Number(usage.completion_tokens != null ? usage.completion_tokens : usage.output_tokens) || 0;
+    const guessed = !(ti || to);
+    const tin = guessed ? Math.ceil((ANALYSIS_SYSTEM.length + prompt.length) / 4) : ti;
+    const tout = guessed ? Math.ceil(text.length / 4) : to;
+    // A model with no rate above is priced as llama-3.1-8b-instruct (the dearer side), so changing the
+    // model can never fail a design at the counting step (queue item 27 will change it).
+    const ar = AI_RATES[ANALYSIS_MODEL] || AI_RATES['@cf/meta/llama-3.1-8b-instruct'];
+    const an = (tin * ar.in + tout * ar.out) / 1e6;
+    await rkMeter(db, appId, { analyses: 1, analysisNeurons: an, neurons: an, tokensIn: tin, tokensOut: tout, tokensGuessed: guessed ? 1 : 0 }, { analysis: ANALYSIS_MODEL });
     return { text };
   }
 );
@@ -24195,9 +24632,11 @@ exports.scanInventoryPhoto = onCall(
     const b64in = String((req.data && req.data.imageBase64) || '').replace(/^data:[^,]+,/, '');
     if (!b64in) throw new HttpsError('invalid-argument', 'No image supplied.');
     const prompt = String((req.data && req.data.prompt) || 'Identify this item for a rave marketplace inventory.').slice(0, 1200);
+    const db = admin.firestore();
+    const appId = rkAppId(req);
 
     const url = 'https://api.cloudflare.com/client/v4/accounts/' + CF_ACCOUNT_ID.value() +
-                '/ai/run/@cf/llava-hf/llava-1.5-7b-hf';
+                '/ai/run/' + SCAN_MODEL;
     let out;
     try {
       const bytes = Array.from(Buffer.from(b64in, 'base64'));
@@ -24208,6 +24647,7 @@ exports.scanInventoryPhoto = onCall(
       });
       out = await r.json();
       if (!r.ok || out.success === false) {
+        if (rkIsAllowance(r, out)) { await rkMeter(db, appId, { refused: 1 }, { scan: SCAN_MODEL }); throw rkAllowanceError(); }
         const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
         throw new HttpsError('unavailable', 'Scan service: ' + msg);
       }
@@ -24218,6 +24658,8 @@ exports.scanInventoryPhoto = onCall(
 
     const text = (out.result && (out.result.description || out.result.response || out.result.text)) || '';
     if (!text) throw new HttpsError('internal', 'Scan returned nothing. Keys: ' + Object.keys(out.result || {}).join(','));
+    // V87.79.150.316: counted. Cloudflare publishes no price for this model, so it adds no neurons.
+    await rkMeter(db, appId, { scans: 1 }, { scan: SCAN_MODEL });
     return { text };
   }
 );
@@ -24234,7 +24676,7 @@ exports.generateDesignImage = onCall(
     if (!prompt) throw new HttpsError('invalid-argument', 'No prompt supplied.');
 
     const db = admin.firestore();
-    const appId = String((req.data && req.data.appId) || 'ravekandi-core-prod');
+    const appId = rkAppId(req);
     const userRef = db.doc('artifacts/' + appId + '/users/' + uid);
 
     // The cap is enforced HERE, not in the client. A limit that lives in the app is a
@@ -24260,6 +24702,7 @@ exports.generateDesignImage = onCall(
       if (r.status === 400) r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ prompt }) });
       out = await r.json();
       if (!r.ok || out.success === false) {
+        if (rkIsAllowance(r, out)) { await rkMeter(db, appId, { refused: 1 }, { image: MODEL }); throw rkAllowanceError(); }
         const msg = (out.errors && out.errors[0] && out.errors[0].message) || ('HTTP ' + r.status);
         throw new HttpsError('unavailable', 'Image service: ' + msg);
       }
@@ -24286,6 +24729,12 @@ exports.generateDesignImage = onCall(
     // bucket level and the token in the URL is what grants access. It is also the same mechanism
     // the Firebase SDK uses for every other upload in the app, so it behaves consistently.
     const buf = Buffer.from(b64, 'base64');
+    // V87.79.150.316: the picture is priced from its real size (512x512 tiles) and the 4 steps.
+    const dims = rkImageSize(buf) || { w: 1024, h: 1024, guessed: true };
+    const tiles = Math.ceil(dims.w / 512) * Math.ceil(dims.h / 512);
+    const ir = AI_RATES[MODEL] || AI_RATES['@cf/black-forest-labs/flux-1-schnell'];   // as for the analysis
+    const imgNeurons = tiles * ir.tile + FLUX_STEPS * ir.step;
+    const meterAdd = { images: 1, imageNeurons: imgNeurons, neurons: imgNeurons };
     const path = 'aiDesigns/' + uid + '/' + Date.now() + '.png';
     let publicUrl = '';
     const tried = [];
@@ -24305,6 +24754,8 @@ exports.generateDesignImage = onCall(
     if (!publicUrl) {
       // Every candidate failed, which almost always means Storage was never enabled on the
       // project rather than that the name is wrong. Say so, instead of leaving it as a riddle.
+      // Cloudflare did the work, so it is still counted.
+      await rkMeter(db, appId, { ...meterAdd, failures: 1 }, { image: MODEL });
       throw new HttpsError('internal',
         'No usable Storage bucket. Enable Storage in the Firebase Console (Build > Storage > Get started). Tried: ' + tried.join(' | '));
     }
@@ -24314,11 +24765,205 @@ exports.generateDesignImage = onCall(
     // trusting a feature — and it happened: a run that produced no visible image still consumed
     // one of the five.
     if (!publicUrl) throw new HttpsError('internal', 'Image was generated but could not be stored. No design was used.');
-    await userRef.set({ imgDay: today, imgCountToday: used + 1 }, { merge: true });
+    // V87.78.150.315: the day's last design (queue item 2: "a notification when the daily limit is
+    // reached, and one when it resets at midnight UTC"). imgCapDay marks the raver for the reset
+    // notice, which designLabReset sends just after midnight UTC.
+    const last = used + 1 >= DAILY_CAP;
+    await userRef.set(last ? { imgDay: today, imgCountToday: used + 1, imgCapDay: today } : { imgDay: today, imgCountToday: used + 1 }, { merge: true });
+    await rkMeter(db, appId, last ? { ...meterAdd, capHits: 1 } : meterAdd, { image: MODEL });
+    if (last) {
+      const now = new Date(), midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+      const hrs = Math.max(1, Math.ceil((midnight - now.getTime()) / 3600000));
+      await rkLabNotify(db, appId, uid, '🎨 That was your last Design Lab design for today (' + DAILY_CAP + ' of ' + DAILY_CAP + '). They come back at midnight UTC, in about ' + hrs + (hrs === 1 ? ' hour' : ' hours') + ', and you will get a notification then.');
+    }
 
     return { url: publicUrl, remaining: DAILY_CAP - (used + 1) };
   }
 );
+
+// V87.78.150.315: Design Lab notices, written straight into the raver's notifications. type 'labcap'
+// has its own push title (rk_push.js), and refId '@lab' opens the Design Lab in the app. A failed
+// notice never fails the design it is about.
+async function rkLabNotify(db, appId, uid, text) {
+  try {
+    await db.collection('artifacts/' + appId + '/users/' + uid + '/notifications').add({ type: 'labcap', text, refId: '@lab', read: false, at: Date.now() });
+  } catch (e) { console.error('design lab notice failed', uid, e && e.message); }
+}
+
+// V87.78.150.315: THE RESET NOTICE (queue item 2). Nothing in the app runs at midnight, so this does:
+// a minute past midnight UTC, every raver who used all of yesterday's designs hears they are back.
+// imgCapDay is set by generateDesignImage on the day's last design; labResetSent stops a repeat if
+// the job runs twice. RK_LAB_APP_IDS is at the top.
+exports.designLabReset = onSchedule({ schedule: '1 0 * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300 }, async () => {
+  const db = admin.firestore();
+  // the UTC day before today, whenever this runs (a Force run in Cloud Scheduler included)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  for (const appId of RK_LAB_APP_IDS) {
+    const snap = await db.collection('artifacts/' + appId + '/users').where('imgCapDay', '==', yesterday).get();
+    let sent = 0;
+    for (const d of snap.docs) {
+      const u = d.data() || {};
+      if (u.labResetSent === yesterday) continue;
+      await rkLabNotify(db, appId, d.id, '🎨 Your ' + DAILY_CAP + ' Design Lab designs are back for today. Tap to open the Design Lab.');
+      await d.ref.set({ labResetSent: yesterday }, { merge: true }).catch(() => {});
+      sent++;
+    }
+    console.log('designLabReset', appId, yesterday, 'notified', sent, 'of', snap.size);
+  }
+});
+
+// ============================================================================================
+// V87.79.150.316: USAGE AND LIMITS, the helpers (see the note at the top).
+// ============================================================================================
+
+// Cloudflare refuses with error 4006 once the day's free neurons are used up (Workers Free). It must
+// not read as the raver's own limit (resource-exhausted is that), so it is 'unavailable' with a reason
+// the app recognises.
+function rkIsAllowance(r, out) {
+  const errs = (out && Array.isArray(out.errors)) ? out.errors : [];
+  if (errs.some(e => Number(e && e.code) === 4006)) return true;
+  return r && r.status === 429 && /neuron|free allocation/i.test(JSON.stringify(errs));
+}
+function rkAllowanceError() {
+  return new HttpsError('unavailable', "RK_AI_ALLOWANCE: The Design Lab has used today's free AI allowance for everyone. Try again later.", { reason: 'ai_allowance' });
+}
+
+// Width and height from a PNG or JPEG header, or null.
+function rkImageSize(buf) {
+  try {
+    if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const m = buf[i + 1], len = buf.readUInt16BE(i + 2);
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+        i += 2 + len;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Adds to the day's counts in one transaction, so the 80% alert and the refusal alert each go out
+// once a day however many calls race. Never throws: a failed count must not fail a design.
+async function rkMeter(db, appId, add, models) {
+  const day = new Date().toISOString().slice(0, 10);
+  const ref = db.doc('artifacts/' + appId + '/aiUsage/' + day);
+  let alerts = [];
+  try {
+    await db.runTransaction(async (tx) => {
+      alerts = [];
+      const s = await tx.get(ref);
+      const d = (s.exists && s.data()) || {};
+      const upd = { day, updatedAt: Date.now() };
+      Object.keys(add).forEach(k => { upd[k] = Math.round(((Number(d[k]) || 0) + (Number(add[k]) || 0)) * 100) / 100; });
+      if (models) upd.models = Object.assign({}, d.models || {}, models);
+      const n = upd.neurons !== undefined ? upd.neurons : (Number(d.neurons) || 0);
+      if (n >= 0.8 * AI_FREE_NEURONS && !d.alert80) { upd.alert80 = Date.now(); alerts.push('80'); }
+      if (add.refused && !d.alertRefused) { upd.alertRefused = Date.now(); alerts.push('refused'); }
+      tx.set(ref, upd, { merge: true });
+    });
+  } catch (e) { console.error('ai usage count failed', e && e.message); return; }
+  for (const a of alerts) {
+    await rkAdminNotify(db, appId, a === '80'
+      ? '📊 The Design Lab has used 80% of today\'s free Cloudflare AI allowance (' + (0.8 * AI_FREE_NEURONS).toLocaleString('en-US') + ' of ' + AI_FREE_NEURONS.toLocaleString('en-US') + ' neurons). When it runs out, designs fail for everyone until it resets. See Admin → 📊 Usage & Limits.'
+      : '⛔ Cloudflare refused a Design Lab request: today\'s free AI allowance (' + AI_FREE_NEURONS.toLocaleString('en-US') + ' neurons) is used up. Ravers are told to try again later. See Admin → 📊 Usage & Limits.');
+  }
+}
+
+// One notice to every admin, opening Admin → 📊 Usage & Limits.
+async function rkAdminNotify(db, appId, text) {
+  try {
+    const admins = await db.collection('artifacts/' + appId + '/users').where('isAdmin', '==', true).get();
+    for (const a of admins.docs) await db.collection('artifacts/' + appId + '/users/' + a.id + '/notifications').add({ type: 'admin', text, refId: '@admin:usage', read: false, at: Date.now() });
+  } catch (e) { console.error('admin usage notice failed', e && e.message); }
+}
+
+// The free storage that applies to this bucket (checked 11 Oct 2026):
+//  - a legacy <project>.appspot.com bucket keeps 5 GB stored and 1 GB a day of downloads at no cost,
+//    on Blaze too (firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024)
+//  - a <project>.firebasestorage.app bucket follows Google Cloud Storage: Always Free covers 5 GB-months
+//    of Standard storage in US-CENTRAL1, US-EAST1 and US-WEST1 (together), 5,000 Class A and 50,000
+//    Class B operations and 100 GB of downloads from North America a month; Standard storage in
+//    us-central1 costs $0.000027397 a GiB-hour, about $0.02 a GiB-month (cloud.google.com/storage/pricing)
+//  - anywhere else, every byte is billed at that location's price
+const GIB = 1024 * 1024 * 1024;
+const FREE_REGIONS = ['US-CENTRAL1', 'US-EAST1', 'US-WEST1'];
+function rkStorageFree(bucketName, meta) {
+  const loc = String((meta && meta.location) || '').toUpperCase(), cls = String((meta && meta.storageClass) || '').toUpperCase();
+  if (/\.appspot\.com$/.test(bucketName)) return { kind: 'legacy', bytes: 5 * GIB, perGiBMonth: 0, note: 'Legacy appspot.com bucket: 5 GB stored and 1 GB a day of downloads at no cost, on Blaze too.' };
+  if (FREE_REGIONS.includes(loc) && (cls === 'STANDARD' || !cls)) return { kind: 'always-free', bytes: 5 * GIB, perGiBMonth: 0.02, note: 'Google Cloud Always Free: 5 GB-months of Standard storage in ' + loc + ' (shared across US-CENTRAL1, US-EAST1 and US-WEST1), plus 100 GB of downloads a month from North America.' };
+  return { kind: 'none', bytes: 0, perGiBMonth: 0, note: 'This bucket is in ' + (loc || 'an unknown location') + (cls ? ' (' + cls + ')' : '') + ", outside Google's free regions, so all of it is billed at that location's price." };
+}
+
+// Lists every file in the bucket (1,000 a page) and adds up the sizes, by top-level folder. Saves the
+// result as storageUsage/latest and storageUsage/{UTC day}, and tells the admins once each time it
+// passes 70%, 85% and 95% of the free amount.
+async function rkMeasureStorage(db, appId) {
+  let bucket = null, meta = {};
+  const tried = [];
+  for (const name of BUCKET_CANDIDATES) {
+    try {
+      const b = admin.storage().bucket(name);
+      const [ok] = await b.exists();
+      if (ok) { bucket = b; const m = await b.getMetadata(); meta = (m && m[0]) || {}; break; }
+      tried.push(name + ' (does not exist)');
+    } catch (e) { tried.push(name + ' (' + (e && e.message) + ')'); }
+  }
+  if (!bucket) throw new Error('No storage bucket found. Tried: ' + tried.join(' | '));
+  const by = {};
+  let total = 0, files = 0, q = { autoPaginate: false, maxResults: 1000 };
+  while (q) {
+    const res = await bucket.getFiles(q);
+    for (const f of (res[0] || [])) {
+      const size = Number(f.metadata && f.metadata.size) || 0;
+      const name = String(f.name || '');
+      const top = name.indexOf('/') > 0 ? name.slice(0, name.indexOf('/')) : '(top level)';
+      const g = by[top] || (by[top] = { name: top, bytes: 0, files: 0 });
+      g.bytes += size; g.files++; total += size; files++;
+    }
+    q = res[1] || null;
+  }
+  const free = rkStorageFree(bucket.name, meta);
+  const out = {
+    bucket: bucket.name, location: meta.location || '', storageClass: meta.storageClass || '',
+    totalBytes: total, files, folders: Object.values(by).sort((a, b) => b.bytes - a.bytes).slice(0, 20),
+    free, measuredAt: Date.now(), day: new Date().toISOString().slice(0, 10),
+  };
+  const latestRef = db.doc('artifacts/' + appId + '/storageUsage/latest');
+  const prev = await latestRef.get().then(s => (s.exists && s.data()) || {}).catch(() => ({}));
+  const pct = free.bytes > 0 ? total / free.bytes : 0;
+  const level = pct >= 0.95 ? 3 : pct >= 0.85 ? 2 : pct >= 0.7 ? 1 : 0;
+  await latestRef.set(Object.assign({}, out, { alertLevel: level }));
+  await db.doc('artifacts/' + appId + '/storageUsage/' + out.day).set(out);
+  if (level > (Number(prev.alertLevel) || 0)) {
+    const gb = (x) => (x / GIB).toFixed(2) + ' GB';
+    await rkAdminNotify(db, appId, '💾 Firebase Storage is at ' + Math.round(pct * 100) + '% of its free ' + gb(free.bytes) + ' (' + gb(total) + ' in ' + files.toLocaleString('en-US') + ' files). See Admin → 📊 Usage & Limits.');
+  }
+  return out;
+}
+
+// Admin Tools → 📊 Usage & Limits measures on opening when the last count is over an hour old.
+exports.adminStorageNow = onCall({ timeoutSeconds: 300, memory: '512MiB' }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const db = admin.firestore();
+  const appId = rkAppId(req);
+  const me = await db.doc('artifacts/' + appId + '/users/' + uid).get();
+  if (!me.exists || (me.data() || {}).isAdmin !== true) throw new HttpsError('permission-denied', 'Admins only.');
+  try { return await rkMeasureStorage(db, appId); }
+  catch (e) { throw new HttpsError('internal', 'Storage could not be measured: ' + (e && e.message)); }
+});
+
+// And once a day at 00:10 UTC, so the growth over time is there without anyone opening the panel.
+exports.usageDaily = onSchedule({ schedule: '10 0 * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300, memory: '512MiB' }, async () => {
+  const db = admin.firestore();
+  for (const appId of RK_LAB_APP_IDS) {
+    try { const r = await rkMeasureStorage(db, appId); console.log('usageDaily', appId, r.totalBytes, 'bytes in', r.files, 'files'); }
+    catch (e) { console.error('usageDaily', appId, e && e.message); }
+  }
+});
 CFEOF
 echo "  functions/rk_image.js written (script-owned)."
 
@@ -24864,12 +25509,13 @@ echo "     Paste each value when prompted, then deploy functions again."
 echo "     Verify with:  firebase functions:secrets:access CF_ACCOUNT_ID"
 echo ""
 echo "     Deploy pushes EVERY export in index.js, payments included. Confirm all"
-echo "     ELEVEN in the console (functions:list is unreliable on this project):"
+echo "     FOURTEEN in the console (functions:list is unreliable on this project):"
 echo "       https://console.firebase.google.com/project/ravekandi/functions"
 echo "     Expect: createStripePaymentIntent, stripeWebhook, verifySolanaPayment,"
 echo "             sendPushOnNotification, generateDesignAnalysis, scanInventoryPhoto,"
 echo "             generateDesignImage, setAppPin, verifyAppPin, resetAppPin,"
-echo "             radioRecordNow"
+echo "             radioRecordNow, designLabReset (V87.78.150.315: runs at 00:01 UTC daily),"
+echo "             adminStorageNow, usageDaily (V87.79.150.316: runs at 00:10 UTC daily)"
 echo ""
 echo "=================================================================="
 echo ""
