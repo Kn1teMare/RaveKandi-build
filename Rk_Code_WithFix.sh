@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=87
-RK_MINOR=81
+RK_MINOR=82
 RK_PATCH=150
-RK_BUILD=318
+RK_BUILD=319
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -233,6 +233,12 @@ cat << 'EOF' > public/index.html
       @keyframes rkTapGlow { 0%, 100% { text-shadow: 0 0 6px rgba(255,111,216,0.55), 0 0 16px rgba(111,246,255,0.25); } 50% { text-shadow: 0 0 12px rgba(255,111,216,0.95), 0 0 30px rgba(111,246,255,0.6); } }
       .rk-tap-enter { animation: rkTapGlow 2.4s ease-in-out infinite; }
       @media (prefers-reduced-motion: reduce) { .rk-tap-enter { animation: none; text-shadow: 0 0 10px rgba(255,111,216,0.8); } }
+      /* V87.82.150.319: How RaveKandi Works. A slide eases in, and the bar above it fills while it shows. */
+      @keyframes rkHowIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+      .rk-how-in { animation: rkHowIn 0.35s ease-out both; }
+      @keyframes rkHowFill { from { width: 0%; } to { width: 100%; } }
+      .rk-how-fill { animation-name: rkHowFill; animation-timing-function: linear; animation-fill-mode: both; }
+      @media (prefers-reduced-motion: reduce) { .rk-how-in, .rk-how-fill { animation: none; } }
       /* V63: visible scrollbar for picker scroll-boxes so users know they can scroll */
       .rk-scroll { scrollbar-width: thin; scrollbar-color: #ec4899 rgba(255,255,255,0.08); }
       .rk-scroll::-webkit-scrollbar { width: 8px; }
@@ -16095,6 +16101,9 @@ const UserStatsDashboard = ({ profile, isOpen, onClose }) => {
 // and Referrals merged into the categories around them. New: the Design Lab, Vibe Tribes, App PIN Lock.
 // The home page's How RaveKandi Works shows the first six (InfoSection).
 const RK_HELP_CATS = ['Getting Started', 'Buying', 'Selling', 'Custom Lab', 'Community', 'Creators', 'Rewards', 'VIP', 'Help & Safety'];
+// V87.82.150.319: the links that change the whole page. Help steps aside for these; every other link
+// opens a window over Help (see App's helpGo).
+const RK_HELP_PAGE_LINKS = ['market', 'profile', 'lab', 'diy', 'post'];
 const HELP_TOPICS = [
     { cat: 'Getting Started', title: '🌈 What is RaveKandi?', content: "RaveKandi is a marketplace and community for ravers to buy, sell, and trade kandi (beaded bracelets, cuffs, perler art), festival fashion, and handmade gear. Create a profile, list items, follow creators, chat, listen to rave radio, and earn rewards for spreading the PLUR.", go: { to: 'market', label: '🛍️ Browse the feed' } },
     { cat: 'Getting Started', title: '🆔 Your Friend UID', content: "Every account gets a unique Friend UID. Others use it to find your profile, and it's your referral code. Tap your UID anywhere to copy it. Share it (or your invite link) so friends can find you and you both earn RevShare.", go: { to: 'profile', label: '👤 Open my profile' } },
@@ -16138,6 +16147,18 @@ const HelpModal = ({ isOpen, onClose, onReportBug, user, profile, onStartTutoria
     // V65.26: tapping a chip scrolls that category into view inside the modal's own scroll box,
     // so people land on the section they need instead of scrolling the whole guide.
     const jumpTo = (cat) => { try { const el = catRefs.current[cat]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} };
+    // V87.82.150.319: Help keeps your place (Milli: "so users don't lose their place on the help screen").
+    // The search and the open topic already stayed (this component stays mounted); how far down the
+    // guide you were is kept here and put back each time Help opens.
+    const scrollRef = useRef(null);
+    const scrollPos = useRef(0);
+    useEffect(() => {
+        if (!isOpen) return;
+        const put = () => { try { if (scrollRef.current) scrollRef.current.scrollTop = scrollPos.current; } catch (e) {} };
+        put();
+        const r = requestAnimationFrame(put);
+        return () => cancelAnimationFrame(r);
+    }, [isOpen]);
     if (!isOpen) return null;
     const term = q.trim().toLowerCase();
     const filtered = HELP_TOPICS.map((t, i) => ({ ...t, i })).filter(t => !term || t.title.toLowerCase().includes(term) || t.content.toLowerCase().includes(term) || t.cat.toLowerCase().includes(term));
@@ -16157,7 +16178,8 @@ const HelpModal = ({ isOpen, onClose, onReportBug, user, profile, onStartTutoria
             <div className="space-y-3">
                 <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search help (e.g. 'bulk', 'refer', 'tracking')…" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} data-lpignore="true" data-form-type="other" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-sm text-white"/>
                 {onReportBug && (
-                    <button onClick={() => { onClose(); onReportBug(); }} className="w-full flex items-center justify-center gap-2 bg-red-600 border-2 border-red-400 rounded-lg py-2.5 active:scale-95 transition">
+                    // V87.82.150.319: the report opens over Help, which stays open behind it.
+                    <button onClick={() => onReportBug()} data-help-report="1" className="w-full flex items-center justify-center gap-2 bg-red-600 border-2 border-red-400 rounded-lg py-2.5 active:scale-95 transition">
                         <span className="text-base leading-none">🐞</span>
                         <span className="text-xs font-black uppercase tracking-wider text-white">Report a Bug / Get Help</span>
                     </button>
@@ -16168,7 +16190,7 @@ const HelpModal = ({ isOpen, onClose, onReportBug, user, profile, onStartTutoria
                         {cat === 'Getting Started' && <button onClick={() => jumpTo('Tutorials')} data-help-chip="Tutorials" className="px-2.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border bg-fuchsia-600 text-white border-fuchsia-300">🎓 Tutorials</button>}
                     </React.Fragment>))}
                 </div>
-                <div className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
+                <div ref={scrollRef} onScroll={(e) => { scrollPos.current = e.currentTarget.scrollTop; }} data-help-scroll="1" className="max-h-[60vh] overflow-y-auto pr-1 space-y-4">
                     {cats.length === 0 && tutHits === 0 && <p className="text-center text-white text-xs py-6">No help topics match "{q}".</p>}
                     {!cats.includes('Getting Started') && tutBlock}
                     {cats.map(cat => [(
@@ -16198,22 +16220,77 @@ const HelpModal = ({ isOpen, onClose, onReportBug, user, profile, onStartTutoria
     );
 };
 
+// V87.82.150.319: HOW RAVEKANDI WORKS, AS A SLIDESHOW (queue item 6, raised at 278: "'What is RaveKandi'
+// should lead. The accordion style is weak — replace with a simple slideshow that holds attention").
+// Six short slides of its own, written to be read in a few seconds each, instead of the first six Help
+// topics (318), which were written to be looked up. It moves on by itself every RK_HOW_MS while it's on
+// screen, with the bar for that slide filling, and stops for good the moment you swipe or tap ‹ or ›:
+// from then on you set the pace. With reduced motion it never moves by itself and nothing slides.
+const RK_HOW_SLIDES = [
+    { e: '🌈', t: 'What is RaveKandi?', b: 'The marketplace and community for ravers: buy, sell and trade kandi, festival fashion and handmade gear, and find your people.' },
+    { e: '🛍️', t: 'Shop the feed', b: 'Browse what ravers are making, tap any post to see it up close, and check out with USDC, a digital dollar.' },
+    { e: '🏷️', t: 'Sell, trade or show off', b: 'Post up to 3 photos. Sell it, open it to trades, or just show it off. You keep what you make, minus a small commission.' },
+    { e: '🎨', t: 'Dream it up', b: 'Describe any design in the Custom Lab and get a picture with its cost and materials. A maker can build it for you.' },
+    { e: '🫂', t: 'Find your tribe', b: 'Add friends, message any raver and start a tribe with its own group chat. Rave Radio plays 57 live stations, free.' },
+    { e: '💸', t: 'Earn while you rave', b: "Share your Friend UID. Every purchase by ravers you bring in pays you a share of RaveKandi's commission, from 2% up to 25%, for good." },
+];
+const RK_HOW_MS = 6500;
+const RkHowSlide = ({ x }) => (
+    <div className="flex items-start gap-3">
+        <span className="shrink-0 w-14 h-14 rounded-full flex items-center justify-center text-3xl bg-black/40 border-2 border-cyan-300/60" aria-hidden="true">{x.e}</span>
+        <div className="min-w-0">
+            <p className="text-lg font-black text-white leading-snug">{x.t}</p>
+            <p className="text-sm text-white leading-relaxed mt-1">{x.b}</p>
+        </div>
+    </div>
+);
 const InfoSection = () => {
-    const [openIdx, setOpenIdx] = useState(null);
-    const infos = HELP_TOPICS.slice(0, 6);
+    const n = RK_HOW_SLIDES.length;
+    const [i, setI] = useState(0);
+    const [auto, setAuto] = useState(true);    // false once the raver swipes or taps ‹ ›
+    const [seen, setSeen] = useState(false);   // on screen: it only moves while you can see it
+    const boxRef = useRef(null);
+    const touchX = useRef(null);
+    const reduce = (() => { try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; } })();
+    useEffect(() => {
+        const el = boxRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') { setSeen(true); return; }
+        const io = new IntersectionObserver(es => setSeen(!!(es[0] && es[0].isIntersecting)), { threshold: 0.6 });
+        io.observe(el);
+        return () => io.disconnect();
+    }, []);
+    const moving = auto && seen && !reduce;
+    useEffect(() => {
+        if (!moving) return;
+        const t = setTimeout(() => setI(x => (x + 1) % n), RK_HOW_MS);
+        return () => clearTimeout(t);
+    }, [i, moving, n]);
+    const go = (k) => { setAuto(false); setI(((k % n) + n) % n); };
     return (
-        <div className="mt-8 text-left max-w-md mx-auto">
+        <div className="mt-8 text-left max-w-md mx-auto" data-how="1">
             <h3 className="text-xl font-black italic text-pink-400 mb-4 tracking-wider">How RaveKandi Works</h3>
-            <div className="space-y-2">
-                {infos.map((info, i) => (
-                    <div key={i} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden transition-all">
-                        <button onClick={() => setOpenIdx(openIdx === i ? null : i)} className="w-full p-4 text-left font-bold text-sm text-white flex justify-between items-center hover:bg-white/10">
-                            {info.title}
-                            {openIdx === i ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
-                        </button>
-                        {openIdx === i && <div className="p-4 pt-3 text-sm text-gray-100 leading-relaxed bg-black/40 border-t border-white/10">{info.content}</div>}
-                    </div>
-                ))}
+            <div ref={boxRef} role="group" aria-roledescription="carousel" aria-label="How RaveKandi Works"
+                onTouchStart={(e) => { touchX.current = e.touches && e.touches[0] ? e.touches[0].clientX : null; }}
+                onTouchEnd={(e) => { const x0 = touchX.current; touchX.current = null; const t = e.changedTouches && e.changedTouches[0]; if (x0 == null || !t) return; const dx = t.clientX - x0; if (Math.abs(dx) > 40) go(i + (dx < 0 ? 1 : -1)); }}
+                className="rounded-2xl border-2 border-pink-400/60 bg-black/50 p-4" style={{ boxShadow: '0 0 18px rgba(236,72,153,0.35)' }}>
+                <div className="flex gap-1.5 mb-4" aria-hidden="true">
+                    {RK_HOW_SLIDES.map((_, k) => (
+                        <div key={k} className="h-1.5 flex-1 rounded-full bg-white/20 overflow-hidden">
+                            <div key={k === i && moving ? 'run' + i : 'still'} data-how-bar={k} className={'h-full rounded-full bg-gradient-to-r from-pink-300 via-cyan-200 to-lime-200' + (k === i && moving ? ' rk-how-fill' : '')}
+                                style={k === i && moving ? { animationDuration: RK_HOW_MS + 'ms' } : { width: k <= i ? '100%' : '0%' }}/>
+                        </div>
+                    ))}
+                </div>
+                {/* Every slide sits in the same grid cell, hidden, so the card is as tall as the longest and doesn't jump. */}
+                <div className="grid">
+                    {RK_HOW_SLIDES.map((x, k) => <div key={k} className="invisible" style={{ gridArea: '1 / 1' }} aria-hidden="true"><RkHowSlide x={x}/></div>)}
+                    <div key={i} data-how-slide={i} className={reduce ? '' : 'rk-how-in'} style={{ gridArea: '1 / 1' }} aria-live={auto ? 'off' : 'polite'}><RkHowSlide x={RK_HOW_SLIDES[i]}/></div>
+                </div>
+                <div className="flex items-center justify-between mt-4">
+                    <button onClick={() => go(i - 1)} aria-label="Previous slide" data-how-prev="1" className="w-11 h-11 rounded-full border-2 border-white/40 bg-white/10 text-white text-2xl font-black leading-none flex items-center justify-center active:scale-95 transition">‹</button>
+                    <span className="text-sm font-bold text-white" data-how-count="1">{i + 1} / {n}</span>
+                    <button onClick={() => go(i + 1)} aria-label="Next slide" data-how-next="1" className="w-11 h-11 rounded-full border-2 border-white/40 bg-white/10 text-white text-2xl font-black leading-none flex items-center justify-center active:scale-95 transition">›</button>
+                </div>
             </div>
         </div>
     );
@@ -21943,8 +22020,13 @@ const App = () => {
     // V87.81.150.318: Help's links (queue item 5: "Each item gets a link that takes the user to the place
     // being described"). Help closes, then the place opens, through the same openers Quick Launch and
     // the notifications use, plus the few only Help needs.
+    // V87.82.150.319 (Milli: "when clicking a link in the help window, keep the window open in the
+    // background, so users don't lose their place on the help screen"): a window opens over Help, which
+    // stays open beneath it, so closing that window puts you back where you were. A link to a whole page
+    // (the feed, your profile, the Design Lab, the DIY Builder, posting) can't open over Help, so Help
+    // steps aside and keeps its place, and HELP at the bottom of the screen brings it back as you left it.
     const helpGo = (to) => {
-        setHelpOpen(false);
+        if (RK_HELP_PAGE_LINKS.includes(to)) setHelpOpen(false);
         if (to === 'cart') setCartOpen(true);
         else if (to === 'radio') setRadioOpen(true);
         else if (to === 'ticket') setTicketOpen(true);
