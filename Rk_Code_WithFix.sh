@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=87
-RK_MINOR=82
+RK_MINOR=83
 RK_PATCH=150
-RK_BUILD=319
+RK_BUILD=320
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -9935,6 +9935,11 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
     const [brandsOpen, setBrandsOpen] = useState(false);
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
     const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
+    // V87.83.150.320: the welcome window's switch (queue item 7: "a Settings toggle to bring it back").
+    // Kept on this device, like the text size. Read again each time Settings opens, so it matches the window.
+    const [welcomeOn, setWelcomeOn] = useState(() => !rkWelcomeOff());
+    useEffect(() => { if (isOpen) setWelcomeOn(!rkWelcomeOff()); }, [isOpen]);
+    const flipWelcome = () => { const on = !welcomeOn; rkSetWelcomeOff(!on); setWelcomeOn(on); };
     const [showTicket, setShowTicket] = useState(false);
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState(''); 
@@ -10099,6 +10104,11 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
                 <p style={{ fontSize: txtScale + 'em' }} className="mt-2 text-center text-gray-200 bg-black/40 rounded p-2 leading-snug">Preview: the quick brown fox 🦊</p>
                 {txtScale !== 1 && <button onClick={() => applyScale(1)} className="w-full mt-2 text-[10px] text-cyan-400 underline">Reset to default (100%)</button>}
             </div>
+            <button onClick={flipWelcome} role="checkbox" aria-checked={welcomeOn} data-settings-welcome="1" className="w-full flex justify-between items-center gap-3 bg-white/5 p-2 rounded border border-white/10 text-left">
+                <span className="text-sm font-bold text-white">Welcome window</span>
+                {welcomeOn ? <CheckSquare size={18} className="text-lime-400 shrink-0"/> : <Square size={18} className="text-white shrink-0"/>}
+            </button>
+            <p className="text-xs text-white mt-1 mb-3">TRADE. RAVE. PLUR., Enter Exchange and the Telegram group, each time you open RaveKandi or sign in.</p>
             <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { showPing: profile?.showPing === false ? true : false }, { merge: true }); }} className="w-full flex justify-between items-center bg-white/5 p-2 rounded border border-white/10">
                 <span className="text-[10px] font-bold">Show Ping (connection meter)</span>
                 {profile?.showPing !== false ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
@@ -13352,16 +13362,17 @@ const AnnouncementPopIn = ({ cfg }) => {
         </div>, document.body);
 };
 
-const DiscoveryTip = ({ cfg }) => {
+const DiscoveryTip = ({ cfg, hold }) => {
     const [show, setShow] = useState(false);
     useEffect(() => {
+        if (hold) return;   // V87.83.150.320: waits while the welcome window is open
         const mins = cfg?.discoveryTipMin || 0;
         if (!mins || mins <= 0) return;
         let last = 0; try { last = parseInt(localStorage.getItem('rk_tip_last') || '0'); } catch (e) {}
         const due = !last || (Date.now() - last) > mins * 60000;
         const t = setTimeout(() => { setShow(true); try { localStorage.setItem('rk_tip_last', String(Date.now())); } catch (e) {} }, due ? 8000 : mins * 60000);
         return () => clearTimeout(t);
-    }, [cfg?.discoveryTipMin]);
+    }, [cfg?.discoveryTipMin, hold]);
     if (!show) return null;
     return createPortal(
         <div className="fixed inset-0 z-[290] bg-black/70 flex items-center justify-center p-4" onClick={() => setShow(false)}>
@@ -20776,6 +20787,124 @@ EOF
 
 # Block 17
 cat << 'EOF' >> src/App.js
+// ============================================================================================
+// V87.83.150.320: THE WELCOME WINDOW (queue item 7, raised at 278: "Recreate the current hero (TRADE.
+// RAVE. PLUR., the intro paragraph, Enter Exchange, Telegram) as a window shown on joining and on each
+// login, for guests too. Keep every existing redirect working ... 'Do not show this again' on the window,
+// plus a Settings toggle to bring it back ... Strip the home page itself down to TRADE. RAVE. PLUR. and
+// the buttons - drop the paragraph").
+//  - The hero, copy and all, is now this window. Home keeps the three words and the two buttons, so the
+//    space below them is for ravers rather than for our own copy.
+//  - It opens once per sign-in: when the app opens with someone signed in (guests included), and again
+//    after signing out and back in, or when a guest joins. Not when the app was opened by tapping a
+//    notification: that tap is taking you somewhere.
+//  - The alpha notice is drawn over it. The tutorials, the creator-profile prompt, the pointer to the
+//    tutorials and the Pro Tip wait until it closes, so nothing lands on top of it.
+//  - The three words and both buttons go where they always went (App's heroGo), closing the window first.
+//  - "Don't show this again" is kept on this device, like the text size. Settings -> Display brings it
+//    back.
+// Not the same thing as WelcomeCarousel below: those are the four slides shown once on a new device.
+// ============================================================================================
+const RK_HERO_WORDS = [
+    { w: 'TRADE', to: 'feed', g: 'linear-gradient(45deg, #ffb0d8, #b8ecff, #ffd9b0, #ffb0d8)', d: '11s', t: 'Open the marketplace feed' },
+    { w: 'RAVE', to: 'radio', g: 'linear-gradient(45deg, #b8ecff, #d8b8ff, #b0ffd0, #b8ecff)', d: '14s', t: 'Open Rave Radio' },
+    { w: 'PLUR', to: 'tribe', g: 'linear-gradient(45deg, #d0ffb0, #ffb0e8, #b0d8ff, #d0ffb0)', d: '17s', t: 'Find your rave fam — Vibe Tribe' },
+];
+const RK_TELEGRAM_URL = 'https://t.me/RaveKandiFriends';
+const RK_HERO_INTRO = "Welcome to your digital festival grounds — the home base for rave culture! 🌈✨ This is our rave community: one big fam of ravers, makers & music lovers. Trade, sell, and discover magical one-of-a-kind Kandi. Rave-born and rave-proud — but if you've got good vibes, you're already one of us. Spread the vibe!";
+const RK_WELCOME_OFF = 'rk_welcome_window_off';
+const rkWelcomeOff = () => { try { return localStorage.getItem(RK_WELCOME_OFF) === '1'; } catch (e) { return false; } };
+const rkSetWelcomeOff = (off) => { try { if (off) localStorage.setItem(RK_WELCOME_OFF, '1'); else localStorage.removeItem(RK_WELCOME_OFF); } catch (e) {} };
+
+// TRADE. RAVE. PLUR. Each word is a button (V65.19), each drifting at its own slow pace.
+const RkHeroWords = ({ onGo }) => (
+    <div className="space-y-3">
+        {RK_HERO_WORDS.map(it => (<button key={it.w} onClick={() => onGo(it.to)} title={it.t} data-hero-word={it.to} className="block mx-auto active:scale-95 transition-transform"><h1 className="text-7xl font-black animate-text-shimmer" style={{ backgroundImage: it.g, backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 0 10px rgba(255,140,220,0.45))', backgroundSize: '220% 220%', animation: 'rkHeroShift ' + it.d + ' ease-in-out infinite' }}>{it.w}.</h1></button>))}
+    </div>
+);
+
+// Enter Exchange and the Telegram group. `children` sits between the two (the window's CLICK HERE line).
+const RkHeroButtons = ({ onEnter, onTelegram, children }) => (
+    <div className="flex flex-col gap-4">
+        <Button onClick={onEnter} color="cyan" className="mx-auto px-8 py-3 text-lg shadow-neon-blue w-3/4 max-w-xs">Enter Exchange</Button>
+        <div className="flex flex-col items-center gap-1">
+            {children}
+            <a href={RK_TELEGRAM_URL} target="_blank" rel="noreferrer" onClick={onTelegram} data-hero-telegram="1" className="w-3/4 max-w-xs mt-2">
+                <Button color="purple" className="w-full flex items-center justify-center gap-2 py-2 text-xs border-dashed"><MessageSquare size={16}/> Join Telegram Group</Button>
+            </a>
+        </div>
+    </div>
+);
+
+// When the window opens: the first time the app is past its loading screen with someone signed in, once
+// for each account. Signing out clears it, so the next sign-in (or a guest joining) shows it again.
+// Returns [open, setOpen] to App.
+const useRkWelcomeWindow = (entered, user, pendingNotifRef) => {
+    const [open, setOpen] = useState(false);
+    const shownFor = useRef(null);
+    const uid = user ? user.uid : null;
+    useEffect(() => {
+        if (!uid) { shownFor.current = null; setOpen(false); return; }
+        if (!entered || shownFor.current === uid) return;
+        shownFor.current = uid;
+        if (pendingNotifRef && pendingNotifRef.current) return;   // opened by tapping a notification
+        if (!rkWelcomeOff()) setOpen(true);
+    }, [entered, uid]);
+    return [open, setOpen];
+};
+
+// V87.83.150.320: the first-run tutorial, or for someone who has done it the one-time pointer to where the
+// tutorials live, decided once the account is known. V60 decided this inside the launch timer, which only
+// ever saw the `user` the app started with (null), so neither ever started.
+const useRkFirstRun = (loading, user, onTutorial, onReminder) => {
+    const decidedFor = useRef(null);
+    const uid = user && !user.isAnonymous ? user.uid : null;
+    useEffect(() => {
+        if (loading || !uid || decidedFor.current === uid) return;
+        decidedFor.current = uid;
+        try {
+            if (localStorage.getItem('rk_tutorial_done') !== 'true') onTutorial();
+            else if (localStorage.getItem('rk_tut_reminder_seen') !== 'true') { localStorage.setItem('rk_tut_reminder_seen', 'true'); onReminder(); }
+        } catch (e) {}
+    }, [loading, uid]);
+};
+
+const RkWelcomeWindow = ({ isOpen, onClose, onGo }) => {
+    const [off, setOff] = useState(() => rkWelcomeOff());
+    useEffect(() => { if (isOpen) setOff(rkWelcomeOff()); }, [isOpen]);
+    // The phone's back button closes it. Held steady, so App re-rendering doesn't re-file it in the stack.
+    const closeRef = useRef(onClose);
+    closeRef.current = onClose;
+    const [backClose] = useState(() => () => { if (closeRef.current) closeRef.current(); });
+    useRkBackClose(isOpen, backClose);
+    if (!isOpen) return null;
+    const flip = () => { const v = !off; rkSetWelcomeOff(v); setOff(v); };
+    return createPortal(
+        <div className="fixed inset-0 z-[150] bg-black/85 overflow-y-auto" onClick={onClose} data-welcome-window="1" role="dialog" aria-modal="true" aria-label="Welcome to RaveKandi">
+            <div className="min-h-full flex items-center justify-center px-4" style={{ paddingTop: 'calc(16px + env(safe-area-inset-top))', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
+                {/* Sized to fit one phone screen (about 815px on a Galaxy A16), so "Don't show this again" is in view. */}
+                <div onClick={e => e.stopPropagation()} data-welcome-card="1" className="relative w-full max-w-md rounded-3xl border-2 border-pink-400/60 bg-[#14001f] px-4 pt-6 pb-4 text-center flex flex-col gap-4" style={{ boxShadow: '0 0 40px rgba(255,120,220,0.35)' }}>
+                    <button onClick={onClose} aria-label="Close" data-welcome-close="1" className="absolute -top-3 -right-3 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 active:scale-90 transition"><X size={20}/></button>
+                    <RkHeroWords onGo={onGo}/>
+                    <div className="opacity-90 text-sm leading-relaxed"><p className="bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent font-bold" data-welcome-intro="1">{RK_HERO_INTRO}</p></div>
+                    <p className="text-lg font-black uppercase tracking-wider bg-gradient-to-r from-lime-300 via-cyan-300 to-pink-400 bg-clip-text text-transparent" style={{ filter: 'drop-shadow(0 0 8px rgba(0,255,200,0.45))' }}>Trade kandi, buy, sell, or show off your pieces — tap Enter Exchange below ⬇</p>
+                    <RkHeroButtons onEnter={() => onGo('feed')} onTelegram={onClose}>
+                        <p className="text-sm font-black italic animate-pulse drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]" style={{ backgroundImage: 'linear-gradient(90deg, #ff80bf, #80ffff, #bef264)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>
+                            ↑ CLICK HERE, CREATE ➔ 💵 EARN ↑
+                        </p>
+                    </RkHeroButtons>
+                    <div className="border-t border-white/15 pt-3">
+                        <button onClick={flip} role="checkbox" aria-checked={off} data-welcome-off="1" className="mx-auto flex items-center gap-2 text-white text-sm font-bold active:scale-95 transition">
+                            {off ? <CheckSquare size={20} className="text-lime-400 shrink-0"/> : <Square size={20} className="text-white shrink-0"/>}
+                            <span>Don't show this again</span>
+                        </button>
+                        <p className="text-xs text-white mt-1">Bring it back any time: Settings → Display.</p>
+                    </div>
+                </div>
+            </div>
+        </div>, document.body);
+};
+
 const WELCOME_SLIDES = [
     {
         emoji: '\u{1F308}',
@@ -21344,6 +21473,11 @@ const App = () => {
         if (h[h.length - 1] !== page) h.push(page);
         if (h.length > 25) h.shift();
     }, [page]);
+    // V87.83.150.320: every page opens at its top (queue item 7: "'Start a DIY request' scrolls to a lower
+    // section of the DIY page. It should land at the top"). The window kept the scroll of the page you
+    // left, so a button far down Home opened the next page part-way down. The shop's tabs count as pages
+    // here, so a link into the DIY Builder from anywhere lands at its top too.
+    useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [page, tab]);
 
     // The single back handler. Order: topmost overlay -> open profile -> previous page -> home
     // -> genuinely leave. Registered once; everything it needs lives in refs, because a listener
@@ -21556,6 +21690,10 @@ const App = () => {
     // full screen over the panel, on the admin's screen alone.
     const [bgSel, setBgSel] = useState(() => rkBgCached());
     const [entered, setEntered] = useState(false);
+    // V87.83.150.320: the welcome window (queue item 7), and the first-run tutorial decided once the account
+    // is known (until now it never started: see useRkFirstRun).
+    const [welcomeWinOpen, setWelcomeWinOpen] = useRkWelcomeWindow(entered, user, pendingNotifRef);
+    useRkFirstRun(loading, user, () => setTutorialPending(true), () => setTutorialReminder(true));
     const bgNow = bgSel;
     // the page behind the app (what shows past the edges on overscroll) matches the design
     useEffect(() => { try { document.body.style.backgroundColor = rkBgById(bgNow.id).color; } catch (e) {} }, [bgNow.id]);
@@ -21619,13 +21757,8 @@ const App = () => {
         setTimeout(() => { 
             clearInterval(intLoad); setLoadPct(100); setLoadMsg("Ready to Rave!");
             if (localStorage.getItem('hideAlphaWarning') !== 'true') setShowAlphaModal(true);
-            // V60: tutorial gating. New signed-in users get the guided tutorial (after the
-            // alpha modal closes). Users who've already seen it get a one-time reminder that
-            // it lives in Settings.
-            if (user && !user.isAnonymous) {
-                if (localStorage.getItem('rk_tutorial_done') !== 'true') { setTutorialPending(true); }
-                else if (localStorage.getItem('rk_tut_reminder_seen') !== 'true') { setTutorialReminder(true); localStorage.setItem('rk_tut_reminder_seen', 'true'); }
-            }
+            // V87.83.150.320: the tutorial gating that sat here (V60) moved to useRkFirstRun. Here it only
+            // ever saw the null `user` the app starts with, so the first-run tutorial never started.
             setTimeout(() => setLoading(false), 200); 
         }, 2500);
         return () => { clearInterval(intLoad); unsubAuth(); };
@@ -21636,6 +21769,7 @@ const App = () => {
     // the tours so a newly-approved creator is not hit with a walkthrough and a form at once.
     useEffect(() => {
         if (!user?.uid || !profile || tutorialActive || creatorTour || profileGap) return;
+        if (!entered || welcomeWinOpen) return;   // V87.83.150.320: not over the welcome window
         const gapKey = Object.keys(RK_PROFILE_GAPS).find(k =>
             profile[k] && !profile[RK_PROFILE_GAPS[k].field] && !gapDismissedRef.current[k]);
         if (!gapKey) return;
@@ -21658,7 +21792,7 @@ const App = () => {
             if (live) setProfileGap(gapKey);
         })();
         return () => { live = false; };
-    }, [user?.uid, profile, tutorialActive, creatorTour, profileGap]);
+    }, [user?.uid, profile, tutorialActive, creatorTour, profileGap, entered, welcomeWinOpen]);
 
     // V76: after the general tutorial is out of the way, run any creator tour the person is owed.
     // One at a time — someone holding two permissions gets the second on the next launch rather
@@ -21666,12 +21800,14 @@ const App = () => {
     // while they were signed in elsewhere still reaches them.
     useEffect(() => {
         if (!user?.uid || !profile || tutorialActive || tutorialPending || creatorTour) return;
+        // V87.83.150.320: not over the alpha notice or the welcome window.
+        if (!entered || showWelcome || showAlphaModal || welcomeWinOpen) return;
         try { if (localStorage.getItem('rk_tutorial_done') !== 'true') return; } catch (e) { return; }
         const owed = Object.keys(RK_CREATOR_TOURS).find(flag => profile[flag] && !profile[RK_CREATOR_TOURS[flag].key]);
         if (!owed) return;
         const t = setTimeout(() => { setTutReplay(false); setCreatorTour(owed); }, 900);
         return () => clearTimeout(t);
-    }, [user?.uid, profile, tutorialActive, tutorialPending, creatorTour]);
+    }, [user?.uid, profile, tutorialActive, tutorialPending, creatorTour, entered, showWelcome, showAlphaModal, welcomeWinOpen]);
 
     const finishCreatorTour = async () => {
         const flag = creatorTour;
@@ -21933,6 +22069,7 @@ const App = () => {
     useEffect(() => {
         if (loading || !entered || !user || !pendingNotifRef.current) return;
         const n = pendingNotifRef.current; pendingNotifRef.current = null;
+        setWelcomeWinOpen(false);   // V87.83.150.320: a notification tap goes straight to its place
         routeNotif(n, false);
     }, [notifTick, loading, entered, user]);
     const [videoSubmitOpen, setVideoSubmitOpen] = useState(false);
@@ -21998,12 +22135,14 @@ const App = () => {
         if (!tutorialActive && tutorialPending) {
             let popInUp = false;
             try { popInUp = !!(rkConfig?.popInActive && rkConfig?.popInId && !(rkConfig.popInExpiry > 0 && Date.now() > rkConfig.popInExpiry) && localStorage.getItem('rk_popin_seen') !== rkConfig.popInId); } catch (e) {}
-            if (!showAlphaModal && !popInUp) {
+            // V87.83.150.320: and only once the welcome window has closed, past the loading screen and the
+            // first-launch slides.
+            if (!showAlphaModal && !popInUp && entered && !showWelcome && !welcomeWinOpen) {
                 const t = setTimeout(() => { setTutReplay(false); setTutorialActive(true); setTutorialPending(false); }, 400);
                 return () => clearTimeout(t);
             }
         }
-    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive]);
+    }, [tutorialPending, showAlphaModal, rkConfig, tutorialActive, entered, showWelcome, welcomeWinOpen]);
     // V52.2: count this device as a unique visitor (once ever) + daily-active ping.
     // V84.150 (308): only once signed in. The rules refuse both writes without a user, so running
     // at mount just produced two permission-denied reports on every fresh install.
@@ -22020,6 +22159,13 @@ const App = () => {
     // V87.81.150.318: Help's links (queue item 5: "Each item gets a link that takes the user to the place
     // being described"). Help closes, then the place opens, through the same openers Quick Launch and
     // the notifications use, plus the few only Help needs.
+    // V87.83.150.320: where TRADE. RAVE. PLUR. and Enter Exchange go, on Home and in the welcome window. The
+    // same places as ever (V65.19): the feed, Rave Radio, and Vibe Tribe on your profile.
+    const heroGo = (to) => {
+        if (to === 'feed') setPage('feed');
+        else if (to === 'radio') setRadioOpen(true);
+        else if (to === 'tribe') { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe' })); } catch (e) {} }, 250); }
+    };
     // V87.82.150.319 (Milli: "when clicking a link in the help window, keep the window open in the
     // background, so users don't lose their place on the help screen"): a window opens over Help, which
     // stays open beneath it, so closing that window puts you back where you were. A link to a whole page
@@ -22700,13 +22846,14 @@ cat << 'EOF' >> src/App.js
             {showAppBg && <RkAppBackground id={bgNow.id} anim={bgNow.anim}/>}
             {isVideoBg && <video src={bgUrl} autoPlay loop muted playsInline className="fixed inset-0 w-full h-full object-cover -z-10" style={{ pointerEvents: 'none' }}/>}
             <WelcomeAlphaModal />
+            <RkWelcomeWindow isOpen={welcomeWinOpen} onClose={() => setWelcomeWinOpen(false)} onGo={(to) => { setWelcomeWinOpen(false); heroGo(to); }} />
             <AnnouncementPopIn cfg={rkConfig} />
-            <DiscoveryTip cfg={rkConfig} />
+            <DiscoveryTip cfg={rkConfig} hold={welcomeWinOpen} />
             {profileGap && <CreatorProfileCompletion user={user} profile={profile} gapKey={profileGap}
                 onClose={() => { gapDismissedRef.current[profileGap] = true; setProfileGap(null); }} />}
             <TutorialOverlay active={!!creatorTour} replay={tutReplay} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
             <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
-            <TutorialReminderPopIn active={tutorialReminder} onClose={() => setTutorialReminder(false)} />
+            <TutorialReminderPopIn active={tutorialReminder && !welcomeWinOpen && !showAlphaModal} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
             <WalletModal user={user} profile={profile} isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
@@ -22960,28 +23107,11 @@ cat << 'EOF' >> src/App.js
             <main className="p-4 bg-black/50 min-h-screen">
                 {page === 'home' && (
                     <div className="text-center pt-8 flex flex-col gap-8 pb-10">
-                        <div className="space-y-3">{/* V65.19: each word is a live button — TRADE→feed, RAVE→radio, PLUR→Vibe Tribe (friend finder). Similar-but-distinct pastel schemes, each drifting at its own slow pace. */}
-                        {[
-                            { w: 'TRADE', g: 'linear-gradient(45deg, #ffb0d8, #b8ecff, #ffd9b0, #ffb0d8)', d: '11s', go: () => setPage('feed'), t: 'Open the marketplace feed' },
-                            { w: 'RAVE', g: 'linear-gradient(45deg, #b8ecff, #d8b8ff, #b0ffd0, #b8ecff)', d: '14s', go: () => setRadioOpen(true), t: 'Open Rave Radio' },
-                            { w: 'PLUR', g: 'linear-gradient(45deg, #d0ffb0, #ffb0e8, #b0d8ff, #d0ffb0)', d: '17s', go: () => { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe' })); } catch (e) {} }, 250); }, t: 'Find your rave fam — Vibe Tribe' },
-                        ].map((it, i) => (<button key={i} onClick={it.go} title={it.t} className="block mx-auto active:scale-95 transition-transform"><h1 className="text-7xl font-black animate-text-shimmer" style={{ backgroundImage: it.g, backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 0 10px rgba(255,140,220,0.45))', backgroundSize: '220% 220%', animation: 'rkHeroShift ' + it.d + ' ease-in-out infinite' }}>{it.w}.</h1></button>))}</div>
-                        
-                        <div className="px-4 opacity-90 text-sm max-w-md mx-auto leading-relaxed"><p className="bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent font-bold">Welcome to your digital festival grounds — the home base for rave culture! 🌈✨ This is our rave community: one big fam of ravers, makers &amp; music lovers. Trade, sell, and discover magical one-of-a-kind Kandi. Rave-born and rave-proud — but if you've got good vibes, you're already one of us. Spread the vibe!</p></div>
-
-                        <p className="px-4 text-xl font-black uppercase tracking-wider bg-gradient-to-r from-lime-300 via-cyan-300 to-pink-400 bg-clip-text text-transparent max-w-md mx-auto" style={{ filter: 'drop-shadow(0 0 8px rgba(0,255,200,0.45))' }}>Trade kandi, buy, sell, or show off your pieces — tap Enter Exchange below ⬇</p>
-                        
-                        <div className="flex flex-col gap-4">
-                            <Button onClick={() => setPage('feed')} color="cyan" className="mx-auto px-8 py-3 text-lg shadow-neon-blue w-3/4 max-w-xs">Enter Exchange</Button>
-                            <div className="flex flex-col items-center gap-1">
-                                <p className="text-sm font-black italic animate-pulse drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]" style={{ backgroundImage: 'linear-gradient(90deg, #ff80bf, #80ffff, #bef264)', backgroundClip: 'text', WebkitBackgroundClip: 'text', color: 'transparent' }}>
-                                    ↑ CLICK HERE, CREATE ➔ 💵 EARN ↑
-                                </p>
-                                <a href="https://t.me/RaveKandiFriends" target="_blank" rel="noreferrer" className="w-3/4 max-w-xs mt-2">
-                                    <Button color="purple" className="w-full flex items-center justify-center gap-2 py-2 text-xs border-dashed"><MessageSquare size={16}/> Join Telegram Group</Button>
-                                </a>
-                            </div>
-                        </div>
+                        {/* V87.83.150.320: the hero, stripped to TRADE. RAVE. PLUR. and the two buttons (queue item 7: "clear
+                            the clutter so the space works for ravers advertising themselves rather than for our own copy").
+                            The copy moved to the welcome window (RkWelcomeWindow). */}
+                        <RkHeroWords onGo={heroGo}/>
+                        <RkHeroButtons onEnter={() => heroGo('feed')}/>
 
                         <div className="py-6 w-full max-w-md mx-auto">
                             <FeaturedPartners viewerUid={user?.uid} viewerProfile={profile} onViewProfile={setViewingProfileId}/>
