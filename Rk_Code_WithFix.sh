@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=87
+RK_MAJOR=88
 RK_MINOR=84
 RK_PATCH=150
-RK_BUILD=321
+RK_BUILD=322
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -480,7 +480,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, sendEmailVerification, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction, writeBatch, deleteField } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction, writeBatch, deleteField, startAfter, documentId, getCountFromServer } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -1281,8 +1281,18 @@ const ACHIEVEMENT_TIERS = [
     // V64.02: account-completeness
     { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, icon: Smartphone, desc: "Add a phone number in Settings → Contact Info. The email you sign in with counts as your email." },
     { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, icon: Bell, desc: "Turn on every notification type for both Phone and Email in Settings → Notifications, then Save Changes." },
+    // V88.84.150.322 (Milli, at 322: "always add an achievement, banner item, etc when updating if its possible").
+    // Each trims the seller commission like the rest (rkAchBonuses), has its own emblem and a marquee line.
+    { id: 'vote_5', name: 'Civic Raver', tier: 1, metric: 'tribeVotesCast', threshold: 5, icon: CheckSquare, desc: "Answer 5 tribe votes, yes or no. Calling or proposing one counts." },
+    { id: 'vote_50', name: 'Tribe Council', tier: 2, metric: 'tribeVotesCast', threshold: 50, icon: CheckSquare, desc: "Answer 50 tribe votes." },
+    { id: 'fest_1', name: 'Festival Planner', tier: 1, metric: 'festivalsDated', threshold: 1, icon: Calendar, desc: "Post with a festival and the days you'll be there." },
+    { id: 'fest_5', name: 'Season Pass', tier: 2, metric: 'festivalsDated', threshold: 5, icon: Calendar, desc: "Post your days for 5 different festivals." },
+    { id: 'net_25', name: 'Friend of a Friend', tier: 1, metric: 'networkReach', threshold: 25, icon: UserPlus, desc: "Your friends' friends reach 25 ravers you haven't added yet." },
+    { id: 'net_250', name: 'Six Degrees', tier: 3, metric: 'networkReach', threshold: 250, icon: Users, desc: "Your friends' friends reach 250 ravers." },
+    { id: 'dig_25', name: 'Crate Digger', tier: 1, metric: 'tracksPlayed', threshold: 25, icon: Music, desc: "Play 25 tracks by other artists." },
+    { id: 'dig_250', name: 'Selector', tier: 2, metric: 'tracksPlayed', threshold: 250, icon: Radio, desc: "Play 250 tracks by other artists." },
 ];
-const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'}];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
 
 // V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
 
@@ -1781,6 +1791,18 @@ export const performObliterate = async (tid) => {
 //  - Members in a time-out don't vote, so they can't hold a vote back either.
 //  - Every vote is logged in tribes/{id}/voteLog with its percentages over time, never its voters.
 //  - Inviting someone is a vote too ('admit:<uid>'), started from anyone found with the feed's search.
+// V88.84.150.322: VOTE NO, AND MUTES THAT STOP VOTING (Milli, at 322: "add a 'vote no' to the vote system. If
+// users select no, they are no longer notified of a vote awaiting ... Ensure the user mute system also
+// includes voting restriction as well ... if user votes no is above the 1/3 limit, kill the vote as it is
+// already impossible to pass").
+//  - Every vote keeps who said no (`no`), beside who said yes (`yes`, or `votes` on a vote to add someone).
+//    A member can change their answer while the vote runs. The member who called a vote withdraws it.
+//  - A vote passes at 2/3 of the members who can vote on it. Once more of them say no than that leaves room
+//    for (no > voters - needed), it can't pass, and the settle closes it as voted down (rkTribeDead).
+//  - A muted member can't vote, call a vote or invite, the same as a member in a time-out, and isn't counted
+//    in the 2/3, so a mute can't hold a vote back.
+//  - The notice that a vote has started goes only to the members who can vote on it. A daily nudge
+//    (rkVoteNudge) names the votes still waiting on you; a vote you said yes or no to isn't one of them.
 // The votes are still counted by the app; the rules let any member write the tribe document
 // (queue item 23).
 const RK_TRIBE_STATUS = ['open', 'closed'];
@@ -1818,12 +1840,18 @@ const rkTribeRestriction = (t, uid, now) => {
     const r = t && t.restrictions && t.restrictions[uid];
     return (r && Number(r.until) > (now || Date.now())) ? r : null;
 };
-// Who may vote: every member, except the member a vote is about and anyone in a time-out.
+// Who may vote: every member, except the member a vote is about and anyone muted or in a time-out
+// (V88.84.150.322: a mute stops voting too; it used to stop only posting).
 const rkTribeVoters = (members, v, rs, now) => {
     const at = now || Date.now();
     return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target)
-        && !(rs && rs[m] && rs[m].type === 'timeout' && Number(rs[m].until) > at));
+        && !(rs && rs[m] && Number(rs[m].until) > at));
 };
+// V88.84.150.322: a vote that can no longer pass. With `n` voters it needs rkTribeNeeded(n) yeses, so once
+// more than n - needed have said no, it can't get there.
+const rkTribeDead = (voters, noCount) => voters.length > 0 && noCount > voters.length - rkTribeNeeded(voters.length);
+// The no-answers that count: from members who can vote, and not also counted as a yes.
+const rkTribeNoOf = (list, voters, yes) => Array.from(new Set(list || [])).filter(u => voters.includes(u) && !(yes || []).includes(u));
 // Every item vote in a tribe, with 312's statusVote folded in.
 const rkTribeVotesOf = (t) => {
     const out = { ...((t && t.votes) || {}) };
@@ -1882,18 +1910,20 @@ const rkTribeSettle = (t0, nowIn) => {
     const voterList = (v, list) => rkTribeVoters(list, v, restrictions, now);
     const admitVoters = voterList({ type: 'admit' }, before);
     const admitNeed = rkTribeNeeded(admitVoters.length);
-    const admitted = [];
+    const admitted = [], rejectedAdmits = [];
     Object.keys(pending).forEach((cid) => {
         const e = pending[cid] || {};
         if (before.includes(cid)) { delete pending[cid]; return; }
         const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
+        const no = Array.from(new Set(e.no || [])).filter(v => before.includes(v) && !votes.includes(v));
         if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver' }); delete pending[cid]; }
-        else pending[cid] = { ...e, votes, needed: admitNeed };
+        else if (rkTribeDead(admitVoters, no.filter(v => admitVoters.includes(v)).length)) { rejectedAdmits.push({ uid: cid, name: e.name || 'Raver', asked: !!e.asked, by: (e.votes || [])[0] || '' }); delete pending[cid]; }
+        else pending[cid] = { ...e, votes, no, needed: admitNeed };
     });
     // Item votes. Stale ones are dropped: the target left, or the tribe already has that status,
     // name, founder or restriction. An appeal that outlives its window expires.
     let status = rkTribeStatus(t0), name = t0.name || '', creatorUid = t0.creatorUid || '', purgedAt = Number(t0.purgedAt) || 0;
-    const votes = {}, passed = [], expired = [], dropped = [];
+    const votes = {}, passed = [], expired = [], dropped = [], rejected = [];
     const all = rkTribeVotesOf(t0);
     Object.keys(all).forEach((key) => {
         const v = all[key];
@@ -1910,8 +1940,10 @@ const rkTribeSettle = (t0, nowIn) => {
         if (v.type === 'repeal' && now >= Number(v.exp || 0)) { expired.push(key); return; }
         const voters = voterList(v, before);
         const yes = Array.from(new Set(v.yes || [])).filter(u => voters.includes(u));
-        if (voters.length && yes.length >= rkTribeNeeded(voters.length)) passed.push([key, { ...v, yes }]);
-        else votes[key] = { ...v, yes };
+        const no = rkTribeNoOf(v.no, voters, yes);
+        if (voters.length && yes.length >= rkTribeNeeded(voters.length)) passed.push([key, { ...v, yes, no }]);
+        else if (rkTribeDead(voters, no.length)) rejected.push(key);
+        else votes[key] = { ...v, yes, no };
     });
     // Apply what passed in a fixed order, re-checking each against the members as they stand,
     // so two removals can never empty a tribe between them.
@@ -1928,7 +1960,7 @@ const rkTribeSettle = (t0, nowIn) => {
         const moot = (v.type === 'mute' && rNow) || (v.type === 'timeout' && rNow && rNow.type === 'timeout')
             || (v.type === 'repeal' && (!rNow || rNow.type !== v.rtype || (v.of && rNow.log !== v.of)));
         if (!targetOk || moot) { dropped.push(key); return; }
-        if (!(voters.length && yes.length >= rkTribeNeeded(voters.length))) { votes[key] = { ...v, yes }; return; }
+        if (!(voters.length && yes.length >= rkTribeNeeded(voters.length))) { votes[key] = { ...v, yes, no: rkTribeNoOf(v.no, voters, yes) }; return; }
         if (v.type === 'kick') { members = members.filter(m => m !== v.target); delete names[v.target]; kicked.push({ uid: v.target, name: v.targetName || 'Raver' }); }
         else if (v.type === 'founder') creatorUid = v.target;
         else if (v.type === 'rename') name = String(v.name).trim().slice(0, 40);
@@ -1950,6 +1982,7 @@ const rkTribeSettle = (t0, nowIn) => {
     // An appeal that passed, failed or expired is recorded on the restriction it was about.
     const mark = (v, outcome) => { const r = restrictions[v.target]; if (!r) return; r.appeals = r.appeals.map(a => (a.w === v.w && a.outcome === 'open') ? { ...a, outcome } : a); };
     expired.forEach(k => mark(all[k], 'failed'));
+    rejected.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'failed'); });
     dropped.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'closed'); });
     admitted.forEach(a => { if (!members.includes(a.uid)) members.push(a.uid); names[a.uid] = a.name; });
     // A founder who is removed or has left hands the role to the longest-standing member, so
@@ -1958,16 +1991,16 @@ const rkTribeSettle = (t0, nowIn) => {
     // A removed member's votes stop counting everywhere.
     if (kicked.length) {
         const gone = kicked.map(k => k.uid);
-        Object.keys(pending).forEach(cid => { pending[cid] = { ...pending[cid], votes: (pending[cid].votes || []).filter(u => !gone.includes(u)) }; });
+        Object.keys(pending).forEach(cid => { pending[cid] = { ...pending[cid], votes: (pending[cid].votes || []).filter(u => !gone.includes(u)), no: (pending[cid].no || []).filter(u => !gone.includes(u)) }; });
         Object.keys(votes).forEach(k => {
             const v = votes[k];
             if (['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) && gone.includes(v.target)) { delete votes[k]; dropped.push(k); return; }
-            votes[k] = { ...v, yes: (v.yes || []).filter(u => !gone.includes(u)) };
+            votes[k] = { ...v, yes: (v.yes || []).filter(u => !gone.includes(u)), no: (v.no || []).filter(u => !gone.includes(u)) };
         });
     }
     Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
     return { members, names, pending, requests, admitted, kicked, applied, votes, status, statusChanged: status !== rkTribeStatus(t0), name, creatorUid, purgedAt,
-        restrictions, served, expired, dropped, rev: (Number(t0.rev) || 0) + 1 };
+        restrictions, served, expired, dropped, rejected, rejectedAdmits, rev: (Number(t0.rev) || 0) + 1 };
 };
 const rkTribePatch = (st) => {
     const p = {
@@ -2008,19 +2041,21 @@ const rkTribeVoteRows = (t, now) => {
     const admitEl = rkTribeVoters(members, { type: 'admit' }, rs, now);
     Object.entries(t.pendingVotes || {}).forEach(([cid, e]) => {
         if (members.includes(cid)) return;
-        const yes = Array.from(new Set((e && e.votes) || [])).filter(u => admitEl.includes(u)).length;
-        out['admit:' + cid] = { type: 'admit', label: 'Add @' + ((e && e.name) || 'Raver') + ' to the tribe', yes, of: admitEl.length, at: Number(e && e.at) || 0, target: cid, targetName: (e && e.name) || 'Raver', note: { asked: !!(e && e.asked) } };
+        const yesL = Array.from(new Set((e && e.votes) || [])).filter(u => admitEl.includes(u));
+        const yes = yesL.length, no = rkTribeNoOf(e && e.no, admitEl, yesL).length;
+        out['admit:' + cid] = { type: 'admit', label: 'Add @' + ((e && e.name) || 'Raver') + ' to the tribe', yes, no, of: admitEl.length, at: Number(e && e.at) || 0, target: cid, targetName: (e && e.name) || 'Raver', note: { asked: !!(e && e.asked) } };
     });
     Object.entries(rkTribeVotesOf(t)).forEach(([key, v]) => {
         if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type)) return;
         const el = rkTribeVoters(members, v, rs, now);
-        const yes = Array.from(new Set(v.yes || [])).filter(u => el.includes(u)).length;
+        const yesL = Array.from(new Set(v.yes || [])).filter(u => el.includes(u));
+        const yes = yesL.length, no = rkTribeNoOf(v.no, el, yesL).length;
         const note = {};
         if (v.dur) note.dur = v.dur;
         if (v.type === 'rename') note.name = v.name || '';
         if (v.type === 'status') note.to = v.to || '';
         if (v.type === 'repeal') { note.statement = v.statement || ''; note.w = v.w || 0; note.rtype = v.rtype || ''; note.appealOf = v.of || ''; note.exp = v.exp || 0; }
-        out[key] = { type: v.type, label: rkTribeVoteLabel(v), yes, of: el.length, at: Number(v.at) || 0, target: v.target || '', targetName: v.targetName || '', note };
+        out[key] = { type: v.type, label: rkTribeVoteLabel(v), yes, no, of: el.length, at: Number(v.at) || 0, target: v.target || '', targetName: v.targetName || '', note };
     });
     return out;
 };
@@ -2050,17 +2085,18 @@ const rkTribeLogTx = (tx, tribeId, t0, t1, st, now, hint) => {
         const who = (k, b) => ({ key: k, type: b.type, label: b.label, startedAt: b.at || now, target: b.target, targetName: b.targetName, note: b.note });
         Object.keys(B).forEach(k => {
             const a = A[k], b = B[k], id = rkTribeLogId(k, b.at);
-            if (!a || a.at !== b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'start', pct: pct(b), n: b.yes, of: b.of });
+            if (!a || a.at !== b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'start', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
             // a vote cast; when the same transaction also ends the vote, its end event carries the count
-            else if ((a.yes !== b.yes || a.of !== b.of) && C[k] && C[k].at === b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'vote', pct: pct(b), n: b.yes, of: b.of });
+            else if ((a.yes !== b.yes || (a.no || 0) !== (b.no || 0) || a.of !== b.of) && C[k] && C[k].at === b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'vote', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
         });
         const passed = new Set([...(st.applied || []).map(v => rkTribeVoteKey(v)), ...(st.admitted || []).map(a => 'admit:' + a.uid)]);
         const expired = new Set(st.expired || []);
+        const downed = new Set([...(st.rejected || []), ...(st.rejectedAdmits || []).map(a => 'admit:' + a.uid)]);
         Object.keys(B).forEach(k => {
             const b = B[k];
-            if (C[k] && C[k].at === b.at) { if (C[k].yes !== b.yes || C[k].of !== b.of) put(rkTribeLogId(k, b.at), { ...who(k, b), status: 'open', yes: C[k].yes, of: C[k].of, pct: pct(C[k]), need: rkTribeNeeded(C[k].of) }, { at: now, ev: 'vote', pct: pct(C[k]), n: C[k].yes, of: C[k].of }); return; }
-            const ev = passed.has(k) ? 'pass' : expired.has(k) ? 'expire' : (hint && hint.withdrawn === k) ? 'withdraw' : 'close';
-            put(rkTribeLogId(k, b.at), { ...who(k, b), yes: b.yes, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of), status: { pass: 'passed', expire: 'expired', withdraw: 'withdrawn', close: 'closed' }[ev], endedAt: now }, { at: now, ev, pct: pct(b), n: b.yes, of: b.of });
+            if (C[k] && C[k].at === b.at) { if (C[k].yes !== b.yes || (C[k].no || 0) !== (b.no || 0) || C[k].of !== b.of) put(rkTribeLogId(k, b.at), { ...who(k, b), status: 'open', yes: C[k].yes, no: C[k].no || 0, of: C[k].of, pct: pct(C[k]), need: rkTribeNeeded(C[k].of) }, { at: now, ev: 'vote', pct: pct(C[k]), n: C[k].yes, no: C[k].no || 0, of: C[k].of }); return; }
+            const ev = passed.has(k) ? 'pass' : expired.has(k) ? 'expire' : downed.has(k) ? 'reject' : (hint && hint.withdrawn === k) ? 'withdraw' : 'close';
+            put(rkTribeLogId(k, b.at), { ...who(k, b), yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of), status: { pass: 'passed', expire: 'expired', reject: 'rejected', withdraw: 'withdrawn', close: 'closed' }[ev], endedAt: now }, { at: now, ev, pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
         });
         (st.served || []).forEach(s => { if (s.log) put(s.log, { doneAt: now }, { at: now, ev: s.ev || (s.lifted ? 'lifted' : 'served') }); });
         Object.keys(acc).slice(0, 12).forEach(id => {
@@ -2120,7 +2156,7 @@ const rkTribeAfter = (tribeId, t0, st, skipUid) => {
             const r = st.restrictions[v.target]; if (!r) return;
             const firstAppeal = r.start + (r.until - r.start) / 4;
             rkTribeNotify(tribeId, t0, [v.target], null, v.type === 'mute'
-                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read and vote, not post. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
+                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post or vote. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
                 : '⏳ You are in a time-out in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat but not take part. You can appeal from ' + rkTribeWhen(firstAppeal) + '.', 'appeal');
             rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', (v.type === 'mute' ? '🔇 @' + (v.targetName || 'A member') + ' was muted for ' : '⏳ @' + (v.targetName || 'A member') + ' was given a time-out of ') + rkDurTxt(r.dur) + ' in "' + nm + '", by a member vote.', 'card');
             return;
@@ -2143,12 +2179,50 @@ const rkTribeAfter = (tribeId, t0, st, skipUid) => {
         const nx = r ? rkTribeAppeal(r).nextAt : null;
         rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ Your appeal in "' + nm + '" did not pass in time. ' + (nx ? 'You can appeal again from ' + rkTribeWhen(nx) + '.' : r ? 'There are no appeals left; it ends ' + rkTribeWhen(r.until) + '.' : ''), 'appeal');
     });
+    // V88.84.150.322: a vote voted down (more than a third of its voters said no, so it couldn't pass). The member
+    // who called it and the member it was about are told personally; everyone else hears it as a vote result.
+    (st.rejected || []).forEach(k => {
+        const v = rkTribeVotesOf(t0)[k]; if (!v) return;
+        const lbl = rkTribeVoteLabel(v);
+        if (v.type === 'repeal') {
+            const r = st.restrictions[v.target];
+            const nx = r ? rkTribeAppeal(r).nextAt : null;
+            rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ Your appeal in "' + nm + '" was voted down: more than a third of the members said no. ' + (nx ? 'You can appeal again from ' + rkTribeWhen(nx) + '.' : r ? 'There are no appeals left; it ends ' + rkTribeWhen(r.until) + '.' : ''), 'appeal');
+        } else {
+            if (v.target && RK_TRIBE_ABOUT.includes(v.type)) rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ The vote to ' + (v.type === 'kick' ? 'remove you from' : v.type === 'mute' ? 'mute you in' : 'give you a time-out in') + ' "' + nm + '" was voted down.', 'card');
+            if (v.by && v.by !== v.target) rkTribeNotify(tribeId, t0, [v.by], null, '🗳️ Your vote in "' + nm + '" was voted down: ' + lbl + '. More than a third of the members said no, so it can\'t pass.', 'card');
+        }
+        rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.by, v.target), 'vote', '🗳️ Voted down in "' + nm + '": ' + lbl + '.', 'card');
+    });
+    (st.rejectedAdmits || []).forEach(a => {
+        rkTribeNotify(tribeId, t0, [a.uid], null, a.asked ? '🗳️ Your request to join "' + nm + '" wasn\'t accepted this time.' : '🗳️ The vote on adding you to the "' + nm + '" Vibe Tribe didn\'t pass.', 'find');
+        if (a.by) rkTribeNotify(tribeId, t0, [a.by], null, '🗳️ The vote to add @' + a.name + ' to "' + nm + '" was voted down.', 'card');
+        rkTribeNotify(tribeId, t0, others(st.members, skipUid, a.by), 'vote', '🗳️ Voted down in "' + nm + '": adding @' + a.name + '.', 'card');
+    });
     if ((st.applied || []).some(v => v.type === 'purge')) rkTribePurgeMessages(tribeId, st.purgedAt);
 };
-// Refuses actions from a member in a time-out. (The app hides the buttons; this is the backstop.)
+// V88.84.150.322: after a raver answers a vote, yes or no: their count of votes goes up by one the first time
+// they answer it (Civic Raver, Tribe Council), and their notifications about it are marked read, because it
+// isn't waiting for them any more.
+const rkTribeVoted = (uid, tribeId, key, fresh) => {
+    if (!uid || !tribeId) return;
+    if (fresh) { try { updateDoc(doc(db, 'artifacts', appId, 'users', uid), { tribeVotesCast: increment(1) }).catch(e => rkReport('tribe vote count', e)); } catch (e) {} }
+    if (!key) return;
+    const refs = [tribeId + '#vote:' + key];
+    if (key.indexOf('admit:') === 0) refs.push(tribeId + '#vote:join:' + key.slice(6));
+    refs.forEach(ref => {
+        try {
+            getDocs(query(collection(db, 'artifacts', appId, 'users', uid, 'notifications'), where('refId', '==', ref)))
+                .then(s => s.docs.forEach(d => { if (!d.data().read) updateDoc(d.ref, { read: true }).catch(() => {}); }))
+                .catch(() => {});
+        } catch (e) {}
+    });
+};
+// Refuses votes, calls and invites from a member who is muted or in a time-out. (The app hides the buttons;
+// this is the backstop.) V88.84.150.322: a mute too.
 const rkTribeNotTimedOut = (t, uid, now) => {
     const r = rkTribeRestriction(t, uid, now);
-    if (r && r.type === 'timeout') throw new Error('You are in a time-out until ' + rkTribeWhen(r.until) + '. You can read, but not vote, call votes or invite.');
+    if (r) throw new Error((r.type === 'timeout' ? 'You are in a time-out' : 'You are muted') + ' until ' + rkTribeWhen(r.until) + '. You can read the chat, but not vote, call votes or invite.');
 };
 export const createTribe = async (creatorUid, creatorName, tribeName, status) => {
     if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
@@ -2199,8 +2273,10 @@ export const proposeToTribe = async (tribeId, candidateUid, candidateName, propo
         rkTribeNotify(tribeId, out.t, [candidateUid], null, out.asked
             ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join.'
             : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now.', 'find');
-        rkTribeNotify(tribeId, out.t, (out.t.members || []).filter(m => m !== proposerUid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote.', 'vote:' + key);
+        // V88.84.150.322: only the members who can vote on it (not anyone muted or in a time-out).
+        rkTribeNotify(tribeId, out.t, rkTribeVoters(out.t.members, { type: 'admit' }, out.t.restrictions, Date.now()).filter(m => m !== proposerUid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote yes or no.', 'vote:' + key);
     }
+    rkTribeVoted(proposerUid, tribeId, key, true);
     return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.approved ? out.needed : 1, key };
 };
 // Cast a vote; once 2/3 of the current members have said yes, the candidate joins the group chat.
@@ -2215,17 +2291,51 @@ export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
         if ((t.members || []).includes(candidateUid)) return { done: true };
         const e = (t.pendingVotes || {})[candidateUid];
         if (!e) throw new Error('No pending vote for this raver');
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...e, votes: [...(e.votes || []), voterUid] } };
+        const fresh = !(e.votes || []).includes(voterUid) && !(e.no || []).includes(voterUid);
+        // V88.84.150.322: a yes replaces a no from the same member.
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...e, votes: Array.from(new Set([...(e.votes || []), voterUid])), no: (e.no || []).filter(u => u !== voterUid) } };
         const t1 = { ...t, pendingVotes: pending };
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, approved: st.admitted.some(a => a.uid === candidateUid) };
+        return { t, st, fresh, approved: st.admitted.some(a => a.uid === candidateUid) };
     });
     if (out.done) return 'approved';
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, voterUid);
+    rkTribeVoted(voterUid, tribeId, 'admit:' + candidateUid, out.fresh);
     return out.approved ? 'approved' : 'voted';
+};
+// V88.84.150.322: VOTE NO on adding someone: a vote that's running, or a join request nobody has voted on yet
+// (the no then starts the vote). A no replaces a yes from the same member. Returns 'rejected' when this no
+// means it can't pass, 'voted', or 'closed' when they're already in.
+export const voteNoTribeMember = async (tribeId, candidateUid, candidateName, uid) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await rkTribeTx(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data(), now = Date.now();
+        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
+        rkTribeNotTimedOut(t, uid, now);
+        if ((t.members || []).includes(candidateUid)) return { done: true };
+        const e = (t.pendingVotes || {})[candidateUid];
+        const req = (t.joinRequests || {})[candidateUid];
+        if (!e && !req) throw new Error('This vote has already closed.');
+        const base = e || { name: String(candidateName || (req && req.name) || 'Raver').slice(0, 40), votes: [], at: now, asked: true };
+        const fresh = !(base.votes || []).includes(uid) && !(base.no || []).includes(uid);
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...base, votes: (base.votes || []).filter(u => u !== uid), no: Array.from(new Set([...(base.no || []), uid])) } };
+        const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
+        const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
+        const st = rkTribeSettle(t1, now);
+        tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        return { t, st, fresh };
+    });
+    if (out.done) return 'closed';
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, uid);
+    rkTribeVoted(uid, tribeId, 'admit:' + candidateUid, out.fresh);
+    return out.st.rejectedAdmits.some(a => a.uid === candidateUid) ? 'rejected' : 'voted';
 };
 // Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the
 // last member out removes the tribe. A member in a time-out may still leave.
@@ -2262,7 +2372,7 @@ export const settleTribe = async (tribeId, byUid) => {
         const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(byUid)) return null;
         const st = rkTribeSettle(t, now);
-        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length) return null;
+        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length) return null;
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t, st, now, {});
         return { t, st };
@@ -2325,8 +2435,9 @@ export const proposeTribeVote = async (tribeId, spec, uid, myName) => {
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     const passed = out.st.applied.some(a => rkTribeVoteKey(a) === out.key);
     rkTribeAfter(tribeId, out.t, out.st, uid);
+    rkTribeVoted(uid, tribeId, out.key, true);
     if (!passed) {
-        rkTribeNotify(tribeId, out.t, out.voters.filter(m => m !== uid), 'vote', '🗳️ @' + out.v.byName + ' called a vote in "' + (out.t.name || 'your tribe') + '": ' + rkTribeVoteLabel(out.v) + '. Tap to vote; ' + out.need + ' of ' + out.voters.length + ' needed.', 'vote:' + out.key);
+        rkTribeNotify(tribeId, out.t, out.voters.filter(m => m !== uid), 'vote', '🗳️ @' + out.v.byName + ' called a vote in "' + (out.t.name || 'your tribe') + '": ' + rkTribeVoteLabel(out.v) + '. Tap to vote yes or no; ' + out.need + ' of ' + out.voters.length + ' needed.', 'vote:' + out.key);
         // V86.78.150.314: the member a vote is about hears about it too, and can watch it.
         if (out.v.target && RK_TRIBE_ABOUT.includes(out.v.type)) rkTribeNotify(tribeId, out.t, [out.v.target], null, '🗳️ Members of "' + (out.t.name || 'your tribe') + '" are voting to ' + (out.v.type === 'kick' ? 'remove you' : out.v.type === 'mute' ? 'mute you for ' + rkDurTxt(out.v.dur) : 'give you a time-out of ' + rkDurTxt(out.v.dur)) + '.', 'vote:' + out.key);
     }
@@ -2344,15 +2455,45 @@ export const voteTribeVote = async (tribeId, key, uid) => {
         const v = all[key];
         if (!v) throw new Error('This vote has already closed.');
         if (v.target === uid && RK_TRIBE_ABOUT.includes(v.type)) throw new Error("This vote is about you, so you don't vote on it.");
-        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: [...(v.yes || []), uid] } }, statusVote: null };
+        const fresh = !(v.yes || []).includes(uid) && !(v.no || []).includes(uid);
+        // V88.84.150.322: a yes replaces a no from the same member.
+        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: Array.from(new Set([...(v.yes || []), uid])), no: (v.no || []).filter(u => u !== uid) } }, statusVote: null };
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st };
+        return { t, st, fresh };
     });
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, uid);
+    rkTribeVoted(uid, tribeId, key, out.fresh);
     return out.st.applied.some(a => rkTribeVoteKey(a) === key) ? 'passed' : 'voted';
+};
+// V88.84.150.322: VOTE NO on a vote that's running. A no replaces a yes from the same member; the member who
+// called the vote withdraws it instead. Returns 'rejected' when this no means it can't pass, else 'voted'.
+export const voteNoTribeVote = async (tribeId, key, uid) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await rkTribeTx(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data(), now = Date.now();
+        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
+        rkTribeNotTimedOut(t, uid, now);
+        const all = rkTribeVotesOf(t);
+        const v = all[key];
+        if (!v) throw new Error('This vote has already closed.');
+        if (v.target === uid && RK_TRIBE_ABOUT.includes(v.type)) throw new Error("This vote is about you, so you don't vote on it.");
+        if (v.by === uid) throw new Error('You called this vote. To stop it, withdraw it.');
+        const fresh = !(v.yes || []).includes(uid) && !(v.no || []).includes(uid);
+        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: (v.yes || []).filter(u => u !== uid), no: Array.from(new Set([...(v.no || []), uid])) } }, statusVote: null };
+        const st = rkTribeSettle(t1, now);
+        tx.update(ref, rkTribePatch(st));
+        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
+        return { t, st, fresh };
+    });
+    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    rkTribeAfter(tribeId, out.t, out.st, uid);
+    rkTribeVoted(uid, tribeId, key, out.fresh);
+    return out.st.rejected.includes(key) ? 'rejected' : 'voted';
 };
 // Only the member who called a vote can withdraw it.
 export const withdrawTribeVote = async (tribeId, key, uid) => {
@@ -2417,7 +2558,51 @@ export const appealTribeRestriction = async (tribeId, uid, myName, statement) =>
 export const requestToJoinTribe = async (tribe, uid, name) => {
     const nm = String(name || 'Raver').slice(0, 40);
     await updateDoc(rkTribeRef(tribe.id), { ['joinRequests.' + uid]: { name: nm, at: Date.now() } });
-    rkTribeNotify(tribe.id, tribe, (tribe.members || []).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Tap to vote.', 'vote:join:' + uid);
+    // V88.84.150.322: only the members who can vote on it.
+    rkTribeNotify(tribe.id, tribe, rkTribeVoters(tribe.members, { type: 'admit' }, tribe.restrictions, Date.now()).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Tap to vote yes or no.', 'vote:join:' + uid);
+};
+// V88.84.150.322: THE VOTES WAITING ON A RAVER, and the daily nudge about them (Milli, at 322: "If users select
+// no, they are no longer notified of a vote awaiting"). Waiting means: they can vote on it, they haven't said
+// yes or no, and it has been open at least 12 hours. A tribe whose vote notices they muted sends no nudge.
+const RK_VOTE_NUDGE_MS = 24 * 3600000, RK_VOTE_NUDGE_AGE = 12 * 3600000;
+const rkTribeAwaiting = (t, uid, now, minAge) => {
+    const at = now || Date.now(), age = minAge === undefined ? RK_VOTE_NUDGE_AGE : minAge;
+    const st = rkTribeSettle(t, at), rs = st.restrictions, out = [];
+    if (!st.members.includes(uid) || (rs[uid] && Number(rs[uid].until) > at)) return out;
+    const admitEl = rkTribeVoters(st.members, { type: 'admit' }, rs, at);
+    Object.entries(st.pending).forEach(([cid, e]) => {
+        if (!admitEl.includes(uid) || (e.votes || []).includes(uid) || (e.no || []).includes(uid)) return;
+        if (at - (Number(e.at) || 0) >= age) out.push({ key: 'admit:' + cid, label: 'Add @' + (e.name || 'Raver') + ' to the tribe', at: Number(e.at) || 0 });
+    });
+    Object.entries(st.requests).forEach(([cid, e]) => {
+        if (st.pending[cid] || !admitEl.includes(uid)) return;
+        if (at - (Number(e && e.at) || 0) >= age) out.push({ key: 'join:' + cid, label: '@' + ((e && e.name) || 'Raver') + ' asked to join', at: Number(e && e.at) || 0 });
+    });
+    Object.entries(st.votes).forEach(([key, v]) => {
+        if (!rkTribeVoters(st.members, v, rs, at).includes(uid) || (v.yes || []).includes(uid) || (v.no || []).includes(uid)) return;
+        if (at - (Number(v.at) || 0) >= age) out.push({ key, label: rkTribeVoteLabel(v), at: Number(v.at) || 0 });
+    });
+    return out;
+};
+const rkVoteNudge = async (uid) => {
+    if (!uid) return null;
+    const k = 'rk_vote_nudge_' + uid;
+    try { const last = Number(localStorage.getItem(k) || 0); if (last && Date.now() - last < RK_VOTE_NUDGE_MS) return null; } catch (e) {}
+    const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('members', 'array-contains', uid)));
+    const now = Date.now(), waiting = [];
+    snap.docs.forEach(d => {
+        const t = { ...d.data(), id: d.id };
+        if (((t.mutes || {})[uid] || {}).vote) return;
+        rkTribeAwaiting(t, uid, now).forEach(w => waiting.push({ ...w, tribeId: t.id, tribeName: t.name || 'your tribe' }));
+    });
+    try { localStorage.setItem(k, String(now)); } catch (e) {}
+    if (!waiting.length) return 0;
+    waiting.sort((a, b) => a.at - b.at);
+    const w = waiting[0];
+    await pushNotif(uid, 'tribe', waiting.length === 1
+        ? '🗳️ A vote in "' + w.tribeName + '" is waiting for you: ' + w.label + '. Tap to vote yes or no.'
+        : '🗳️ ' + waiting.length + ' tribe votes are waiting for you, starting in "' + w.tribeName + '": ' + w.label + '. Tap to vote yes or no.', w.tribeId + '#vote:' + w.key);
+    return waiting.length;
 };
 export const withdrawTribeRequest = async (tribeId, uid) => {
     await updateDoc(rkTribeRef(tribeId), { ['joinRequests.' + uid]: deleteField() });
@@ -2502,6 +2687,8 @@ const rkNotifDest = (n) => {
         case 'tribe': { const parts = ref.split('#'); return { to: 'tribe', tribeId: parts[0] || '', focus: parts[1] || (parts[0] ? 'card' : '') }; }
         case 'trade': return ref ? { to: 'item', id: ref.split('#')[0], trade: true } : { to: 'none' };
         case 'comment': case 'like': case 'cart': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'market' };
+        // V88.84.150.322: a festival meetup (a friend, or someone going on your days) opens their post
+        case 'event': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'market' };
         case 'sold': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'orders' };
         case 'diy': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'diy' };
         case 'queue': case 'creator': return { to: 'place', key: 'creatorhub' };
@@ -3144,7 +3331,10 @@ const getDisplayAchievements = (profile) => {
         // were missing from this list, so `stats[metric]` was undefined and they could never
         // unlock, although the counters themselves have been written since V63.19.
         musicPlays: profile?.musicPlays||0, musicDownloads: profile?.musicDownloads||0,
-        contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0
+        contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0,
+        // V88.84.150.322: tribe votes answered, festivals dated, network reach and tracks played
+        tribeVotesCast: profile?.tribeVotesCast||0, festivalsDated: profile?.festivalsDated||0,
+        networkReach: profile?.networkReach||0, tracksPlayed: profile?.tracksPlayed||0
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -3253,6 +3443,8 @@ const rkSyncTradeTribeStats = async (uid, profile) => {
     let biggest = 0;
     tribes.forEach(d => { const t = d.data(); biggest = Math.max(biggest, Number(t.memberCount) || (t.members || []).length); });
     hi('tribesJoined', tribes.size); hi('biggestTribe', biggest);
+    // V88.84.150.322: network reach (Friend of a Friend, Six Degrees): the ravers your friends connect you to
+    try { const mine = await rkLoadFriends((profile?.friends || []).slice(0, 120)); hi('networkReach', rkFriendsOfFriends(mine, uid, profile?.friends || []).filter(e => !e.friend).length); } catch (e) { rkReport('network reach', e); }
     if (Object.keys(upd).length) await setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true });
     try { localStorage.setItem(key, String(Date.now())); } catch (e) {}
 };
@@ -3964,6 +4156,28 @@ const rkCloseAllOverlays = () => {
     let n = 0;
     while (rkOverlays.length > 0 && n < 50) { const top = rkOverlays[rkOverlays.length - 1]; rkOverlayDrop(top); try { top.close(); } catch (e) {} n++; }
     return n;
+};
+// V88.84.150.322: every open window, including the few drawn outside the back stack (App listens for
+// 'rk:close-windows' and closes the messenger and a raver's profile page; the radio keeps playing).
+const rkCloseWindows = () => {
+    const n = rkCloseAllOverlays();
+    try { window.dispatchEvent(new CustomEvent('rk:close-windows')); } catch (e) {}
+    return n;
+};
+// Is this control inside a window (anything fixed on screen) rather than on the page or in the header?
+const rkInWindow = (el) => {
+    for (let e = el && el.parentElement; e && e !== document.body; e = e.parentElement) {
+        try { if (getComputedStyle(e).position === 'fixed') return true; } catch (x) {}
+    }
+    return false;
+};
+// Lifts the top bar (data-rk-lift) above every window while the tour points into it. Returns the undo.
+const rkTourLift = (el) => {
+    const bar = el && el.closest ? el.closest('[data-rk-lift]') : null;
+    if (!bar) return null;
+    const prev = bar.style.zIndex;
+    bar.style.zIndex = '1990';
+    return () => { bar.style.zIndex = prev; };
 };
 // Is anything other than the tour itself drawn over the middle of this element?
 const rkTourCovered = (el) => {
@@ -8038,6 +8252,73 @@ function rkEmGeneric() {
     E(rkEmRound(rkEmStarPts(50, 43, 17, 8, 8, 0), 1), '#ffffff', 0, 0, 0.8, 'd')] };
 }
 
+// V88.84.150.322: the emblems for 322's achievements.
+// Civic Raver / Tribe Council: a ballot going into the box with a tick; the council adds a no and a ring of votes
+function rkEmBallot(t) {
+  var N = '#7ff0ff', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), w: rkEmLin(['#ffffff', p.l]) };
+  if (t === 2) e.push(E(rkEmCirc(50, 52, 45), 0, p.m, 1, 0.5, 'd'), rkEmDots(50, 52, 45, 12, 4.2, N, 1, 'd'));
+  var paper = rkEmRound(rkEmRot([[37, 12], [63, 12], [63, 50], [37, 50]], 50, 31, t === 1 ? -6 : 6), 2.5);
+  e.push(E(paper, 0, 0, 4, 1, 'o'), E(paper, 'w', N, 1.8, 1, 'b'));
+  e.push(E(t === 1 ? 'M42 31L48 37L59 23' : 'M42 29L48 35L59 21', 0, '#2bd67b', 3.4, 1, 'd'));
+  var box = rkEmRound([[20, 48], [80, 48], [75, 88], [25, 88]], 4);
+  e.push(E(box, 0, 0, 5, 1, 'o'), E(box, 'a', N, 2.6, 1, 'b'), E('M33 48H67', 0, p.d, 4, 1, 'd'));
+  if (t === 2) e.push(E('M44 61L56 73M56 61L44 73', 0, '#ff6b8b', 3, 1, 'd'));
+  e.push(E(rkEmSpark(t === 1 ? 71 : 73, 18, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// Festival Planner / Season Pass: a big-top tent beside a calendar page; the pass hangs pennants over it
+function rkEmFest(t) {
+  var N = '#ff9df0', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', top = t === 1 ? 20 : 30;
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin(['#ffd36e', '#ff8a5c']), c: rkEmLin(['#ffffff', p.l]) };
+  if (t === 2) {
+    for (i = 0; i < 7; i++) { var x = 13 + i * 11.5; s += rkEmPath([[x, 17 + (i % 2) * 2], [x + 9.5, 17 + ((i + 1) % 2) * 2], [x + 4.75, 27]]); }
+    e.push(E('M9 15Q50 29 91 15', 0, p.m, 1.6, 1, 'd'), E(s, 'b', 0, 0, 1, 'd'));
+  }
+  var tent = rkEmRound([[46, top], [80, 80], [12, 80]], 3);
+  e.push(E(tent, 0, 0, 5, 1, 'o'), E(tent, 'a', N, 2.6, 1, 'b'));
+  e.push(E('M46 ' + top + 'L34 80M46 ' + top + 'L58 80', 0, p.d, 2, 0.8, 'd'), E(rkEmRound([[39, 80], [53, 80], [46, 62]], 1.5), p.d, 0, 0, 1, 'd'));
+  var cal = rkEmRound([[60, 52], [90, 52], [90, 88], [60, 88]], 3);
+  e.push(E(cal, 0, 0, 4, 1, 'o'), E(cal, 'c', '#ffffff', 1.6, 1, 'b'), E('M60 60.5H90', 0, '#ff6ec7', 5, 1, 'd'));
+  e.push(E('M66 69h2.5M74 69h2.5M82 69h2.5M66 77h2.5M74 77h2.5', 0, p.d, 2.4, 1, 'd'), E(rkEmCirc(83.2, 77, 3.6), 0, '#ff6ec7', 1.6, 1, 'd'));
+  e.push(E(rkEmSpark(t === 1 ? 22 : 82, t === 1 ? 26 : 40, 4), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// Friend of a Friend / Six Degrees: you at the centre, your friends round you, and theirs in a wider web
+function rkEmWeb(t) {
+  var N = '#a8ff5c', p = rkEmPal(N), E = rkEmE, e = [], i, s = '', inner = [], outer = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmRad(['#2c4a10', '#16290a'], [0.5, 0.45, 0.6]) };
+  e.push(E(rkEmCirc(50, 50, 43), 'b', N, 2.6, 1, 'b'));
+  var k = t === 1 ? 3 : 6;
+  for (i = 0; i < k; i++) inner.push(rkEmPol(50, 50, t === 1 ? 20 : 17, i * 360 / k));
+  if (t === 1) { for (i = 0; i < 3; i++) outer.push(rkEmPol(50, 50, 34, i * 120 + 60)); }
+  else { for (i = 0; i < 12; i++) outer.push(rkEmPol(50, 50, 33, i * 30 + 15)); }
+  for (i = 0; i < inner.length; i++) s += 'M50 50L' + rkEmXY(inner[i]) + 'M' + rkEmXY(inner[i]) + 'L' + rkEmXY(inner[(i + 1) % inner.length]);
+  for (i = 0; i < outer.length; i++) {
+    if (t === 1) s += 'M' + rkEmXY(inner[i]) + 'L' + rkEmXY(outer[i]) + 'M' + rkEmXY(inner[(i + 1) % 3]) + 'L' + rkEmXY(outer[i]);
+    else s += 'M' + rkEmXY(inner[Math.floor(i / 2) % inner.length]) + 'L' + rkEmXY(outer[i]);
+  }
+  if (t === 2) for (i = 0; i < outer.length; i++) s += 'M' + rkEmXY(outer[i]) + 'L' + rkEmXY(outer[(i + 1) % outer.length]);
+  e.push(E(s, 0, p.m, 1.6, 0.9, 'd'));
+  for (i = 0; i < outer.length; i++) e.push(E(rkEmCirc(outer[i][0], outer[i][1], t === 1 ? 4 : 3.2), p.l, N, 1, 1, 'd'));
+  for (i = 0; i < inner.length; i++) e.push(E(rkEmCirc(inner[i][0], inner[i][1], 5), 'a', N, 1.4, 1, 'd'));
+  e.push(E(rkEmCirc(50, 50, 7), '#ffffff', N, 2, 1, 'd'), E(rkEmSpark(50, 50, 3.4), N, 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// Crate Digger / Selector: records standing in a crate; the selector adds headphones over them
+function rkEmCrate(t) {
+  var N = '#ffb35c', p = rkEmPal(N), E = rkEmE, e = [], i, lip = t === 1 ? 54 : 60;
+  var g = { a: rkEmLin([p.l, p.m, N]), v: rkEmRad(['#3a3a4a', '#121218'], [0.5, 0.5, 0.6]), l: rkEmLin(['#ff6ec7', '#b464ff']) };
+  if (t === 2) e.push(E(rkEmArc(50, 52, 38, -78, 78), 0, N, 5, 1, 'b'), E(rkEmRound([[7, 46], [19, 46], [19, 68], [7, 68]], 4), 'a', N, 2, 1, 'b'), E(rkEmRound([[81, 46], [93, 46], [93, 68], [81, 68]], 4), 'a', N, 2, 1, 'b'));
+  for (i = 0; i < 3; i++) {
+    var cx = 34 + i * 16, cy = (t === 1 ? 44 : 50) - (i === 1 ? 4 : 0);
+    e.push(E(rkEmCirc(cx, cy, 15), 'v', N, 1.6, 1, 'b'), E(rkEmCirc(cx, cy, 5), 'l', 0, 0, 1, 'd'), E(rkEmArc(cx, cy, 10, 200, 300), 0, '#ffffff', 1, 0.5, 'h'));
+  }
+  var crate = rkEmRound([[20, lip], [80, lip], [80, 88], [20, 88]], 3);
+  e.push(E(crate, 0, 0, 5, 1, 'o'), E(crate, 'a', N, 2.6, 1, 'b'), E('M20 ' + (lip + 11) + 'H80M36 ' + lip + 'V88M64 ' + lip + 'V88', 0, p.d, 2, 0.7, 'd'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -8061,7 +8342,9 @@ function rkEmSpec() {
     ['views_1k', rkEmEye, 1, 2], ['views_10k', rkEmEye, 2, 3], ['views_100k', rkEmEye, 3, 4], ['views_1m', rkEmEye, 4, 5],
     ['links_10', rkEmChain, 1, 2], ['links_50', rkEmChain, 2, 3], ['links_250', rkEmChain, 3, 4], ['links_1000', rkEmChain, 4, 5],
     ['ach_5', rkEmStars, 1, 1], ['ach_15', rkEmStars, 2, 3], ['contact_full', rkEmPhone, 1, 1], ['notif_all', rkEmBell, 1, 1],
-    ['rate_beyond', rkEmBeyond, 1, 5]], t = {};
+    ['rate_beyond', rkEmBeyond, 1, 5],
+    ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
+    ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -9250,6 +9533,10 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
         })();
         return () => { alive = false; };
     }, [threads.map(t => t.id + ':' + (t.lastMessage || '')).join('|')]);
+    // V88.84.150.322: drawn from raw markup, so it joins the back stack by hand, the way ItemDetailModal
+    // does (above the early return, like every hook here). Back, and the tutorial clearing the stage,
+    // close it as its ✕ does. It used to stay open while back changed the page underneath.
+    useRkBackClose(isOpen, () => { setActiveThread(null); setActiveOtherUid(null); onClose(); });
 
     if (!isOpen) return null;
 
@@ -10171,6 +10458,12 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
                 {profile?.hideDIYFromOthers ? <CheckSquare size={16} className="text-lime-400"/> : <Square size={16} className="text-white/30"/>}
             </button>
             <p className="text-[10px] opacity-50 mt-1">When on, your custom DIY builds &amp; AI design concepts stay private — other ravers won't see them in your collection. Your listed items for sale always remain visible.</p>
+            {/* V88.84.150.322 (Milli: "add a setting to turn off this search function to hide yourself") */}
+            <button onClick={async () => { try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { hideMutuals: !profile?.hideMutuals }, { merge: true }); } catch (e) { alert('Could not save: ' + e.message); } }} role="checkbox" aria-checked={!profile?.hideMutuals} data-settings-mutuals="1" className="w-full flex justify-between items-center gap-3 bg-white/5 p-2 rounded border border-white/10 text-left mt-3">
+                <span className="text-sm font-bold text-white">🤝 Show me in mutual friends</span>
+                {!profile?.hideMutuals ? <CheckSquare size={18} className="text-lime-400 shrink-0"/> : <Square size={18} className="text-white shrink-0"/>}
+            </button>
+            <p className="text-xs text-white mt-1 mb-1">When on, ravers can see you as a friend they share with someone, and find you under 🤝 Most mutual friends in the Ravers feed. Turn it off to stay out of both.</p>
 
             {/* V65.35: account-wide default for My Stock. Changing this re-stamps every item that
                 has not been given its own setting — items you overrode individually are left alone,
@@ -10561,6 +10854,8 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
             }
             batch.update(buyerRef, { itemsBought: increment(toBuy.length), totalBoughtValue: increment(total) });
             await batch.commit();
+            // V88.84.150.322: the platform's sales total for the marquee (the rules allow it only to go up)
+            try { setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { salesTotal: increment(round2(total)) }, { merge: true }).catch(e => rkReport('sales total', e)); } catch (e) {}
             toBuy.forEach(it => { if (it.ownerId) pushNotif(it.ownerId, 'sold', '💰 "' + it.name + '" was purchased for $' + (it.price || 0).toFixed(2) + '!', it.originalId); });
             alert("Order Processed Successfully!");
             setSelectedIds([]);
@@ -10715,7 +11010,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     useEffect(() => {
         // V37.11: view counting moved to App.handleViewItem (unique per UID)
         if(item) {
-            setEditForm({ name: item.name, price: item.price, description: item.description, stockQty: item.stockQty });
+            setEditForm({ name: item.name, price: item.price, description: item.description, stockQty: item.stockQty, eventName: (rkEventOf(item) || {}).name || '', eventFrom: (rkEventOf(item) || {}).from || '', eventTo: (rkEventOf(item) || {}).to || '' });
             setReviews(item.reviews || []);
         }
     }, [isOpen, item, user]);
@@ -10776,8 +11071,13 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     };
 
     const handleUpdate = async () => {
+        // V88.84.150.322: the festival and its days are edited here too
+        const { eventName: evName, eventFrom: evFrom, eventTo: evTo, ...rest } = editForm;
+        const evf = rkEventFields(evName, evFrom, evTo, rkEventOf(item));
+        if (evf.error) return alert(evf.error);
         const batch = writeBatch(db);
-        const updates = { ...editForm, price: parseFloat(editForm.price), stockQty: parseInt(editForm.stockQty) };
+        const updates = { ...rest, ...evf.fields, price: parseFloat(rest.price), stockQty: parseInt(rest.stockQty) };
+        if (item.isForTrade) updates.tradeWants = { ...(item.tradeWants || {}), event: evf.fields.event ? evf.fields.event.name : '' };
         batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), updates);
         if(item.refId) batch.update(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', item.refId), updates);
         await batch.commit();
@@ -10889,6 +11189,10 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                     <Input label="Stock Qty" type="number" value={editForm.stockQty} onChange={v => setEditForm({...editForm, stockQty: v})} />
                 </div>
                 <Input type="textarea" label="Description" value={editForm.description} onChange={v => setEditForm({...editForm, description: v})} />
+                <div className="mb-3 bg-cyan-900/20 border border-cyan-500/40 rounded-lg p-2.5" data-edit-festival="1">
+                    <p className="text-xs font-black text-cyan-200 uppercase mb-2">🎪 Festival (optional)</p>
+                    <RkEventPicker name={editForm.eventName} from={editForm.eventFrom} to={editForm.eventTo} onChange={(v) => setEditForm({ ...editForm, eventName: v.name, eventFrom: v.from || '', eventTo: v.to || '' })}/>
+                </div>
                 <Button onClick={handleUpdate} color="lime" className="w-full">Save Changes</Button>
             </Modal>
         );
@@ -10904,6 +11208,16 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                     <div className="mt-2"><p className="text-[10px] font-bold text-purple-300 mb-1">🎬 Video</p><video src={v.fileUrl} controls preload="metadata" playsInline className="w-full max-h-72 rounded-lg border border-purple-500/40 bg-black"/></div>
                 ) : null; })()}
 
+                {/* V88.84.150.322 (queue item 9): the festival, and the days the poster will be there */}
+                {rkEventOf(item) && (() => { const e = rkEventOf(item), days = rkEventDays(e); return (
+                    <div className="bg-cyan-900/25 border border-cyan-400/50 rounded-lg p-3 flex items-center justify-between gap-2" data-item-festival="1">
+                        <div className="min-w-0">
+                            <p className="text-sm font-black text-white">🎪 {e.name}</p>
+                            <p className="text-xs text-white">{days ? (rkEventPast(e) ? 'Was there ' : 'There ') + days : 'Going (no dates given)'}{item.isForTrade ? '. Open to trading there.' : ''}</p>
+                        </div>
+                        <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: e.name })); } catch (x) {} if (onClose) onClose(); }} className="shrink-0 text-xs font-bold text-white bg-cyan-600/40 border border-cyan-300/60 rounded-full px-3 py-1.5">See who's going</button>
+                    </div>
+                ); })()}
                 {/* V63 PLUR Economy — trade entry point */}
                 {item.isForTrade && (
                     <div className="bg-gradient-to-r from-lime-900/30 to-cyan-900/30 border border-lime-500/40 rounded-lg p-3">
@@ -10911,7 +11225,6 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                             <div className="min-w-0">
                                 <p className="text-[11px] font-black text-lime-300 uppercase">🤝 Open to Trades</p>
                                 {(item.tradeWants?.categories?.length || item.tradeWants?.note) ? <p className="text-[10px] text-white/70 mt-0.5 truncate">Wants: {(item.tradeWants?.categories || []).join(', ')}{item.tradeWants?.note ? ' — ' + item.tradeWants.note : ''}</p> : <p className="text-[10px] text-white/50 mt-0.5">Open to any fair PLUR trade</p>}
-                                {item.tradeWants?.event && <p className="text-[10px] text-cyan-300 mt-0.5 font-bold">🎪 Meeting at: {item.tradeWants.event}</p>}
                             </div>
                             <Button onClick={() => setTradeOpen(true)} color="primary" className="text-[11px] py-2 px-3 whitespace-nowrap flex items-center gap-1">{isOwner ? 'View Offers' : '🤝 Offer Trade'}</Button>
                         </div>
@@ -12407,7 +12720,25 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     const inStock = (item.stockQty ?? (item.purchaseCount > 0 ? 0 : 1)) > 0;
     const canSeePrice = inStock || isOwner || isBuyer;
 
-    const toggleLike = async () => { if(!user?.uid) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id); if(liked) { await updateDoc(ref, { likes: arrayRemove(user.uid) }); } else { await updateDoc(ref, { likes: arrayUnion(user.uid) }); if (item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'like', (profile?.displayName || 'Someone') + ' liked "' + item.name + '"', item.id); } setLiked(!liked); };
+    // V88.84.150.322: the like and the post's likeCount (the Most liked sort) are written together, in a transaction.
+    // If the rules refuse likeCount (not yet deployed), the like alone is written, as before.
+    const toggleLike = async () => {
+        if(!user?.uid) return;
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id);
+        try {
+            await runTransaction(db, async (tx) => {
+                const snap = await tx.get(ref);
+                if (!snap.exists()) return;
+                const cur = Array.isArray(snap.data().likes) ? snap.data().likes : [];
+                const next = liked ? cur.filter(u => u !== user.uid) : Array.from(new Set([...cur, user.uid]));
+                tx.update(ref, { likes: next, likeCount: next.length });
+            });
+        } catch (e) {
+            if (liked) await updateDoc(ref, { likes: arrayRemove(user.uid) }); else await updateDoc(ref, { likes: arrayUnion(user.uid) });
+        }
+        if (!liked && item.ownerId && item.ownerId !== user.uid) pushNotif(item.ownerId, 'like', (profile?.displayName || 'Someone') + ' liked "' + item.name + '"', item.id);
+        setLiked(!liked);
+    };
     
     const handleShare = () => { setShowShare(true); try { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { shareCount: increment(1) }).catch(()=>{}); } catch (e) {} };
     
@@ -12470,6 +12801,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                             : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
                     </span>
                 </div>
+                <RkEventChip item={item} onPick={(nm) => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: nm })); } catch (e) {} }}/>
                 {item.description && (
                     <div className={`mt-1 ${item.description.length > 60 ? 'cursor-pointer' : ''}`} onClick={(e) => { if (item.description.length > 60) { e.stopPropagation(); setDescExpanded(!descExpanded); } }}>
                         <p className={`text-xs text-white/80 ${descExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>{item.description}</p>
@@ -12654,7 +12986,7 @@ const SellKandiForm = ({ user, profile }) => {
             e => rkReport('post brands', e));
     }, [profile?.accountType, user?.uid]);
     const [postHelp, setPostHelp] = useState(false);
-    const [form, setForm] = useState({ name: '', price: '', description: '', videoLink: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false, isForTrade: false, tradeCategories: [], tradeNote: '', tradeEvent: '', wantsToSell: false });
+    const [form, setForm] = useState({ name: '', price: '', description: '', videoLink: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false, isForTrade: false, tradeCategories: [], tradeNote: '', tradeEvent: '', eventFrom: '', eventTo: '', wantsToSell: false });
     const [mediaFiles, setMediaFiles] = useState([]);
     const [eventDropOpen, setEventDropOpen] = useState(false);
     const [loading, setLoading] = useState(false); const [uploadPercent, setUploadPercent] = useState(0);
@@ -12684,6 +13016,9 @@ const SellKandiForm = ({ user, profile }) => {
             if(!form.name || !form.price || !form.stockQty || mediaFiles.length === 0 || !user?.uid) return alert("Fill all required fields including Stock Qty and Media. (Tip: to list for trade only, enable \u201cOpen to Trades\u201d and leave the price blank.)");
             if(parseInt(form.stockQty) < 1) return alert("Stock Quantity must be at least 1.");
         }
+        // V88.84.150.322: the festival and its days, checked before anything uploads
+        const evf = rkEventFields(form.tradeEvent, form.eventFrom, form.eventTo, null);
+        if (evf.error) return alert(evf.error);
         setLoading(true); setUploadPercent(0);
         
         try { 
@@ -12697,7 +13032,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const item = { ...form, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
+            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const { eventFrom: _ef, eventTo: _et, ...formFields } = form; const item = { ...formFields, ...evf.fields, likeCount: 0, commentCount: 0, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
                 // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
                 // field does not match an equality query — a post without this would be invisible
                 // to everyone except its author.
@@ -12712,7 +13047,10 @@ const SellKandiForm = ({ user, profile }) => {
             batch.set(publicRef, item);
             const userColRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'inventory'));
             batch.set(userColRef, { ...item, refId: publicRef.id });
-            await batch.commit(); setIsOpen(false); 
+            await batch.commit(); setIsOpen(false);
+            // a post with festival days tells the poster's friends and the ravers going on the same days
+            if (evf.fields.eventFrom) rkFestivalNotify({ uid: user.uid, name: profile?.displayName || 'Raver', friends: profile?.friends || [] }, { ...item, id: publicRef.id }).catch(e => rkReport('festival notices', e));
+            setForm(f => ({ ...f, tradeEvent: '', eventFrom: '', eventTo: '' }));
         } catch(e) { alert("Error: " + e.message); } finally { setLoading(false); setUploadPercent(0); setMediaFiles([]); } 
     };
 
@@ -12782,27 +13120,14 @@ const SellKandiForm = ({ user, profile }) => {
                             })}
                         </div>
                         <input value={form.tradeNote} onChange={e => setForm({ ...form, tradeNote: e.target.value })} maxLength={200} placeholder="Optional: describe what you're hoping for (e.g. 'large cuffs or a pashmina')" className="w-full p-2 rounded bg-white/10 border border-white/25 text-[11px] focus:border-lime-500/60 outline-none"/>
-                        <div>
-                            <p className="text-[10px] font-bold text-cyan-300 uppercase mb-1 flex items-center gap-1">🎪 Meeting at an event? (optional)</p>
-                            <div className="relative">
-                                <div className="flex gap-1">
-                                    <input value={form.tradeEvent} onChange={e => { setForm({ ...form, tradeEvent: e.target.value }); setEventDropOpen(true); }} onFocus={() => setEventDropOpen(true)} maxLength={60} placeholder="Type or pick an event (e.g. 'EDC Las Vegas')" className="flex-1 p-2 rounded bg-white/10 border border-white/25 text-[11px] focus:border-cyan-500/60 outline-none"/>
-                                    <button type="button" onClick={() => setEventDropOpen(o => !o)} className="px-2 rounded bg-white/10 border border-white/25 text-cyan-300 text-xs">{eventDropOpen ? '▲' : '▼'}</button>
-                                </div>
-                                {eventDropOpen && (
-                                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-44 overflow-y-auto rk-scroll bg-[#160026] border border-cyan-500/40 rounded-lg shadow-xl">
-                                        {MAJOR_EVENTS.filter(ev => !form.tradeEvent || ev.toLowerCase().includes(form.tradeEvent.toLowerCase())).map(ev => (
-                                            <button key={ev} type="button" onClick={() => { setForm({ ...form, tradeEvent: ev }); setEventDropOpen(false); }} className="w-full text-left px-3 py-2 text-[11px] hover:bg-cyan-500/20 border-b border-white/5">{ev}</button>
-                                        ))}
-                                        {MAJOR_EVENTS.filter(ev => !form.tradeEvent || ev.toLowerCase().includes(form.tradeEvent.toLowerCase())).length === 0 && <p className="px-3 py-2 text-[10px] text-white/40">No match — your custom event "{form.tradeEvent}" will be used.</p>}
-                                        <button type="button" onClick={() => setEventDropOpen(false)} className="w-full text-center px-3 py-1.5 text-[10px] text-cyan-300 bg-cyan-900/20">Done</button>
-                                    </div>
-                                )}
-                            </div>
-                            <p className="text-[10px] opacity-50 mt-1">Tag an event to trade in person — others going to the same one can find you. Always meet in public, well-lit areas. 🌈</p>
-                        </div>
                     </div>
                 )}
+            </div>
+            {/* V88.84.150.322 (queue item 9): any post can name a festival and the days you'll be there. It was in the
+                trades box only, with no days. */}
+            <div className="mb-4 bg-gradient-to-r from-cyan-900/30 to-purple-900/30 p-3 rounded-lg border border-cyan-500/40" data-post-festival="1">
+                <p className="text-xs font-black text-cyan-200 uppercase mb-2">🎪 Going to a festival? (optional)</p>
+                <RkEventPicker name={form.tradeEvent} from={form.eventFrom} to={form.eventTo} onChange={(v) => setForm({ ...form, tradeEvent: v.name, eventFrom: v.from || '', eventTo: v.to || '' })}/>
             </div>
             {(() => {
                 // Trade-only = Open to Trades with no sale price intended. We hide price + bulk discount
@@ -13190,6 +13515,10 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     // V87.80.150.317: a tour the raver chose (the tutorial hub, Settings) offers Skip the rest from the
     // first step. The forced first run still unlocks it only at the UID step.
     const canSkip = skipUnlocked || !!replay;
+    // V88.84.150.322: the step whose own control has been tapped. A window that tap opens (Settings, from
+    // the UID step) is the point of the step, so the tour leaves it alone until the step changes.
+    const tappedRef = useRef(-1);
+    const lastRectRef = useRef('');
 
     // A requireTap step advances only when the spotlighted control is actually used. The cutout
     // already lets taps through — the four dark panels surround the hole rather than covering it —
@@ -13200,6 +13529,7 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
         const advance = () => {
             if (done) return;
             done = true;
+            tappedRef.current = step;
             if (cur.unlockSkip) setSkipUnlocked(true);
             // Let the app's own handler run and the screen settle before moving on.
             setTimeout(() => setStep(s => s + 1), 420);
@@ -13215,32 +13545,48 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     }, [active, step, cur]);
     useEffect(() => {
         if (!active) return;
+        tappedRef.current = -1;   // a new step: nothing tapped in it yet (Back to the UID step included)
         const measure = () => {
-            if (!cur || !cur.tut || cur.center) { setRect(null); return; }
+            if (!cur || !cur.tut || cur.center) { if (lastRectRef.current !== '') { lastRectRef.current = ''; setRect(null); } return; }
             const el = document.querySelector('[data-tut="' + cur.tut + '"]');
-            if (el) { const r = el.getBoundingClientRect(); setRect({ top: r.top, left: r.left, width: r.width, height: r.height }); }
-            else setRect(null);
+            const r = el ? el.getBoundingClientRect() : null;
+            const next = r ? { top: r.top, left: r.left, width: r.width, height: r.height } : null;
+            const key = next ? [next.top, next.left, next.width, next.height].map(Math.round).join(',') : '';
+            if (key === lastRectRef.current) return;
+            lastRectRef.current = key;
+            setRect(next);
         };
         // V65.20: bring the target into the middle of the screen before spotlighting it, so the
         // ring never lands off-screen. Smooth scroll needs time to settle, hence the re-measures.
         // V87.84.150.321 (Milli: step 6, the feed, "blacks out the buttons on the header, including the
         // 'feed' button. It only places a square around it", and the same on steps 7 to 11). A window
         // left open earlier sat over the header: Settings, which the UID step opens for anyone whose UID
-        // is already set, or the inbox or cart, opened by tapping through a step. The ring was drawn
-        // round a button under that window's shade. If anything covers the control, the open windows
-        // close first, so the control is seen and can be pressed.
-        const uncover = () => {
-            if (!cur || !cur.tut || cur.center) return false;
-            const el = document.querySelector('[data-tut="' + cur.tut + '"]');
-            if (!el || !rkTourCovered(el)) return false;
-            rkCloseAllOverlays();
+        // is already set, or the inbox or cart, opened by tapping through a step.
+        // V88.84.150.322 (Milli, at 322, with a screenshot from the A16: step 6 "is still blacked out").
+        // 321 closed the window when the step began and once more 320 ms in, if a hit-test found it over
+        // the button. On the phone Settings was still open over the Feed button: a fix that depends on
+        // timing and on one hit-test isn't a guarantee. Now three things, any one of which is enough:
+        //  1. A control in the top bar is lifted above every window for its step (rkTourLift: z-index
+        //     1990, under the tour's 2000), so nothing the app opens can be drawn over it.
+        //  2. When a spotlight step begins, every window still open is closed (rkCloseWindows), unless the
+        //     control itself is inside a window. No hit-test and no timing.
+        //  3. While the step shows, every 350 ms: anything drawn over the control is closed. A window the
+        //     step's own tap opened (Settings, from the UID step) is left alone.
+        const target = () => (cur && cur.tut && !cur.center) ? document.querySelector('[data-tut="' + cur.tut + '"]') : null;
+        const uncover = (atStart) => {
+            const el = target();
+            if (!el || tappedRef.current === step || rkInWindow(el)) return false;
+            if (!(atStart && rkOverlays.length > 0) && !rkTourCovered(el)) return false;
+            rkCloseWindows();
             return true;
         };
+        let unlift = null;
         const focusTarget = () => {
-            if (!cur || !cur.tut || cur.center) { setRect(null); return; }
-            const el = document.querySelector('[data-tut="' + cur.tut + '"]');
-            if (!el) { setRect(null); return; }
-            uncover();
+            if (!cur || !cur.tut || cur.center) { measure(); return; }
+            const el = target();
+            if (!el) { measure(); return; }
+            if (!unlift) unlift = rkTourLift(el);
+            uncover(true);
             const r = el.getBoundingClientRect();
             const off = r.top < 72 || r.bottom > window.innerHeight - 72;
             if (off) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} } }
@@ -13248,19 +13594,26 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
         };
         focusTarget();
         const ts = [60, 240, 480, 760].map(ms => setTimeout(measure, ms));
-        // and once more after the scroll settles, for a window that opened as the step changed
-        const tu = setTimeout(() => { if (uncover()) setTimeout(measure, 120); }, 320);
+        // the watch: a window that opens after the step began (a slow phone opening Settings late, say)
+        const watch = setInterval(() => {
+            const el = target();
+            if (el && !unlift) unlift = rkTourLift(el);
+            if (uncover(false)) setTimeout(measure, 120); else measure();
+        }, 350);
         window.addEventListener('resize', measure);
         window.addEventListener('scroll', measure, true);
-        return () => { ts.forEach(clearTimeout); clearTimeout(tu); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
+        return () => { ts.forEach(clearTimeout); clearInterval(watch); if (unlift) unlift(); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
     }, [active, step]);
     if (!active || !cur) return null;
     const last = step === STEPS.length - 1;
     // Declared here, above the pass-through early return that uses them. `const` is not hoisted,
     // so leaving these further down threw a ReferenceError the instant that step rendered.
-    const finish = () => { setStep(0); onFinish(); };
-    const next = () => { if (last) finish(); else setStep(step + 1); };
-    const back = () => { if (step > 0) setStep(step - 1); };
+    // V88.84.150.322: leaving the fill-it-in step closes what it opened (Settings, or the UID window),
+    // whichever way you leave it.
+    const leave = () => { if (cur.passthrough) rkCloseWindows(); };
+    const finish = () => { leave(); setStep(0); onFinish(); };
+    const next = () => { if (last) finish(); else { leave(); setStep(step + 1); } };
+    const back = () => { if (step > 0) { leave(); setStep(step - 1); } };
     // V65.41: a pass-through step draws no backdrop at all, so whatever the app just opened stays
     // fully usable underneath. Only the note itself accepts taps.
     if (cur.passthrough) {
@@ -16896,6 +17249,29 @@ const PinSelectModal = ({ user, profile, isOpen, onClose }) => {
 // doc fetched ONLY on play. Selling is display-only until payments go live (RK_CFG.paymentsLive);
 // "free" tracks can link out to Dropbox/Drive/SoundCloud for delivery TODAY at zero storage cost.
 // ================================================================================================
+// V88.84.150.322: a play or a download, counted on the track (plays, downloads, and popScore, the Music feed's
+// popularity) and on the artist (musicPlays, musicDownloads). A raver playing someone else's track counts it as
+// their own tracksPlayed (Crate Digger, Selector). A track from before 322 is given its whole score on its
+// first play, so the sum starts right.
+const rkTrackBump = (t, field, weight) => {
+    const patch = { [field]: increment(1), popScore: typeof t.popScore === 'number' ? increment(weight) : rkPopScore(t) + weight };
+    updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id), patch).catch(() => {});
+};
+const rkTrackPlayed = (t, viewerUid) => {
+    try {
+        rkTrackBump(t, 'plays', 1);
+        if (viewerUid && viewerUid !== t.ownerUid) {
+            updateDoc(doc(db, 'artifacts', appId, 'users', t.ownerUid), { musicPlays: increment(1) }).catch(() => {});
+            updateDoc(doc(db, 'artifacts', appId, 'users', viewerUid), { tracksPlayed: increment(1) }).catch(() => {});
+        }
+    } catch (e) {}
+};
+const rkTrackDownloaded = (t, viewerUid) => {
+    try {
+        rkTrackBump(t, 'downloads', 2);
+        if (viewerUid && viewerUid !== t.ownerUid) updateDoc(doc(db, 'artifacts', appId, 'users', t.ownerUid), { musicDownloads: increment(1) }).catch(() => {});
+    } catch (e) {}
+};
 const MusicTrackCard = ({ t, isOwner, onDelete, viewerUid }) => {
     const [playing, setPlaying] = useState(false);
     const [loadingSample, setLoadingSample] = useState(false);
@@ -16913,8 +17289,7 @@ const MusicTrackCard = ({ t, isOwner, onDelete, viewerUid }) => {
             const a = new Audio(data); audioRef.current = a;
             a.onended = () => setPlaying(false);
             await a.play(); setPlaying(true);
-            try { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id), { plays: increment(1) }); } catch (e) {}
-            try { if (viewerUid && viewerUid !== t.ownerUid) updateDoc(doc(db, 'artifacts', appId, 'users', t.ownerUid), { musicPlays: increment(1) }); } catch (e) {}
+            rkTrackPlayed(t, viewerUid);
         } catch (e) { alert('Could not play the sample: ' + (e.message || '')); }
         setLoadingSample(false);
     };
@@ -16927,7 +17302,7 @@ const MusicTrackCard = ({ t, isOwner, onDelete, viewerUid }) => {
                     : <span className="text-[10px] font-bold text-lime-200/70 bg-black/40 px-2 py-1 rounded" title="Purchases unlock when payment processing goes live.">💜 Sales launching soon</span>}
             </div>);
         if (t.saleMode === 'free' && t.fulfillLink) return (
-            <a href={t.fulfillLink} target="_blank" rel="noopener noreferrer" onClick={() => { try { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id), { downloads: increment(1) }); if (viewerUid && viewerUid !== t.ownerUid) updateDoc(doc(db, 'artifacts', appId, 'users', t.ownerUid), { musicDownloads: increment(1) }); } catch (e) {} }} className="flex items-center justify-center gap-1 mt-2 bg-cyan-500/20 border border-cyan-400/40 rounded-lg px-2 py-1.5 text-[11px] font-black text-cyan-200 hover:bg-cyan-500/30"><Download size={12}/> GET THE FULL TRACK</a>);
+            <a href={t.fulfillLink} target="_blank" rel="noopener noreferrer" onClick={() => rkTrackDownloaded(t, viewerUid)} className="flex items-center justify-center gap-1 mt-2 bg-cyan-500/20 border border-cyan-400/40 rounded-lg px-2 py-1.5 text-[11px] font-black text-cyan-200 hover:bg-cyan-500/30"><Download size={12}/> GET THE FULL TRACK</a>);
         return null;
     };
     return (
@@ -16955,7 +17330,7 @@ const MusicTrackCard = ({ t, isOwner, onDelete, viewerUid }) => {
             {parsed && parsed.ok && parsed.embedUrl && (
                 showEmbed
                     ? <div className={'mt-2 bg-black rounded overflow-hidden ' + (parsed.platform === 'soundcloud' ? 'h-[120px]' : (parsed.platform === 'reddit' || parsed.platform === 'twitter') ? 'h-[480px]' : 'aspect-video')}><iframe src={parsed.embedUrl} className="w-full h-full" frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen scrolling="no" title={t.title || 'track'}/></div>
-                    : <button onClick={() => { setShowEmbed(true); try { updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id), { plays: increment(1) }); if (viewerUid && viewerUid !== t.ownerUid) updateDoc(doc(db, 'artifacts', appId, 'users', t.ownerUid), { musicPlays: increment(1) }); } catch (e) {} }} className="w-full mt-2 flex items-center justify-center gap-1 rounded-lg py-2 text-[11px] font-black bg-white/10 border border-white/20 hover:bg-white/20 text-white">{parsed.platform === 'soundcloud' ? <><Volume size={12} color="currentColor"/> PLAY ON SOUNDCLOUD</> : parsed.platform === 'twitch' ? <><Twitch size={12}/> WATCH {t.isLive ? 'LIVE' : ''} STREAM</> : <><Youtube size={12}/> PLAY VIDEO</>}</button>)}
+                    : <button onClick={() => { setShowEmbed(true); rkTrackPlayed(t, viewerUid); }} className="w-full mt-2 flex items-center justify-center gap-1 rounded-lg py-2 text-[11px] font-black bg-white/10 border border-white/20 hover:bg-white/20 text-white">{parsed.platform === 'soundcloud' ? <><Volume size={12} color="currentColor"/> PLAY ON SOUNDCLOUD</> : parsed.platform === 'twitch' ? <><Twitch size={12}/> WATCH {t.isLive ? 'LIVE' : ''} STREAM</> : <><Youtube size={12}/> PLAY VIDEO</>}</button>)}
             {parsed && parsed.ok && !parsed.embedUrl && <a href={parsed.watchUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 text-center text-[10px] font-bold text-cyan-300 underline">Open track ↗</a>}
             {saleRow()}
         </div>
@@ -16963,9 +17338,11 @@ const MusicTrackCard = ({ t, isOwner, onDelete, viewerUid }) => {
 };
 
 // A music creator's player — lives on their profile under pinned items, and inside the Radio hub.
-const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle }) => {
-    const [tracks, setTracks] = useState([]);
-    const [adding, setAdding] = useState(false);
+// V88.84.150.322: the add-a-track form, shared by a Music Creator's profile block and the Music feed (Milli, at
+// 322: "allow music creators to post from the music feed only if they have the correct permissions"). Only
+// shown to a raver whose isMusicCreator is set, which only an admin can grant; the rules now refuse a track
+// from anyone else.
+const RkMusicAddForm = ({ owner, onDone, doneLabel }) => {
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState({ title: '', mode: 'link', link: '', saleMode: 'none', price: '', fulfillLink: '', isLive: false, genre: '', genreCustom: '', showStats: { genre: true, plays: true, downloads: false, sales: false } });
     const [sampleFile, setSampleFile] = useState(null);
@@ -17005,12 +17382,6 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
             a.onended = () => setPrevPlaying(false);
         } catch (e) { setPrevPlaying(false); }
     };
-    useEffect(() => {
-        if (!targ?.id) return;
-        const qy = query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), where('ownerUid', '==', targ.id));
-        const unsub = onSnapshot(qy, s => setTracks(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))), e => console.log('musicTracks', e));
-        return () => unsub();
-    }, [targ?.id]);
     const saveTrack = async () => {
         if (!form.title.trim()) return alert('Give the track a title.');
         if (form.mode === 'link') {
@@ -17024,7 +17395,7 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
             let sample = null;
             if (form.mode === 'sample') { stopPreview(); sample = await rkCompressAudioSample(sampleFile, sampleStart); }
             const tdoc = {
-                ownerUid: targ.id, ownerName: targ.displayName || 'Artist', ownerPhoto: targ.photoURL || '', publicUid: targ.publicUid || targ.id,
+                ownerUid: owner.id, ownerName: owner.displayName || 'Artist', ownerPhoto: owner.photoURL || '', publicUid: owner.publicUid || owner.id,
                 title: form.title.trim().slice(0, 80), link: form.mode === 'link' ? form.link.trim() : '',
                 hasSample: !!sample, sampleDur: sample ? sample.durSec : 0, sampleBytes: sample ? sample.bytes : 0,
                 saleMode: form.saleMode, price: form.saleMode === 'sale' ? parseFloat(form.price) : 0,
@@ -17032,38 +17403,18 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
                 isLive: form.mode === 'link' ? !!form.isLive : false,
                 genre: (form.genre === 'Custom…' ? (form.genreCustom || '').trim().slice(0, 24) : (form.genre || '')).trim(),
                 showStats: form.showStats || { genre: true, plays: true, downloads: false, sales: false },
-                plays: 0, downloads: 0, salesCount: 0, createdAt: Date.now()
+                plays: 0, downloads: 0, salesCount: 0, popScore: 0, createdAt: Date.now()
             };
             const refDoc = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), tdoc);
-            if (sample) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicSamples', refDoc.id), { ownerUid: targ.id, data: sample.dataUrl, bytes: sample.bytes, createdAt: Date.now() }); try { await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { musicSampleBytes: increment(sample.bytes), musicSampleCount: increment(1) }, { merge: true }); } catch (e) {} }
-            try { const gset = { linksAdded: increment(1) }; if (tdoc.genre) gset.musicGenres = arrayUnion(tdoc.genre); await updateDoc(doc(db, 'artifacts', appId, 'users', targ.id), gset); } catch (e) {}
-            setForm({ title: '', mode: 'link', link: '', saleMode: 'none', price: '', fulfillLink: '', isLive: false, genre: '', genreCustom: '', showStats: { genre: true, plays: true, downloads: false, sales: false } }); setSampleFile(null); setSampleMeta(null); setSampleStart(0); setAdding(false);
+            if (sample) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicSamples', refDoc.id), { ownerUid: owner.id, data: sample.dataUrl, bytes: sample.bytes, createdAt: Date.now() }); try { await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { musicSampleBytes: increment(sample.bytes), musicSampleCount: increment(1) }, { merge: true }); } catch (e) {} }
+            try { const gset = { linksAdded: increment(1) }; if (tdoc.genre) gset.musicGenres = arrayUnion(tdoc.genre); await updateDoc(doc(db, 'artifacts', appId, 'users', owner.id), gset); } catch (e) {}
+            setForm({ title: '', mode: 'link', link: '', saleMode: 'none', price: '', fulfillLink: '', isLive: false, genre: '', genreCustom: '', showStats: { genre: true, plays: true, downloads: false, sales: false } }); setSampleFile(null); setSampleMeta(null); setSampleStart(0); if (onDone) onDone(refDoc.id);
         } catch (e) { alert(e.message || 'Could not save the track.'); }
         setSaving(false);
     };
-    const delTrack = async (t) => {
-        if (!window.confirm('Delete this track?')) return;
-        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id)); if (t.hasSample) { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicSamples', t.id)); await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { musicSampleBytes: increment(-(t.sampleBytes || 0)), musicSampleCount: increment(-1) }, { merge: true }); } catch (e) {} } } catch (e) { alert(e.message); }
-    };
-    if (!isSelf && tracks.length === 0 && !dragHandle) return null;
+    if (!owner || !owner.id) return null;
     return (
-        <div data-tut="musicblock" className="mb-4 bg-black/50 border border-purple-500/40 p-2.5 rounded-lg" style={dragStyle || {}}>
-            <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm uppercase font-black text-purple-300 flex items-center gap-1.5"><Music size={16}/> Music{tracks.length > 0 ? ' · ' + tracks.length : ''}</h4>
-                <div className="flex items-center gap-1.5">
-                    {dragHandle && <button {...dragHandle} className="cursor-grab active:cursor-grabbing touch-none text-white/60 hover:text-white text-xs px-1.5 py-0.5 bg-white/10 rounded border border-white/20" title="Hold & drag to reorder your sections">⇕</button>}
-                    {isSelf && <button data-tut="addmusic" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Music'}</button>}
-                </div>
-            </div>
-            {/* V79: what they PLAY, stated by them. Distinct from `musicGenres`, which is derived
-                from the genres on their uploaded tracks and must stay an array built by
-                arrayUnion. A visitor could see somebody was a Music Creator and not whether that
-                meant hard techno or downtempo — which is most of what decides a tap-through. */}
-            <RkCreatorTags targ={targ} isSelf={isSelf} options={RK_MUSIC_STYLES}
-                field="musicStyleTags" tone="bg-purple-500/15 text-purple-200 border-purple-400/40"
-                emptySelf="Add your sound" emptyOther="Hasn't listed their sound yet."/>
-            {isSelf && adding && (
-                <div className="bg-black/40 border border-white/15 rounded-lg p-2 mb-2 space-y-2">
+        <div className="bg-black/40 border border-white/15 rounded-lg p-2 mb-2 space-y-2" data-music-form="1">
                     <Input label="Title" value={form.title} onChange={v => setForm({ ...form, title: v })} placeholder="Track / set / stream name" className="mb-0"/>
                     <div className="grid grid-cols-2 gap-2">
                         <Input label="Genre" type="select" options={RK_MUSIC_GENRES} value={form.genre || RK_MUSIC_GENRES[0]} onChange={v => setForm({ ...form, genre: v })} className="mb-0"/>
@@ -17115,9 +17466,42 @@ const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle })
                             <p>• Heads-up: <strong>anyone with the link can get the file</strong> — perfect for free tracks. Buy-to-reveal gating arrives with payments.</p>
                         </div>
                     </>)}
-                    <Button onClick={saveTrack} disabled={saving} color="purple" className="w-full py-2 text-sm">{saving ? 'Saving… (compressing audio can take a moment)' : 'Add to My Music'}</Button>
+                    <Button onClick={saveTrack} disabled={saving} color="purple" className="w-full py-2 text-sm">{saving ? 'Saving… (compressing audio can take a moment)' : (doneLabel || 'Add to My Music')}</Button>
                 </div>
-            )}
+    );
+};
+
+const MusicProfileSection = ({ targ, isSelf, viewerUid, dragHandle, dragStyle }) => {
+    const [tracks, setTracks] = useState([]);
+    const [adding, setAdding] = useState(false);
+    useEffect(() => {
+        if (!targ?.id) return;
+        const qy = query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), where('ownerUid', '==', targ.id));
+        const unsub = onSnapshot(qy, s => setTracks(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))), e => console.log('musicTracks', e));
+        return () => unsub();
+    }, [targ?.id]);
+    const delTrack = async (t) => {
+        if (!window.confirm('Delete this track?')) return;
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id)); if (t.hasSample) { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicSamples', t.id)); await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { musicSampleBytes: increment(-(t.sampleBytes || 0)), musicSampleCount: increment(-1) }, { merge: true }); } catch (e) {} } } catch (e) { alert(e.message); }
+    };
+    if (!isSelf && tracks.length === 0 && !dragHandle) return null;
+    return (
+        <div data-tut="musicblock" className="mb-4 bg-black/50 border border-purple-500/40 p-2.5 rounded-lg" style={dragStyle || {}}>
+            <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm uppercase font-black text-purple-300 flex items-center gap-1.5"><Music size={16}/> Music{tracks.length > 0 ? ' · ' + tracks.length : ''}</h4>
+                <div className="flex items-center gap-1.5">
+                    {dragHandle && <button {...dragHandle} className="cursor-grab active:cursor-grabbing touch-none text-white/60 hover:text-white text-xs px-1.5 py-0.5 bg-white/10 rounded border border-white/20" title="Hold & drag to reorder your sections">⇕</button>}
+                    {isSelf && <button data-tut="addmusic" onClick={() => setAdding(a => !a)} className="text-[10px] font-black text-lime-300 bg-lime-500/10 border border-lime-400/30 rounded px-2 py-1">{adding ? 'Close' : '+ Add Music'}</button>}
+                </div>
+            </div>
+            {/* V79: what they PLAY, stated by them. Distinct from `musicGenres`, which is derived
+                from the genres on their uploaded tracks and must stay an array built by
+                arrayUnion. A visitor could see somebody was a Music Creator and not whether that
+                meant hard techno or downtempo — which is most of what decides a tap-through. */}
+            <RkCreatorTags targ={targ} isSelf={isSelf} options={RK_MUSIC_STYLES}
+                field="musicStyleTags" tone="bg-purple-500/15 text-purple-200 border-purple-400/40"
+                emptySelf="Add your sound" emptyOther="Hasn't listed their sound yet."/>
+            {isSelf && adding && <RkMusicAddForm owner={targ} onDone={() => setAdding(false)}/>}
             {tracks.length === 0 && isSelf && !adding && <p className="text-[10px] text-white/40 text-center py-2">Add your first track — a YouTube/SoundCloud/Twitch link or a 30-second sample.</p>}
             <div className="space-y-2">{tracks.map(t => <MusicTrackCard key={t.id} t={t} isOwner={isSelf} onDelete={delTrack} viewerUid={viewerUid}/>)}</div>
         </div>
@@ -17700,6 +18084,352 @@ const FeaturedPartners = ({ viewerUid, viewerProfile, onViewProfile }) => {
     );
 };
 
+// ============================================================================================
+// V88.84.150.322: THE FEEDS, SEARCHED, SORTED, AND LOADED 50 AT A TIME (Milli, at 322: "in the new feed
+// system, ensure each section has a fully functional search and sort system ... add a limitation on how
+// many items load in the initial load for the new feed functions to prevent overloading as the app grows.
+// If user scrolls to the end of current listed (set a limit at 50 or something reasonable), it loads next
+// set").
+//  - Every sort is the server's own order over everything, read a page at a time (RK_PAGE, 50), so a sort
+//    is right across the whole collection rather than across whatever happened to be loaded. "Newest"
+//    stays live: one listener whose limit grows by a page. The other orders read one page at a time from
+//    where the last ended (startAfter), once.
+//  - What the server can't filter (post type, item type, genre, kind, price range, a search) is applied to
+//    what's loaded, and the list keeps loading while you're at its end (RkLoadMore re-arms after each
+//    page), so a narrow filter still reaches everything without loading it all up front.
+//  - The Items sorts need composite indexes (visibility plus the sort field). They ship in
+//    firestore.indexes.json. Until one is built Firestore answers failed-precondition, and that sort falls
+//    back to reading the public list in full and sorting it here, as 321 did (useRkPaged's `fallback`).
+//    Music and Ravers sorts use single-field indexes, which Firestore keeps by itself.
+// ============================================================================================
+const RK_PAGE = 50;
+// 'YYYY-MM-DD' in the phone's own time zone: what a date box gives, and what sorts as text.
+const rkDayStr = (t) => { const d = new Date(Number(t) || Date.now()); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+// Rows by id, later lists winning, first-seen order kept.
+const rkByIdMerge = (a, b) => { const m = {}; (a || []).forEach(r => { if (r && r.id) m[r.id] = r; }); (b || []).forEach(r => { if (r && r.id) m[r.id] = r; }); return Object.values(m); };
+// One server-ordered list, a page at a time. `makeQuery(n, after)` builds it: `n` rows (live: the whole
+// limit so far), after the document `after`. `fallback()` is a query needing no composite index, and `cmp`
+// orders its rows. A new `key` starts the list again.
+const useRkPaged = ({ key, makeQuery, live = false, fallback = null, cmp = null, enabled = true }) => {
+    const blank = { k: '', rows: [], loaded: false, more: false, busy: false, err: '', fell: false };
+    const [st, setSt] = useState(blank);
+    const [grow, setGrow] = useState({ k: key, n: RK_PAGE, tick: 0 });
+    const n = grow.k === key ? grow.n : RK_PAGE;
+    const tick = grow.k === key ? grow.tick : 0;
+    const gen = useRef(0), cursor = useRef(null), keyRef = useRef(key), fellRef = useRef('');
+    keyRef.current = key;
+    const put = (k, patch) => setSt(prev => ({ ...(prev.k === k ? prev : { ...blank, k }), ...patch }));
+    const fail = (k, g, e, liveFallback) => {
+        if (g !== gen.current) return;
+        if (e && e.code === 'failed-precondition' && fallback && fellRef.current !== k) {
+            fellRef.current = k;
+            rkReport('feed sort not indexed yet (' + k + '); showing it from the full list', e);
+            const done = (s) => { if (g !== gen.current) return; let rows = s.docs.map(d => ({ ...d.data(), id: d.id })); if (cmp) rows = rows.sort(cmp); put(k, { rows, loaded: true, more: false, busy: false, err: '', fell: true }); };
+            const bad = (e2) => { if (g === gen.current) put(k, { loaded: true, busy: false, err: String((e2 && e2.message) || e2) }); };
+            try { if (liveFallback) liveFallback(fallback(), done, bad); else getDocs(fallback()).then(done).catch(bad); } catch (e3) { bad(e3); }
+            return;
+        }
+        rkReport('feed page (' + k + ')', e);
+        put(k, { loaded: true, busy: false, err: String((e && e.message) || e) });
+    };
+    // live: one listener, its limit growing a page at a time
+    useEffect(() => {
+        if (!enabled || !live) return;
+        const k = key, g = ++gen.current;
+        let unsub = null, unsub2 = null;
+        put(k, { busy: true });
+        try {
+            unsub = onSnapshot(makeQuery(n, null), s => {
+                if (g !== gen.current) return;
+                put(k, { rows: s.docs.map(d => ({ ...d.data(), id: d.id })), loaded: true, more: s.docs.length >= n, busy: false, err: '', fell: false });
+            }, e => fail(k, g, e, (fq, done, bad) => { unsub2 = onSnapshot(fq, done, bad); }));
+        } catch (e) { fail(k, g, e); }
+        return () => { try { if (unsub) unsub(); } catch (e) {} try { if (unsub2) unsub2(); } catch (e) {} };
+    }, [key, n, tick, enabled, live]);
+    // paged: a read per page, carrying on from the last document read
+    const loadPage = async (first) => {
+        const k = keyRef.current, g = first ? ++gen.current : gen.current;
+        if (first) cursor.current = null;
+        put(k, { busy: true });
+        try {
+            const s = await getDocs(makeQuery(RK_PAGE, first ? null : cursor.current));
+            if (g !== gen.current) return;
+            if (s.docs.length) cursor.current = s.docs[s.docs.length - 1];
+            const page = s.docs.map(d => ({ ...d.data(), id: d.id }));
+            setSt(prev => ({ ...blank, k, rows: (prev.k === k && !first) ? rkByIdMerge(prev.rows, page) : page, loaded: true, more: s.docs.length >= RK_PAGE }));
+        } catch (e) { fail(k, g, e); }
+    };
+    useEffect(() => { if (!enabled || live) return; loadPage(true); }, [key, tick, enabled, live]);
+    const cur = st.k === key ? st : { ...blank, k: key, busy: !!enabled };
+    const loadMore = () => {
+        if (!cur.more || cur.busy || cur.fell) return;
+        if (live) setGrow(gw => ({ k: key, n: (gw.k === key ? gw.n : RK_PAGE) + RK_PAGE, tick: gw.k === key ? gw.tick : 0 }));
+        else loadPage(false);
+    };
+    const reload = () => { fellRef.current = ''; setGrow(gw => ({ k: key, n: RK_PAGE, tick: (gw.k === key ? gw.tick : 0) + 1 })); };
+    return { ...cur, n, loadMore, reload };
+};
+// The end of a feed: loads the next page when it comes within reach of the screen, and again after each
+// page while it stays in reach (so a narrow filter keeps going). A button only where the phone has no
+// IntersectionObserver.
+const RkLoadMore = ({ more, busy, onMore, count, doneText, kind }) => {
+    const ref = useRef(null);
+    const hasIO = typeof window !== 'undefined' && 'IntersectionObserver' in window;
+    useEffect(() => {
+        if (!more || busy || !ref.current || !hasIO) return;
+        const io = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) onMore(); }, { rootMargin: '0px 0px 700px 0px' });
+        io.observe(ref.current);
+        return () => io.disconnect();
+    }, [more, busy, count]);
+    return (
+        <div ref={ref} data-load-more={more ? (busy ? 'busy' : 'ready') : 'done'} data-load-kind={kind || ''} className="py-4 flex flex-col items-center gap-2 min-h-[8px]">
+            {more && busy && <p className="text-sm text-white flex items-center gap-2"><RefreshCw size={16} className="animate-spin text-lime-400"/> Loading the next {RK_PAGE}…</p>}
+            {more && !busy && !hasIO && <button onClick={onMore} className="text-sm font-bold text-white bg-white/10 border border-white/25 rounded-full px-4 py-2">Load the next {RK_PAGE}</button>}
+            {!more && count > 0 && doneText ? <p className="text-xs text-white">{doneText}</p> : null}
+        </div>
+    );
+};
+
+// ---- V88.84.150.322: QUEUE ITEM 9, FESTIVAL DATES ON POSTS (raised at 279: "When a poster selects a
+// festival, let them enter the dates they are attending ... what makes meeting up, trading and buying ahead
+// of time possible"). Any post can name a festival (event.name) and the days the poster will be there
+// (event.from, event.to, 'YYYY-MM-DD'). eventKey, eventFrom and eventTo sit at the top level for the
+// feed's festival filter and "soonest" sort, and for finding everyone going. A trade post keeps
+// tradeWants.event as well, which older versions of the app read.
+const rkEventKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const rkEventOf = (i) => {
+    if (!i) return null;
+    const e = (i.event && i.event.name) ? i.event : (i.tradeWants && i.tradeWants.event) ? { name: i.tradeWants.event } : null;
+    if (!e || !String(e.name || '').trim()) return null;
+    return { name: String(e.name).trim(), from: e.from || '', to: e.to || e.from || '' };
+};
+const rkParseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+// "Fri, May 15 – Sun, May 17", the year added when it isn't this year
+const rkEventDays = (e) => {
+    const a = rkParseDay(e && e.from), b = rkParseDay(e && e.to);
+    if (!a) return '';
+    const y = new Date().getFullYear();
+    const yr = a.getFullYear() !== y || (b && b.getFullYear() !== y);
+    const f = (d, withYear) => { try { return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) }); } catch (x) { return rkDayStr(d.getTime()); } };
+    if (!b || b.getTime() === a.getTime()) return f(a, yr);
+    return f(a, false) + ' – ' + f(b, yr);
+};
+const rkEventPast = (e) => { const b = rkParseDay(e && (e.to || e.from)); return !!b && rkDayStr(b.getTime()) < rkDayStr(Date.now()); };
+const rkEventsOverlap = (a, b) => !!(a && b && a.from && b.from && a.from <= (b.to || b.from) && b.from <= (a.to || a.from));
+// The fields a post saves for its festival, or { error } to show. Days that have passed are refused, unless
+// they're the days the post already had (editing the price of a post from last season, say).
+const rkEventFields = (name, from, to, prev) => {
+    const nm = String(name || '').trim().slice(0, 60);
+    if (!nm) return { fields: { event: null, eventKey: '', eventFrom: '', eventTo: '' } };
+    let f = String(from || '').trim(), t = String(to || '').trim();
+    if (!f && t) f = t;
+    if (f && !t) t = f;
+    if (f && !rkParseDay(f)) return { error: 'Pick the first day from the calendar.' };
+    if (t && !rkParseDay(t)) return { error: 'Pick the last day from the calendar.' };
+    if (f && t < f) return { error: "The last day can't be before the first day." };
+    const same = !!(prev && prev.from === f && (prev.to || prev.from) === t);
+    if (f && !same && t < rkDayStr(Date.now())) return { error: "Those days have passed. Pick the days you'll be there, or leave the dates empty." };
+    if (f && (rkParseDay(t) - rkParseDay(f)) / 86400000 > 31) return { error: 'Pick up to a month of days.' };
+    return { fields: { event: { name: nm, from: f, to: t }, eventKey: rkEventKey(nm), eventFrom: f, eventTo: t } };
+};
+// The festival picker on the post and edit forms: a name (typed, or picked from the list) and the days.
+const RkEventPicker = ({ name, from, to, onChange }) => {
+    const [open, setOpen] = useState(false);
+    const today = rkDayStr(Date.now());
+    const list = MAJOR_EVENTS.filter(ev => !name || ev.toLowerCase().includes(String(name).toLowerCase()));
+    return (
+        <div className="space-y-2" data-event-picker="1">
+            <div className="relative">
+                <div className="flex gap-1">
+                    <input value={name || ''} onChange={e => { onChange({ name: e.target.value, from, to }); setOpen(true); }} onFocus={() => setOpen(true)} maxLength={60} placeholder="Type or pick a festival (e.g. EDC Las Vegas)" className="flex-1 p-2 rounded bg-white/10 border border-white/25 text-sm text-white outline-none focus:border-cyan-400"/>
+                    <button type="button" onClick={() => setOpen(o => !o)} className="px-3 rounded bg-white/10 border border-white/25 text-white text-sm" aria-label="Show festivals">{open ? '▲' : '▼'}</button>
+                </div>
+                {open && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-48 overflow-y-auto rk-scroll bg-[#160026] border border-cyan-500/40 rounded-lg shadow-xl">
+                        {list.map(ev => <button key={ev} type="button" onClick={() => { onChange({ name: ev, from, to }); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-white hover:bg-cyan-500/20 border-b border-white/5">{ev}</button>)}
+                        {list.length === 0 && <p className="px-3 py-2 text-xs text-white">No match: "{name}" will be used as it is.</p>}
+                        <button type="button" onClick={() => setOpen(false)} className="w-full text-center px-3 py-2 text-xs font-bold text-cyan-200 bg-cyan-900/20">Done</button>
+                    </div>
+                )}
+            </div>
+            {String(name || '').trim() && (
+                <div>
+                    <p className="text-xs font-bold text-white mb-1">📅 Which days will you be there? (optional)</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <label className="text-xs text-white">First day<input type="date" min={today} value={from || ''} onChange={e => onChange({ name, from: e.target.value, to: (!to || to < e.target.value) ? e.target.value : to })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-from="1"/></label>
+                        <label className="text-xs text-white">Last day<input type="date" min={from || today} value={to || ''} onChange={e => onChange({ name, from: from || e.target.value, to: e.target.value })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-to="1"/></label>
+                    </div>
+                    <p className="text-xs text-white mt-1">With dates, your post shows when you'll be there, your friends hear about it, and ravers going on the same days can find you. Always meet in public, well-lit places.</p>
+                </div>
+            )}
+        </div>
+    );
+};
+// The festivals ravers have dated posts for, ending today or later, soonest first, each with who's going.
+// Read once every 5 minutes (it backs the Ravers festival filter and the marquee's next-meetup line).
+const rkFestCache = { at: 0, p: null };
+const rkUpcomingFestivals = () => {
+    if (rkFestCache.p && Date.now() - rkFestCache.at < 300000) return rkFestCache.p;
+    rkFestCache.at = Date.now();
+    rkFestCache.p = getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public'), where('eventTo', '>=', rkDayStr(Date.now())), orderBy('eventTo', 'asc'), limit(200)))
+        .then(s => {
+            const by = {};
+            s.docs.forEach(d => {
+                const i = { ...d.data(), id: d.id }, e = rkEventOf(i);
+                if (!e || !e.from || !i.ownerId || i.isHidden) return;
+                const k = rkEventKey(e.name);
+                const g = by[k] || (by[k] = { key: k, name: e.name, from: e.from, to: e.to, owners: {} });
+                if (e.from < g.from) g.from = e.from;
+                if ((e.to || e.from) > (g.to || '')) g.to = e.to || e.from;
+                if (!g.owners[i.ownerId]) g.owners[i.ownerId] = { uid: i.ownerId, publicUid: i.ownerPublicUid || i.ownerId, name: i.ownerName || 'Raver', from: e.from, to: e.to, post: i.id };
+            });
+            return Object.values(by).map(g => ({ key: g.key, name: g.name, from: g.from, to: g.to, people: Object.values(g.owners) }))
+                .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : b.people.length - a.people.length));
+        })
+        .catch(e => { rkReport('upcoming festivals', e); rkFestCache.at = 0; return []; });
+    return rkFestCache.p;
+};
+// A post with festival dates tells the poster's friends, and the ravers already going on overlapping days
+// (up to 15), once per festival and first day. Each notice opens the post.
+const rkFestivalNotify = async (me, post) => {
+    const e = rkEventOf(post);
+    if (!me || !me.uid || !post || !post.id || !e || !e.from) return 0;
+    const mark = 'rk_fest_told_' + me.uid + '_' + rkEventKey(e.name) + '_' + e.from;
+    try { if (localStorage.getItem(mark)) return 0; localStorage.setItem(mark, '1'); } catch (x) {}
+    const days = rkEventDays(e), nm = me.name || 'A raver', told = new Set([me.uid]);
+    let n = 0;
+    (me.friends || []).slice(0, 30).forEach(f => { if (!f || told.has(f)) return; told.add(f); n++; pushNotif(f, 'event', '🎪 Your friend @' + nm + ' will be at ' + e.name + (days ? ' (' + days + ')' : '') + '. Tap to see their post.', post.id); });
+    try {
+        const s = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public'), where('eventKey', '==', rkEventKey(e.name)), limit(100)));
+        let others = 0;
+        s.docs.forEach(d => {
+            const o = { ...d.data(), id: d.id };
+            if (others >= 15 || !o.ownerId || told.has(o.ownerId) || !rkEventsOverlap(e, rkEventOf(o))) return;
+            told.add(o.ownerId); others++; n++;
+            pushNotif(o.ownerId, 'event', '🎪 @' + nm + ' will be at ' + e.name + ' on your days too (' + days + '). Tap to see their post.', post.id);
+        });
+    } catch (x) { rkReport('festival meetup notices', x); }
+    return n;
+};
+// The festival line on a post: the name and the days, and a tap that shows everyone's posts for it.
+const RkEventChip = ({ item, onPick }) => {
+    const e = rkEventOf(item);
+    if (!e) return null;
+    const days = rkEventDays(e), past = rkEventPast(e);
+    return (
+        <button type="button" data-event-chip={rkEventKey(e.name)} onClick={(ev) => { ev.stopPropagation(); if (onPick) onPick(e.name); }}
+            className="mt-2 w-full text-left flex items-center gap-2 rounded-lg border border-cyan-400/50 bg-cyan-500/10 px-2.5 py-1.5 active:scale-[0.99] transition">
+            <span className="text-base leading-none" aria-hidden="true">🎪</span>
+            <span className="min-w-0 flex-1">
+                <span className="block text-xs font-black text-white truncate">{e.name}</span>
+                <span className="block text-xs text-white">{days ? (past ? 'Was there ' : 'There ') + days : 'Going (no dates given)'}</span>
+            </span>
+            <span className="text-xs font-bold text-cyan-200 shrink-0">See who's going</span>
+        </button>
+    );
+};
+
+// ---- the Items sorts: each is the server's order over the public posts, with what it needs to merge in
+// your own, your friends' and posts shared with you (which the feed reads separately).
+const RK_ITEM_SORTS = [
+    { k: 'recent', l: '🆕 Newest', f: 'timestamp', d: 'desc', live: true },
+    { k: 'oldest', l: '📼 Oldest', f: 'timestamp', d: 'asc' },
+    { k: 'popular', l: '❤️ Most liked', f: 'likeCount', d: 'desc', vf: (i) => (typeof i.likeCount === 'number' ? i.likeCount : Array.isArray(i.likes) ? i.likes.length : undefined) },
+    { k: 'commented', l: '💬 Most commented', f: 'commentCount', d: 'desc' },
+    { k: 'viewed', l: '👀 Most viewed', f: 'viewCount', d: 'desc' },
+    { k: 'bestselling', l: '🔥 Best-selling', f: 'purchaseCount', d: 'desc' },
+    { k: 'priceLow', l: '💲 Price: low to high', f: 'price', d: 'asc', min: 0 },
+    { k: 'priceHigh', l: '💎 Price: high to low', f: 'price', d: 'desc', min: 0 },
+    { k: 'festival', l: '🎪 Festival dates (soonest)', f: 'eventTo', d: 'asc', upcoming: true },
+    { k: 'sold', l: '💤 Sold / out of stock', f: 'timestamp', d: 'desc', eq: ['stockQty', 0] },
+];
+const rkItemSort = (k) => RK_ITEM_SORTS.find(x => x.k === (k === 'all' ? 'recent' : k)) || RK_ITEM_SORTS[0];
+const rkItemQuery = (S, n, after) => {
+    const cs = [where('vis', '==', 'public')];
+    if (S.eq) cs.push(where(S.eq[0], '==', S.eq[1]));
+    if (S.min !== undefined) cs.push(where(S.f, '>', S.min));
+    if (S.upcoming) cs.push(where(S.f, '>=', rkDayStr(Date.now())));
+    cs.push(orderBy(S.f, S.d));
+    if (after) cs.push(startAfter(after));
+    cs.push(limit(n));
+    return query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), ...cs);
+};
+// Would the server's query for this sort return this post at all? (Firestore leaves out posts without the
+// sort field, and the price, festival and sold sorts have their own conditions.)
+const rkSortVal = (S, i) => (!i ? undefined : S.vf ? S.vf(i) : i[S.f]);
+const rkInSort = (S, i) => {
+    const v = rkSortVal(S, i);
+    if (v === undefined || v === null) return false;
+    if (S.min !== undefined && !(v > S.min)) return false;
+    if (S.upcoming && !(String(v) >= rkDayStr(Date.now()))) return false;
+    if (S.eq && i[S.eq[0]] !== S.eq[1]) return false;
+    return true;
+};
+// Within what's loaded so far? (Past the last row loaded, a post waits for its page.)
+const rkWithinPage = (S, pg, i) => {
+    if (!pg || !pg.more || !pg.rows || !pg.rows.length) return true;
+    const last = rkSortVal(S, pg.rows[pg.rows.length - 1]), v = rkSortVal(S, i);
+    return S.d === 'desc' ? v >= last : v <= last;
+};
+const rkSortCmp = (S) => (a, b) => {
+    const va = rkSortVal(S, a), vb = rkSortVal(S, b);
+    const ua = va === undefined || va === null, ub = vb === undefined || vb === null;
+    if (ua || ub) return ua === ub ? (b.timestamp || 0) - (a.timestamp || 0) : (ua ? 1 : -1);
+    const r = (va < vb ? -1 : va > vb ? 1 : 0) * (S.d === 'desc' ? -1 : 1);
+    return r || ((b.timestamp || 0) - (a.timestamp || 0));
+};
+// The likes count the "Most liked" sort reads. Posts from before 322 get theirs the first time a signed-in
+// raver loads them (a few a session; the rules let anyone write it, like `likes`).
+const rkLikeHealed = new Set();
+const rkHealLikeCounts = (rows, uid) => {
+    if (!uid) return;
+    let n = 0;
+    (rows || []).forEach(i => {
+        if (n >= 12 || !i || !i.id || rkLikeHealed.has(i.id)) return;
+        const want = Array.isArray(i.likes) ? i.likes.length : 0;
+        if (i.likeCount === want) return;
+        rkLikeHealed.add(i.id); n++;
+        updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', i.id), { likeCount: want }).catch(() => {});
+    });
+};
+
+// ---- V88.84.150.322: THE MUSIC FEED (Milli, at 322: "For music, add genres, most/least popular, top
+// selling/listened, newest, oldest, and any other search mechanism that could be tied into the system";
+// "allow music creators to post from the music feed only if they have the correct permissions").
+// Popular means popScore: a play counts 1, a download 2 and a sale 5. It's added to as tracks are played;
+// a track from before 322 gets its score the first time anyone loads it. The filters are genre, kind and
+// when it was added, as Bandcamp and SoundCloud filter. The search covers the title, the artist's name or
+// Friend UID and the genre, and an artist found by name brings in all of their tracks.
+const RK_MUSIC_SORTS = [
+    { k: 'new', l: '🆕 Newest', f: 'createdAt', d: 'desc', live: true },
+    { k: 'old', l: '📼 Oldest', f: 'createdAt', d: 'asc' },
+    { k: 'popular', l: '⭐ Most popular', f: 'popScore', d: 'desc' },
+    { k: 'gems', l: '🌱 Least popular (hidden gems)', f: 'popScore', d: 'asc' },
+    { k: 'played', l: '🎧 Top listened', f: 'plays', d: 'desc' },
+    { k: 'selling', l: '💰 Top selling', f: 'salesCount', d: 'desc' },
+    { k: 'downloads', l: '⬇️ Most downloaded', f: 'downloads', d: 'desc' },
+];
+const RK_MUSIC_KINDS = [
+    { k: '', l: 'Every kind' },
+    { k: 'sample', l: '🎧 30s samples', t: (x) => !!x.hasSample },
+    { k: 'link', l: '🔗 Streams & links', t: (x) => !!x.link && !x.isLive },
+    { k: 'live', l: '🔴 Live streams', t: (x) => !!x.isLive },
+    { k: 'free', l: '⬇️ Free downloads', t: (x) => x.saleMode === 'free' && !!x.fulfillLink },
+    { k: 'sale', l: '💰 For sale', t: (x) => x.saleMode === 'sale' },
+];
+const RK_MUSIC_AGES = [{ k: '', l: 'Added any time', ms: 0 }, { k: 'day', l: 'Added today', ms: 86400000 }, { k: 'week', l: 'Added this week', ms: 7 * 86400000 }, { k: 'month', l: 'Added this month', ms: 30 * 86400000 }];
+const rkPopScore = (t) => (Number(t && t.plays) || 0) + 2 * (Number(t && t.downloads) || 0) + 5 * (Number(t && t.salesCount) || 0);
+const rkPopHealed = new Set();
+const rkHealPopScores = (rows, uid) => {
+    if (!uid) return;
+    let n = 0;
+    (rows || []).forEach(t => {
+        if (n >= 20 || !t || !t.id || rkPopHealed.has(t.id) || typeof t.popScore === 'number') return;
+        rkPopHealed.add(t.id); n++;
+        updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'musicTracks', t.id), { popScore: rkPopScore(t) }).catch(() => {});
+    });
+};
+
 // The feed's Music tab — every artist's tracks in one stream, newest first, live-updating.
 // V87.84.150.321: THE THREE FEEDS (queue item 8). Items, Music and Ravers are three buttons above the
 // controls, each its own feed with its own controls, and each shows a loading state until its results are
@@ -17730,31 +18460,388 @@ const RkFeedLoading = ({ kind }) => {
 };
 
 // V87.84.150.321: the Music feed. Loading until its first answer, and searchable by artist.
-const FeedMusicSection = ({ user, viewerUid, onViewProfile, search }) => {
-    const [tracks, setTracks] = useState([]);
-    const [loaded, setLoaded] = useState(false);
+// V88.84.150.322: sorted by the server (RK_MUSIC_SORTS), filtered by genre, kind and age, searched by title,
+// artist and genre, 50 at a time; a Music Creator posts from here (RkMusicAddForm).
+const FeedMusicSection = ({ user, profile, viewerUid, onViewProfile, search, sort, genre, kind, age }) => {
+    const S = RK_MUSIC_SORTS.find(x => x.k === sort) || RK_MUSIC_SORTS[0];
+    const uid = user && user.uid;
+    const col = collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks');
+    const pg = useRkPaged({ key: 'music:' + S.k, live: !!S.live, enabled: !!uid,
+        makeQuery: (n, after) => after ? query(col, orderBy(S.f, S.d), startAfter(after), limit(n)) : query(col, orderBy(S.f, S.d), limit(n)) });
+    const [posting, setPosting] = useState(false);
+    const [justPosted, setJustPosted] = useState('');
+    const canPost = !!(user && !user.isAnonymous && profile && profile.isMusicCreator);
+    // an artist found by name brings in all of their tracks, wherever they fall in the order
+    const [artistRows, setArtistRows] = useState([]);
+    const raw = rkCleanSearch(search || '');
+    const term = rkNormName(raw);
     useEffect(() => {
-        const qy = query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), limit(80));
-        const unsub = onSnapshot(qy, s => { setTracks(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))); setLoaded(true); }, e => { console.log('musicFeed', e); setLoaded(true); });
-        return () => unsub();
-    }, []);
-    if (!loaded) return <RkFeedLoading kind="music"/>;
-    const term = rkNormName(rkCleanSearch(search || ''));
-    const shown = term ? tracks.filter(t => rkNormName(t.ownerName).includes(term) || rkNormName(t.publicUid).includes(term)) : tracks;
+        setArtistRows([]);
+        if (!uid || term.length < 3) return;
+        let dead = false;
+        const t = setTimeout(async () => {
+            try {
+                const cands = (await rkRaverPrefix(raw)).filter(u => u.isMusicCreator).slice(0, 5);
+                const lists = await Promise.all(cands.map(u => getDocs(query(col, where('ownerUid', '==', u.id), limit(100))).then(s => s.docs.map(d => ({ ...d.data(), id: d.id }))).catch(() => [])));
+                if (!dead) setArtistRows([].concat(...lists));
+            } catch (e) {}
+        }, 400);
+        return () => { dead = true; clearTimeout(t); };
+    }, [term, uid]);
+    useEffect(() => { rkHealPopScores(pg.rows, uid); }, [pg.rows, uid]);
+    // The popularity sorts read popScore, which tracks from before 322 don't have until they're loaded once.
+    // So those sorts also read the newest page: its unscored tracks get their score, and show in place by
+    // the score they'll have.
+    const [unscored, setUnscored] = useState([]);
+    useEffect(() => {
+        setUnscored([]);
+        if (!uid || S.f !== 'popScore') return;
+        let dead = false;
+        getDocs(query(col, orderBy('createdAt', 'desc'), limit(RK_PAGE)))
+            .then(s => { if (dead) return; const rows = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(t => typeof t.popScore !== 'number'); rkHealPopScores(rows, uid); setUnscored(rows); })
+            .catch(() => {});
+        return () => { dead = true; };
+    }, [S.k, uid]);
+    if (!pg.loaded) return <RkFeedLoading kind="music"/>;
+    const K = RK_MUSIC_KINDS.find(x => x.k === kind) || RK_MUSIC_KINDS[0];
+    const A = RK_MUSIC_AGES.find(x => x.k === age) || RK_MUSIC_AGES[0];
+    const now = Date.now();
+    const order = rkSortCmp(S);
+    const all = rkByIdMerge(rkByIdMerge(pg.rows, unscored), artistRows).sort((a, b) => {
+        // a track from before 322 has no score yet: it sorts as its plays, downloads and sales would
+        const fix = (t) => (S.f === 'popScore' && typeof t.popScore !== 'number') ? { ...t, popScore: rkPopScore(t) } : t;
+        return order(fix(a), fix(b));
+    });
+    const g = String(genre || '').toLowerCase();
+    const shown = all.filter(t => (!g || String(t.genre || '').toLowerCase() === g)
+        && (!K.t || K.t(t))
+        && (!A.ms || now - (Number(t.createdAt) || 0) <= A.ms)
+        && (!term || [t.title, t.ownerName, t.publicUid, t.genre].some(x => rkNormName(x).includes(term))));
     return (
-        <div className="grid grid-cols-1 gap-3">
-            <p className="text-xs text-white text-center">🎵 Music from RaveKandi artists — samples, streams &amp; drops. Newest first.</p>
-            {tracks.length === 0 && <p className="text-center text-white py-6 text-sm" data-feed-empty="music">No music yet. Music Creators: add tracks from your profile!</p>}
-            {tracks.length > 0 && shown.length === 0 && <p className="text-center text-white py-6 text-sm" data-feed-empty="music">No music from "{rkCleanSearch(search)}" yet.</p>}
+        <div className="grid grid-cols-1 gap-3" data-feed-music-sort={S.k}>
+            {canPost ? (
+                <div className="bg-purple-900/30 border border-purple-400/50 rounded-xl p-3" data-music-post="1">
+                    {!posting ? (
+                        <button onClick={() => { setPosting(true); setJustPosted(''); }} className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-purple-300/60 py-3 text-sm font-black text-white active:scale-95 transition"><PlusCircle size={18} className="text-lime-300"/> Post a track</button>
+                    ) : (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-black text-white">🎤 Post a track</p>
+                                <button onClick={() => setPosting(false)} className="text-xs font-bold text-white underline">Close</button>
+                            </div>
+                            <RkMusicAddForm owner={{ ...profile, id: uid }} doneLabel="Post to the Music feed" onDone={(id) => { setPosting(false); setJustPosted(id || 'x'); }}/>
+                        </div>
+                    )}
+                    {justPosted && !posting && <p className="text-xs font-bold text-lime-300 mt-2" data-music-posted="1">✅ Posted. It's on your profile and in the Music feed.</p>}
+                </div>
+            ) : (
+                <p className="text-xs text-white text-center" data-music-post="0">🎵 Music from RaveKandi artists: samples, streams and drops. Music Creators post here; apply in your profile's Creator Hub.</p>
+            )}
+            {pg.err && pg.rows.length === 0 ? (
+                <div className="text-center py-6" data-feed-empty="music"><p className="text-white text-sm">Couldn't load the music just now.</p><p className="text-white text-xs mt-1">Tap ⟳ above to try again.</p></div>
+            ) : all.length === 0 ? (
+                <p className="text-center text-white py-6 text-sm" data-feed-empty="music">{S.f === 'salesCount' || S.f === 'downloads' || S.f === 'popScore' ? 'No tracks in this order yet. Try 🆕 Newest.' : canPost ? 'No music yet. Post the first track above!' : 'No music yet.'}</p>
+            ) : shown.length === 0 && !pg.more ? (
+                <p className="text-center text-white py-6 text-sm" data-feed-empty="music">{term ? 'No tracks match "' + raw + '".' : 'No tracks match these filters.'}</p>
+            ) : null}
             {shown.map(t => (
-                <div key={t.id}>
+                <div key={t.id} data-track-row={t.id}>
                     <button onClick={() => onViewProfile && onViewProfile(t.publicUid || t.ownerUid)} className="flex items-center gap-1.5 mb-1 ml-1">
                         <img src={t.ownerPhoto || (rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()); }} className="w-5 h-5 rounded-full object-cover border border-purple-400/50"/>
-                        <span className="text-[10px] font-bold text-purple-300">@{t.ownerName || 'Artist'}</span>
+                        <span className="text-xs font-bold text-purple-200">@{t.ownerName || 'Artist'}</span>
                     </button>
                     <MusicTrackCard t={t} isOwner={false} viewerUid={viewerUid}/>
                 </div>
             ))}
+            <RkLoadMore kind="music" more={pg.more && !pg.err} busy={pg.busy} onMore={pg.loadMore} count={shown.length} doneText={all.length > 0 ? "That's every track." : ''}/>
+        </div>
+    );
+};
+
+// ---- V88.84.150.322: THE RAVERS FEED (Milli, at 322: "for the ravers section, add most acheivements, new
+// joins, oldest, most popular, sort by user ratings, most active, mutual connected friends (add a mutual
+// friends function, tie mutual friends together and add a setting to turn off this search function to hide
+// yourself)"). Each sort is the server's order over every raver, 50 at a time. orderBy leaves out anyone
+// without the field (the 222 and 227 lessons), so when an ordered list runs out it carries on through
+// everyone else, by id (the tail). Mutual friends come from your friends' own friend lists. A raver who has
+// turned off "Show me in mutual friends" (hideMutuals) is never listed by it, never counted in anyone's
+// mutual friends and never shown as the link between two others.
+const RK_RAVER_SORTS = [
+    { k: 'new', l: '🆕 Newest members', f: 'joined', d: 'desc' },
+    { k: 'old', l: '📼 Longest here', f: 'joined', d: 'asc' },
+    { k: 'mutual', l: '🤝 Most mutual friends', computed: true },
+    { k: 'active', l: '🔥 Most active', f: 'activeMinutes', d: 'desc' },
+    { k: 'recent', l: '🟢 Recently active', f: 'lastActive', d: 'desc' },
+    { k: 'ach', l: '🏅 Most achievements', f: 'achievementsUnlocked', d: 'desc' },
+    { k: 'rated', l: '⭐ Top rated', f: 'avgRatingX100', d: 'desc' },
+    { k: 'popular', l: '👀 Most popular (profile visitors)', f: 'profileViewsUnique', d: 'desc' },
+    { k: 'friends', l: '🫂 Most friends', f: 'friendsCount', d: 'desc' },
+    { k: 'sellers', l: '💰 Top sellers', f: 'itemsSold', d: 'desc' },
+];
+const RK_RAVER_FILTERS = [
+    { k: '', l: 'Everyone' },
+    { k: 'friends', l: '🫂 My friends' },
+    { k: 'kandi', l: '🔨 Kandi makers', t: (u) => !!u.isKandiCreator },
+    { k: 'music', l: '🎵 Music creators', t: (u) => !!u.isMusicCreator },
+    { k: 'content', l: '🎬 Content creators', t: (u) => !!u.isContentCreator },
+];
+// Ravers by id, 30 to a read (Firestore's limit for 'in'), kept 5 minutes.
+const rkUsersCache = {};
+const rkUsersByIds = async (ids) => {
+    const want = Array.from(new Set((ids || []).filter(Boolean)));
+    const now = Date.now(), got = {}, miss = [];
+    want.forEach(id => { const c = rkUsersCache[id]; if (c && now - c.at < 5 * 60000) got[id] = c.u; else miss.push(id); });
+    for (let i = 0; i < miss.length; i += 30) {
+        const chunk = miss.slice(i, i + 30);
+        try {
+            const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where(documentId(), 'in', chunk)));
+            s.docs.forEach(d => { const u = { ...d.data(), id: d.id }; rkUsersCache[d.id] = { at: now, u }; got[d.id] = u; });
+        } catch (e) { rkReport('ravers by id', e); }
+    }
+    return want.map(id => got[id]).filter(Boolean);
+};
+// The friends you share with `other`, from your friends' documents. Anyone hidden is left out on both sides.
+const rkMutualWith = (myFriendDocs, other, meUid) => {
+    if (!other || !other.id || other.hideMutuals || other.id === meUid) return [];
+    const theirs = new Set(other.friends || []);
+    return (myFriendDocs || []).filter(f => f && f.id && !f.hideMutuals && f.id !== other.id && theirs.has(f.id));
+};
+// Everyone your friends are friends with, by how many of your friends link you: your network. `friend` marks
+// the ones who are already your friends.
+const rkFriendsOfFriends = (myFriendDocs, meUid, myFriendIds) => {
+    const mine = new Set(myFriendIds || []), tally = {};
+    (myFriendDocs || []).forEach(f => {
+        if (!f || f.hideMutuals) return;
+        (f.friends || []).forEach(g => {
+            if (!g || g === meUid) return;
+            const e = tally[g] || (tally[g] = { id: g, n: 0, via: [], friend: mine.has(g) });
+            e.n++;
+            if (e.via.length < 6) e.via.push(f);
+        });
+    });
+    return Object.values(tally).sort((a, b) => b.n - a.n);
+};
+// Network reach (Friend of a Friend, Six Degrees): how many ravers your friends connect you to, kept as a
+// high-water mark on your profile.
+const rkSaveReach = (uid, profile, reach) => {
+    if (!uid || !Number.isFinite(reach) || reach <= (Number(profile && profile.networkReach) || 0)) return;
+    setDoc(doc(db, 'artifacts', appId, 'users', uid), { networkReach: reach }, { merge: true }).catch(e => rkReport('network reach', e));
+};
+// "🤝 3 mutual friends: @A, @B, @C", each name a link to that raver.
+const RkMutualLine = ({ list, onView, max = 3 }) => {
+    if (!list || !list.length) return null;
+    return (
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap" data-mutual={list.length}>
+            <span className="flex -space-x-2 shrink-0">{list.slice(0, max).map(f => <img key={f.id} src={f.photoURL || rkPh(40, 40, null, null, String(f.displayName || 'R').charAt(0))} alt="" className="w-6 h-6 rounded-full object-cover border-2 border-black"/>)}</span>
+            <span className="text-xs text-white leading-snug">🤝 {list.length} mutual friend{list.length === 1 ? '' : 's'}: {list.slice(0, max).map((f, i) => <React.Fragment key={f.id}>{i ? ', ' : ''}<button type="button" onClick={(e) => { e.stopPropagation(); if (onView) onView(f.publicUid || f.id); }} className="font-bold text-cyan-200 underline decoration-dotted underline-offset-2">@{f.displayName || 'Raver'}</button></React.Fragment>)}{list.length > max ? ' and ' + (list.length - max) + ' more' : ''}</span>
+        </div>
+    );
+};
+// The figure a sort is about, on each card.
+const rkRaverStat = (u, k) => {
+    if (!u) return '';
+    if (k === 'active') return '🔥 ' + (((Number(u.activeMinutes) || 0) / 60) + (Number(u.activeHours) || 0)).toFixed(1) + ' hours active';
+    if (k === 'recent') return u.lastActive ? '🟢 Active ' + rkAgo(u.lastActive) : '';
+    if (k === 'ach') return '🏅 ' + (Number(u.achievementsUnlocked) || 0) + ' achievements';
+    if (k === 'rated') return (Number(u.ratingTxns) || 0) > 0 ? '⭐ ' + ((Number(u.avgRatingX100) || 0) / 100).toFixed(1) + ' from ' + u.ratingTxns + ' review' + (Number(u.ratingTxns) === 1 ? '' : 's') : '⭐ No reviews yet';
+    if (k === 'popular') return '👀 ' + rkFmtK(u.profileViewsUnique || 0) + ' profile visitors';
+    if (k === 'friends') return '🫂 ' + (Number.isFinite(Number(u.friendsCount)) && u.friendsCount !== undefined ? Number(u.friendsCount) : (u.friends || []).length) + ' friends';
+    if (k === 'sellers') return '💰 ' + (Number(u.itemsSold) || 0) + ' sold';
+    if (k === 'new' || k === 'old') { try { return u.joined ? '📅 Joined ' + new Date(u.joined).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '📅 Joined before join dates were kept'; } catch (e) { return ''; } }
+    return '';
+};
+const RkRaverCard = ({ u, user, profile, onView, stat, mutual, extra }) => (
+    <Card className="flex items-center gap-3 border-purple-500/30">
+        <div data-raver={u.id} className="contents">
+        <button onClick={() => onView(u.publicUid || u.id)} className="shrink-0 self-start"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onView(u.publicUid || u.id)}>
+            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user && user.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
+            <p className="text-xs font-mono text-white truncate">UID: {u.publicUid || u.id}</p>
+            <p className="text-xs text-white truncate italic">{u.bio || 'No vibe check yet.'}</p>
+            {stat ? <p className="text-xs font-bold text-lime-200 mt-1" data-raver-stat="1">{stat}</p> : null}
+            {extra || null}
+            <RkMutualLine list={mutual} onView={onView}/>
+            {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
+                <div className="flex gap-2.5 mt-1.5">
+                    {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).slice(0, 6).map(p => (
+                        <button key={p.id} onClick={(e) => { e.stopPropagation(); try { window.open('https://' + p.baseUrl + u.socialLinks[p.id], '_blank', 'noopener'); } catch (err) {} }} title={p.name} className="hover:scale-125 transition-transform"><p.icon size={13} color={p.color}/></button>
+                    ))}
+                </div>
+            )}
+            {(u.isMusicCreator || u.isContentCreator || u.isKandiCreator) && (() => {
+                const kB = u.isKandiCreator ? <span key="k" className="text-xs font-bold bg-lime-500/15 border border-lime-400/30 text-lime-200 rounded px-1.5 py-0.5">🔨 Kandi maker</span> : null;
+                const mB = u.isMusicCreator ? <span key="m" className="text-xs font-bold bg-purple-500/20 border border-purple-400/30 text-purple-200 rounded px-1.5 py-0.5">🎵 {(u.musicPlays || 0) > 0 ? rkFmtK(u.musicPlays) + ' listens' : 'Music Creator'}</span> : null;
+                const cB = u.isContentCreator ? <span key="c" className="text-xs font-bold bg-cyan-500/15 border border-cyan-400/25 text-cyan-200 rounded px-1.5 py-0.5">🎬 {(u.contentViews || 0) > 0 ? rkFmtK(u.contentViews) + ' views' : 'Content Creator'}</span> : null;
+                return <div className="flex gap-1.5 mt-1.5 flex-wrap">{kB}{u.creatorMusicFirst !== false ? [mB, cB] : [cB, mB]}</div>;
+            })()}
+        </div>
+        <Button onClick={() => onView(u.publicUid || u.id)} color="purple" className="text-xs py-1 px-3 shrink-0">View Profile</Button>
+        </div>
+    </Card>
+);
+// The last list shown in each order, so a reload (⟳) that fails shows it again rather than an empty feed.
+const rkRaversLast = {};
+const RkRaversFeed = ({ user, profile, search, sort, filter, fest, dir, dirLoading, dirErr, onViewProfile, onSearch }) => {
+    const S = RK_RAVER_SORTS.find(x => x.k === sort) || RK_RAVER_SORTS[0];
+    const F = RK_RAVER_FILTERS.find(x => x.k === filter) || RK_RAVER_FILTERS[0];
+    const uid = user && user.uid;
+    const myIds = (profile && profile.friends) || [];
+    const friendKey = myIds.slice().sort().join(',');
+    const col = collection(db, 'artifacts', appId, 'users');
+    const raw = rkCleanSearch(search || ''), term = raw.toLowerCase();
+    const searching = term.length >= 2;
+    // a list worked out here rather than read in order: a festival's ravers, your friends, mutual friends
+    const compKey = !uid ? '' : fest ? 'fest:' + fest : filter === 'friends' ? 'friends' : S.computed ? 'mutual' : '';
+    const ordered = !!uid && !compKey && !searching && !S.computed;
+    const pg = useRkPaged({ key: 'ravers:' + S.k, enabled: ordered,
+        makeQuery: (n, after) => after ? query(col, orderBy(S.f, S.d), startAfter(after), limit(n)) : query(col, orderBy(S.f, S.d), limit(n)) });
+    // the tail: everyone the ordered list left out (no such field yet), once it has run out
+    const tailOn = ordered && pg.loaded && !pg.more && !pg.err;
+    const tail = useRkPaged({ key: 'ravers-tail:' + S.k, enabled: tailOn,
+        makeQuery: (n, after) => after ? query(col, orderBy(documentId()), startAfter(after), limit(n)) : query(col, orderBy(documentId()), limit(n)) });
+    // your friends' documents: the mutual friends on every card, the mutual sort and the My friends filter
+    const [myFriends, setMyFriends] = useState(null);
+    useEffect(() => {
+        if (!uid) return;
+        let dead = false;
+        rkLoadFriends(myIds).then(l => { if (!dead) setMyFriends(l || []); }).catch(() => { if (!dead) setMyFriends([]); });
+        return () => { dead = true; };
+    }, [uid, friendKey]);
+    const [comp, setComp] = useState({ key: '', ids: [], info: {}, rows: [], shown: 0, loading: false, ready: false });
+    useEffect(() => {
+        if (!compKey) return;
+        let dead = false;
+        (async () => {
+            const ids = [], info = {};
+            if (compKey.indexOf('fest:') === 0) {
+                const list = await rkUpcomingFestivals();
+                const g = list.find(x => x.key === fest);
+                (g ? g.people : []).forEach(p => { if (p.uid && !info[p.uid]) { ids.push(p.uid); info[p.uid] = { fest: p }; } });
+            } else if (compKey === 'friends') {
+                if (myFriends === null) return;
+                myFriends.forEach(f => { ids.push(f.id); });
+            } else {
+                if (myFriends === null) return;
+                const fof = rkFriendsOfFriends(myFriends, uid, myIds);
+                fof.forEach(e => { ids.push(e.id); info[e.id] = { n: e.n, friend: e.friend }; });
+                rkSaveReach(uid, profile, fof.filter(e => !e.friend).length);
+            }
+            if (!dead) setComp({ key: compKey, ids, info, rows: compKey === 'friends' ? (myFriends || []) : [], shown: compKey === 'friends' ? ids.length : 0, loading: compKey !== 'friends', ready: true });
+        })().catch(e => { rkReport('ravers list', e); if (!dead) setComp({ key: compKey, ids: [], info: {}, rows: [], shown: 0, loading: false, ready: true }); });
+        return () => { dead = true; };
+    }, [compKey, myFriends, friendKey]);
+    // a computed list's ravers, a page at a time
+    useEffect(() => {
+        if (!compKey || comp.key !== compKey || !comp.loading) return;
+        let dead = false;
+        const next = comp.ids.slice(comp.shown, comp.shown + RK_PAGE);
+        rkUsersByIds(next).then(us => { if (!dead) setComp(c => c.key !== compKey ? c : { ...c, rows: rkByIdMerge(c.rows, us), shown: c.shown + next.length, loading: false }); });
+        return () => { dead = true; };
+    }, [comp.key, comp.loading, comp.shown, compKey]);
+    // searching: the directory and every raver whose name or Friend UID starts with what's typed
+    const [found, setFound] = useState([]);
+    useEffect(() => {
+        setFound([]);
+        if (!uid || term.length < 3) return;
+        let dead = false;
+        const t = setTimeout(() => { rkRaverPrefix(raw).then(l => { if (!dead) setFound(l || []); }).catch(() => {}); }, 350);
+        return () => { dead = true; clearTimeout(t); };
+    }, [term, uid]);
+    const mutualOf = (u) => (myFriends ? rkMutualWith(myFriends, u, uid) : []);
+    let list = [], more = false, busy = false, loadMore = () => {}, loaded = true, err = '';
+    if (searching) {
+        const pool = rkByIdMerge(rkByIdMerge(dir || [], found), pg.rows);
+        list = rkSuggestRavers(pool, term, 40);
+        loaded = !(dirLoading && !(dir || []).length);
+    } else if (compKey) {
+        loaded = comp.key === compKey && comp.ready && !(comp.loading && comp.shown === 0);
+        const byId = {}; comp.rows.forEach(u => { byId[u.id] = u; });
+        list = comp.key === compKey ? comp.ids.map(id => byId[id]).filter(Boolean) : [];
+        if (compKey === 'mutual') list = list.filter(u => !u.hideMutuals);
+        else if (!S.computed) list = list.slice().sort((a, b) => rkSortCmp(S)(a, b));
+        else list = list.slice().sort((a, b) => mutualOf(b).length - mutualOf(a).length);
+        more = comp.key === compKey && comp.shown < comp.ids.length;
+        busy = comp.loading;
+        loadMore = () => setComp(c => (c.loading || c.shown >= c.ids.length) ? c : { ...c, loading: true });
+    } else {
+        loaded = pg.loaded;
+        err = pg.err;
+        const tailRows = tail.rows.filter(u => u[S.f] === undefined || u[S.f] === null);
+        list = rkByIdMerge(pg.rows, tailRows);
+        if (list.length) rkRaversLast[S.k] = list;
+        else if (err && rkRaversLast[S.k]) list = rkRaversLast[S.k];
+        more = pg.more || (tailOn && (!tail.loaded || tail.more));
+        busy = pg.busy || tail.busy;
+        loadMore = pg.more ? pg.loadMore : tail.loadMore;
+    }
+    if (F.t) list = list.filter(F.t);
+    const didYouMean = searching && !list.some(u => rkNameScore(u.displayName, u.publicUid || u.id, term) >= 60) ? rkSuggestRavers(rkByIdMerge(dir || [], found), term, 5) : [];
+    const statKey = compKey && compKey.indexOf('fest:') === 0 ? '' : S.k;
+    if (!loaded) return <div data-feed="users"><RkFeedLoading kind="users"/></div>;
+    return (
+        <div className="grid grid-cols-1 gap-3" data-feed="users" data-raver-sort={S.k} data-raver-mode={searching ? 'search' : compKey || 'ordered'}>
+            {err && list.length === 0 ? (
+                <div className="text-center py-6" data-feed-empty="users"><p className="text-white text-sm">Couldn't load ravers just now.</p><p className="text-white text-xs mt-1">Tap ⟳ above to try again.</p></div>
+            ) : list.length === 0 && !more ? (
+                <div className="text-center py-6" data-feed-empty="users">
+                    <p className="text-white text-sm">{searching ? 'No ravers match "' + raw + '".' : compKey === 'mutual' ? 'No mutual friends yet.' : compKey === 'friends' ? 'No friends yet.' : fest ? 'Nobody has dated a post for this festival yet.' : F.t ? 'No ravers like that yet.' : 'No ravers here yet.'}</p>
+                    {searching && <p className="text-white text-xs mt-1">Names ignore spaces, dashes and @. Try just the letters.</p>}
+                    {compKey === 'mutual' && <p className="text-white text-xs mt-1">When your friends add friends, the ravers you share show up here.</p>}
+                </div>
+            ) : null}
+            {didYouMean.length > 0 && list.length > 0 && (
+                <div className="mb-2 bg-cyan-900/20 border border-cyan-400/40 rounded-lg p-2">
+                    <p className="text-xs text-cyan-200 font-bold mb-1">Did you mean…</p>
+                    <div className="flex flex-wrap gap-1.5">
+                        {didYouMean.map(u => <button key={u.id} onClick={() => onSearch && onSearch(u.displayName || u.publicUid || u.id)} className="text-xs bg-black/40 border border-cyan-400/40 rounded-full px-2 py-1 text-white active:scale-95">{u.displayName || 'Raver'}</button>)}
+                    </div>
+                </div>
+            )}
+            {list.map(u => {
+                const fi = comp.key === compKey && comp.info[u.id] && comp.info[u.id].fest;
+                const extra = fi ? <p className="text-xs font-bold text-cyan-200 mt-1" data-raver-fest="1">🎪 There {rkEventDays(fi) || 'soon'}</p> : (compKey === 'mutual' && comp.info[u.id] && comp.info[u.id].friend ? <p className="text-xs font-bold text-pink-200 mt-1">🫂 Already your friend</p> : null);
+                return <RkRaverCard key={u.id} u={u} user={user} profile={profile} onView={onViewProfile} stat={rkRaverStat(u, statKey)} mutual={mutualOf(u)} extra={extra}/>;
+            })}
+            {!searching && <RkLoadMore kind="users" more={more && !err} busy={busy} onMore={loadMore} count={list.length} doneText={list.length > 0 ? "That's everyone." : ''}/>}
+        </div>
+    );
+};
+// The festival picker for the Ravers feed: festivals with dated posts, soonest first.
+const RkFestivalSelect = ({ value, onChange, className }) => {
+    const [list, setList] = useState(null);
+    useEffect(() => { let dead = false; rkUpcomingFestivals().then(l => { if (!dead) setList(l || []); }); return () => { dead = true; }; }, []);
+    return (
+        <select value={value || ''} onChange={e => onChange(e.target.value)} className={className} data-raver-fest-select="1">
+            <option value="">🎪 Any festival</option>
+            {(list || []).map(g => <option key={g.key} value={g.key}>{g.name}{g.from ? ' · ' + rkEventDays(g) : ''} ({g.people.length})</option>)}
+            {list && list.length === 0 && <option value="" disabled>No dated festival posts yet</option>}
+        </select>
+    );
+};
+// V88.84.150.322: mutual friends on a raver's profile page, each a link to that raver; "See all" lists them.
+const RkMutualRow = ({ viewerUid, viewerProfile, targ, onViewProfile }) => {
+    const [mine, setMine] = useState(null);
+    const [all, setAll] = useState(false);
+    const ids = (viewerProfile && viewerProfile.friends) || [];
+    const key = ids.slice().sort().join(',');
+    useEffect(() => { let dead = false; if (!viewerUid || !ids.length) { setMine([]); return; } rkLoadFriends(ids).then(l => { if (!dead) setMine(l || []); }).catch(() => { if (!dead) setMine([]); }); return () => { dead = true; }; }, [viewerUid, key]);
+    if (!targ || !viewerUid || targ.id === viewerUid || targ.hideMutuals || !mine) return null;
+    const list = rkMutualWith(mine, targ, viewerUid);
+    if (!list.length) return null;
+    return (
+        <div className="mb-3 bg-black/40 border border-cyan-400/40 rounded-lg p-2.5" data-profile-mutual={list.length}>
+            <RkMutualLine list={list} onView={onViewProfile} max={4}/>
+            {list.length > 4 && <button onClick={() => setAll(true)} className="mt-1.5 text-xs font-bold text-cyan-200 underline">See all {list.length}</button>}
+            <Modal isOpen={all} onClose={() => setAll(false)} title={'🤝 ' + list.length + ' mutual friends'} zClass="z-[120]">
+                <div className="space-y-1.5">
+                    {list.map(f => (
+                        <button key={f.id} onClick={() => { setAll(false); if (onViewProfile) onViewProfile(f.publicUid || f.id); }} className="w-full flex items-center gap-2 bg-white/5 border border-white/15 rounded-lg p-2 text-left">
+                            <img src={f.photoURL || rkPh(40, 40, null, null, String(f.displayName || 'R').charAt(0))} alt="" className="w-8 h-8 rounded-full object-cover"/>
+                            <span className="text-sm font-bold text-white truncate">@{f.displayName || 'Raver'}</span>
+                        </button>
+                    ))}
+                </div>
+            </Modal>
         </div>
     );
 };
@@ -18932,7 +20019,7 @@ const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent
     return <><CreatorSocialsRow targ={targ} isSelf={isSelf}/>{kandi}{musicFirst ? <>{music}{content}</> : <>{content}{music}</>}</>;
 };
 
-const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem }) => {
+const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem, onViewProfile }) => {
     const [targ, setTarg] = useState(null);
     const [errMsg, setErrMsg] = useState('');
     const [pinnedItems, setPinnedItems] = useState([]);
@@ -19039,6 +20126,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                                 {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
                             </div>
 
+                            <RkMutualRow viewerUid={viewerUid} viewerProfile={viewerProfile} targ={targ} onViewProfile={onViewProfile}/>
                             {pinnedItems.length > 0 && (
                                 <div className="mb-4 bg-black/50 border border-pink-500/30 p-2 rounded-lg">
                                     <h4 className="text-[10px] uppercase font-bold text-pink-400 mb-2 flex items-center gap-1"><Star size={12}/> Featured Pins</h4>
@@ -19255,14 +20343,15 @@ const rkTribeOverlay = (list, ov) => {
     });
     return out;
 };
+// V88.84.150.322: a vote you said no to isn't waiting for you, and a mute (like a time-out) means nothing is.
 const rkTribeOpenVotes = (t, uid) => {
     const now = Date.now(), st = rkTribeSettle(t, now);
     const members = st.members, rs = st.restrictions;
-    const out = !!(rs[uid] && rs[uid].type === 'timeout');
+    const out = !!(rs[uid] && Number(rs[uid].until) > now);
     let total = 0, mine = 0;
-    Object.entries(st.pending).forEach(([, e]) => { total++; if (!out && !(e.votes || []).includes(uid)) mine++; });
+    Object.entries(st.pending).forEach(([, e]) => { total++; if (!out && !(e.votes || []).includes(uid) && !(e.no || []).includes(uid)) mine++; });
     Object.keys(st.requests).forEach(cid => { if (st.pending[cid] || members.includes(cid)) return; total++; if (!out) mine++; });
-    Object.values(st.votes).forEach(v => { total++; if (rkTribeVoters(members, v, rs, now).includes(uid) && !(v.yes || []).includes(uid)) mine++; });
+    Object.values(st.votes).forEach(v => { total++; if (rkTribeVoters(members, v, rs, now).includes(uid) && !(v.yes || []).includes(uid) && !(v.no || []).includes(uid)) mine++; });
     return { total, mine };
 };
 // V86.78.150.314: FIND ANY RAVER THE WAY THE FEED DOES (Milli, at 314: "Use the user search function
@@ -19473,7 +20562,7 @@ const RkTribeAppealBox = ({ tribe, r, myUid, myName }) => {
     return (
         <div data-appeal="1" className={'rounded-lg p-3 border-2 ' + (r.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')}>
             <p className="text-sm font-black text-white">{r.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(r.until)}</p>
-            <p className="text-xs text-white mt-0.5">{r.type === 'timeout' ? "You can read the chat and see votes, but you can't post, vote, call votes or invite until it ends." : "You can read and vote, but you can't post in the group chat until it ends."} {rkDurTxt(Number(r.until) - now)} left.</p>
+            <p className="text-xs text-white mt-0.5">{r.type === 'timeout' ? "You can read the chat and see votes, but you can't post, vote, call votes or invite until it ends." : "You can read the chat, but you can't post, vote, call votes or invite until it ends."} {rkDurTxt(Number(r.until) - now)} left.</p>
             <div className="mt-2 h-2.5 rounded-full bg-black/60 overflow-hidden relative">
                 <div className="h-full bg-gradient-to-r from-pink-400 to-cyan-300" style={{ width: served + '%' }}/>
                 {[25, 50, 75].map(m => <span key={m} className="absolute top-0 bottom-0 w-0.5 bg-white" style={{ left: m + '%' }}/>)}
@@ -19498,9 +20587,9 @@ const RkTribeAppealBox = ({ tribe, r, myUid, myName }) => {
 const RK_LOG_KINDS = [['all', 'All votes'], ['members', 'Members in and out'], ['restrict', 'Mutes and time-outs'], ['appeal', 'Appeals'], ['tribe', 'Tribe changes']];
 const rkLogKind = (type) => (type === 'admit' || type === 'kick') ? 'members' : (type === 'mute' || type === 'timeout') ? 'restrict' : type === 'repeal' ? 'appeal' : 'tribe';
 const RK_LOG_ICON = { admit: '👤', kick: '🚪', status: '🔓', purge: '🧹', rename: '✏️', founder: '👑', mute: '🔇', timeout: '⏳', repeal: '🙏' };
-const RK_LOG_WORD = { open: 'Open', passed: 'Passed', expired: 'Ran out of time', withdrawn: 'Withdrawn', closed: 'Closed' };
-const RK_LOG_DOT = { open: 'bg-amber-300 animate-pulse', passed: 'bg-lime-400', expired: 'bg-red-400', withdrawn: 'bg-sky-300', closed: 'bg-white' };
-const RK_LOG_EV = { start: 'Vote called', vote: 'A vote was cast', pass: 'Passed', expire: 'Ran out of time', withdraw: 'Withdrawn by the member who called it', close: 'Closed: it no longer applied', served: 'Time served', lifted: 'Lifted on appeal', replaced: 'Ended: replaced by a time-out' };
+const RK_LOG_WORD = { open: 'Open', passed: 'Passed', expired: 'Ran out of time', rejected: 'Voted down', withdrawn: 'Withdrawn', closed: 'Closed' };
+const RK_LOG_DOT = { open: 'bg-amber-300 animate-pulse', passed: 'bg-lime-400', expired: 'bg-red-400', rejected: 'bg-red-500', withdrawn: 'bg-sky-300', closed: 'bg-white' };
+const RK_LOG_EV = { start: 'Vote called', vote: 'A vote was cast', pass: 'Passed', expire: 'Ran out of time', reject: 'Voted down: more than a third said no, so it couldn\'t pass', withdraw: 'Withdrawn by the member who called it', close: 'Closed: it no longer applied', served: 'Time served', lifted: 'Lifted on appeal', replaced: 'Ended: replaced by a time-out' };
 const RkVoteLogView = ({ e, all, status, onOpen }) => {
     const hist = (e.history || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0));
     const of = Number(e.of) || 0, needN = rkTribeNeeded(of), needPct = of ? Math.round(100 * needN / of) : 67;
@@ -19518,16 +20607,18 @@ const RkVoteLogView = ({ e, all, status, onOpen }) => {
     return (
         <div className="space-y-2.5" data-log-view={e.id}>
             <div className="flex items-center gap-2 flex-wrap">
-                <span className={'text-xs font-black rounded-full px-2 py-0.5 border ' + (status === 'passed' ? 'border-lime-300 text-lime-200 bg-lime-500/15' : status === 'open' ? 'border-amber-300 text-amber-200 bg-amber-500/15' : status === 'expired' ? 'border-red-300 text-red-200 bg-red-500/15' : 'border-white/50 text-white bg-white/10')}>{RK_LOG_WORD[status] || status}</span>
+                <span className={'text-xs font-black rounded-full px-2 py-0.5 border ' + (status === 'passed' ? 'border-lime-300 text-lime-200 bg-lime-500/15' : status === 'open' ? 'border-amber-300 text-amber-200 bg-amber-500/15' : (status === 'expired' || status === 'rejected') ? 'border-red-300 text-red-200 bg-red-500/15' : 'border-white/50 text-white bg-white/10')}>{RK_LOG_WORD[status] || status}</span>
                 <span className="text-xs text-white">Called {rkTribeWhen(e.startedAt)}{e.endedAt ? ' · ended ' + rkTribeWhen(e.endedAt) : ''}</span>
             </div>
             <div className="bg-black/40 border border-white/15 rounded-lg p-2.5">
                 <p className="text-xs font-bold text-cyan-300 mb-1">Support</p>
-                <div className="relative h-3 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-lime-400/80" style={{ width: Math.min(100, Number(e.pct) || 0) + '%' }}/>
+                <div className="relative h-3 rounded-full bg-white/10 overflow-hidden" data-log-bar="1">
+                    <div className="absolute left-0 top-0 h-full bg-lime-400/80" style={{ width: Math.min(100, Number(e.pct) || 0) + '%' }}/>
+                    {/* V88.84.150.322: the share that said no, from the right */}
+                    <div className="absolute right-0 top-0 h-full bg-red-400/80" style={{ width: (of ? Math.min(100, Math.round(100 * (Number(e.no) || 0) / of)) : 0) + '%' }}/>
                     <span className="absolute top-0 bottom-0 w-0.5 bg-yellow-200" style={{ left: needPct + '%' }}/>
                 </div>
-                <p className="text-xs text-white mt-1">{Number(e.pct) || 0}% said yes ({Number(e.yes) || 0} of {of}). It needed {needPct}% ({needN} of {of}).</p>
+                <p className="text-xs text-white mt-1">{Number(e.pct) || 0}% said yes ({Number(e.yes) || 0} of {of}){Number(e.no) ? ', ' + (of ? Math.round(100 * Number(e.no) / of) : 0) + '% said no (' + Number(e.no) + ')' : ''}. It needed {needPct}% ({needN} of {of}).</p>
             </div>
             {(notes.length > 0 || n.statement) && (
                 <div className="bg-black/40 border border-white/15 rounded-lg p-2.5 space-y-1">
@@ -19541,7 +20632,7 @@ const RkVoteLogView = ({ e, all, status, onOpen }) => {
                 {hist.length === 0 ? <p className="text-xs text-white">No changes recorded.</p> : hist.map((h, i) => (
                     <div key={i} className="flex items-start gap-2 text-xs text-white py-0.5" data-log-ev={h.ev}>
                         <span className="shrink-0 w-28">{rkTribeWhen(h.at)}</span>
-                        <span className="flex-1">{RK_LOG_EV[h.ev] || h.ev}{h.of ? ' · ' + h.pct + '% yes (' + h.n + ' of ' + h.of + ')' : ''}</span>
+                        <span className="flex-1">{RK_LOG_EV[h.ev] || h.ev}{h.of ? ' · ' + h.pct + '% yes (' + h.n + ' of ' + h.of + ')' + (h.no ? ', ' + h.no + ' no' : '') : ''}</span>
                     </div>
                 ))}
             </div>
@@ -19558,7 +20649,7 @@ const RkVoteLogView = ({ e, all, status, onOpen }) => {
                 </div>
             )}
             {parent && <button onClick={() => onOpen(parent)} className="text-xs font-bold text-cyan-200 underline">View the {parent.type === 'mute' ? 'mute' : 'time-out'} this appeal was about</button>}
-            <p className="text-xs text-white">Votes are anonymous: the log keeps how many said yes, never who.</p>
+            <p className="text-xs text-white">Votes are anonymous: the log keeps how many said yes and no, never who.</p>
         </div>
     );
 };
@@ -19591,7 +20682,7 @@ const RkTribeVoteLog = ({ tribe }) => {
     return (
         <div className="border-t border-white/15 pt-3" data-votelog="1">
             <p className="text-xs font-black text-cyan-200 mb-1">📜 VOTE LOG</p>
-            <p className="text-xs text-white mb-2">Every vote in this tribe, past and present. Votes are anonymous: only the share of members who said yes is kept.</p>
+            <p className="text-xs text-white mb-2">Every vote in this tribe, past and present. Votes are anonymous: only how many members said yes and no is kept.</p>
             <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                 <select value={kind} onChange={e => setKind(e.target.value)} data-log-kind="1" className="bg-black border border-white/30 text-xs text-white rounded p-1.5">{RK_LOG_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                 <select value={sort} onChange={e => setSort(e.target.value)} data-log-sort="1" className="bg-black border border-white/30 text-xs text-white rounded p-1.5">
@@ -19609,7 +20700,7 @@ const RkTribeVoteLog = ({ tribe }) => {
                             <span className={'w-2 h-2 rounded-full shrink-0 ' + (RK_LOG_DOT[s] || 'bg-white')}/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs text-white truncate">{RK_LOG_ICON[e.type] || '🗳️'} {e.label || 'Vote'}</p>
-                                <p className="text-[11px] text-white">{RK_LOG_WORD[s] || s} · {Number(e.pct) || 0}% yes · {rkTribeWhen(e.startedAt)}</p>
+                                <p className="text-[11px] text-white">{RK_LOG_WORD[s] || s} · {Number(e.pct) || 0}% yes{Number(e.no) ? ' · ' + Number(e.no) + ' no' : ''} · {rkTribeWhen(e.startedAt)}</p>
                             </div>
                             <button onClick={() => setView(e)} className="shrink-0 text-[11px] font-bold text-cyan-200 border border-cyan-400/50 rounded px-2 py-1 active:scale-95">View</button>
                         </div>
@@ -19652,17 +20743,20 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
     const members = st.members, rs = st.restrictions;
     const names = tribe.memberNames || {};
     const meR = rs[myUid] || null;
-    const out = !!(meR && meR.type === 'timeout');
+    // V88.84.150.322: a mute stops voting too, the same as a time-out.
+    const out = !!meR;
     const status = rkTribeStatus(tribe);
     const admitVoters = rkTribeVoters(members, { type: 'admit' }, rs, now);
     const need = rkTribeNeeded(admitVoters.length);
     const rows = [];
-    Object.entries(st.pending).forEach(([cid, e]) => rows.push({ key: 'admit:' + cid, kind: 'admit', cid, cname: e.name || 'Raver', icon: '👤', label: 'Add @' + (e.name || 'Raver') + ' to the tribe', yes: (e.votes || []).filter(u => admitVoters.includes(u)), need, canVote: !out }));
-    Object.entries(st.requests).forEach(([cid, e]) => { if (st.pending[cid]) return; rows.push({ key: 'join:' + cid, kind: 'join', cid, cname: (e && e.name) || 'Raver', icon: '🙋', label: '@' + ((e && e.name) || 'Raver') + ' asked to join', yes: [], need, canVote: !out }); });
+    // `of` is how many can vote on it; it fails once more than of - need say no.
+    Object.entries(st.pending).forEach(([cid, e]) => { const yes = (e.votes || []).filter(u => admitVoters.includes(u)); rows.push({ key: 'admit:' + cid, kind: 'admit', cid, cname: e.name || 'Raver', icon: '👤', label: 'Add @' + (e.name || 'Raver') + ' to the tribe', yes, no: rkTribeNoOf(e.no, admitVoters, yes), need, of: admitVoters.length, canVote: !out && admitVoters.includes(myUid), by: (e.votes || [])[0] || '' }); });
+    Object.entries(st.requests).forEach(([cid, e]) => { if (st.pending[cid]) return; rows.push({ key: 'join:' + cid, kind: 'join', cid, cname: (e && e.name) || 'Raver', icon: '🙋', label: '@' + ((e && e.name) || 'Raver') + ' asked to join', yes: [], no: [], need, of: admitVoters.length, canVote: !out && admitVoters.includes(myUid) }); });
     Object.entries(st.votes).forEach(([key, v]) => {
         const voters = rkTribeVoters(members, v, rs, now);
         const icon = RK_LOG_ICON[v.type] || '🗳️';
-        rows.push({ key, kind: 'item', icon: v.type === 'status' ? (v.to === 'open' ? '🔓' : '🔒') : icon, label: rkTribeVoteLabel(v), yes: v.yes || [], need: rkTribeNeeded(voters.length), canVote: voters.includes(myUid), by: v.by, byName: v.byName, aboutMe: RK_TRIBE_ABOUT.includes(v.type) && v.target === myUid, statement: v.type === 'repeal' ? v.statement : '', exp: v.exp });
+        const yes = (v.yes || []).filter(u => voters.includes(u));
+        rows.push({ key, kind: 'item', icon: v.type === 'status' ? (v.to === 'open' ? '🔓' : '🔒') : icon, label: rkTribeVoteLabel(v), yes, no: rkTribeNoOf(v.no, voters, yes), need: rkTribeNeeded(voters.length), of: voters.length, canVote: voters.includes(myUid), by: v.by, byName: v.byName, aboutMe: RK_TRIBE_ABOUT.includes(v.type) && v.target === myUid, statement: v.type === 'repeal' ? v.statement : '', exp: v.exp });
     });
     const allVotes = rkTribeVotesOf(tribe);
     const vote = async (r) => {
@@ -19672,6 +20766,16 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
             if (r.kind === 'admit') { const res = await voteForTribeMember(tribe.id, r.cid, myUid); alert(res === 'approved' ? '✅ Passed: @' + r.cname + ' joined!' : '✅ Vote counted.'); }
             else if (r.kind === 'join') { const res = await proposeToTribe(tribe.id, r.cid, r.cname, myUid); alert(res.result === 'approved' ? '✅ Passed: @' + r.cname + ' joined!' : res.result === 'exists' ? '🗳️ A vote on @' + r.cname + ' is already running.' : '✅ Vote counted: ' + res.votes + ' of ' + res.needed + '.'); }
             else { const res = await voteTribeVote(tribe.id, r.key, myUid); alert(res === 'passed' ? '✅ Passed: ' + r.label + '.' : '✅ Vote counted.'); }
+        } catch (e) { alert(e.message); }
+        setBusy(false);
+    };
+    // V88.84.150.322: vote no. If that leaves it unable to reach 2/3, it closes as voted down.
+    const voteNo = async (r) => {
+        if (busy) return;
+        setBusy(true);
+        try {
+            const res = (r.kind === 'admit' || r.kind === 'join') ? await voteNoTribeMember(tribe.id, r.cid, r.cname, myUid) : await voteNoTribeVote(tribe.id, r.key, myUid);
+            alert(res === 'rejected' ? '🗳️ Voted down: ' + r.label + '. More than a third said no, so it can\'t pass.' : res === 'closed' ? 'That vote has already closed.' : '✅ Your no is counted. You won\'t be reminded about this vote.');
         } catch (e) { alert(e.message); }
         setBusy(false);
     };
@@ -19738,29 +20842,34 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
             <div>
                 <p className="text-xs font-black text-cyan-200 mb-1.5">🗳️ CURRENT VOTES ({rows.length})</p>
                 {rows.length === 0 ? <p className="text-xs text-white">No votes running right now.</p> : rows.map(r => {
-                    const voted = r.yes.includes(myUid);
+                    const said = r.yes.includes(myUid) ? 'yes' : (r.no || []).includes(myUid) ? 'no' : '';
                     const focus = focusKey === r.key;
+                    // the member who called a vote withdraws it rather than voting no on it
+                    const caller = r.kind === 'item' && r.by === myUid && !r.statement;
+                    const failsAt = Math.max(1, (r.of || 0) - r.need + 1);
                     return (
                         <div key={r.key} data-vote={r.key} className={'rounded-lg p-2.5 mb-1.5 border ' + (focus ? 'border-yellow-300 bg-yellow-500/15 rk-focus-glow' : 'border-white/20 bg-black/30')}>
                             <p className="text-sm font-bold text-white">{r.icon} {r.label}</p>
                             {r.statement && <p className="text-xs text-white bg-pink-900/25 border border-pink-400/40 rounded p-1.5 my-1 whitespace-pre-wrap break-words">“{r.statement}”</p>}
-                            <p className="text-xs text-white">{r.yes.length}/{r.need} votes{r.byName && r.kind === 'item' && r.statement === '' ? ' · called by @' + r.byName : ''}{r.exp ? ' · open until ' + rkTribeWhen(r.exp) : ''}</p>
-                            <div className="flex items-center gap-3 mt-1.5">
+                            <p className="text-xs text-white" data-vote-count="1">✓ {r.yes.length} yes · ✗ {(r.no || []).length} no · {r.need} of {r.of} needed{r.of > 1 ? ' · voted down at ' + failsAt + ' no' : ''}{r.byName && r.kind === 'item' && r.statement === '' ? ' · called by @' + r.byName : ''}{r.exp ? ' · open until ' + rkTribeWhen(r.exp) : ''}</p>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 {r.aboutMe ? <span className="text-xs font-bold text-amber-200">This vote is about you, so you don't vote on it.</span>
-                                    : out ? <span className="text-xs font-bold text-amber-200">You can't vote during a time-out.</span>
+                                    : out ? <span className="text-xs font-bold text-amber-200">{meR.type === 'timeout' ? "You can't vote during a time-out." : "You can't vote while you're muted."}</span>
                                     : !r.canVote ? null
-                                    : voted ? <span className="text-xs font-bold text-lime-300">✓ voted</span>
-                                    : <button disabled={busy} onClick={() => vote(r)} className="bg-lime-600/40 text-lime-100 border border-lime-400/60 rounded px-2.5 py-1 text-xs font-bold">Vote Yes</button>}
-                                {r.kind === 'item' && r.by === myUid && !out && !r.statement && <button onClick={() => withdraw(r)} className="text-xs font-bold text-white underline">Withdraw</button>}
+                                    : said === 'yes' ? <><span className="text-xs font-bold text-lime-300">✓ You said yes</span>{!caller && <button disabled={busy} onClick={() => voteNo(r)} data-vote-no={r.key} className="text-xs font-bold text-white underline">Change to no</button>}</>
+                                    : said === 'no' ? <><span className="text-xs font-bold text-red-300">✗ You said no</span><button disabled={busy} onClick={() => vote(r)} data-vote-yes={r.key} className="text-xs font-bold text-white underline">Change to yes</button></>
+                                    : <><button disabled={busy} onClick={() => vote(r)} data-vote-yes={r.key} className="bg-lime-600/40 text-lime-100 border border-lime-400/60 rounded px-3 py-1.5 text-xs font-bold">Vote Yes</button>
+                                        <button disabled={busy} onClick={() => voteNo(r)} data-vote-no={r.key} className="bg-red-600/35 text-red-100 border border-red-400/60 rounded px-3 py-1.5 text-xs font-bold">Vote No</button></>}
+                                {caller && !out && <button onClick={() => withdraw(r)} className="text-xs font-bold text-white underline">Withdraw</button>}
                             </div>
                         </div>
                     );
                 })}
             </div>
-            {out ? <p className="text-xs font-bold text-amber-200">⏳ While you are in a time-out you can't call votes or invite anyone.</p> : (
+            {out ? <p className="text-xs font-bold text-amber-200">{meR.type === 'timeout' ? '⏳ While you are in a time-out' : '🔇 While you are muted'} you can't vote, call votes or invite anyone.</p> : (
             <div>
                 <p className="text-xs font-black text-cyan-200 mb-1">CALL A VOTE</p>
-                <p className="text-xs text-white mb-2">{members.length > 1 ? 'A vote passes at 2/3 of the members who can vote on it: ' + need + ' of ' + admitVoters.length + ' for most votes. Yours counts as the first yes. A member a vote is about doesn\'t vote on it, and members in a time-out don\'t vote.' : 'You are the only member, so what you choose happens at once.'}</p>
+                <p className="text-xs text-white mb-2">{members.length > 1 ? 'A vote passes at 2/3 of the members who can vote on it: ' + need + ' of ' + admitVoters.length + ' for most votes. Yours counts as the first yes. Once more than a third say no it can\'t pass, and it closes as voted down. A member a vote is about doesn\'t vote on it, and members who are muted or in a time-out don\'t vote.' : 'You are the only member, so what you choose happens at once.'}</p>
                 <div className="grid grid-cols-2 gap-1.5">
                     {CALLS.map(([k, l]) => <button key={k} disabled={busy} onClick={() => onCall(k)} className={'text-xs font-bold rounded-lg py-2 px-1.5 border text-white ' + (pick === k ? 'bg-purple-600/60 border-purple-300' : 'bg-black/40 border-white/30')}>{l}</button>)}
                 </div>
@@ -19772,7 +20881,7 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
                                 {pickable.map(u => <option key={u} value={u}>@{names[u] || 'Raver'}{restricted(u) ? ' (muted)' : ''}</option>)}
                             </select>
                             {(pick === 'mute' || pick === 'timeout') && <>
-                                <p className="text-xs text-white">{pick === 'mute' ? '🔇 A muted member can read and vote, but not post in the group chat.' : '⏳ A member in a time-out can read the chat, but not post, vote, call votes or invite.'} They can appeal after each quarter of the time is served.</p>
+                                <p className="text-xs text-white">{pick === 'mute' ? '🔇 A muted member can read the group chat, but can\'t post, vote, call votes or invite.' : '⏳ A member in a time-out can read the chat, but not post, vote, call votes or invite, or delete their own messages.'} They can appeal after each quarter of the time is served.</p>
                                 <RkTimerPicker value={dur} onChange={setDur}/>
                             </>}
                             <button disabled={busy || !target} onClick={() => call(
@@ -19948,7 +21057,12 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         setPendingFocus(null);
         if (f === 'chat') { setActiveTribe(t); return; }
         setActiveTribe(null);
-        if (f.indexOf('vote:') === 0) { setSettingsFor(t.id); setVoteFocus({ tribeId: t.id, key: f.slice(5), n: Date.now() }); }
+        if (f.indexOf('vote:') === 0) {
+            // V88.84.150.322: a request to join becomes a vote once a member answers it (yes or no); its notice follows
+            let key = f.slice(5);
+            if (key.indexOf('join:') === 0 && (t.pendingVotes || {})[key.slice(5)]) key = 'admit:' + key.slice(5);
+            setSettingsFor(t.id); setVoteFocus({ tribeId: t.id, key, n: Date.now() });
+        }
         if (f === 'appeal') { setSettingsFor(t.id); setAppealFocus({ tribeId: t.id, n: Date.now() }); }
         setCardFocus({ tribeId: t.id, n: Date.now() });
     }, [pendingFocus, tribes, tribesLoaded, isOpen]);
@@ -19987,7 +21101,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         if (!isOpen || !myUid) return;
         tribes.forEach(t => {
             const st = rkTribeSettle(t);
-            if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length) || settlingRef.current[t.id]) return;
+            if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length) || settlingRef.current[t.id]) return;
             settlingRef.current[t.id] = true;
             settleTribe(t.id, myUid).catch(e => rkReport('tribe settle', e)).finally(() => { delete settlingRef.current[t.id]; });
         });
@@ -20268,7 +21382,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                 const ov = rkTribeOpenVotes(t, myUid);
                                 const focused = !!(cardFocus && cardFocus.tribeId === t.id);
                                 const cardR = rkTribeRestriction(t, myUid);
-                                const cardOut = !!(cardR && cardR.type === 'timeout');
+                                const cardOut = !!cardR;   // V88.84.150.322: muted members don't invite either
                                 return (
                                     <div key={t.id} data-tribe={t.id} className={'bg-white/5 border rounded-lg p-3 ' + (focused ? 'border-yellow-300 ring-2 ring-yellow-300/60' : 'border-purple-500/30')}>
                                         <div className="flex items-center justify-between gap-2 mb-2">
@@ -20297,7 +21411,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                             </div>
                                         )}
                                         {ov.mine > 0 && <p className="text-xs font-bold text-yellow-200 mb-2">🗳️ {ov.mine} vote{ov.mine === 1 ? '' : 's'} waiting for you in ⚙️ Tribe settings.</p>}
-                                        {cardR && <p className={'text-xs font-bold mb-2 ' + (cardOut ? 'text-amber-200' : 'text-sky-200')}>{cardOut ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(cardR.until)}. Appeal in ⚙️ Tribe settings.</p>}
+                                        {cardR && <p className={'text-xs font-bold mb-2 ' + (cardR.type === 'timeout' ? 'text-amber-200' : 'text-sky-200')}>{cardR.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(cardR.until)}. Appeal in ⚙️ Tribe settings.</p>}
                                         {myFriendsNotIn.length > 0 && !cardOut && (
                                             <div>
                                                 <p className="text-xs text-white mb-1">Invite a friend (starts a vote):</p>
@@ -20363,7 +21477,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     </div>
                     {myR ? (
                         <div className={'shrink-0 rounded-lg p-2.5 border-2 flex items-center gap-2 ' + (myR.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')} data-restricted="1">
-                            <p className="flex-1 text-xs font-bold text-white">{myR.type === 'timeout' ? '⏳ You are in a time-out until ' + rkTribeWhen(myR.until) + '. You can read the chat.' : '🔇 You are muted until ' + rkTribeWhen(myR.until) + '. You can read and vote, not post.'}</p>
+                            <p className="flex-1 text-xs font-bold text-white">{myR.type === 'timeout' ? '⏳ You are in a time-out until ' + rkTribeWhen(myR.until) + '. You can read the chat.' : '🔇 You are muted until ' + rkTribeWhen(myR.until) + '. You can read the chat, but not post or vote.'}</p>
                             <button onClick={() => { setChatSettings(true); }} className="shrink-0 text-xs font-bold bg-pink-600 text-white rounded-full px-3 py-1">Appeal</button>
                         </div>
                     ) : (
@@ -20398,7 +21512,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     ));
                                 })()}
                             </div>
-                            {!(myR && myR.type === 'timeout') && (
+                            {!myR && (
                             <div className="border-t border-white/10 pt-3">
                                 <p className="text-xs font-bold text-cyan-300 mb-2">➕ Invite a raver into this tribe (starts a vote)</p>
                                 <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} friends={profile?.friends || []} tags={Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {})} onPick={async (u) => {
@@ -21557,8 +22671,10 @@ const App = () => {
     // V70.3: focusItem pins the feed to ONE listing. "View in Feed" used to pass a uid into
     // handleViewFeed, which filters by SELLER — so you arrived at everything that raver had ever
     // posted and still had to hunt for the one you came from.
-    const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' });
-    const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '' };
+    // V88.84.150.322: each feed's controls live here, so Clear Filters resets them all: Items (sort, price,
+    // friends' posts, a festival), Music (msort, mgenre, mkind, mage) and Ravers (rsort, rfilter, rfest).
+    const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '', priceMin: '', priceMax: '', friendsOnly: false, msort: 'new', mgenre: '', mkind: '', mage: '', rsort: 'new', rfilter: '', rfest: '' });
+    const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '', priceMin: '', priceMax: '', friendsOnly: false, msort: 'new', mgenre: '', mkind: '', mage: '', rsort: 'new', rfilter: '', rfest: '' };
     const [forceSettings, setForceSettings] = useState(false);
     // V73.11: same pattern as forceSettings — App owns the flag, the profile page consumes it
     // once and clears it. Lets a tapped notification open the Creator Hub, which is state that
@@ -21782,8 +22898,8 @@ const App = () => {
         return () => { clearInterval(tick); clearInterval(heartbeat); };
     }, [user, rkProfileReady]);
 
-    // V87.84.150.321: true while the Items feed is loading (see the feed listener below).
-    const [isSyncing, setIsSyncing] = useState(true);
+    // V87.84.150.321: true while the Items feed is loading. V88.84.150.322: worked out from the feed's first
+    // page (isSyncing, below the feed's reads).
 
     const [loadPct, setLoadPct] = useState(0);
     const [showWelcome, setShowWelcome] = useState(() => { try { return localStorage.getItem('rk_welcome_seen') !== '1'; } catch (e) { return true; } });
@@ -21943,91 +23059,55 @@ const App = () => {
     // installs; if Firestore rejected the unauthenticated read, the listener died silently
     // and old posts (including official merch) never loaded. Includes auto-retry on errors.
     const [feedRetry, setFeedRetry] = useState(0);
-    const itemsLoadKey = useRef('');
-    // V65.39: the feed used to read the whole tradeItems collection in one unconstrained query.
-    // That cannot survive visibility rules — rules are not filters, so a single unreadable
-    // document fails the ENTIRE query rather than being skipped. The feed is now assembled from
-    // four constrained queries, each of which can only return documents you may read:
-    //   1. everything public
-    //   2. your own posts, whatever their visibility
-    //   3. posts that name you specifically (visAllowed contains your uid)
-    //   4. friends-only posts from people you are actually friends with
-    // Results merge by document id, so an item matching two queries still renders once.
-    //
-    // NOTE: query 4 needs a composite index on (vis, ownerId). Firestore prints a one-click
-    // creation link the first time it runs — expected once, not a bug.
+    // V88.84.150.322: THE ITEMS FEED, 50 AT A TIME (Milli, at 322). 321 listened to every public post at once,
+    // and every post carries its photos, so the first load grew with the app. Now:
+    //  - the public posts arrive in the chosen sort's own order, 50 at a time (useRkPaged with RK_ITEM_SORTS).
+    //    Newest is live. A sort Firestore hasn't indexed yet falls back to the full list, sorted here.
+    //  - your own posts, posts shared with you by name, your friends' friends-only posts and the official
+    //    products keep their own listeners (each capped), merged in as far as the loaded pages reach.
+    //  - a post asked for by id, and a raver's posts when you search for them, are read on their own.
+    // 321's legacy bucket (the whole collection, read with no filter) is gone. Under the visibility rules
+    // Firestore refuses any query that could return a post you can't read, so it had answered every load
+    // with a refusal since those rules went live.
+    const itemSort = rkItemSort(filters.sort);
+    const pubItems = useRkPaged({ key: 'items:' + itemSort.k + ':' + ((user && user.uid) || '') + ':' + feedRetry, live: !!itemSort.live, enabled: !!user,
+        makeQuery: (n, after) => rkItemQuery(itemSort, n, after),
+        fallback: () => query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public')),
+        cmp: rkSortCmp(itemSort) });
+    const [itemBuckets, setItemBuckets] = useState({});
+    const [itemBucketsWant, setItemBucketsWant] = useState(null);   // which of them are listening
     useEffect(() => {
         if (!user) return;
         const col = collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems');
-        const buckets = {};
-        const unsubs = [];
-        let settled = 0;
-        // V87.84.150.321 (queue item 8): the loading state lasts until EVERY query below has answered. It
-        // used to end at the first answer, often your own posts, so the feed showed a partial list as if
-        // it were all of it. A new sign-in or ⟳ starts a fresh load; a friends change re-listens quietly.
-        const answered = new Set();
-        let expected = 0;
-        const answer = (key) => { answered.add(key); if (answered.size >= expected) setIsSyncing(false); };
-        const loadKey = user.uid + ':' + feedRetry;
-        if (itemsLoadKey.current !== loadKey) { itemsLoadKey.current = loadKey; setIsSyncing(true); }
-        const publish = () => {
-            const merged = {};
-            Object.values(buckets).forEach(rows => rows.forEach(r => { merged[r.id] = r; }));
-            setItems(Object.values(merged));
-        };
-        const attach = (key, q) => {
-            expected++;
-            unsubs.push(onSnapshot(q, s => {
-                buckets[key] = s.docs.map(d => ({ ...d.data(), id: d.id }));
-                settled++; publish(); answer(key);
-            }, err => {
-                // One failing bucket must not blank the feed — the others still populate.
-                rkReport('feed bucket "' + key + '"', err);
-                buckets[key] = []; settled++; publish(); answer(key);
-                if (key === 'public') setTimeout(() => setFeedRetry(r => r + 1), 4000);
-            }));
-        };
-        // V65.39.01: SELF-HEALING BUCKET.
-        // 221 assumed every listing carried `vis`. It could not: the backfill ran as one user and
-        // the tradeItems update rule only lets the OWNER change arbitrary fields, so writes to
-        // other people's posts were denied inside the batch and the feed collapsed to your own
-        // items. Depending on a backfill completing perfectly was the design error.
-        //
-        // This bucket reads the collection unconstrained and filters visibility in JS. While
-        // rules are permissive it returns everything, so a missing `vis` is simply treated as
-        // public and nothing disappears. Once visibility rules are live it fails, empties itself
-        // and the constrained buckets below carry the feed. Correct on both sides of the
-        // transition, with no ordering requirement.
-        const meUidFeed = user.uid;
-        const meFriends = profile?.friends || [];
-        const canSee = (i) => {
-            const v = i.vis || 'public';                        // unstamped = public, as it is today
-            if (v === 'public') return true;
-            if (i.ownerId === meUidFeed) return true;
-            if ((i.visAllowed || []).includes(meUidFeed)) return true;
-            if (v === 'friends' && meFriends.includes(i.ownerId)) return true;
-            return false;
-        };
-        expected++;
-        unsubs.push(onSnapshot(query(col), s => {
-            buckets.legacy = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(canSee);
-            settled++; publish(); answer('legacy');
-        }, err => {
-            // Expected once visibility rules are enforced — not an error worth retrying.
-            console.log('Feed legacy bucket closed (rules enforcing visibility):', err.code || err);
-            buckets.legacy = []; settled++; publish(); answer('legacy');
-        }));
-
-        attach('public', query(col, where('vis', '==', 'public')));
-        attach('mine', query(col, where('ownerId', '==', user.uid)));
-        attach('named', query(col, where('visAllowed', 'array-contains', user.uid)));
+        const b = {}, unsubs = [];
+        const attach = (k, q) => unsubs.push(onSnapshot(q, s => { b[k] = s.docs.map(d => ({ ...d.data(), id: d.id })); setItemBuckets({ ...b }); }, err => { rkReport('feed bucket "' + k + '"', err); b[k] = []; setItemBuckets({ ...b }); }));
+        attach('mine', query(col, where('ownerId', '==', user.uid), limit(300)));
+        attach('named', query(col, where('visAllowed', 'array-contains', user.uid), limit(200)));
         // Firestore caps an 'in' clause at 30 values, so this covers your 30 most recent friends.
+        // NOTE: needs the composite index (vis, ownerId), in firestore.indexes.json since 322.
         const friendIds = (profile?.friends || []).slice(0, 30);
-        if (friendIds.length) attach('friends', query(col, where('vis', '==', 'friends'), where('ownerId', 'in', friendIds)));
-
-        const timeout = setTimeout(() => setIsSyncing(false), 10000);
-        return () => { unsubs.forEach(u => { try { u(); } catch (e) {} }); clearTimeout(timeout); };
+        if (friendIds.length) attach('friends', query(col, where('vis', '==', 'friends'), where('ownerId', 'in', friendIds), limit(200)));
+        attach('official', query(col, where('vis', '==', 'public'), where('isAppProduct', '==', true), limit(100)));
+        setItemBucketsWant(['mine', 'named', 'official'].concat(friendIds.length ? ['friends'] : []));
+        return () => { unsubs.forEach(u => { try { u(); } catch (e) {} }); };
     }, [user, feedRetry, profile?.friends]);
+    // a post asked for by id (a notification's "view this post", a shared link) that isn't loaded yet
+    const [extraItems, setExtraItems] = useState({});
+    const rkFetchItem = async (id) => {
+        if (!id) return null;
+        try {
+            const s = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id));
+            if (!s.exists()) return null;
+            const it = { ...s.data(), id: s.id };
+            setExtraItems(m => ({ ...m, [id]: it }));
+            return it;
+        } catch (e) { rkReport('feed post fetch', e); return null; }
+    };
+    useEffect(() => { if (user && filters.focusItem && !extraItems[filters.focusItem]) rkFetchItem(filters.focusItem); }, [user, filters.focusItem]);
+    // V87.84.150.321's rule, kept: loading until every query behind the feed has answered (an error counts as an
+    // answer), so "No posts yet" is only said once it's known.
+    const bucketsReady = !!itemBucketsWant && itemBucketsWant.every(k => Object.prototype.hasOwnProperty.call(itemBuckets, k));
+    const isSyncing = !!user && (!pubItems.loaded || !bucketsReady);
 
     // V37.12: User Directory for the feed's Ravers view (and for search under Items)
     // V87.84.150.321 (queue item 8): loaded once and kept, so switching back to Ravers is instant, and its
@@ -22067,14 +23147,53 @@ const App = () => {
         })();
     }, [needUsersDir, usersDirAt]);
     const usersLoading = usersDirBusy || (needUsersDir && !usersDirAt);
+    // V88.84.150.322: searching for a raver in Items shows all of their public posts (up to 100), not only those
+    // on the pages loaded so far.
+    const ownerTerm = rkCleanSearch(filters.searchUid).toLowerCase();
+    const ownerHit = ownerTerm.length >= 2 ? usersDir.find(u => [u.publicUid, u.id, u.displayName].some(x => String(x || '').toLowerCase() === ownerTerm)) : null;
+    const ownerFeedId = page === 'feed' && filters.view === 'all' && ownerHit ? ownerHit.id : '';
+    const [ownerItems, setOwnerItems] = useState([]);
+    useEffect(() => {
+        setOwnerItems([]);
+        if (!user || !ownerFeedId) return;
+        return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public'), where('ownerId', '==', ownerFeedId), limit(100)),
+            s => setOwnerItems(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('feed raver posts', e));
+    }, [user, ownerFeedId]);
+    // Everything the Items feed holds: the loaded pages; then your own, shared and friends' posts as far as
+    // the pages reach (beyond the last loaded row a post waits for its page, so the order stays true); then
+    // anything asked for by id or by raver.
+    // Worked out as the page renders, so the list and its end-of-list loader always see the same posts (in an
+    // effect, one render had the page loaded and no posts listed, and the loader fetched a page nobody asked for).
+    // `items` follows it for everything else that reads the posts.
+    const feedItems = useMemo(() => {
+        const small = [...(itemBuckets.mine || []), ...(itemBuckets.named || []), ...(itemBuckets.friends || [])]
+            .filter(i => rkInSort(itemSort, i) && (pubItems.fell || rkWithinPage(itemSort, pubItems, i)));
+        const pub = pubItems.fell ? pubItems.rows.filter(i => rkInSort(itemSort, i)) : pubItems.rows;
+        return rkByIdMerge(rkByIdMerge(rkByIdMerge(pub, small), ownerItems), Object.values(extraItems));
+    }, [pubItems.rows, pubItems.more, pubItems.fell, itemBuckets, ownerItems, extraItems, itemSort.k]);
+    useEffect(() => { setItems(feedItems); }, [feedItems]);
+    // Most liked reads likeCount: posts from before 322 get it the first time they're loaded
+    useEffect(() => { const me = user && !user.isAnonymous ? user.uid : ''; rkHealLikeCounts(pubItems.rows, me); rkHealLikeCounts(itemBuckets.mine, me); }, [pubItems.rows, itemBuckets.mine]);
+    // the Ravers feed is its own component; ⟳ starts it again
+    const [ravKey, setRavKey] = useState(0);
+    // a festival on a post: its line opens the Items feed filtered to that festival
+    useEffect(() => {
+        const f = (e) => { const nm = e && e.detail; if (!nm) return; setFilters(fl => ({ ...fl, view: 'all', tradeEvent: nm, focusItem: '', searchUid: '' })); setPage('feed'); setViewingItem(null); };
+        window.addEventListener('rk:feed-festival', f);
+        return () => window.removeEventListener('rk:feed-festival', f);
+    }, []);
     // The Music feed mounts the first time it's opened and stays, so switching back to it is instant.
     const [musicSeen, setMusicSeen] = useState(false);
     const [musicKey, setMusicKey] = useState(0);
     const showMusic = musicSeen || (page === 'feed' && filters.view === 'music');
     useEffect(() => { if (showMusic && !musicSeen) setMusicSeen(true); }, [showMusic, musicSeen]);
+    // The Ravers feed too (321 kept its list; 322's is the feed's own), so switching back to it is instant.
+    const [ravSeen, setRavSeen] = useState(false);
+    const showRavers = ravSeen || (page === 'feed' && filters.view === 'users');
+    useEffect(() => { if (showRavers && !ravSeen) setRavSeen(true); }, [showRavers, ravSeen]);
     // ⟳ reloads the feed you're on, showing its loading state until the new results are in.
     const refreshFeed = () => {
-        if (filters.view === 'users') setUsersDirAt(0);
+        if (filters.view === 'users') { setUsersDirAt(0); setRavKey(k => k + 1); }
         else if (filters.view === 'music') setMusicKey(k => k + 1);
         else setFeedRetry(r => r + 1);
     };
@@ -22102,17 +23221,44 @@ const App = () => {
                 // V87.84.150.321: the leader with a name. A profile that was never set up has none, and its
                 // line read "@undefined". The top three are read and the first named one is shown.
                 const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(3))); const d = s.docs.find(x => rkMqNamed(x.data())); return d ? { ...d.data(), id: d.id } : null; };
-                const [seller, earner, referrer, buyer, active, listener, ach, creator] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints')]);
+                const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed')]);
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated });
+                // V88.84.150.322: the most played track, how many posts are public (the feed no longer holds them
+                // all), and the next festival with ravers going
+                let topTrack = null, postCount = null, meetup = null;
+                try { const ts = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), orderBy('plays', 'desc'), limit(1))); if (!ts.empty) topTrack = { ...ts.docs[0].data(), id: ts.docs[0].id }; } catch (e) {}
+                try { if (typeof getCountFromServer === 'function') { const c = await getCountFromServer(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public'))); postCount = Number(c.data().count); } } catch (e) {}
+                try { const fl = await rkUpcomingFestivals(); meetup = fl.find(g => g.people.length >= 2) || fl[0] || null; } catch (e) {}
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
         const int = setInterval(pull, 300000);
         return () => clearInterval(int);
     }, [user]);
+
+    // V88.84.150.322: the platform sales total starts from every raver's sales so far, added up once by the first
+    // admin to open the app (100 ravers a read); checkout adds to it from then on.
+    useEffect(() => {
+        if (!profile?.isAdmin || globalStats.salesSeeded || !(globalStats.userCount > 0)) return;
+        let dead = false;
+        (async () => {
+            let total = 0, last = null;
+            for (let k = 0; k < 100; k++) {
+                const cs = [where('totalSalesValue', '>', 0), orderBy('totalSalesValue', 'desc')];
+                if (last) cs.push(startAfter(last));
+                cs.push(limit(100));
+                const sn = await getDocs(query(collection(db, 'artifacts', appId, 'users'), ...cs));
+                sn.docs.forEach(d => { total += Number(d.data().totalSalesValue) || 0; });
+                if (sn.docs.length < 100) break;
+                last = sn.docs[sn.docs.length - 1];
+            }
+            if (!dead) await setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { salesTotal: Math.round(total * 100) / 100, salesSeeded: true }, { merge: true });
+        })().catch(e => rkReport('sales total setup', e));
+        return () => { dead = true; };
+    }, [profile?.isAdmin, !!globalStats.salesSeeded, globalStats.userCount > 0]);
 
     // V37.13: unique view registration — fires the moment a post is opened. One view per
     // UID forever (viewedBy ledger), never the owner. Optimistic local bump so the count
@@ -22324,8 +23470,10 @@ const App = () => {
     useEffect(() => {
         if (itemDeepLinkRef.current || !RK_URL_PARAMS.item || !items || items.length === 0) return;
         const found = items.find(i => i.id === RK_URL_PARAMS.item);
-        if (found) { itemDeepLinkRef.current = true; setViewingItem(found); }
-    }, [items]);
+        if (found) { itemDeepLinkRef.current = true; setViewingItem(found); return; }
+        // V88.84.150.322: the feed loads 50 at a time, so an older post is read on its own
+        if (pubItems.loaded) { itemDeepLinkRef.current = true; rkFetchItem(RK_URL_PARAMS.item).then(it => { if (it) setViewingItem(it); }); }
+    }, [items, pubItems.loaded]);
 
     // V37.13: self-sync computed stats so the marquee leaderboards can query them,
     // and self-notify on newly unlocked achievements.
@@ -22418,7 +23566,11 @@ const App = () => {
         const upd = {};
         const hi = (f, v) => { if (Number.isFinite(v) && v > (Number(profile[f]) || 0)) upd[f] = v; };
         let listed = 0, likesIn = 0, commentsIn = 0, likesOut = 0;
-        (items || []).forEach(i => {
+        // V88.84.150.322: the feed loads 50 at a time, so your own posts come from their own listener. Festivals
+        // dated: the different festivals you've posted your days for (Festival Planner, Season Pass).
+        const fests = new Set();
+        rkByIdMerge(items || [], itemBuckets.mine || []).forEach(i => {
+            if (i && i.ownerId === uid) { const e = rkEventOf(i); if (e && e.from) fests.add(rkEventKey(e.name)); }
             if (!i) return;
             const likes = Array.isArray(i.likes) ? i.likes : [];
             if (i.ownerId === uid) {
@@ -22427,7 +23579,7 @@ const App = () => {
                 if (!i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept) listed++;
             } else if (likes.includes(uid)) likesOut++;
         });
-        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn);
+        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn); hi('festivalsDated', fests.size);
         hi('socialInteractions', likesOut + (Number(profile.commentsPosted) || 0));
         // Fully Wired and Full Signal. Both flags were only ever computed when Settings was SAVED, so
         // anyone who added a phone or ticked every box before V64.02 introduced them, or whose ticks
@@ -22435,7 +23587,23 @@ const App = () => {
         if (!profile.contactComplete && profile.phoneNumber && auth.currentUser?.email) upd.contactComplete = true;
         if (!profile.notifsMaxed && rkNotifsMaxed(profile.notificationPreferences)) upd.notifsMaxed = true;
         if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true }).catch(e => rkReport('achievement stats', e));
-    }, [user?.uid, profile?.joined, items, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, rkAchFlagsKey]);
+    }, [user?.uid, profile?.joined, items, itemBuckets.mine, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, profile?.festivalsDated, rkAchFlagsKey]);
+    // V88.84.150.322: what the Ravers feed sorts on. joined, for a profile set up before join dates were kept
+    // (Firebase Auth knows when the account was made); friendsCount, kept in step with the friends list.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.displayName) return;
+        const upd = {};
+        if (!profile.joined) { try { const t = Date.parse((auth.currentUser && auth.currentUser.metadata && auth.currentUser.metadata.creationTime) || ''); if (t > 0) upd.joined = t; } catch (e) {} }
+        const fc = (profile.friends || []).length;
+        if (profile.friendsCount !== fc) upd.friendsCount = fc;
+        if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(e => rkReport('profile sort fields', e));
+    }, [user?.uid, profile?.displayName, profile?.joined, (profile?.friends || []).length, profile?.friendsCount]);
+    // V88.84.150.322: once a day, a nudge about tribe votes waiting on you (rkVoteNudge)
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
+        const t = setTimeout(() => { rkVoteNudge(user.uid).catch(e => rkReport('vote nudge', e)); }, 8000);
+        return () => clearTimeout(t);
+    }, [user?.uid, profile?.joined]);
     // V84.152 (310): completed PLUR trades were never counted at all (Trader, Trade Master, and the
     // trades share of creator points), and the tribe figures only updated while the Vibe Tribe
     // window was open. Both need a few reads, so they run at most every 6 hours per device.
@@ -22543,6 +23711,12 @@ const App = () => {
         setFilters({...filters, view: 'all', searchUid: targetUid, focusItem: '', tradeEvent: ''});
         setPage('feed');
     };
+    // V88.84.150.322: windows drawn outside the back stack close when the tutorial clears the stage.
+    useEffect(() => {
+        const f = () => { setMsgOpen(false); setViewingProfileId(null); };
+        window.addEventListener('rk:close-windows', f);
+        return () => window.removeEventListener('rk:close-windows', f);
+    }, []);
     // V70.4: stat-row "view this post" arrives as an event, since the profile components between
     // here and there have no reason to carry a feed-navigation prop.
     useEffect(() => {
@@ -22785,7 +23959,7 @@ const App = () => {
         return i.stockQty <= 0;
     };
 
-    const filteredItems = items.filter(i => {
+    const filteredItems = feedItems.filter(i => {
         if(i.isHidden) return false; // V63: sold & hidden posts never show in the feed
         if(i.status === 'pending' || i.status === 'request') return false; 
         if(i.isDIYRequest || i.isRequest) return false; 
@@ -22799,9 +23973,12 @@ const App = () => {
         if (filters.focusItem) return i.id === filters.focusItem;
         if(rkCleanSearch(filters.searchUid)) {
             const q = rkCleanSearch(filters.searchUid).toLowerCase();
+            // V88.84.150.322: a search finds the raver (as before) and the post itself: its name, description,
+            // type, series and festival.
+            const ev = rkEventOf(i);
             const hit = String(i.ownerPublicUid || '').toLowerCase() === q
                 || String(i.ownerId || '').toLowerCase() === q
-                || String(i.ownerName || '').toLowerCase() === q;
+                || [i.ownerName, i.name, i.description, i.type, i.seriesName, ev && ev.name].some(x => String(x || '').toLowerCase().includes(q));
             if(!hit) return false;
         }
         // V65.38: sold-out listings are hidden by default and shown ONLY when the sort is set to
@@ -22818,21 +23995,18 @@ const App = () => {
                 t === 'sale'     ? (!i.isShowingOff && !i.isAppProduct) : false);
             if(!hit) return false;
         }
-        if(filters.postTypes.includes('trades') && filters.tradeEvent && (i.tradeWants?.event || '') !== filters.tradeEvent) return false;
+        // V88.84.150.322: a festival filters every post that names it (it was trades only), price has a range,
+        // and you can keep to your friends' posts.
+        if (filters.tradeEvent && rkEventKey((rkEventOf(i) || {}).name) !== rkEventKey(filters.tradeEvent)) return false;
+        const pMin = parseFloat(filters.priceMin), pMax = parseFloat(filters.priceMax);
+        if (Number.isFinite(pMin) && !(Number(i.price) >= pMin)) return false;
+        if (Number.isFinite(pMax) && !(Number(i.price) <= pMax)) return false;
+        if (filters.friendsOnly && !(profile?.friends || []).includes(i.ownerId)) return false;
         if(filters.itemTypes.length > 0 && !filters.itemTypes.includes(i.type || 'Other')) return false;
         return true;
-    }).sort((a, b) => {
-        if (filters.sort === 'sold') return b.timestamp - a.timestamp;
-        if (filters.sort === 'recent') return b.timestamp - a.timestamp;
-        if (filters.sort === 'popular') return (b.likes?.length || 0) - (a.likes?.length || 0);
-        if (filters.sort === 'priceHigh') return b.price - a.price;
-        if (filters.sort === 'priceLow') return a.price - b.price;
-        if (filters.sort === 'commented') return (b.comments?.length || 0) - (a.comments?.length || 0);
-        if (filters.sort === 'viewed') return (b.viewCount || 0) - (a.viewCount || 0);
-        return 0;
-    });
+    }).sort(rkSortCmp(itemSort));
     
-    const officialItems = items.filter(i => i.isAppProduct && i.status === 'approved').sort((a,b)=>b.timestamp - a.timestamp);
+    const officialItems = rkByIdMerge(itemBuckets.official || [], items).filter(i => i.isAppProduct && i.status === 'approved').sort((a,b)=>b.timestamp - a.timestamp);
 
     // V65.38.02: was the raw box value, so "@king" never matched the stored name "King" and a
     // trailing space from keyboard autocomplete failed the includes() test. Posts still matched
@@ -22848,12 +24022,16 @@ const App = () => {
     const didYouMean = uTerm && !strongHit ? rkSuggestRavers(usersDir, uTerm, 5) : [];
 
     // V37.14: marquee data — entries are {t, uid} so user references are tappable links
-    const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
-    const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
+    // V88.84.150.322: the feed holds 50 posts at a time now, so the totals come from the server: the sales total
+    // kept at checkout (global/stats.salesTotal, set up once by an admin's app), and a count of public posts.
+    const mqTotalSales = globalStats.salesSeeded ? (Number(globalStats.salesTotal) || 0) : items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
+    const mqItemsListed = Number.isFinite(topStats.postCount) ? topStats.postCount : items.filter(i => !i.isRequest && !i.isDIYRequest).length;
     const mqCommission = mqTotalSales * effCommissionRate(null);
     // V87.84.150.321: counted per raver rather than per name, so a renamed raver's posts aren't split in two
     // and two ravers who share a name aren't merged; named by their latest post.
-    const topPoster = (() => { const c = {}; items.forEach(i => { const k = i.ownerId || i.ownerPublicUid; if (!k || i.isRequest || i.isDIYRequest) return; const e = c[k] || (c[k] = { n: 0, name: '', at: -1, uid: i.ownerPublicUid || i.ownerId }); e.n++; if (i.ownerName && (i.timestamp || 0) >= e.at) { e.name = i.ownerName; e.at = i.timestamp || 0; } }); const best = Object.values(c).filter(e => e.name).sort((a, b) => b.n - a.n)[0]; return best ? { name: best.name, n: best.n, uid: best.uid } : null; })();
+    const topPosterLoaded = (() => { const c = {}; items.forEach(i => { const k = i.ownerId || i.ownerPublicUid; if (!k || i.isRequest || i.isDIYRequest) return; const e = c[k] || (c[k] = { n: 0, name: '', at: -1, uid: i.ownerPublicUid || i.ownerId }); e.n++; if (i.ownerName && (i.timestamp || 0) >= e.at) { e.name = i.ownerName; e.at = i.timestamp || 0; } }); const best = Object.values(c).filter(e => e.name).sort((a, b) => b.n - a.n)[0]; return best ? { name: best.name, n: best.n, uid: best.uid } : null; })();
+    // V88.84.150.322: the top poster is read from every raver's own count (itemsListed), not the loaded posts
+    const topPoster = (topStats.poster && (Number(topStats.poster.itemsListed) || 0) > 0) ? { name: rkMqName(topStats.poster), n: Number(topStats.poster.itemsListed), uid: topStats.poster.publicUid || topStats.poster.id } : topPosterLoaded;
     const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY', '💞🔆 SPREAD THE PLUR', '🎶🌟 LOST IN THE MUSIC', '🤝✨ HANDSHAKE = NEW FAMILY', '🌈🦋 STAY KANDi, STAY KIND', '🔥💃 MELT INTO THE BEAT', '🫂💖 HUG A RAVER TODAY', '⚡🧡 ENERGY NEVER DIES', '🪩💫 ONE LOVE, ONE DANCEFLOOR', '🌸🎀 KANDI KID FOREVER', '🛸💚 VIBE TRIBE ASSEMBLE', '🎆🌀 FEEL THE FREQUENCY', '💜🔊 BASS IN YOUR HEART'];
     const plurLine = (() => {
         const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam', 'Kindness', 'The melody', 'Pure joy', 'The drop', 'Your energy', 'The afterglow', 'Festival magic', 'The rhythm', 'Every heartbeat', 'The light show'];
@@ -22888,6 +24066,12 @@ const App = () => {
         topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + rkMqName(topStats.ach) + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
         topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + rkMqName(topStats.seller) + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - rkSellerRate(topStats.seller))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
         topStats.rated && (topStats.rated.avgRatingX100 > 0) ? { t: '⭐ TOP RATED: @' + rkMqName(topStats.rated) + ' (' + (topStats.rated.avgRatingX100 / 100).toFixed(1) + '★ · ' + (topStats.rated.ratingTxns || 0) + ' reviews)', uid: uref(topStats.rated) } : null,
+        // V88.84.150.322: the leaders for 322's achievements, the most played track and the next festival meetup
+        topStats.voter && ((topStats.voter.tribeVotesCast || 0) > 0) ? { t: '🗳️ MOST CIVIC RAVER: @' + rkMqName(topStats.voter) + ' (' + topStats.voter.tribeVotesCast + ' tribe votes)', uid: uref(topStats.voter) } : null,
+        topStats.network && ((topStats.network.networkReach || 0) > 0) ? { t: '🕸️ BIGGEST NETWORK: @' + rkMqName(topStats.network) + ' (friends of friends reach ' + topStats.network.networkReach + ' ravers)', uid: uref(topStats.network) } : null,
+        topStats.digger && ((topStats.digger.tracksPlayed || 0) > 0) ? { t: '📀 TOP CRATE DIGGER: @' + rkMqName(topStats.digger) + ' (' + topStats.digger.tracksPlayed + ' tracks played)', uid: uref(topStats.digger) } : null,
+        topStats.topTrack && ((topStats.topTrack.plays || 0) > 0) ? { t: '🎵 MOST PLAYED TRACK: "' + String(topStats.topTrack.title || 'Untitled').slice(0, 40) + '" by @' + (topStats.topTrack.ownerName || 'Artist') + ' (' + topStats.topTrack.plays + ' plays)', uid: topStats.topTrack.publicUid || topStats.topTrack.ownerUid || null } : null,
+        topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
         // PLUR facts, tips & culture — expanded set
@@ -22987,8 +24171,9 @@ cat << 'EOF' >> src/App.js
                 onClose={() => { gapDismissedRef.current[profileGap] = true; setProfileGap(null); }} />}
             <TutorialOverlay active={!!creatorTour} replay={tutReplay} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
             {/* V87.84.150.321 (Milli: "the end of the tutorial ends with the settings open on the user profile page"):
-                the app tutorial closes any window it left open when it ends, finished or skipped. */}
-            <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { rkCloseAllOverlays(); try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
+                the app tutorial closes any window it left open when it ends, finished or skipped.
+                V88.84.150.322: every window, the messenger and a raver's profile page included (rkCloseWindows). */}
+            <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { rkCloseWindows(); try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
             <TutorialReminderPopIn active={tutorialReminder && !welcomeWinOpen && !showAlphaModal} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
@@ -23029,7 +24214,7 @@ cat << 'EOF' >> src/App.js
             }}/>
             <RkTutorialHubModal isOpen={tutHubOpen} onClose={() => setTutHubOpen(false)} user={user} profile={profile} onStart={startTutorial}/>
             <RevShareShareModal user={user} profile={profile} isOpen={showRevSharePortal} onClose={() => setShowRevSharePortal(false)} onViewProfile={(u) => { setShowRevSharePortal(false); setViewingProfileId(u); }} onOpenWallet={() => setWalletModalOpen(true)} />
-            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
+            {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onViewProfile={(id) => setViewingProfileId(id)} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
             {/* V87.80.150.317: onReplayCreatorTour was missing here, so this window's ▶ Replay walkthrough buttons did nothing. */}
             {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial} onReplayCreatorTour={replayCreatorTour}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)} profile={profile} onNeedWallet={() => { window.__rkWalletNudged = true; setWalletNudge({ open: true, next: null }); }}/>}
@@ -23112,7 +24297,7 @@ cat << 'EOF' >> src/App.js
             
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} dockMode={radioDockMode} onDockMode={setRadioDockModeP} onResetButton={resetRadioButton} />
 
-            <div className="sticky top-0 z-50" ref={topBarRef}>
+            <div className="sticky top-0 z-50" ref={topBarRef} data-rk-lift="1">
             <header className="bg-black/80 backdrop-blur border-b border-white/10 px-2 py-3 flex items-end justify-between gap-1">
                 <div data-tut="home" onClick={() => setPage('home')} className="flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 pb-1">
                     {/* V65.04: emblem fills the full logo height (no wider), pastel cloud drifts behind a
@@ -23139,7 +24324,7 @@ cat << 'EOF' >> src/App.js
                 <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: Math.round((RK_CFG.marqueeSpeed || 60) * Math.max(1, shuffledMq.length / 12)) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span data-mq={m.uid ? 'raver' : m.href ? 'link' : m.go ? 'tribe' : 'text'} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : m.go ? m.go : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href || m.go) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
+                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span data-mq={m.uid ? 'raver' : m.href ? 'link' : m.go ? (m.kind || 'tribe') : 'text'} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : m.go ? m.go : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href || m.go) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
                         </div>
                     ))}
                 </div>
@@ -23297,7 +24482,7 @@ cat << 'EOF' >> src/App.js
                         {/* V87.84.150.321: the three feeds (queue item 8), as buttons above the controls. */}
                         <div className="grid grid-cols-3 gap-2 mb-3" role="tablist" aria-label="Feeds" data-feed-views="1">
                             {RK_FEED_VIEWS.map(v => { const on = filters.view === v.k; return (
-                                <button key={v.k} role="tab" aria-selected={on} data-feed-view={v.k} onClick={() => setFilters(f => (f.view === v.k ? f : { ...f, view: v.k, tradeEvent: '' }))}
+                                <button key={v.k} role="tab" aria-selected={on} data-feed-view={v.k} onClick={() => setFilters(f => (f.view === v.k ? f : { ...f, view: v.k, tradeEvent: '', focusItem: '' }))}
                                     className={'flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-black border-2 text-white transition active:scale-95 ' + (on ? 'bg-pink-600/40 border-pink-300 shadow-[0_0_12px_rgba(236,72,153,0.5)]' : 'bg-black/30 border-white/25')}>
                                     <span>{v.e}</span><span>{v.l}</span>
                                 </button>); })}
@@ -23306,35 +24491,53 @@ cat << 'EOF' >> src/App.js
                             <div><label className="text-xs font-bold text-white uppercase ml-1">Post Type</label><MultiSelectDropdown label="Post Type" options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>
                             <div>
                                 <label className="text-xs font-bold text-white uppercase ml-1">Sort</label>
-                                <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
-                                    <option value="all">All</option>
-                                    <option value="recent">Recent</option>
-                                    <option value="popular">Most Liked</option>
-                                    <option value="commented">Most Commented</option>
-                                    <option value="viewed">Most Viewed</option>
-                                    <option value="priceHigh">Price: High - Low</option>
-                                    <option value="priceLow">Price: Low - High</option>
-                                    <option value="sold">💤 Sold / Out of Stock</option>
+                                <select value={itemSort.k} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle} data-items-sort="1">
+                                    {RK_ITEM_SORTS.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}
                                 </select>
                             </div>
                             <div><label className="text-xs font-bold text-white uppercase ml-1">Item Type</label><MultiSelectDropdown options={KANDI_TYPES} selected={filters.itemTypes} onChange={v => setFilters({...filters, itemTypes: v})}/></div>
                         </div>}
-                        {filters.view === 'all' && filters.postTypes.includes('trades') && (() => {
-                            const events = Array.from(new Set(items.filter(i => i.isForTrade && i.tradeWants?.event).map(i => i.tradeWants.event))).slice(0, 30);
+                        {filters.view === 'all' && (
+                            <div className="grid grid-cols-3 gap-2 mb-3" data-items-more="1">
+                                <label className="text-xs font-bold text-white uppercase">Min $<input inputMode="decimal" value={filters.priceMin} onChange={e => setFilters({ ...filters, priceMin: e.target.value.replace(/[^0-9.]/g, '') })} placeholder="0" className="mt-1 w-full bg-black border border-white/25 text-sm text-white rounded p-1.5 normal-case" data-price-min="1"/></label>
+                                <label className="text-xs font-bold text-white uppercase">Max $<input inputMode="decimal" value={filters.priceMax} onChange={e => setFilters({ ...filters, priceMax: e.target.value.replace(/[^0-9.]/g, '') })} placeholder="any" className="mt-1 w-full bg-black border border-white/25 text-sm text-white rounded p-1.5 normal-case" data-price-max="1"/></label>
+                                <button onClick={() => setFilters({ ...filters, friendsOnly: !filters.friendsOnly })} aria-pressed={!!filters.friendsOnly} data-friends-only="1" className={'self-end rounded-lg border text-xs font-bold py-2 px-1 text-white ' + (filters.friendsOnly ? 'bg-pink-600/40 border-pink-300' : 'bg-black/30 border-white/25')}>🫂 Friends' posts</button>
+                            </div>
+                        )}
+                        {/* V88.84.150.322: festivals on any post (321 showed them for trades only), soonest first. */}
+                        {filters.view === 'all' && (() => {
+                            const evs = {};
+                            feedItems.forEach(i => { const e = rkEventOf(i); if (!e) return; const k = rkEventKey(e.name); const g = evs[k] || (evs[k] = { name: e.name, n: 0, from: '' }); g.n++; if (e.from && !rkEventPast(e) && (!g.from || e.from < g.from)) g.from = e.from; });
+                            const list = Object.values(evs).sort((a, b) => ((a.from || '9999') < (b.from || '9999') ? -1 : (a.from || '9999') > (b.from || '9999') ? 1 : b.n - a.n)).slice(0, 30);
+                            if (!list.length && !filters.tradeEvent) return null;
                             return (
-                                <div className="border-t border-white/10 pt-2">
-                                    <p className="text-[10px] font-bold text-cyan-300 uppercase mb-1.5">🎪 Trade at an event</p>
-                                    {events.length === 0 ? <p className="text-[10px] text-white/40">No event meet-ups posted yet. Tag your trade with an event to start one!</p> : (
-                                        <div className="flex flex-wrap gap-1.5">
-                                            <button onClick={() => setFilters({ ...filters, tradeEvent: '' })} className={'text-[10px] px-2.5 py-1 rounded-full border transition ' + (!filters.tradeEvent ? 'bg-cyan-500/30 border-cyan-400 text-cyan-100 font-bold' : 'border-white/20 text-white/60')}>All events</button>
-                                            {events.map(ev => <button key={ev} onClick={() => setFilters({ ...filters, tradeEvent: ev })} className={'text-[10px] px-2.5 py-1 rounded-full border transition ' + (filters.tradeEvent === ev ? 'bg-cyan-500/30 border-cyan-400 text-cyan-100 font-bold' : 'border-white/20 text-white/60')}>{ev}</button>)}
-                                        </div>
-                                    )}
+                                <div className="border-t border-white/10 pt-2 mb-1" data-feed-festivals="1">
+                                    <p className="text-xs font-bold text-cyan-200 uppercase mb-1.5">🎪 Festivals</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <button onClick={() => setFilters({ ...filters, tradeEvent: '' })} className={'text-xs px-2.5 py-1 rounded-full border text-white transition ' + (!filters.tradeEvent ? 'bg-cyan-500/30 border-cyan-300 font-bold' : 'border-white/30')}>All festivals</button>
+                                        {filters.tradeEvent && !list.some(g => rkEventKey(g.name) === rkEventKey(filters.tradeEvent)) && <button className="text-xs px-2.5 py-1 rounded-full border bg-cyan-500/30 border-cyan-300 font-bold text-white">{filters.tradeEvent}</button>}
+                                        {list.map(g => <button key={g.name} data-festival-chip={rkEventKey(g.name)} onClick={() => setFilters({ ...filters, tradeEvent: g.name })} className={'text-xs px-2.5 py-1 rounded-full border text-white transition ' + (rkEventKey(filters.tradeEvent) === rkEventKey(g.name) ? 'bg-cyan-500/30 border-cyan-300 font-bold' : 'border-white/30')}>{g.name}{g.from ? ' · ' + rkEventDays({ from: g.from }) : ''} ({g.n})</button>)}
+                                    </div>
                                 </div>
                             );
                         })()}
+                        {filters.view === 'music' && (
+                            <div className="grid grid-cols-2 gap-2 mb-3" data-music-controls="1">
+                                <label className="text-xs font-bold text-white uppercase">Sort<select value={filters.msort} onChange={e => setFilters({ ...filters, msort: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-music-sort="1">{RK_MUSIC_SORTS.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}</select></label>
+                                <label className="text-xs font-bold text-white uppercase">Genre<select value={filters.mgenre} onChange={e => setFilters({ ...filters, mgenre: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-music-genre="1"><option value="">Every genre</option>{RK_MUSIC_GENRES.filter(x => x !== 'Custom…').map(x => <option key={x} value={x}>{x}</option>)}</select></label>
+                                <label className="text-xs font-bold text-white uppercase">Kind<select value={filters.mkind} onChange={e => setFilters({ ...filters, mkind: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-music-kind="1">{RK_MUSIC_KINDS.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}</select></label>
+                                <label className="text-xs font-bold text-white uppercase">Added<select value={filters.mage} onChange={e => setFilters({ ...filters, mage: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-music-age="1">{RK_MUSIC_AGES.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}</select></label>
+                            </div>
+                        )}
+                        {filters.view === 'users' && (
+                            <div className="grid grid-cols-2 gap-2 mb-3" data-raver-controls="1">
+                                <label className="text-xs font-bold text-white uppercase col-span-2">Sort<select value={filters.rsort} onChange={e => setFilters({ ...filters, rsort: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-raver-sort-select="1">{RK_RAVER_SORTS.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}</select></label>
+                                <label className="text-xs font-bold text-white uppercase">Show<select value={filters.rfilter} onChange={e => setFilters({ ...filters, rfilter: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-raver-filter="1">{RK_RAVER_FILTERS.map(o => <option key={o.k} value={o.k}>{o.l}</option>)}</select></label>
+                                <label className="text-xs font-bold text-white uppercase">Festival<RkFestivalSelect value={filters.rfest} onChange={(v) => setFilters({ ...filters, rfest: v })} className={selectStyle + ' mt-1 normal-case'}/></label>
+                            </div>
+                        )}
                         <div className="border-t border-white/10 pt-3">
-                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder={filters.view === 'music' ? 'Search artists...' : 'Search UID or Username...'} value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
+                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder={filters.view === 'music' ? 'Search tracks, artists or genres...' : filters.view === 'users' ? 'Search ravers by name or Friend UID...' : 'Search posts, festivals, UIDs or usernames...'} value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
                         </div>
                         <div className="flex justify-between items-center pt-2">
                             <div className="flex-1 mr-2"></div>
@@ -23345,60 +24548,12 @@ cat << 'EOF' >> src/App.js
                         </div>
                     </Card>
                     {filters.view === 'all' && <SellKandiForm user={user} profile={profile}/>}
-                    {showMusic && <div data-feed="music" style={filters.view === 'music' ? undefined : { display: 'none' }}><FeedMusicSection key={musicKey} user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId} search={filters.view === 'music' ? filters.searchUid : ''}/></div>}
-                    {filters.view === 'users' ? (
-                        <div className="grid grid-cols-1 gap-3" data-feed="users">
-                            {usersLoading && <RkFeedLoading kind="users"/>}
-                            {!usersLoading && visibleUsers.length === 0 && (usersDirErr ? (
-                                <div className="text-center py-6" data-feed-empty="users">
-                                    <p className="text-white text-sm">Couldn't load ravers just now.</p>
-                                    <p className="text-white text-xs mt-1">Tap ⟳ above to try again.</p>
-                                </div>
-                            ) : rkCleanSearch(filters.searchUid) ? (
-                                <div className="text-center py-6" data-feed-empty="users">
-                                    <p className="text-white text-sm">No ravers match "{rkCleanSearch(filters.searchUid)}".</p>
-                                    <p className="text-white text-xs mt-1">Names ignore spaces, dashes and @ — try just the letters.</p>
-                                </div>
-                            ) : (
-                                <div className="text-center py-6" data-feed-empty="users"><p className="text-white text-sm">No ravers here yet.</p></div>
-                            ))}
-                            {/* V65.40: a near-miss is far more useful than an empty screen — most
-                                failed searches are one wrong character, not a raver who isn't here. */}
-                            {!usersLoading && didYouMean.length > 0 && visibleUsers.length > 0 && (
-                                <div className="mb-2 bg-cyan-900/20 border border-cyan-400/40 rounded-lg p-2">
-                                    <p className="text-[10px] text-cyan-200 font-bold mb-1">Did you mean…</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {didYouMean.map(u => (
-                                            <button key={u.id} onClick={() => setFilters({ ...filters, searchUid: u.displayName || u.publicUid || u.id })} className="text-[10px] bg-black/40 border border-cyan-400/40 rounded-full px-2 py-1 text-white active:scale-95">{u.displayName || 'Raver'}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {!usersLoading && visibleUsers.map(u => (
-                                <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
-                                    <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
-                                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                        <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
-                                        <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
-                                        <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
-                                        {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).length > 0 && (
-                                            <div className="flex gap-2.5 mt-1.5">
-                                                {SOCIAL_PLATFORMS.filter(p => u.socialLinks?.[p.id]).slice(0, 6).map(p => (
-                                                    <button key={p.id} onClick={(e) => { e.stopPropagation(); try { window.open('https://' + p.baseUrl + u.socialLinks[p.id], '_blank', 'noopener'); } catch (err) {} }} title={p.name} className="hover:scale-125 transition-transform"><p.icon size={13} color={p.color}/></button>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {(u.isMusicCreator || u.isContentCreator) && (() => {
-                                            const mB = u.isMusicCreator ? <span key="m" className="text-[10px] font-bold bg-purple-500/20 border border-purple-400/30 text-purple-200 rounded px-1.5 py-0.5">🎵 {(u.musicPlays || 0) > 0 ? rkFmtK(u.musicPlays) + ' listens' : 'Music Creator'}</span> : null;
-                                            const cB = u.isContentCreator ? <span key="c" className="text-[10px] font-bold bg-cyan-500/15 border border-cyan-400/25 text-cyan-200 rounded px-1.5 py-0.5">🎬 {(u.contentViews || 0) > 0 ? rkFmtK(u.contentViews) + ' views' : 'Content Creator'}</span> : null;
-                                            return <div className="flex gap-1.5 mt-1.5 flex-wrap">{u.creatorMusicFirst !== false ? [mB, cB] : [cB, mB]}</div>;
-                                        })()}
-                                    </div>
-                                    <Button onClick={() => setViewingProfileId(u.publicUid || u.id)} color="purple" className="text-[10px] py-1 px-3 shrink-0">View Profile</Button>
-                                </Card>
-                            ))}
-                        </div>
-                    ) : filters.view === 'all' ? (
+                    {showMusic && <div data-feed="music" style={filters.view === 'music' ? undefined : { display: 'none' }}><FeedMusicSection key={musicKey} user={user} profile={profile} viewerUid={user?.uid} onViewProfile={setViewingProfileId} search={filters.view === 'music' ? filters.searchUid : ''} sort={filters.msort} genre={filters.mgenre} kind={filters.mkind} age={filters.mage}/></div>}
+                    {showRavers && <div data-feed-wrap="users" style={filters.view === 'users' ? undefined : { display: 'none' }}>
+                        <RkRaversFeed key={ravKey} user={user} profile={profile} search={filters.view === 'users' ? filters.searchUid : ''} sort={filters.rsort} filter={filters.rfilter} fest={filters.rfest}
+                            dir={usersDir} dirLoading={usersLoading} dirErr={usersDirErr} onViewProfile={setViewingProfileId} onSearch={(v) => setFilters(f => ({ ...f, searchUid: v }))}/>
+                    </div>}
+                    {filters.view === 'all' ? (
                     <div className="space-y-6" data-feed="items">
                         {isSyncing ? <RkFeedLoading kind="all"/> : (<>
                         {filters.focusItem && (
@@ -23409,23 +24564,15 @@ cat << 'EOF' >> src/App.js
                     )}
                     {rkCleanSearch(filters.searchUid).length >= 2 && visibleUsers.length > 0 && (
                             <div className="space-y-3">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-purple-300">Ravers matching "{filters.searchUid}"</p>
-                                {visibleUsers.slice(0, 10).map(u => (
-                                    <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
-                                        <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
-                                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
-                                            <div className="min-w-0"><UserRating sum={u.ratingSum} count={u.ratingCount} /><p className="font-bold text-sm truncate"><RkName name={u.displayName} style={u.nameStyle}/></p>{u.featuredBadge && <span className="flex"><BadgeChip badge={u.featuredBadge} /></span>}<div className="mt-1"><AddFriendButton myProfile={profile} myUid={user?.uid} targetUid={u.id} targetName={u.displayName} /></div></div>
-                                            <p className="text-[10px] font-mono opacity-50 truncate">UID: {u.publicUid || u.id}</p>
-                                            <p className="text-[10px] text-gray-100 opacity-80 truncate italic">{u.bio || 'No vibe check yet.'}</p>
-                                        </div>
-                                        <Button onClick={() => setViewingProfileId(u.publicUid || u.id)} color="purple" className="text-[10px] py-1 px-3 shrink-0">View Profile</Button>
-                                    </Card>
-                                ))}
+                                <p className="text-xs font-black uppercase tracking-widest text-white" data-items-ravers="1">Ravers matching "{filters.searchUid}"</p>
+                                {visibleUsers.slice(0, 10).map(u => <RkRaverCard key={u.id} u={u} user={user} profile={profile} onView={setViewingProfileId}/>)}
                                 <div className="h-px bg-white/10 my-2"/>
                             </div>
                         )}
+                        {pubItems.fell && <p className="text-xs text-white text-center" data-feed-fell="1">This sort is still being set up on the server, so every post is loaded for it this time.</p>}
                         <div className="grid grid-cols-1 gap-6">{displayedFeedItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
-                        {displayedFeedItems.length === 0 && ((filters.postTypes.length || filters.itemTypes.length || rkCleanSearch(filters.searchUid) || filters.tradeEvent || filters.focusItem || filters.sort === 'sold') ? (
+                        <RkLoadMore kind="items" more={pubItems.more && !pubItems.err && !filters.focusItem} busy={pubItems.busy} onMore={pubItems.loadMore} count={displayedFeedItems.length} doneText={displayedFeedItems.length > 0 ? "That's every post." : ''}/>
+                        {displayedFeedItems.length === 0 && !(pubItems.more && !pubItems.err && !filters.focusItem) && ((filters.postTypes.length || filters.itemTypes.length || rkCleanSearch(filters.searchUid) || filters.tradeEvent || filters.focusItem || filters.sort === 'sold' || filters.priceMin || filters.priceMax || filters.friendsOnly || itemSort.k !== 'recent') ? (
                             <div className="text-center py-8" data-feed-empty="items"><p className="text-white text-sm">No posts match these filters.</p><p className="text-white text-xs mt-1">Try Clear Filters, or another Post Type or Item Type.</p></div>
                         ) : (
                             <div className="text-center py-8" data-feed-empty="items"><p className="text-white text-sm">No posts yet.</p><p className="text-white text-xs mt-1">Post the first one above.</p></div>
@@ -23879,6 +25026,17 @@ if [ "$PKG_HASH" != "$OLD_HASH" ] || [ ! -d node_modules/react ]; then
     echo "$PKG_HASH" > .rk_pkg_hash
 else
     echo "  [FAST] Dependencies unchanged — skipping npm install (saves minutes)."
+fi
+# V88.84.150.322: the marquee counts posts with getCountFromServer, which firebase added in 9.11. package.json
+# asks for ^9.0.0, which any install since late 2022 resolves to 9.23; an older node_modules is reinstalled
+# (the build would otherwise stop with "export getCountFromServer was not found").
+RK_FB_V=$(node -p "require('./node_modules/firebase/package.json').version" 2>/dev/null || echo 0.0.0)
+if ! node -e "const v=String(process.argv[1]).split('.').map(Number); process.exit((v[0]>9||(v[0]===9&&v[1]>=11))?0:1)" "$RK_FB_V"; then
+    echo "  firebase $RK_FB_V is older than 9.11 - reinstalling dependencies..."
+    rm -rf node_modules package-lock.json
+    npm install --legacy-peer-deps --no-audit
+    npm install ajv@8.12.0 ajv-keywords@5.1.0 --save-dev --legacy-peer-deps --no-audit
+    echo "$PKG_HASH" > .rk_pkg_hash
 fi
 
 echo "Compiling Native React Bundle (with OOM Protection)..."
@@ -26049,6 +27207,29 @@ echo ""
 #   Skip the web deploy entirely: RK_NO_WEB=1 bash Rk_Code_WithFix.sh
 echo ""
 echo "============================================"
+# V88.84.150.322: the composite indexes behind the feed's server-ordered sorts (Most liked, Price, Festival
+# dates, Sold...). Written on every run so the file always matches the app, and deployed with the web build
+# below. Until an index has finished building, its sort falls back to sorting on the phone.
+mkdir -p ~/RaveKandi-Build
+cat << 'EOF' > ~/RaveKandi-Build/firestore.indexes.json
+{
+  "indexes": [
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "timestamp", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "timestamp", "order": "ASCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "likeCount", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "commentCount", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "viewCount", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "purchaseCount", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "price", "order": "ASCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "price", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "eventTo", "order": "ASCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "stockQty", "order": "ASCENDING"}, {"fieldPath": "timestamp", "order": "DESCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "ownerId", "order": "ASCENDING"}]},
+    {"collectionGroup": "tradeItems", "queryScope": "COLLECTION", "fields": [{"fieldPath": "vis", "order": "ASCENDING"}, {"fieldPath": "eventKey", "order": "ASCENDING"}]}
+  ],
+  "fieldOverrides": []
+}
+EOF
 if [ "$RK_NO_WEB" != "1" ]; then
     cd ~/RaveKandi-Build
     # Block 20 already produced ./build here for the APK. If it's somehow
@@ -26107,6 +27288,8 @@ if [ "$RK_NO_WEB" != "1" ]; then
             // would go back to failing with "No targets match" — the exact loop that let the
             // creator self-grant hole stay open while the rules file sat unused on disk.
             if (!j.firestore && fs.existsSync("firestore.rules")) j.firestore = { rules: "firestore.rules" };
+            // V88.84.150.322: and the indexes file, so firebase deploy --only firestore:indexes finds it.
+            if (fs.existsSync("firestore.indexes.json")) { j.firestore = j.firestore || {}; if (!j.firestore.rules && fs.existsSync("firestore.rules")) j.firestore.rules = "firestore.rules"; j.firestore.indexes = "firestore.indexes.json"; }
             fs.writeFileSync("firebase.json", JSON.stringify(j, null, 2));
         ' && echo "  firebase.json: hosting updated, functions section preserved."
     else
@@ -26126,7 +27309,7 @@ if [ "$RK_NO_WEB" != "1" ]; then
     ]
   },
   "functions": { "source": "functions" },
-  "firestore": { "rules": "firestore.rules" }
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" }
 }
 EOF
     fi
@@ -26160,6 +27343,23 @@ EOF
     if ! firebase projects:list >/dev/null 2>&1; then
         echo "Firebase not authenticated — opening login (approve in your browser):"
         firebase login || echo "⚠ Login failed. Fix auth, then deploy with: cd ~/RaveKandi-Build && firebase deploy --only hosting"
+    fi
+
+    # V88.84.150.322: the feed's indexes (firestore.indexes.json, above). --non-interactive never deletes an
+    # index that is in the project but not in the file. They build in the background, a few minutes.
+    if [ -f firestore.indexes.json ]; then
+        echo ""
+        echo "📇 Deploying the feed's Firestore indexes..."
+        RK_IDX_OK=0
+        for RK_TRY in 1 2 3; do
+            if firebase deploy --only firestore:indexes --non-interactive; then RK_IDX_OK=1; break; fi
+            [ "$RK_TRY" -lt 3 ] && { echo "  Index attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
+        done
+        if [ "$RK_IDX_OK" = "1" ]; then
+            echo "  [OK] Indexes deployed. They finish building in a few minutes; until then the sorts run on the phone."
+        else
+            echo "  [WARN] Indexes not deployed. The sorts still work, on the phone. Retry: cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive"
+        fi
     fi
 
     # ---- STAGE 1: deploy to a private preview channel ----
@@ -26216,6 +27416,7 @@ EOF
     fi
 else
     echo "RK_NO_WEB=1 — web deploy skipped."
+    echo "  Indexes:    cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive"
     echo "  Staging:    cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
     echo "  Production: cd ~/RaveKandi-Build && firebase deploy --only hosting"
 fi
