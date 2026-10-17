@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=87
-RK_MINOR=83
+RK_MINOR=84
 RK_PATCH=150
-RK_BUILD=320
+RK_BUILD=321
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -1136,6 +1136,10 @@ const DEFAULT_INVENTORY = [
     { id: 'c_star', name: 'Holo Star', type: 'charm', cost: 0.50, sell: 1.25, image: rkPh(50, 50, 'ffff00', '000000', 'Star') },
     { id: 's_elastic', name: 'Clear Cord', type: 'string', cost: 0.20, sell: 0.50, image: rkPh(50, 50, 'ffffff', '000000', 'Cord') },
 ];
+// V87.84.150.321: a marquee leader's name. Leaders without one aren't picked (see App's grab), so the
+// fallback is a last resort, never "undefined".
+const rkMqNamed = (u) => !!(u && typeof u.displayName === 'string' && u.displayName.trim());
+const rkMqName = (u) => (rkMqNamed(u) ? u.displayName.trim() : 'Raver');
 const NOTIFICATION_TYPES = [{ id: 'promos', label: 'Promos' }, { id: 'app_updates', label: 'App Updates' }, { id: 'merch', label: 'Merch Drops' }, { id: 'discounts', label: 'Discounts' }, { id: 'projects', label: 'Project Updates' }];
 // V65.19 DIFFICULTY SYSTEM — every achievement gets a difficulty (1 Easy → 5 Legendary).
 // Defaults come from the achievement's tier; RK_ACH_DIFF_OVERRIDES pins specific ones.
@@ -2559,22 +2563,38 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
     if (!uid) return;
     const userRef = doc(db, 'artifacts', appId, 'users', uid);
     try {
-        // STEP 1 — create the user's OWN document. This is the only write that must
-        // succeed for an account to exist, and it only touches the user's own doc
-        // (which the rules always allow them to create). Nothing else can block it.
-        const existing = await getDoc(userRef);
-        if (existing.exists()) return; // already set up
+        // V87.84.150.321: SET UP MEANS A NAME AND A FRIEND UID, NOT MERELY A DOCUMENT.
+        // Two things stopped new accounts being set up (the "broken-signup accounts" V52.0.6 worked
+        // around, and the "@undefined" Milli saw on the marquee at 320):
+        //  1. The profile written here carried customCommissionRate, customRevSharePct and bannedUntil,
+        //     as nulls. Since V65.32 the rules refuse any profile that names those fields, so the write
+        //     was refused. Absent reads the same as null everywhere they're read, so they're left out.
+        //  2. The activity log (lastActive, activeMinutes) writes to the same document the moment
+        //     someone signs in, often before this ran. The document then existed, the old exists()
+        //     check returned early, and the account never got its name, Friend UID, join date,
+        //     referral credit or founder VIP.
+        // Now: an account counts as set up only with a displayName and a publicUid. Otherwise a
+        // transaction (which reads the server, so a pending local write can't fool it) fills in only
+        // the fields that are missing. Nothing already there is overwritten, so an account that half
+        // set itself up keeps what it has. Guests are never given a profile.
+        try { const cu = auth.currentUser; if (cu && cu.uid === uid && cu.isAnonymous) return; } catch (e) {}
+        const ready = (d) => !!(d && d.displayName && d.publicUid);
+        const pre = await getDoc(userRef);
+        if (pre.exists() && ready(pre.data())) return; // already set up
         // Best-effort: read the global counter for a nice sequential default name.
         // If we can't read it, fall back to a timestamp-based name — never block.
         let currentCount = 0;
         try { const gs = await getDoc(doc(db, 'artifacts', appId, 'global', 'stats')); if (gs.exists()) currentCount = gs.data().userCount || 0; } catch (e) {}
         const newUsername = customName || `Raver${String(currentCount).padStart(2, '0')}`;
-        await setDoc(userRef, {
+        // The real join date where Firebase Auth knows it, so an account set up late keeps its age.
+        let joined = Date.now();
+        try { const cu = auth.currentUser; if (cu && cu.uid === uid && cu.metadata && cu.metadata.creationTime) { const t = Date.parse(cu.metadata.creationTime); if (t > 0 && t <= joined) joined = t; } } catch (e) {}
+        const defaults = {
             displayName: newUsername, publicUid: uid, publicUidChanged: false, pastPublicUids: [],
-            usernameChangesLeft: 3, pastUsernames: [], joined: Date.now(), items: [], totalSalesValue: 0, totalBoughtValue: 0,
+            usernameChangesLeft: 3, pastUsernames: [], joined, items: [], totalSalesValue: 0, totalBoughtValue: 0,
             itemsSold: 0, itemsBought: 0, totalLikes: 0, totalComments: 0, badgesCollected: 0,
             referrals: 0, completedTrades: 0, socialInteractions: 0, aiUsageCount: 0, lastAiReset: 0,
-            referredBy: referrerUid || null, totalRevShareEarned: 0, customCommissionRate: null,
+            referredBy: referrerUid || null, totalRevShareEarned: 0,
             // V74: FOUNDER VIP. Launch Perks used to be a live config read — isEffVIP() returned
             // true only WHILE the flag was on, so the day it was switched off every raver who had
             // signed up under the promise would have lost VIP. That is not what was promised, and
@@ -2586,8 +2606,20 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
             // account is a permanent VIP from its first render rather than waiting for an effect,
             // but both paths agree on what they write, so whichever gets there first is correct.
             ...(RK_CFG.launchPerks ? { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null } : { isVIP: false }),
-            customBackground: null, showPing: true, featuredBadge: null, customRevSharePct: null, bannedUntil: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
+            customBackground: null, showPing: true, featuredBadge: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
+        };
+        // STEP 1 — the account's OWN document, filled in where it's missing. The name it ends up with is
+        // what the referral notes below use.
+        const newName = await runTransaction(db, async (tx) => {
+            const snap = await tx.get(userRef);
+            const cur = snap.exists() ? snap.data() : null;
+            if (ready(cur)) return null;
+            const fill = {};
+            Object.keys(defaults).forEach(k => { if (!cur || cur[k] === undefined) fill[k] = defaults[k]; });
+            tx.set(userRef, fill, { merge: true });
+            return (cur && cur.displayName) || newUsername;
         });
+        if (!newName) return;   // another sign-in set it up first
 
         // STEP 2 — best-effort side writes. Each is isolated so a permissions error on
         // ANY of them can never undo the account that was just created above.
@@ -2614,7 +2646,7 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
                                 category: 'Referral Review', subject: 'Daily referral cap reached',
                                 message: 'Account ' + (rp.displayName || referrerUid) + ' hit its daily cap of ' + cap +
-                                         ' referrals. Referral from new account ' + newUsername + ' was recorded but not credited.',
+                                         ' referrals. Referral from new account ' + newName + ' was recorded but not credited.',
                                 uid: referrerUid, status: 'open', createdAt: Date.now(), appVersion: APP_VERSION_FULL, autoFlag: true
                             });
                         } catch (e) { rkReport('referral flag ticket', e); }
@@ -2626,9 +2658,9 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                             refCountToday: usedToday + 1
                         });
                     }
-                    try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newUsername, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
-                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newUsername + ' just joined RaveKandi using your code! +1 referral', '@refdash');
-                    else pushNotif(referrerUid, 'referral', '⏳ ' + newUsername + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.', '@refdash');
+                    try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newName, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
+                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newName + ' just joined RaveKandi using your code! +1 referral', '@refdash');
+                    else pushNotif(referrerUid, 'referral', '⏳ ' + newName + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.', '@refdash');
                 }
             } catch (e) { console.log('referral credit skipped', e); }
         }
@@ -3924,6 +3956,26 @@ const rkHandleBack = () => {
     }
     if (rkTabBackHandler) { try { return !!rkTabBackHandler(); } catch (e) { return false; } }
     return false;
+};
+
+// V87.84.150.321: close every window in the back stack, topmost first. The tutorial clears the stage with
+// this when something covers the control it's spotlighting, and when the app tutorial ends.
+const rkCloseAllOverlays = () => {
+    let n = 0;
+    while (rkOverlays.length > 0 && n < 50) { const top = rkOverlays[rkOverlays.length - 1]; rkOverlayDrop(top); try { top.close(); } catch (e) {} n++; }
+    return n;
+};
+// Is anything other than the tour itself drawn over the middle of this element?
+const rkTourCovered = (el) => {
+    try {
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return false;
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hits = (document.elementsFromPoint ? document.elementsFromPoint(x, y) : []).filter(h => !(h.closest && h.closest('[data-rk-tour]')));
+        const top = hits[0];
+        return !!top && !el.contains(top) && !top.contains(el);
+    } catch (e) { return false; }
 };
 
 // Shared by <Modal> and by any overlay built from raw markup (ItemDetailModal, side docks,
@@ -13171,10 +13223,24 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
         };
         // V65.20: bring the target into the middle of the screen before spotlighting it, so the
         // ring never lands off-screen. Smooth scroll needs time to settle, hence the re-measures.
+        // V87.84.150.321 (Milli: step 6, the feed, "blacks out the buttons on the header, including the
+        // 'feed' button. It only places a square around it", and the same on steps 7 to 11). A window
+        // left open earlier sat over the header: Settings, which the UID step opens for anyone whose UID
+        // is already set, or the inbox or cart, opened by tapping through a step. The ring was drawn
+        // round a button under that window's shade. If anything covers the control, the open windows
+        // close first, so the control is seen and can be pressed.
+        const uncover = () => {
+            if (!cur || !cur.tut || cur.center) return false;
+            const el = document.querySelector('[data-tut="' + cur.tut + '"]');
+            if (!el || !rkTourCovered(el)) return false;
+            rkCloseAllOverlays();
+            return true;
+        };
         const focusTarget = () => {
             if (!cur || !cur.tut || cur.center) { setRect(null); return; }
             const el = document.querySelector('[data-tut="' + cur.tut + '"]');
             if (!el) { setRect(null); return; }
+            uncover();
             const r = el.getBoundingClientRect();
             const off = r.top < 72 || r.bottom > window.innerHeight - 72;
             if (off) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} } }
@@ -13182,9 +13248,11 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
         };
         focusTarget();
         const ts = [60, 240, 480, 760].map(ms => setTimeout(measure, ms));
+        // and once more after the scroll settles, for a window that opened as the step changed
+        const tu = setTimeout(() => { if (uncover()) setTimeout(measure, 120); }, 320);
         window.addEventListener('resize', measure);
         window.addEventListener('scroll', measure, true);
-        return () => { ts.forEach(clearTimeout); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
+        return () => { ts.forEach(clearTimeout); clearTimeout(tu); window.removeEventListener('resize', measure); window.removeEventListener('scroll', measure, true); };
     }, [active, step]);
     if (!active || !cur) return null;
     const last = step === STEPS.length - 1;
@@ -13197,7 +13265,7 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     // fully usable underneath. Only the note itself accepts taps.
     if (cur.passthrough) {
         return createPortal(
-            <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
+            <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }} data-rk-tour="1">
                 <div className="absolute left-1/2 -translate-x-1/2 w-[92%] max-w-sm" style={{ bottom: 'calc(12px + env(safe-area-inset-bottom))', pointerEvents: 'auto' }}>
                     <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
                         <p className="text-xs uppercase font-black tracking-widest text-pink-100 mb-1">Step {step + 1} of {STEPS.length}</p>
@@ -13219,7 +13287,7 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     // Kandi Maker walkthrough ended on "Step 8 of 12" with the bar two-thirds full.
     const pct = Math.round(((step + 1) / STEPS.length) * 100);
     return createPortal(
-        <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }}>
+        <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }} data-rk-tour="1">
             {hole ? (
                 <>
                     <div className="absolute bg-black/80" style={{ top: 0, left: 0, right: 0, height: Math.max(0, hole.top), pointerEvents: 'auto' }}/>
@@ -17633,18 +17701,52 @@ const FeaturedPartners = ({ viewerUid, viewerProfile, onViewProfile }) => {
 };
 
 // The feed's Music tab — every artist's tracks in one stream, newest first, live-updating.
-const FeedMusicSection = ({ user, viewerUid, onViewProfile }) => {
+// V87.84.150.321: THE THREE FEEDS (queue item 8). Items, Music and Ravers are three buttons above the
+// controls, each its own feed with its own controls, and each shows a loading state until its results are
+// final: the Items feed until every query behind it has answered, Music until its first answer, Ravers until
+// the directory has loaded. "Nothing here" is only said once that's known to be true.
+const RK_FEED_VIEWS = [
+    { k: 'all', e: '🛍️', l: 'Items' },
+    { k: 'music', e: '🎵', l: 'Music' },
+    { k: 'users', e: '👥', l: 'Ravers' },
+];
+// Switch the feed to Items (for the links that mean the marketplace: TRADE, Enter Exchange, the market).
+const rkItemsView = (f) => (f.view === 'all' ? f : { ...f, view: 'all', tradeEvent: '' });
+const RK_FEED_LOADING = {
+    all: ['Synching Posts...', 'Loading Creations...', "PLUR'ing the Posts", '💕 Catching a Vibe 🌈', 'Finding the Gear 👕', 'Locating Art 🎨'],
+    music: ['🎵 Loading the music…', '🎧 Tuning in…', '🔊 Warming up the speakers…'],
+    users: ['👥 Finding ravers…', '🫂 Gathering the fam…', '🔎 Checking the guest list…'],
+};
+const RkFeedLoading = ({ kind }) => {
+    const msgs = RK_FEED_LOADING[kind] || RK_FEED_LOADING.all;
+    const [i, setI] = useState(0);
+    useEffect(() => { const t = setInterval(() => setI(x => x + 1), 2000); return () => clearInterval(t); }, [kind]);
+    return (
+        <div data-feed-loading={kind} role="status" aria-live="polite" className="flex flex-col items-center justify-center py-6 mb-4 bg-black/40 border border-white/10 rounded-xl">
+            <RefreshCw size={32} className="animate-spin text-lime-400 mb-3"/>
+            <p className="text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 font-bold animate-pulse text-sm">{msgs[i % msgs.length]}</p>
+        </div>
+    );
+};
+
+// V87.84.150.321: the Music feed. Loading until its first answer, and searchable by artist.
+const FeedMusicSection = ({ user, viewerUid, onViewProfile, search }) => {
     const [tracks, setTracks] = useState([]);
+    const [loaded, setLoaded] = useState(false);
     useEffect(() => {
         const qy = query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), limit(80));
-        const unsub = onSnapshot(qy, s => setTracks(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))), e => console.log('musicFeed', e));
+        const unsub = onSnapshot(qy, s => { setTracks(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))); setLoaded(true); }, e => { console.log('musicFeed', e); setLoaded(true); });
         return () => unsub();
     }, []);
+    if (!loaded) return <RkFeedLoading kind="music"/>;
+    const term = rkNormName(rkCleanSearch(search || ''));
+    const shown = term ? tracks.filter(t => rkNormName(t.ownerName).includes(term) || rkNormName(t.publicUid).includes(term)) : tracks;
     return (
         <div className="grid grid-cols-1 gap-3">
-            <p className="text-[10px] text-white/50 text-center">🎵 Music from RaveKandi artists — samples, streams &amp; drops. Newest first.</p>
-            {tracks.length === 0 && <p className="text-center opacity-50 py-6 text-xs">No music yet. Music Creators: add tracks from your profile!</p>}
-            {tracks.map(t => (
+            <p className="text-xs text-white text-center">🎵 Music from RaveKandi artists — samples, streams &amp; drops. Newest first.</p>
+            {tracks.length === 0 && <p className="text-center text-white py-6 text-sm" data-feed-empty="music">No music yet. Music Creators: add tracks from your profile!</p>}
+            {tracks.length > 0 && shown.length === 0 && <p className="text-center text-white py-6 text-sm" data-feed-empty="music">No music from "{rkCleanSearch(search)}" yet.</p>}
+            {shown.map(t => (
                 <div key={t.id}>
                     <button onClick={() => onViewProfile && onViewProfile(t.publicUid || t.ownerUid)} className="flex items-center gap-1.5 mb-1 ml-1">
                         <img src={t.ownerPhoto || (rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(48, 48, '2a0a3a', 'fff', (t.ownerName || 'A').charAt(0).toUpperCase()); }} className="w-5 h-5 rounded-full object-cover border border-purple-400/50"/>
@@ -20880,11 +20982,13 @@ const RkWelcomeWindow = ({ isOpen, onClose, onGo }) => {
     if (!isOpen) return null;
     const flip = () => { const v = !off; rkSetWelcomeOff(v); setOff(v); };
     return createPortal(
-        <div className="fixed inset-0 z-[150] bg-black/85 overflow-y-auto" onClick={onClose} data-welcome-window="1" role="dialog" aria-modal="true" aria-label="Welcome to RaveKandi">
-            <div className="min-h-full flex items-center justify-center px-4" style={{ paddingTop: 'calc(16px + env(safe-area-inset-top))', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
-                {/* Sized to fit one phone screen (about 815px on a Galaxy A16), so "Don't show this again" is in view. */}
-                <div onClick={e => e.stopPropagation()} data-welcome-card="1" className="relative w-full max-w-md rounded-3xl border-2 border-pink-400/60 bg-[#14001f] px-4 pt-6 pb-4 text-center flex flex-col gap-4" style={{ boxShadow: '0 0 40px rgba(255,120,220,0.35)' }}>
-                    <button onClick={onClose} aria-label="Close" data-welcome-close="1" className="absolute -top-3 -right-3 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 active:scale-90 transition"><X size={20}/></button>
+        <div className="fixed inset-0 z-[150] bg-black/85" onClick={onClose} data-welcome-window="1" role="dialog" aria-modal="true" aria-label="Welcome to RaveKandi">
+            {/* V87.84.150.321 (Milli: "should stretch to fit the screen"): a full-screen sheet. On a phone it runs
+                edge to edge and top to bottom, its sections spread down the screen; on a wide screen it's a
+                centred column with the dark edge either side. Anything taller than the screen scrolls. */}
+            <div onClick={e => e.stopPropagation()} data-welcome-card="1" className="relative mx-auto h-full w-full max-w-2xl overflow-y-auto bg-[#14001f] border-x-2 border-pink-400/40" style={{ boxShadow: '0 0 40px rgba(255,120,220,0.35)' }}>
+                <button onClick={onClose} aria-label="Close" data-welcome-close="1" className="absolute right-3 z-10 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 active:scale-90 transition" style={{ top: 'calc(12px + env(safe-area-inset-top))' }}><X size={20}/></button>
+                <div className="min-h-full flex flex-col justify-evenly gap-4 px-5 text-center" data-welcome-body="1" style={{ paddingTop: 'calc(28px + env(safe-area-inset-top))', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
                     <RkHeroWords onGo={onGo}/>
                     <div className="opacity-90 text-sm leading-relaxed"><p className="bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent font-bold" data-welcome-intro="1">{RK_HERO_INTRO}</p></div>
                     <p className="text-lg font-black uppercase tracking-wider bg-gradient-to-r from-lime-300 via-cyan-300 to-pink-400 bg-clip-text text-transparent" style={{ filter: 'drop-shadow(0 0 8px rgba(0,255,200,0.45))' }}>Trade kandi, buy, sell, or show off your pieces — tap Enter Exchange below ⬇</p>
@@ -21518,7 +21622,7 @@ const App = () => {
     const [walletModalOpen, setWalletModalOpen] = useState(false);
     const [quickLaunchOpen, setQuickLaunchOpen] = useState(false);
     useEffect(() => {
-        const h = (ev) => { const k = ev?.detail; if (k === 'wallet') setWalletModalOpen(true); else if (k === 'portal') setShowRevSharePortal(true); else if (k === 'creatorapp') setCreatorAppOpen(true); else if (k === 'vipgift') setVipGiftOpen(true); else if (k === 'postform') { setPage('feed'); rkRequestOpen('post'); } };
+        const h = (ev) => { const k = ev?.detail; if (k === 'wallet') setWalletModalOpen(true); else if (k === 'portal') setShowRevSharePortal(true); else if (k === 'creatorapp') setCreatorAppOpen(true); else if (k === 'vipgift') setVipGiftOpen(true); else if (k === 'postform') { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } };
         window.addEventListener('rk:open', h);
         return () => window.removeEventListener('rk:open', h);
     }, []);
@@ -21639,7 +21743,7 @@ const App = () => {
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('status', '==', 'open')), s => {
             let best = null;
-            s.docs.forEach(d => { const t = d.data(); const c = t.memberCount || (t.members || []).length; if (!best || c > best.count) best = { name: t.name, count: c }; });
+            s.docs.forEach(d => { const t = d.data(); const c = t.memberCount || (t.members || []).length; if (!best || c > best.count) best = { id: d.id, name: t.name, count: c }; });
             setTopTribe(best && best.count >= 2 ? best : null);
         }, e => {});
         return () => unsub();
@@ -21648,8 +21752,12 @@ const App = () => {
     // V37.12: full active-time logging. Every minute the app is open is counted into a
     // local buffer, then synced to the database in ONE write per 6-hour window — all
     // session time is captured (even short sessions) without per-minute database traffic.
+    // V87.84.150.321: logged only once the profile is set up (a name and a Friend UID). Logged straight
+    // away, its first write created a brand-new account's document before ensureUserExists looked for it,
+    // and the account was never set up (see ensureUserExists).
+    const rkProfileReady = !!(profile && profile.displayName && profile.publicUid);
     useEffect(() => {
-        if (!user?.uid || user.isAnonymous) return;
+        if (!user?.uid || user.isAnonymous || !rkProfileReady) return;
         const uid = user.uid;
         const bufKey = 'rk_act_buf_' + uid, openKey = 'rk_act_opens_' + uid, flushKey = 'rk_act_flush_' + uid;
         const num = (k) => parseInt(localStorage.getItem(k) || '0') || 0;
@@ -21672,10 +21780,9 @@ const App = () => {
         flush();
         const tick = setInterval(() => { localStorage.setItem(bufKey, String(num(bufKey) + 1)); flush(); }, 60000);
         return () => { clearInterval(tick); clearInterval(heartbeat); };
-    }, [user]);
+    }, [user, rkProfileReady]);
 
-    const syncMsgs = ["Synching Posts...", "Loading Creations...", "PLUR'ing the Posts", "💕 Catching a Vibe 🌈", "Finding the Gear 👕", "Locating Art 🎨"];
-    const [syncMsgIdx, setSyncMsgIdx] = useState(0);
+    // V87.84.150.321: true while the Items feed is loading (see the feed listener below).
     const [isSyncing, setIsSyncing] = useState(true);
 
     const [loadPct, setLoadPct] = useState(0);
@@ -21698,19 +21805,8 @@ const App = () => {
     // the page behind the app (what shows past the edges on overscroll) matches the design
     useEffect(() => { try { document.body.style.backgroundColor = rkBgById(bgNow.id).color; } catch (e) {} }, [bgNow.id]);
 
-    useEffect(() => {
-        if(page === 'feed' && isSyncing) {
-            const int = setInterval(() => setSyncMsgIdx(prev => (prev + 1) % syncMsgs.length), 2000);
-            return () => clearInterval(int);
-        }
-    }, [page, isSyncing]);
-
-    const manualRefresh = () => { setIsSyncing(true); setTimeout(() => setIsSyncing(false), 1500); };
-
-    useEffect(() => {
-        const intRefresh = setInterval(() => manualRefresh(), 15000);
-        return () => clearInterval(intRefresh);
-    }, []);
+    // V87.84.150.321: the feed's spinner showed for 1.5 s every 15 s whether anything was loading or not
+    // (and Find their posts refused to work while it showed). It now shows only while a feed really loads.
 
     useEffect(() => {
         const msgs = ["Reticulating Splines...", "Sorting Kandi Beads by color...", "Tuning the Bass to 140BPM...", "Finding the PLUR...", "Waking up the AI Kandi Maker...", "Untangling Elastic String...", "Checking VIP guest list...", "Applying neon paint..."];
@@ -21847,6 +21943,7 @@ const App = () => {
     // installs; if Firestore rejected the unauthenticated read, the listener died silently
     // and old posts (including official merch) never loaded. Includes auto-retry on errors.
     const [feedRetry, setFeedRetry] = useState(0);
+    const itemsLoadKey = useRef('');
     // V65.39: the feed used to read the whole tradeItems collection in one unconstrained query.
     // That cannot survive visibility rules — rules are not filters, so a single unreadable
     // document fails the ENTIRE query rather than being skipped. The feed is now assembled from
@@ -21865,20 +21962,28 @@ const App = () => {
         const buckets = {};
         const unsubs = [];
         let settled = 0;
+        // V87.84.150.321 (queue item 8): the loading state lasts until EVERY query below has answered. It
+        // used to end at the first answer, often your own posts, so the feed showed a partial list as if
+        // it were all of it. A new sign-in or ⟳ starts a fresh load; a friends change re-listens quietly.
+        const answered = new Set();
+        let expected = 0;
+        const answer = (key) => { answered.add(key); if (answered.size >= expected) setIsSyncing(false); };
+        const loadKey = user.uid + ':' + feedRetry;
+        if (itemsLoadKey.current !== loadKey) { itemsLoadKey.current = loadKey; setIsSyncing(true); }
         const publish = () => {
             const merged = {};
             Object.values(buckets).forEach(rows => rows.forEach(r => { merged[r.id] = r; }));
             setItems(Object.values(merged));
-            if (settled > 0) setIsSyncing(false);
         };
         const attach = (key, q) => {
+            expected++;
             unsubs.push(onSnapshot(q, s => {
                 buckets[key] = s.docs.map(d => ({ ...d.data(), id: d.id }));
-                settled++; publish();
+                settled++; publish(); answer(key);
             }, err => {
                 // One failing bucket must not blank the feed — the others still populate.
                 rkReport('feed bucket "' + key + '"', err);
-                buckets[key] = []; settled++; publish();
+                buckets[key] = []; settled++; publish(); answer(key);
                 if (key === 'public') setTimeout(() => setFeedRetry(r => r + 1), 4000);
             }));
         };
@@ -21903,13 +22008,14 @@ const App = () => {
             if (v === 'friends' && meFriends.includes(i.ownerId)) return true;
             return false;
         };
+        expected++;
         unsubs.push(onSnapshot(query(col), s => {
             buckets.legacy = s.docs.map(d => ({ ...d.data(), id: d.id })).filter(canSee);
-            settled++; publish();
+            settled++; publish(); answer('legacy');
         }, err => {
             // Expected once visibility rules are enforced — not an error worth retrying.
             console.log('Feed legacy bucket closed (rules enforcing visibility):', err.code || err);
-            buckets.legacy = []; settled++; publish();
+            buckets.legacy = []; settled++; publish(); answer('legacy');
         }));
 
         attach('public', query(col, where('vis', '==', 'public')));
@@ -21923,31 +22029,55 @@ const App = () => {
         return () => { unsubs.forEach(u => { try { u(); } catch (e) {} }); clearTimeout(timeout); };
     }, [user, feedRetry, profile?.friends]);
 
-    // V37.12: User Directory for the feed "User Profiles" mode
+    // V37.12: User Directory for the feed's Ravers view (and for search under Items)
+    // V87.84.150.321 (queue item 8): loaded once and kept, so switching back to Ravers is instant, and its
+    // loading state lasts until the load has finished. Switching to it used to show an empty list while it
+    // loaded, which looked like nobody was here. It also reloaded on every letter typed in the search box;
+    // the ranking runs on the loaded list, and the exact lookup below covers anyone outside it.
     const [usersDir, setUsersDir] = useState([]);
+    const [usersDirAt, setUsersDirAt] = useState(0);        // when the last load finished (0 = not yet)
+    const [usersDirBusy, setUsersDirBusy] = useState(false);
+    const [usersDirErr, setUsersDirErr] = useState(false);
+    const usersDirLoading = useRef(false);
+    const needUsersDir = page === 'feed' && !!user && (filters.view === 'users' || rkCleanSearch(filters.searchUid).length >= 2);
     useEffect(() => {
-        // Load the directory for User Profiles mode OR whenever there's a search term
-        // (so user cards can appear under "All" search too). V42.16 Phase 2.
-        const hasSearch = rkCleanSearch(filters.searchUid).length >= 2;
-        if (page !== 'feed' || !user || (filters.view !== 'users' && !hasSearch)) return;
-        // V65.39.01: orderBy('joined') silently EXCLUDES every user document without that field —
-        // Firestore drops docs missing the sort key rather than sorting them last. Older accounts
-        // never had it, so they were invisible to search no matter what you typed. Ordered load
-        // first for a sensible recent-ravers list, then an unordered top-up so nobody is missing.
-        getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50)))
-            .then(s => setUsersDir(s.docs.map(d => ({ ...d.data(), id: d.id }))))
-            .catch(e => console.log('User dir ordered load failed', e))
-            .finally(() => {
-                getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100)))
-                    .then(s2 => setUsersDir(prev => {
-                        const seen = {};
-                        prev.forEach(u => { seen[u.id] = u; });
-                        s2.docs.forEach(d => { if (!seen[d.id]) seen[d.id] = { ...d.data(), id: d.id }; });
-                        return Object.values(seen);
-                    }))
-                    .catch(e2 => console.log('User dir fallback load failed', e2));
-            });
-    }, [page, filters.view, filters.searchUid, user]);
+        if (!needUsersDir || usersDirLoading.current) return;
+        if (usersDirAt && Date.now() - usersDirAt < 120000) return;   // loaded in the last 2 minutes
+        usersDirLoading.current = true;
+        setUsersDirBusy(true);
+        (async () => {
+            const seen = {};
+            let ok = 0;
+            // V65.39.01: orderBy('joined') silently EXCLUDES every user document without that field —
+            // Firestore drops docs missing the sort key rather than sorting them last. Older accounts
+            // never had it, so they were invisible to search no matter what you typed. Ordered load
+            // for a sensible recent-ravers list, plus an unordered top-up so nobody is missing.
+            // V87.84.150.321: the two reads run side by side rather than one after the other.
+            const [s1, s2] = await Promise.allSettled([
+                getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('joined', 'desc'), limit(50))),
+                getDocs(query(collection(db, 'artifacts', appId, 'users'), limit(100))),
+            ]);
+            if (s1.status === 'fulfilled') { s1.value.docs.forEach(d => { seen[d.id] = { ...d.data(), id: d.id }; }); ok++; } else console.log('User dir ordered load failed', s1.reason);
+            if (s2.status === 'fulfilled') { s2.value.docs.forEach(d => { if (!seen[d.id]) seen[d.id] = { ...d.data(), id: d.id }; }); ok++; } else console.log('User dir fallback load failed', s2.reason);
+            setUsersDir(prev => { const out = { ...seen }; prev.forEach(u => { if (!out[u.id]) out[u.id] = u; }); return Object.values(out); });
+            setUsersDirErr(ok === 0);
+            usersDirLoading.current = false;
+            setUsersDirBusy(false);
+            setUsersDirAt(Date.now());
+        })();
+    }, [needUsersDir, usersDirAt]);
+    const usersLoading = usersDirBusy || (needUsersDir && !usersDirAt);
+    // The Music feed mounts the first time it's opened and stays, so switching back to it is instant.
+    const [musicSeen, setMusicSeen] = useState(false);
+    const [musicKey, setMusicKey] = useState(0);
+    const showMusic = musicSeen || (page === 'feed' && filters.view === 'music');
+    useEffect(() => { if (showMusic && !musicSeen) setMusicSeen(true); }, [showMusic, musicSeen]);
+    // ⟳ reloads the feed you're on, showing its loading state until the new results are in.
+    const refreshFeed = () => {
+        if (filters.view === 'users') setUsersDirAt(0);
+        else if (filters.view === 'music') setMusicKey(k => k + 1);
+        else setFeedRetry(r => r + 1);
+    };
     useEffect(() => {
         // Exact UID/username lookup so a searched raver who isn't in the recent-50
         // directory still surfaces. Runs for any post type when searching.
@@ -21969,11 +22099,13 @@ const App = () => {
         if (!user) return;
         const pull = async () => {
             try {
-                const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(1))); return s.empty ? null : { ...s.docs[0].data(), id: s.docs[0].id }; };
+                // V87.84.150.321: the leader with a name. A profile that was never set up has none, and its
+                // line read "@undefined". The top three are read and the first named one is shown.
+                const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(3))); const d = s.docs.find(x => rkMqNamed(x.data())); return d ? { ...d.data(), id: d.id } : null; };
                 const [seller, earner, referrer, buyer, active, listener, ach, creator] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints')]);
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
-                try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
+                try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
                 setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
@@ -22033,7 +22165,7 @@ const App = () => {
         else if (key === 'lab') { setPage('shop'); setTab('custom'); }
         else if (key === 'diy') { setPage('shop'); setTab('diy'); }
         else if (key === 'messages') setMsgOpen(true);
-        else if (key === 'market') setPage('feed');
+        else if (key === 'market') { setFilters(rkItemsView); setPage('feed'); }
         else if (key === 'achievements') rkBus(focus ? 'achievements:' + focus : 'achievements');
         else if (key === 'vip' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
         else setPage('profile');
@@ -22162,7 +22294,7 @@ const App = () => {
     // V87.83.150.320: where TRADE. RAVE. PLUR. and Enter Exchange go, on Home and in the welcome window. The
     // same places as ever (V65.19): the feed, Rave Radio, and Vibe Tribe on your profile.
     const heroGo = (to) => {
-        if (to === 'feed') setPage('feed');
+        if (to === 'feed') { setFilters(rkItemsView); setPage('feed'); }
         else if (to === 'radio') setRadioOpen(true);
         else if (to === 'tribe') { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vibeTribe' })); } catch (e) {} }, 250); }
     };
@@ -22179,7 +22311,7 @@ const App = () => {
         else if (to === 'install') setIosGuide(true);
         else if (to === 'tutorials') setTutHubOpen(true);
         else if (to === 'spotlight') { setPage('home'); setVideoSubmitOpen(true); }
-        else if (to === 'post') { setPage('feed'); rkRequestOpen('post'); }
+        else if (to === 'post') { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); }
         else if (to === 'profile') setPage('profile');
         else if (to === 'vibeTribe' || to === 'settings' || to === 'inventory') rkBus(to);
         else if (to.indexOf('creatorapp:') === 0) setCreatorAppOpen(to.slice(11));
@@ -22406,9 +22538,9 @@ const App = () => {
         } catch (e) { alert('Could not reach the admin directory: ' + e.message); }
     };
     
+    // V87.84.150.321: their posts are in the Items feed; it shows its loading state if it's still loading.
     const handleViewFeed = (targetUid) => {
-        if (items.length === 0 || isSyncing) { alert("Posts are currently syncing. Please wait a moment."); return; }
-        setFilters({...filters, searchUid: targetUid, focusItem: ''});
+        setFilters({...filters, view: 'all', searchUid: targetUid, focusItem: '', tradeEvent: ''});
         setPage('feed');
     };
     // V70.4: stat-row "view this post" arrives as an event, since the profile components between
@@ -22719,7 +22851,9 @@ const App = () => {
     const mqTotalSales = items.reduce((s, i) => s + ((i.price || 0) * (i.purchaseCount || 0)), 0);
     const mqItemsListed = items.filter(i => !i.isRequest && !i.isDIYRequest).length;
     const mqCommission = mqTotalSales * effCommissionRate(null);
-    const topPoster = (() => { const c = {}; items.forEach(i => { if (i.ownerName && !i.isRequest && !i.isDIYRequest) { c[i.ownerName] = c[i.ownerName] || { n: 0, uid: i.ownerPublicUid || i.ownerId }; c[i.ownerName].n++; } }); const e = Object.entries(c).sort((a, b) => b[1].n - a[1].n)[0]; return e ? { name: e[0], n: e[1].n, uid: e[1].uid } : null; })();
+    // V87.84.150.321: counted per raver rather than per name, so a renamed raver's posts aren't split in two
+    // and two ravers who share a name aren't merged; named by their latest post.
+    const topPoster = (() => { const c = {}; items.forEach(i => { const k = i.ownerId || i.ownerPublicUid; if (!k || i.isRequest || i.isDIYRequest) return; const e = c[k] || (c[k] = { n: 0, name: '', at: -1, uid: i.ownerPublicUid || i.ownerId }); e.n++; if (i.ownerName && (i.timestamp || 0) >= e.at) { e.name = i.ownerName; e.at = i.timestamp || 0; } }); const best = Object.values(c).filter(e => e.name).sort((a, b) => b.n - a.n)[0]; return best ? { name: best.name, n: best.n, uid: best.uid } : null; })();
     const RAVE_EMOJIS = ['🤘😝 ROCK ON RAVER', '🪩✨ DISCO MODE ENGAGED', '🌈🤝 TRADE THE VIBE', '🔊🦄 BASS UNICORN SPOTTED', '😎🕺 GROOVE SECURED', '🫶💚 KANDI LOVE', '👽🎛️ ALIEN ON THE DECKS', '🍄⚡ MUSH MODE', '🧚‍♀️🔥 FAIRY ON FIRE', '🐸🎧 BASS FROG VIBES', '🦋💜 FLUTTER & FLOW', '🥽🌌 GOGGLES TO THE GALAXY', '💞🔆 SPREAD THE PLUR', '🎶🌟 LOST IN THE MUSIC', '🤝✨ HANDSHAKE = NEW FAMILY', '🌈🦋 STAY KANDi, STAY KIND', '🔥💃 MELT INTO THE BEAT', '🫂💖 HUG A RAVER TODAY', '⚡🧡 ENERGY NEVER DIES', '🪩💫 ONE LOVE, ONE DANCEFLOOR', '🌸🎀 KANDI KID FOREVER', '🛸💚 VIBE TRIBE ASSEMBLE', '🎆🌀 FEEL THE FREQUENCY', '💜🔊 BASS IN YOUR HEART'];
     const plurLine = (() => {
         const A = ['PLUR', 'Peace', 'Love', 'Unity', 'Respect', 'Good vibes', 'Kandi magic', 'The bassline', 'Your aura', 'The rave fam', 'Kindness', 'The melody', 'Pure joy', 'The drop', 'Your energy', 'The afterglow', 'Festival magic', 'The rhythm', 'Every heartbeat', 'The light show'];
@@ -22735,7 +22869,7 @@ const App = () => {
         activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null, slotId: activeBanner.id } : null,
         { t: '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡' },
         { t: '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀' },
-        topTribe ? { t: '🌈 BIGGEST VIBE TRIBE: "' + topTribe.name + '" with ' + topTribe.count + ' members! 🌈' } : null,
+        topTribe ? { t: '🌈 BIGGEST VIBE TRIBE: "' + topTribe.name + '" with ' + topTribe.count + ' members! 🌈', go: (user && !user.isAnonymous && topTribe.id) ? () => rkBus('vibeTribe:' + topTribe.id + '#card') : null } : null,
         // V65.04: fresh-raver welcomes — capped at 4 per rotation so they never crowd out the rest.
         ...freshRavers.slice(0, 4).map(r => ({ t: '🎉 WELCOME TO THE FAM: @' + r.name + ' — tap to say hi! 🎉', uid: r.uid })),
         { t: '🔗 PSST — DASHED MESSAGES IN THIS MARQUEE ARE LINKS. TAP THEM! 🔗' },
@@ -22743,17 +22877,17 @@ const App = () => {
         { t: '💰 TOTAL PLATFORM SALES: $' + mqTotalSales.toFixed(2) },
         { t: '🧾 COMMISSION POOL: $' + mqCommission.toFixed(2) },
         { t: '📦 ITEMS LISTED: ' + mqItemsListed },
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '🏆 TOP SELLER: @' + topStats.seller.displayName + ' ($' + Number(topStats.seller.totalSalesValue || 0).toFixed(0) + ' SOLD)', uid: uref(topStats.seller) } : null,
-        topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? { t: '💎 TOP REVSHARE EARNER: @' + topStats.earner.displayName + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')', uid: uref(topStats.earner) } : null,
-        topStats.referrer && (topStats.referrer.referrals > 0) ? { t: '🤝 MOST REFERRALS: @' + topStats.referrer.displayName + ' (' + topStats.referrer.referrals + ')', uid: uref(topStats.referrer) } : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '🏆 TOP SELLER: @' + rkMqName(topStats.seller) + ' ($' + Number(topStats.seller.totalSalesValue || 0).toFixed(0) + ' SOLD)', uid: uref(topStats.seller) } : null,
+        topStats.earner && (topStats.earner.totalRevShareEarned > 0) ? { t: '💎 TOP REVSHARE EARNER: @' + rkMqName(topStats.earner) + ' ($' + Number(topStats.earner.totalRevShareEarned || 0).toFixed(2) + ')', uid: uref(topStats.earner) } : null,
+        topStats.referrer && (topStats.referrer.referrals > 0) ? { t: '🤝 MOST REFERRALS: @' + rkMqName(topStats.referrer) + ' (' + topStats.referrer.referrals + ')', uid: uref(topStats.referrer) } : null,
         topPoster ? { t: '📣 TOP POSTER: @' + topPoster.name + ' (' + topPoster.n + ' posts)', uid: topPoster.uid } : null,
-        topStats.creator && (topStats.creator.creatorPoints > 0) ? { t: '👑 TOP CREATOR: @' + topStats.creator.displayName + ' (' + topStats.creator.creatorPoints + ' PTS)', uid: uref(topStats.creator) } : null,
-        topStats.active && ((topStats.active.activeMinutes || 0) > 0) ? { t: '🔥 MOST ACTIVE: @' + topStats.active.displayName + ' (' + (((topStats.active.activeMinutes || 0) / 60) + (topStats.active.activeHours || 0)).toFixed(1) + ' HRS)', uid: uref(topStats.active) } : null,
-        topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? { t: '🎧 TOP LISTENER: @' + topStats.listener.displayName + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)', uid: uref(topStats.listener) } : null,
-        topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? { t: '🛍️ HIGHEST ORDERS: @' + topStats.buyer.displayName + ' (' + topStats.buyer.itemsBought + ')', uid: uref(topStats.buyer) } : null,
-        topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + topStats.ach.displayName + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
-        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + topStats.seller.displayName + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - rkSellerRate(topStats.seller))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
-        topStats.rated && (topStats.rated.avgRatingX100 > 0) ? { t: '⭐ TOP RATED: @' + topStats.rated.displayName + ' (' + (topStats.rated.avgRatingX100 / 100).toFixed(1) + '★ · ' + (topStats.rated.ratingTxns || 0) + ' reviews)', uid: uref(topStats.rated) } : null,
+        topStats.creator && (topStats.creator.creatorPoints > 0) ? { t: '👑 TOP CREATOR: @' + rkMqName(topStats.creator) + ' (' + topStats.creator.creatorPoints + ' PTS)', uid: uref(topStats.creator) } : null,
+        topStats.active && ((topStats.active.activeMinutes || 0) > 0) ? { t: '🔥 MOST ACTIVE: @' + rkMqName(topStats.active) + ' (' + (((topStats.active.activeMinutes || 0) / 60) + (topStats.active.activeHours || 0)).toFixed(1) + ' HRS)', uid: uref(topStats.active) } : null,
+        topStats.listener && ((topStats.listener.radioMinutes || 0) > 0) ? { t: '🎧 TOP LISTENER: @' + rkMqName(topStats.listener) + ' (' + ((topStats.listener.radioMinutes || 0) / 60).toFixed(1) + ' HRS)', uid: uref(topStats.listener) } : null,
+        topStats.buyer && ((topStats.buyer.itemsBought || 0) > 0) ? { t: '🛍️ HIGHEST ORDERS: @' + rkMqName(topStats.buyer) + ' (' + topStats.buyer.itemsBought + ')', uid: uref(topStats.buyer) } : null,
+        topStats.ach && ((topStats.ach.achievementsUnlocked || 0) > 0) ? { t: '🏅 MOST ACHIEVEMENTS: @' + rkMqName(topStats.ach) + ' (' + topStats.ach.achievementsUnlocked + ')', uid: uref(topStats.ach) } : null,
+        topStats.seller && (topStats.seller.totalSalesValue > 0) ? { t: '📈 HIGHEST NET PROFIT: @' + rkMqName(topStats.seller) + ' ($' + (Number(topStats.seller.totalSalesValue || 0) * (1 - rkSellerRate(topStats.seller))).toFixed(2) + ')', uid: uref(topStats.seller) } : null,
+        topStats.rated && (topStats.rated.avgRatingX100 > 0) ? { t: '⭐ TOP RATED: @' + rkMqName(topStats.rated) + ' (' + (topStats.rated.avgRatingX100 / 100).toFixed(1) + '★ · ' + (topStats.rated.ratingTxns || 0) + ' reviews)', uid: uref(topStats.rated) } : null,
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
         // PLUR facts, tips & culture — expanded set
@@ -22852,7 +22986,9 @@ cat << 'EOF' >> src/App.js
             {profileGap && <CreatorProfileCompletion user={user} profile={profile} gapKey={profileGap}
                 onClose={() => { gapDismissedRef.current[profileGap] = true; setProfileGap(null); }} />}
             <TutorialOverlay active={!!creatorTour} replay={tutReplay} steps={creatorTour ? RK_CREATOR_TOURS[creatorTour].steps : null} onFinish={finishCreatorTour} />
-            <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
+            {/* V87.84.150.321 (Milli: "the end of the tutorial ends with the settings open on the user profile page"):
+                the app tutorial closes any window it left open when it ends, finished or skipped. */}
+            <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { rkCloseAllOverlays(); try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
             <TutorialReminderPopIn active={tutorialReminder && !welcomeWinOpen && !showAlphaModal} onClose={() => setTutorialReminder(false)} />
             <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
@@ -22876,7 +23012,7 @@ cat << 'EOF' >> src/App.js
                 setQuickLaunchOpen(false);
                 const bus = (k) => { setPage('profile'); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: k })); } catch (e) {} }, 200); };
                 if (key === 'home') setPage('home');
-                else if (key === 'market') setPage('feed');
+                else if (key === 'market') { setFilters(rkItemsView); setPage('feed'); }
                 else if (key === 'profile') setPage('profile');
                 else if (key === 'messages') setMsgOpen(true);
                 else if (key === 'radio' || key === 'artists') setRadioOpen(true);
@@ -23003,7 +23139,7 @@ cat << 'EOF' >> src/App.js
                 <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: Math.round((RK_CFG.marqueeSpeed || 60) * Math.max(1, shuffledMq.length / 12)) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
+                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span data-mq={m.uid ? 'raver' : m.href ? 'link' : m.go ? 'tribe' : 'text'} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : m.go ? m.go : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href || m.go) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
                         </div>
                     ))}
                 </div>
@@ -23158,11 +23294,18 @@ cat << 'EOF' >> src/App.js
                         {!feedWelcomeHidden && <p className="text-sm text-white/90 leading-relaxed">This is the community marketplace feed — every post here is an item a raver is <strong>selling, trading, or showcasing</strong>: handmade kandi, clothing, accessories, custom pieces and more. Look for the <strong className="text-lime-300">🤝 Open to Trades</strong> badge to swap items with no money in the <strong className="text-lime-300">PLUR Economy</strong> — offer your own pieces and negotiate a fair trade. Tap any post to view details, like it, comment, buy, or trade. Tap a creator's <strong>@name</strong> to visit their profile, add them as a friend, or message them. Use the filters below — including <strong className="text-cyan-300">🤝 Open to Trades</strong> — to find exactly what you're after!</p>}
                     </div>
                     <Card className="bg-[#1a0033]/95 shadow-2xl border-white/20 py-3 mb-4">
-                        <div className="grid grid-cols-3 gap-3 mb-3">
-                            <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Show</label><select value={filters.view} onChange={e=>setFilters({...filters, view: e.target.value, tradeEvent: ''})} className={selectStyle}><option value="all">🛍️ Items</option><option value="music">🎵 Music</option><option value="users">👥 User Profiles</option></select></div>
-                            {filters.view === 'all' && <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Post Type</label><MultiSelectDropdown label="Post Type" options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>}
+                        {/* V87.84.150.321: the three feeds (queue item 8), as buttons above the controls. */}
+                        <div className="grid grid-cols-3 gap-2 mb-3" role="tablist" aria-label="Feeds" data-feed-views="1">
+                            {RK_FEED_VIEWS.map(v => { const on = filters.view === v.k; return (
+                                <button key={v.k} role="tab" aria-selected={on} data-feed-view={v.k} onClick={() => setFilters(f => (f.view === v.k ? f : { ...f, view: v.k, tradeEvent: '' }))}
+                                    className={'flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-black border-2 text-white transition active:scale-95 ' + (on ? 'bg-pink-600/40 border-pink-300 shadow-[0_0_12px_rgba(236,72,153,0.5)]' : 'bg-black/30 border-white/25')}>
+                                    <span>{v.e}</span><span>{v.l}</span>
+                                </button>); })}
+                        </div>
+                        {filters.view === 'all' && <div className="grid grid-cols-3 gap-3 mb-3">
+                            <div><label className="text-xs font-bold text-white uppercase ml-1">Post Type</label><MultiSelectDropdown label="Post Type" options={RK_POST_TYPES} selected={filters.postTypes.map(k => RK_POST_TYPE_LABEL[k] || k)} onChange={labels => setFilters({...filters, postTypes: labels.map(l => RK_POST_TYPE_KEY[l]).filter(Boolean), tradeEvent: ''})}/></div>
                             <div>
-                                <label className="text-[10px] font-bold opacity-50 uppercase ml-1">Sort</label>
+                                <label className="text-xs font-bold text-white uppercase ml-1">Sort</label>
                                 <select value={filters.sort} onChange={e=>setFilters({...filters, sort: e.target.value})} className={selectStyle}>
                                     <option value="all">All</option>
                                     <option value="recent">Recent</option>
@@ -23174,9 +23317,9 @@ cat << 'EOF' >> src/App.js
                                     <option value="sold">💤 Sold / Out of Stock</option>
                                 </select>
                             </div>
-                            <div><label className="text-[10px] font-bold opacity-50 uppercase ml-1">Item Type</label><MultiSelectDropdown options={KANDI_TYPES} selected={filters.itemTypes} onChange={v => setFilters({...filters, itemTypes: v})}/></div>
-                        </div>
-                        {filters.postTypes.includes('trades') && (() => {
+                            <div><label className="text-xs font-bold text-white uppercase ml-1">Item Type</label><MultiSelectDropdown options={KANDI_TYPES} selected={filters.itemTypes} onChange={v => setFilters({...filters, itemTypes: v})}/></div>
+                        </div>}
+                        {filters.view === 'all' && filters.postTypes.includes('trades') && (() => {
                             const events = Array.from(new Set(items.filter(i => i.isForTrade && i.tradeWants?.event).map(i => i.tradeWants.event))).slice(0, 30);
                             return (
                                 <div className="border-t border-white/10 pt-2">
@@ -23191,34 +23334,37 @@ cat << 'EOF' >> src/App.js
                             );
                         })()}
                         <div className="border-t border-white/10 pt-3">
-                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder="Search UID or Username..." value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
+                            <div className="flex gap-2 items-center bg-black/40 border-2 border-cyan-500/30 rounded-xl px-3 py-1 focus-within:border-cyan-400/60 transition"><Search size={20} className="text-cyan-400 shrink-0"/><input placeholder={filters.view === 'music' ? 'Search artists...' : 'Search UID or Username...'} value={filters.searchUid} onChange={e=>setFilters({...filters, searchUid: e.target.value})} className="flex-1 bg-transparent text-sm py-2 outline-none placeholder-white/40"/>{filters.searchUid && <button onClick={() => setFilters({...filters, searchUid: ''})} className="text-white/40 hover:text-white text-lg shrink-0">×</button>}</div>
                         </div>
                         <div className="flex justify-between items-center pt-2">
                             <div className="flex-1 mr-2"></div>
                             <div className="flex gap-2 items-center">
-                                <button onClick={manualRefresh} className={`text-white/50 hover:text-white transition-transform ${isSyncing ? 'animate-spin text-lime-400' : ''}`}><RefreshCw size={16}/></button>
-                                <button onClick={() => setFilters(rkClearFilters)} className="bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded">Clear Filters</button>
+                                <button onClick={refreshFeed} title="Reload this feed" aria-label="Reload this feed" data-feed-refresh="1" className={`text-white hover:text-white transition-transform ${(filters.view === 'users' ? usersLoading : filters.view === 'all' && isSyncing) ? 'animate-spin text-lime-400' : ''}`}><RefreshCw size={16}/></button>
+                                <button onClick={() => setFilters(f => ({ ...rkClearFilters, view: f.view }))} className="bg-white/10 hover:bg-white/20 text-[10px] font-bold uppercase tracking-widest px-3 py-2 rounded">Clear Filters</button>
                             </div>
                         </div>
                     </Card>
-                    {filters.view !== 'users' && <SellKandiForm user={user} profile={profile}/>}
-                    {isSyncing && (
-                        <div className="flex flex-col items-center justify-center py-6 mb-4 bg-black/40 border border-white/10 rounded-xl">
-                            <RefreshCw size={32} className="animate-spin text-lime-400 mb-3" />
-                            <p className="text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-cyan-400 font-bold animate-pulse text-sm">{syncMsgs[syncMsgIdx]}</p>
-                        </div>
-                    )}
-                    {filters.view === 'music' ? (<FeedMusicSection user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId}/>) : filters.view === 'users' ? (
-                        <div className="grid grid-cols-1 gap-3">
-                            {visibleUsers.length === 0 && (
-                                <div className="text-center py-6">
-                                    <p className="opacity-50 text-xs">No ravers match "{rkCleanSearch(filters.searchUid)}".</p>
-                                    <p className="opacity-40 text-[10px] mt-1">Names ignore spaces, dashes and @ — try just the letters.</p>
+                    {filters.view === 'all' && <SellKandiForm user={user} profile={profile}/>}
+                    {showMusic && <div data-feed="music" style={filters.view === 'music' ? undefined : { display: 'none' }}><FeedMusicSection key={musicKey} user={user} viewerUid={user?.uid} onViewProfile={setViewingProfileId} search={filters.view === 'music' ? filters.searchUid : ''}/></div>}
+                    {filters.view === 'users' ? (
+                        <div className="grid grid-cols-1 gap-3" data-feed="users">
+                            {usersLoading && <RkFeedLoading kind="users"/>}
+                            {!usersLoading && visibleUsers.length === 0 && (usersDirErr ? (
+                                <div className="text-center py-6" data-feed-empty="users">
+                                    <p className="text-white text-sm">Couldn't load ravers just now.</p>
+                                    <p className="text-white text-xs mt-1">Tap ⟳ above to try again.</p>
                                 </div>
-                            )}
+                            ) : rkCleanSearch(filters.searchUid) ? (
+                                <div className="text-center py-6" data-feed-empty="users">
+                                    <p className="text-white text-sm">No ravers match "{rkCleanSearch(filters.searchUid)}".</p>
+                                    <p className="text-white text-xs mt-1">Names ignore spaces, dashes and @ — try just the letters.</p>
+                                </div>
+                            ) : (
+                                <div className="text-center py-6" data-feed-empty="users"><p className="text-white text-sm">No ravers here yet.</p></div>
+                            ))}
                             {/* V65.40: a near-miss is far more useful than an empty screen — most
                                 failed searches are one wrong character, not a raver who isn't here. */}
-                            {didYouMean.length > 0 && visibleUsers.length > 0 && (
+                            {!usersLoading && didYouMean.length > 0 && visibleUsers.length > 0 && (
                                 <div className="mb-2 bg-cyan-900/20 border border-cyan-400/40 rounded-lg p-2">
                                     <p className="text-[10px] text-cyan-200 font-bold mb-1">Did you mean…</p>
                                     <div className="flex flex-wrap gap-1.5">
@@ -23228,7 +23374,7 @@ cat << 'EOF' >> src/App.js
                                     </div>
                                 </div>
                             )}
-                            {visibleUsers.map(u => (
+                            {!usersLoading && visibleUsers.map(u => (
                                 <Card key={u.id} className="flex items-center gap-3 border-purple-500/30">
                                     <button onClick={() => setViewingProfileId(u.publicUid || u.id)} className="shrink-0"><img src={u.photoURL || rkPh(80, 80, null, null, 'User')} className="w-14 h-14 rounded-full object-cover border-2 border-pink-500/60 cursor-pointer hover:border-lime-400 transition-colors"/></button>
                                     <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingProfileId(u.publicUid || u.id)}>
@@ -23252,8 +23398,9 @@ cat << 'EOF' >> src/App.js
                                 </Card>
                             ))}
                         </div>
-                    ) : (
-                    <div className="space-y-6">
+                    ) : filters.view === 'all' ? (
+                    <div className="space-y-6" data-feed="items">
+                        {isSyncing ? <RkFeedLoading kind="all"/> : (<>
                         {filters.focusItem && (
                         <div className="mb-3 bg-cyan-900/25 border border-cyan-400/50 rounded-lg p-2.5 flex items-center justify-between gap-2">
                             <p className="text-[11px] text-cyan-100 leading-snug">Showing one post. This is the listing your notification was about.</p>
@@ -23278,8 +23425,14 @@ cat << 'EOF' >> src/App.js
                             </div>
                         )}
                         <div className="grid grid-cols-1 gap-6">{displayedFeedItems.map(item => <ItemCard key={item.id} item={item} user={user} profile={profile} onViewProfile={setViewingProfileId} onAddToCart={addToCart} onViewItem={handleViewItem}/>)}</div>
+                        {displayedFeedItems.length === 0 && ((filters.postTypes.length || filters.itemTypes.length || rkCleanSearch(filters.searchUid) || filters.tradeEvent || filters.focusItem || filters.sort === 'sold') ? (
+                            <div className="text-center py-8" data-feed-empty="items"><p className="text-white text-sm">No posts match these filters.</p><p className="text-white text-xs mt-1">Try Clear Filters, or another Post Type or Item Type.</p></div>
+                        ) : (
+                            <div className="text-center py-8" data-feed-empty="items"><p className="text-white text-sm">No posts yet.</p><p className="text-white text-xs mt-1">Post the first one above.</p></div>
+                        ))}
+                        </>)}
                     </div>
-                    )}</div>)}
+                    ) : null}</div>)}
                 {page === 'shop' && (
                     <div className="max-w-4xl mx-auto">
                         <div className="flex gap-2 justify-center mb-6">{['custom', 'diy', 'official'].map(t => (<button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest ${tab===t ? 'bg-pink-600 shadow-neon-pink text-white' : 'bg-white/5 text-white/50'}`}>{t === 'custom' ? 'AI KANDI LAB' : t}</button>))}</div>
