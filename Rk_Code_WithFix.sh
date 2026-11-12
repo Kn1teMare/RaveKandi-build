@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
-RK_MINOR=85
+RK_MINOR=86
 RK_PATCH=150
-RK_BUILD=325
+RK_BUILD=326
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -199,6 +199,7 @@ cat << 'EOF' > public/index.html
       @keyframes rkZapGlow { 0%, 100% { filter: drop-shadow(0 0 5px rgba(251,194,235,0.75)); } 33% { filter: drop-shadow(0 0 10px rgba(166,193,238,0.9)); } 66% { filter: drop-shadow(0 0 10px rgba(194,255,216,0.9)); } }
       .rk-logo-pulse { animation: rkLogoPulse 1.3s ease-out 1; }
       @keyframes rkLogoPulse { 0% { filter: hue-rotate(160deg) saturate(2.2); } 40% { filter: hue-rotate(0deg) saturate(1); } 60% { text-shadow: 0 0 26px currentColor, 0 0 44px currentColor; } 100% { } }
+      .rk-strip { scrollbar-width: none; -webkit-overflow-scrolling: touch; } .rk-strip::-webkit-scrollbar { display: none; }
       .rk-marquee-track { display: flex; width: max-content; animation-name: rkMarquee; animation-timing-function: linear; animation-iteration-count: infinite; animation-duration: 60s; will-change: transform; }
       @keyframes rkGhostFlash { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
       @keyframes rkCascade { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
@@ -544,7 +545,7 @@ rm -f src/App.js
 # V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
 # functions step, so the two never disagree)
 cat << 'RKSHAREDEOF' > src/rkShared.js
-// RaveKandi: the definitions the app and the server both apply (V90.85.150.325). Script-owned.
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326). Script-owned.
 // The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
 // module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
 // achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
@@ -842,6 +843,9 @@ const RK_ACH_DEFS = [
     // with at least one). Each trims the seller commission (rkAchBonuses), with its own emblem and a marquee line.
     { id: 'banner_days_5', name: 'Marquee Regular', tier: 1, metric: 'bannerDays', threshold: 5, desc: "Post a banner message on 5 different days." },
     { id: 'boost_days_5', name: 'Spotlight Regular', tier: 1, metric: 'boostDays', threshold: 5, desc: "Boost one of your posts on 5 different days." },
+    // V90.86.150.326: for 326's Business accounts (businessSince: the server sets it the first time a profile is a
+    // Business account). It trims the seller commission (rkAchBonuses), with its own emblem and a marquee line.
+    { id: 'business_1', name: 'Open for Business', tier: 1, metric: 'businessOpened', threshold: 1, desc: "Switch to a Business account: a phone and an email on file, and 5 sales, unlock it." },
 ];
 
 // V42.09: banner link safety — banners may only link to verified social platforms.
@@ -999,7 +1003,9 @@ const rkAchStats = (profile) => {
         // V89.85.150.324: festivals with days tapped from their dates, and a post with every day of one
         festDaysPicked: profile?.festDaysPicked||0, festAllDays: profile?.festAllDays||0,
         // V90.85.150.325: VIP passes gifted, and days with a banner, both counted by the server
-        vipGiftsSent: profile?.vipGiftsSent||0, bannerDays: profile?.bannerDays||0, boostDays: profile?.boostDays||0
+        vipGiftsSent: profile?.vipGiftsSent||0, bannerDays: profile?.bannerDays||0, boostDays: profile?.boostDays||0,
+        // V90.86.150.326: a Business account opened (businessSince, set by the server)
+        businessOpened: Number(profile?.businessSince) > 0 ? 1 : 0
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -1205,8 +1211,103 @@ const rkNextMonthStart = (t) => { const d = new Date(t || Date.now()); return Da
 const RK_FREE_VIP_SHARE = 0.8;
 const rkFreeVipNeed = () => Math.ceil(RK_ACH_DEFS.filter(a => !a.rank).length * RK_FREE_VIP_SHARE);
 
+// ---- V90.86.150.326: BANNER SPOTS (Milli, at 326: "posted user banners should show more frequently - regular/app
+// banners should not take precedence over posted. Calculate a formula; dependent on the number of user banners active
+// within a time window, determine the number of other banners shown between user banners. Always separate by at least
+// one banner between user banners. Find a healthy maximum amount of banners able to be posted within a window") ----
+// Up to RK_BANNER_LANES ravers' banners share each 15-minute window (325 ran one at a time). In the marquee, k of the
+// app's own lines run between two banners, where u is how many banners are live and T the seconds one line takes to
+// cross (the marquee's speed setting / 12, 5 s by default):
+//     k = max(1, min(6, floor(60 / (u x T)) - 1))
+// so each live banner comes round at least once a minute and two banners always have an app line between them. At
+// T = 5 s: 1 banner, every 35 s (6 lines between); 2, every 60 s (5); 3, every 60 s (3); 4, every 60 s (2); 5, every
+// 50 s (1); 6, every 60 s (1). A seventh would push every banner past a minute and leave the app's lines less than half
+// of the marquee, so 6 a window is the most (24 an hour). 325 showed the one banner once in about 5 minutes.
+const RK_BANNER_LANES = 6;
+const RK_BANNER_GAP_MAX = 6;
+const rkBannerGap = (u, secPerLine) => {
+    const n = Math.max(1, Math.floor(Number(u) || 0)), T = Number(secPerLine) > 0 ? Number(secPerLine) : 5;
+    return Math.max(1, Math.min(RK_BANNER_GAP_MAX, Math.floor(60 / (n * T)) - 1));
+};
+// The marquee's order: the live banners in turn, with `gap` app lines between two of them (never fewer than one, and
+// spread evenly), across the loop's seam too. Each banner comes round the same number of times. With fewer app lines
+// than banner turns, an app line is used again rather than two banners touching.
+const rkInterleave = (banners, lines, gap) => {
+    const B = (banners || []).filter(Boolean), L = (lines || []).filter(Boolean);
+    if (!B.length) return L.slice();
+    if (!L.length) return B.slice();
+    const k = Math.max(1, Math.floor(Number(gap) || 1));
+    const turns = Math.ceil(Math.ceil(L.length / k) / B.length) * B.length;
+    const out = [];
+    for (let b = 0; b < turns; b++) {
+        out.push(B[b % B.length]);
+        const from = Math.floor(b * L.length / turns), to = Math.floor((b + 1) * L.length / turns);
+        if (to > from) for (let i = from; i < to; i++) out.push(L[i]);
+        else out.push(L[b % L.length]);
+    }
+    return out;
+};
+// The spots booked in each window: { start: [spot, ...] }. A banner from before 326 has no spot: it held spot 0.
+const rkLanesTaken = (rows) => {
+    const t = {};
+    (rows || []).forEach(v => { if (!v) return; const st = Number(v.start) || 0; (t[st] = t[st] || []).push(Number(v.lane) || 0); });
+    return t;
+};
+const rkFreeLane = (taken, start, lanes) => {
+    const t = (taken && taken[start]) || [];
+    for (let l = 0; l < lanes; l++) if (!t.includes(l)) return l;
+    return -1;
+};
+// A booking: this window when it has a free spot (the rest of it, plus the next window when that has one too), otherwise
+// the next window with one. Returns [{ start, lane }], one or two windows.
+const rkBook = (now, taken, W, lanes) => {
+    const cur = Math.floor(now / W) * W, free = (s) => rkFreeLane(taken, s, lanes);
+    if (free(cur) >= 0) return free(cur + W) >= 0 ? [{ start: cur, lane: free(cur) }, { start: cur + W, lane: free(cur + W) }] : [{ start: cur, lane: free(cur) }];
+    let s = cur + W;
+    while (free(s) < 0) s += W;
+    return [{ start: s, lane: free(s) }];
+};
+const rkBannerBook = (now, taken) => rkBook(now, taken, RK_BANNER_MS, RK_BANNER_LANES);
+// V90.86.150.326: boosts book the same way, an hour each, 5 at a time: this hour when it has room, so a boost shows at
+// once (325 always waited for the next full hour, so a new boost didn't show for up to an hour)
+const rkBoostBook = (now, taken) => rkBook(now, taken, RK_BOOST_MS, RK_BOOST_LANES);
+// One booking can be two windows (the rest of one and the next). These put each booking back together as one run, from
+// when it went up to its last end, so a banner that's live is never also counted as queued. A booking from before 326
+// has no bookId: the same raver at the same moment.
+const rkSlotRuns = (slots) => {
+    const m = {};
+    (slots || []).forEach(s => {
+        if (!s) return;
+        const st = Number(s.start) || 0, en = Number(s.end) || 0;
+        const k = s.bookId || ((s.uid || '') + '|' + (s.postedAt || st));
+        const r = m[k] || (m[k] = { key: k, uid: s.uid || '', name: s.name || '', text: s.text || '', type: s.type || '', linkUrl: s.linkUrl || null, house: !!s.house,
+            itemId: s.itemId || '', itemName: s.itemName || '', postedAt: Number(s.postedAt) || 0, start: st, end: en, ids: [] });
+        r.start = Math.min(r.start, st); r.end = Math.max(r.end, en); r.ids.push(s.id);
+    });
+    return Object.values(m).map(r => Object.assign(r, { from: Math.max(r.start, Math.min(r.postedAt || r.start, r.end)) }));
+};
+
+// ---- V90.86.150.326: BUSINESS ACCOUNTS (Milli, at 326: "ensure that users are able to switch types. If a user does not
+// have permissions, block the business account button with an overlay of a transparent lock"; the requirements she
+// chose: phone and email on file, and 5 sales) ----
+// Business opens once all three are true. A raver who has had a Business account (businessSince, which only the server
+// sets) switches back and forth freely from then on; admins always can. The rules check the same (accountTypeOk).
+const RK_BIZ_SALES = 5;
+const rkPhoneOk = (v) => typeof v === 'string' && v.replace(/[^0-9]/g, '').length >= 7;
+const rkEmailOk = (v) => typeof v === 'string' && /.+@.+/.test(v);
+const rkBizReqs = (p, email) => {
+    const sold = Math.max(0, Number(p && p.itemsSold) || 0);
+    return [
+        { k: 'phone', ok: rkPhoneOk(p && p.phoneNumber), label: 'A phone number on file', done: 'On file.', how: 'Settings → Contact Info → Reveal: type your number, then Save Changes.' },
+        { k: 'email', ok: rkEmailOk(email), label: 'An email on your account', done: 'On file.', how: 'Settings → Contact Info → Reveal: type your email, then Save Changes.' },
+        { k: 'sales', ok: sold >= RK_BIZ_SALES, have: Math.min(sold, RK_BIZ_SALES), need: RK_BIZ_SALES, label: RK_BIZ_SALES + ' sales', done: 'Done.', how: 'Every order a buyer checks out with you counts. Post your kandi on the Feed to get there.' }
+    ];
+};
+const rkBizReady = (p, email) => rkBizReqs(p, email).every(r => r.ok);
+const rkBizOpen = (p, email) => !!(p && (p.isAdmin || Number(p.businessSince) > 0 || p.accountType === 'business')) || rkBizReady(p, email);
+
 // ---- what the app imports (the functions copy ends with module.exports instead) ----
-export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed };
+export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen };
 RKSHAREDEOF
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -1217,7 +1318,7 @@ import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, 
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 // V90.85.150.325: what the app and the server both apply (achievements, rates, festival dates, link checks)
-import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed } from './rkShared';
+import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen } from './rkShared';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -2152,7 +2253,7 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
 
@@ -4019,7 +4120,7 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
 //   '<tribeId>#<focus>'        a Vibe Tribe vote, chat or card (type 'tribe')
 //   a plain id                 the item, thread or raver its type implies
 // Older notifications without one fall back to the closest screen for their type.
-const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'radio', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage'];
+const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'radio', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage', 'business', 'bizinfo'];
 const rkNotifDest = (n) => {
     const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
     // V87.78.150.315: '@achievements:<id>' opens the Achievements window at that achievement.
@@ -6529,7 +6630,7 @@ const RK_ACCOUNT_TYPES = [
     },
     {
         k: 'business', label: 'Business', emoji: '🏪',
-        blurb: 'Run one or more labels from a single login.',
+        blurb: 'Run one or more labels from a single login. Opens once your phone and email are on file and you\'ve made 5 sales.',
         does: ['Everything Personal does', 'Multiple brands under one account', 'Inventory split by brand', 'A storefront per brand', 'Hand a helper access to one brand without the others']
     }
 ];
@@ -9639,6 +9740,26 @@ function rkEmRegular(t) {
   return { g: g, e: e, h: N };
 }
 
+// V90.86.150.326: Open for Business: a storefront under a striped awning, its window sign lit and the door open
+function rkEmShop() {
+  var N = '#5fe8ff', p = rkEmPal(N), E = rkEmE, e = [], i;
+  var g = { a: rkEmLin([p.l, p.m, N]), s: rkEmLin(['#21123d', '#0e0820']), w: rkEmLin(['#ff6ec7', '#b464ff']), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  var body = rkEmRound([[15, 40], [85, 40], [85, 92], [15, 92]], 5);
+  e.push(E(body, 0, 0, 5, 1, 'o'), E(body, 'a', N, 2.4, 1, 'b'));
+  var aw = rkEmRound([[8, 20], [92, 20], [92, 38], [8, 38]], 4);
+  e.push(E(aw, 0, 0, 5, 1, 'o'), E(aw, 'w', '#ffffff', 2, 1, 'b'));
+  for (i = 1; i < 6; i += 2) e.push(E(rkEmRound([[8 + i * 14, 21], [22 + i * 14, 21], [22 + i * 14, 37], [8 + i * 14, 37]], 0.5), '#ffffff', 0, 0, 0.8, 'd'));
+  var sc = 'M8 38';
+  for (i = 0; i < 6; i++) sc += 'q7 8 14 0';
+  e.push(E(sc, 0, '#ffffff', 2.2, 1, 'd'));
+  e.push(E(rkEmRound([[22, 52], [48, 52], [48, 78], [22, 78]], 3), 's', p.m, 1.4, 1, 'k'));
+  e.push(E(rkEmRound([[25, 59], [45, 59], [45, 69], [25, 69]], 2.2), 'y', '#ffffff', 1, 1, 'd'));
+  e.push(E(rkEmRound([[56, 52], [76, 52], [76, 92], [56, 92]], [3, 3, 0, 0]), 's', p.m, 1.4, 1, 'k'));
+  e.push(E(rkEmCirc(71.5, 73, 1.9), '#ffffff', 0, 0, 1, 'd'));
+  e.push(E(rkEmSpark(88, 10, 5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -9666,7 +9787,7 @@ function rkEmSpec() {
     ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
-    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2]], t = {};
+    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -11386,14 +11507,22 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
             const bodyText = isSocial ? '' : text.trim().slice(0, 90);
             if (bodyText) rkHateStop(bodyText);
             const r = await rkAct('banner', isSocial ? { mode: 'social', link: chosenLink.url, label: chosenLink.label } : { mode: 'msg', text: bodyText });
-            setConfirmation({ startsAt: r.startsAt, endsAt: r.endsAt, queueAhead: r.queueAhead || 0, live: !!r.live });
+            setConfirmation({ startsAt: r.startsAt, endsAt: r.endsAt, live: !!r.live || Number(r.startsAt) <= Date.now() });
             setText(''); setChosenLink(null); setCustomLink('');
         } catch (e) { alert("Banner failed: " + e.message); } finally { setBusy(false); }
     };
 
     const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const history = [...slots].sort((a, b) => b.start - a.start);
-    const upcoming = slots.filter(s => s.start > Date.now()).sort((a, b) => a.start - b.start);
+    // V90.86.150.326 (Milli: "banners posts state "your banner is live now" but also states that same banner is currently
+    // queued until the next free window"). A booking is the rest of this window and the next one: two documents, and the
+    // second one was counted as a banner in the queue. Each booking is now one run (rkSlotRuns): live while any part of it
+    // is, booked for later only when all of it is.
+    const nowMs = Date.now();
+    const runs = rkSlotRuns(slots);
+    const history = [...runs].sort((a, b) => b.start - a.start);
+    const liveRuns = runs.filter(r => r.start <= nowMs && nowMs < r.end);
+    const laterRuns = runs.filter(r => r.start > nowMs);
+    const myLater = laterRuns.filter(r => r.uid === user?.uid).length;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="📢 Banner Messages">
@@ -11412,13 +11541,14 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
             ) : (
                 <div className="space-y-3">
                     <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                        <strong className="text-cyan-400">How it works:</strong> Your banner joins the scrolling marquee for a <strong>15-minute window</strong> (windows start on the dot: :00, :15, :30, :45). One banner runs at a time — submissions queue for the next free window; an empty current window grants its remainder <strong>plus</strong> the next full block. You can post a <strong>message OR one of your social links</strong> — each counts as one of your <strong>5 daily posts</strong>. The daily limit resets at <strong>midnight UTC</strong> ({rkUtcResetLocal()} your time). Social links are safety-checked and restricted to verified platforms.
+                        <strong className="text-cyan-400">How it works:</strong> Your banner joins the scrolling marquee for a <strong>15-minute window</strong> (windows start on the dot: :00, :15, :30, :45). Up to <strong>{RK_BANNER_LANES} ravers' banners share a window</strong>, and the marquee brings each one round in turn between the app's own lines. When this window has room, yours <strong>starts now</strong> and runs to the end of the next one; when it's full, it takes the next window with room. You can post a <strong>message OR one of your social links</strong> — each counts as one of your <strong>5 daily posts</strong>. The daily limit resets at <strong>midnight UTC</strong> ({rkUtcResetLocal()} your time). Social links are safety-checked and restricted to verified platforms.
                     </div>
                     {confirmation && (
                         <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
-                            <p className="text-xs font-bold text-lime-300">{confirmation.live ? '🟢 Your banner is LIVE NOW!' : '✅ Banner queued!'}</p>
-                            <p className="text-[10px] mt-1">Window: <strong>{fmtT(confirmation.startsAt)} – {fmtT(confirmation.endsAt)}</strong></p>
-                            {!confirmation.live && <p className="text-[10px] opacity-70">Queue position: #{confirmation.queueAhead + 1}</p>}
+                            <p className="text-sm font-bold text-lime-300" data-banner-confirm={confirmation.live ? 'live' : 'booked'}>{confirmation.live ? '🟢 Your banner is live now' : '✅ Your banner is booked'}</p>
+                            {confirmation.live
+                                ? <p className="text-xs text-white mt-1">On the marquee until <strong>{fmtT(confirmation.endsAt)}</strong>, in turn with the other live banners.</p>
+                                : <p className="text-xs text-white mt-1">Starts at <strong>{fmtT(confirmation.startsAt)}</strong> and runs until <strong>{fmtT(confirmation.endsAt)}</strong>. This window's {RK_BANNER_LANES} spots are taken, so yours has the next window with room.</p>}
                         </div>
                     )}
                     <div className="flex gap-2">
@@ -11450,30 +11580,119 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
                             <p className="text-xs text-white text-right">{Math.max(0, RK_DAILY.banner - usedToday)} posts left today · more at {rkUtcResetLocal()}</p>
                         </div>
                     )}
-                    {upcoming.length > 0 && <p className="text-[10px] opacity-60">⏳ {upcoming.length} banner(s) currently queued — next free window assigned automatically.</p>}
+                    <p className="text-xs text-white" data-banner-status={liveRuns.length + '/' + laterRuns.length}>📢 Live now: {liveRuns.length} of {RK_BANNER_LANES} banners in this window.{laterRuns.length > 0 ? ' ⏳ ' + laterRuns.length + ' more booked for later windows' + (myLater ? ' (' + (myLater === 1 ? '1 is yours' : myLater + ' are yours') + ')' : '') + '.' : ''}</p>
                     <Button onClick={submitBanner} disabled={busy || usedToday >= RK_DAILY.banner} color="cyan" className="w-full">{busy ? "Posting..." : bMode === 'social' ? "Post Social Link to Marquee" : "Post to Marquee"}</Button>
                 </div>
             ))}
 
             {bTab === 'history' && (
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                    {history.length === 0 && <p className="text-center opacity-50 text-xs py-6">No banners posted yet — be the first!</p>}
-                    {history.map(s => (
-                        <div key={s.id} className={`bg-white/5 p-2 rounded border ${s.start <= Date.now() && Date.now() < s.end ? 'border-lime-400/60' : 'border-white/10'}`}>
-                            <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-cyan-300">@{s.name} {s.type === 'social' && <span className="text-[9px] bg-pink-500/30 text-pink-300 px-1 rounded uppercase">Social</span>}</span>
-                                <span className="text-[10px] opacity-50">{new Date(s.start).toLocaleDateString()} {fmtT(s.start)}–{fmtT(s.end)}</span>
+                    {history.length === 0 && <p className="text-center text-white text-xs py-6">No banners posted yet — be the first!</p>}
+                    {history.map(r => {
+                        const live = r.start <= nowMs && nowMs < r.end, later = r.start > nowMs;
+                        return (
+                            <div key={r.key} data-banner-run={live ? 'live' : later ? 'later' : 'past'} className={`bg-white/5 p-2 rounded border ${live ? 'border-lime-400/60' : later ? 'border-cyan-400/50' : 'border-white/10'}`}>
+                                <div className="flex justify-between items-center gap-2">
+                                    <span className="text-[11px] font-bold text-cyan-300">@{r.name}{r.house ? ' 🏠' : ''} {r.type === 'social' && <span className="text-[9px] bg-pink-500/30 text-pink-300 px-1 rounded uppercase">Social</span>}</span>
+                                    <span className="text-[11px] text-white">{new Date(r.from).toLocaleDateString()} {fmtT(r.from)}–{fmtT(r.end)}</span>
+                                </div>
+                                <p className="text-[11px] text-gray-100 mt-1 break-words">{r.text}</p>
+                                {live && <span className="text-[9px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
+                                {later && <span className="text-[9px] bg-cyan-400 text-black font-black px-1 rounded uppercase">Booked</span>}
                             </div>
-                            <p className="text-[11px] text-gray-100 mt-1 break-words">{s.text}</p>
-                            {s.start <= Date.now() && Date.now() < s.end && <span className="text-[9px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </Modal>
     );
 };
 
+// V90.86.150.326: THE BOOSTED STRIP (Milli, at 326: "boosted posts do not show at the top of the feed. Under the search
+// function on the feed, before the first post is shown, add a scrolling box that has the users boosted posts within it.
+// The box slowly scrolls right advertising each item within, organized by the oldest post first, until it expires and is
+// removed from the block"). Two reasons they didn't show: 325 only moved a boosted post up when the feed's pages had
+// already loaded it, and a boost always waited for the next full hour (the server now starts it at once when the hour has
+// room). Each boosted post here is read by its id, so it shows wherever it sits in the feed. Oldest boost first; a boost
+// leaves the strip when it ends. It scrolls itself slowly to the right and loops when the posts don't all fit; a touch
+// holds it for a few seconds so it can be swiped by hand, and with reduced motion on it stays still.
+const RK_STRIP_PX_PER_S = 24;
+const RkBoostStrip = ({ boosts, onViewItem }) => {
+    const [posts, setPosts] = useState({});   // itemId -> the post, or null when it can't be shown
+    const [wide, setWide] = useState(false);  // the posts don't all fit: scroll, and loop
+    const boxRef = useRef(null), oneRef = useRef(null), holdRef = useRef(0);
+    const ids = [...new Set((boosts || []).map(b => b.itemId).filter(Boolean))];
+    const idKey = ids.join(',');
+    useEffect(() => {
+        const need = ids.filter(id => !(id in posts));
+        if (!need.length) return;
+        let dead = false;
+        Promise.all(need.map(id => getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id))
+            .then(s => [id, s.exists() ? { ...s.data(), id: s.id } : null]).catch(() => [id, null])))
+            .then(rows => { if (!dead) setPosts(p => { const n = { ...p }; rows.forEach(([id, v]) => { n[id] = v; }); return n; }); });
+        return () => { dead = true; };
+    }, [idKey]);
+    const seen = new Set();
+    const shown = (boosts || []).filter(b => { if (!b.itemId || seen.has(b.itemId)) return false; seen.add(b.itemId); return true; })
+        .map(b => ({ b, p: posts[b.itemId] }))
+        .filter(x => x.p && !x.p.isHidden && x.p.status !== 'failed' && x.p.status !== 'generating');
+    const shownKey = shown.map(x => x.b.itemId).join(',');
+    useEffect(() => {
+        const measure = () => { const box = boxRef.current, one = oneRef.current; setWide(!!(box && one && one.offsetWidth > box.clientWidth + 4)); };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, [shownKey]);
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!box || !wide) return;
+        let reduce = false;
+        try { reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) {}
+        if (reduce) return;
+        let raf = 0, last = 0, acc = 0;
+        const step = (t) => {
+            const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+            last = t;
+            if (Date.now() > holdRef.current) {
+                acc += RK_STRIP_PX_PER_S * dt;
+                if (acc >= 1) { const px = Math.floor(acc); acc -= px; box.scrollLeft += px; }
+                const one = oneRef.current ? oneRef.current.offsetWidth : 0;
+                if (one > 0 && box.scrollLeft >= one) box.scrollLeft -= one;
+            }
+            raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [wide, shownKey]);
+    if (!shown.length) return null;
+    const hold = () => { holdRef.current = Date.now() + 4000; };
+    const until = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const card = (x, copy) => {
+        const p = x.p, img = (p.mediaUrls && p.mediaUrls[0] && p.mediaUrls[0].url) || p.imageUrl || rkPh(160, 160);
+        return (
+            <button key={copy + ':' + x.b.itemId} data-strip-item={copy ? undefined : x.b.itemId} tabIndex={copy ? -1 : 0} onClick={() => onViewItem && onViewItem(p)}
+                className="shrink-0 w-[15.5rem] flex items-center gap-2.5 text-left rounded-lg border border-yellow-300/60 bg-gradient-to-r from-yellow-500/15 to-pink-500/15 p-2 active:scale-[0.98] transition">
+                <img src={img} alt="" className="w-16 h-16 rounded-md object-cover shrink-0" loading="lazy"/>
+                <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-black text-white leading-tight line-clamp-2 break-words">{p.name || 'Boosted post'}</span>
+                    <span className="block text-sm font-bold text-lime-300">${Number(p.price || 0).toFixed(2)}</span>
+                    <span className="block text-xs text-white truncate">@{p.ownerName || x.b.name || 'raver'} · until {until(x.b.end)}</span>
+                </span>
+            </button>
+        );
+    };
+    return (
+        <div className="mb-5" data-boost-strip={shown.length}>
+            <p className="text-sm font-black text-white mb-1.5">⚡ Boosted right now</p>
+            <div ref={boxRef} onTouchStart={hold} onPointerDown={hold} onWheel={hold} className="rk-strip overflow-x-auto rounded-xl border-2 border-yellow-300/50 bg-black/40 p-2">
+                <div className="flex w-max">
+                    <div ref={oneRef} className="flex gap-2 pr-2">{shown.map(x => card(x, 0))}</div>
+                    {wide && <div className="flex gap-2 pr-2" aria-hidden="true" data-strip-copy="1">{shown.map(x => card(x, 1))}</div>}
+                </div>
+            </div>
+        </div>
+    );
+};
 const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
     const [bTab, setBTab] = useState('boost');
     const [slots, setSlots] = useState([]);
@@ -11506,12 +11725,14 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
         try {
             // V90.85.150.325: the server books the next full hour with a free lane (5 an hour) and counts it (rk_stats.js, boost)
             const r = await rkAct('boost', { itemId: pick.id });
-            setConfirmation({ start: r.start, end: r.end, lane: r.lane, queueAhead: r.queueAhead || 0 });
+            setConfirmation({ start: r.start, end: r.end, live: !!r.live || Number(r.start) <= Date.now() });
             setPick(null);
         } catch (e) { alert("Boost failed: " + e.message); } finally { setBusy(false); }
     };
 
-    const history = [...slots].sort((a, b) => b.start - a.start);
+    // V90.86.150.326: one row a boost (a boost can be the rest of this hour and the next: two documents)
+    const nowMs = Date.now();
+    const history = rkSlotRuns(slots).sort((a, b) => b.start - a.start);
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="⚡ Post Boosts">
@@ -11523,20 +11744,21 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
             {bTab === 'boost' && (!isEffVIP(profile) ? (
                 <div className="text-center space-y-3 py-4">
                     <Crown size={36} className="mx-auto text-yellow-400"/>
-                    <p className="text-xs opacity-80">Post Boosts are a <strong>VIP subscriber</strong> feature. Boosting pins your item into the <strong>first 5 spots at the very top of the marketplace Feed</strong> — the page everyone lands on when they tap FEED or Marketplace. For a full hour, your piece is the first thing every browsing raver sees, before any other listings.</p>
+                    <p className="text-xs opacity-80">Post Boosts are a <strong>VIP subscriber</strong> feature. Boosting puts your post in the <strong>⚡ Boosted strip at the very top of the marketplace Feed</strong>, under the search — the page everyone lands on when they tap FEED or Marketplace. For a full hour or more, your piece is the first thing every browsing raver sees, before any other listings.</p>
                     <Button onClick={() => { onClose(); onGoVip(); }} color="gold" className="w-full">Unlock VIP</Button>
                     <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'vipgift' })); } catch (e) {} }} className="w-full mt-1.5 py-2 rounded-lg text-xs font-black text-yellow-200 bg-yellow-500/10 border border-yellow-400/50">🎁 Have VIP gift passes? Open VIP Gifting</button>
                 </div>
             ) : (
                 <div className="space-y-3">
                     <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                        <strong className="text-pink-400">How it works:</strong> Boosted posts get pinned into the <strong>first 5 spots at the very top of the marketplace Feed — the first thing every browsing raver sees</strong> with a ⚡ BOOSTED badge for <strong>1 hour</strong>. Boost windows start exactly on the hour — up to 5 boosts run per hour; extras queue for the next free hour. Limit: <strong>3 boosts/day</strong>, back at midnight UTC ({rkUtcResetLocal()} your time).
+                        <strong className="text-pink-400">How it works:</strong> Boosted posts ride the <strong>⚡ Boosted strip at the top of the marketplace Feed, under the search — the first thing every browsing raver sees</strong> — and carry a ⚡ BOOSTED badge in the feed. Up to <strong>5 boosts run at once</strong>, oldest first in the strip. When this hour has room, yours <strong>starts now</strong> and runs to the end of the next hour; when it's full, it takes the next hour with room. Limit: <strong>3 boosts/day</strong>, back at midnight UTC ({rkUtcResetLocal()} your time).
                     </div>
                     {confirmation && (
                         <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
-                            <p className="text-xs font-bold text-lime-300">✅ Boost scheduled!</p>
-                            <p className="text-[10px] mt-1">Window: <strong>{fmtT(confirmation.start)} – {fmtT(confirmation.end)}</strong> · Lane {confirmation.lane + 1}/5</p>
-                            {confirmation.queueAhead > 0 && <p className="text-[10px] opacity-70">{confirmation.queueAhead} boost(s) scheduled before yours.</p>}
+                            <p className="text-sm font-bold text-lime-300" data-boost-confirm={confirmation.live ? 'live' : 'booked'}>{confirmation.live ? '⚡ Your boost is live now' : '✅ Your boost is booked'}</p>
+                            {confirmation.live
+                                ? <p className="text-xs text-white mt-1">In the ⚡ Boosted strip at the top of the Feed until <strong>{fmtT(confirmation.end)}</strong>.</p>
+                                : <p className="text-xs text-white mt-1">Starts at <strong>{fmtT(confirmation.start)}</strong> and runs until <strong>{fmtT(confirmation.end)}</strong>. This hour's 5 spots are taken, so yours has the next hour with room.</p>}
                         </div>
                     )}
                     <p className="text-xs font-bold text-pink-300 uppercase" data-boost-left={RK_DAILY.boost - usedToday}>Pick a post ({Math.max(0, RK_DAILY.boost - usedToday)} boosts left today, more at {rkUtcResetLocal()}):</p>
@@ -11551,23 +11773,27 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                         ))}
                     </div>
                     <button onClick={() => { onClose(); onGoSell(); }} className="w-full text-[10px] text-cyan-400 underline">…or create a new post in the Trade Hub, then come back and boost it</button>
-                    <Button onClick={submitBoost} disabled={busy || !pick || usedToday >= RK_DAILY.boost} color="primary" className="w-full">{busy ? "Scheduling..." : "Boost for 1 Hour ⚡"}</Button>
+                    <Button onClick={submitBoost} disabled={busy || !pick || usedToday >= RK_DAILY.boost} color="primary" className="w-full">{busy ? "Boosting..." : "Boost This Post ⚡"}</Button>
                 </div>
             ))}
 
             {bTab === 'history' && (
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                    {history.length === 0 && <p className="text-center opacity-50 text-xs py-6">No boosts yet.</p>}
-                    {history.map(s => (
-                        <div key={s.id} className={`bg-white/5 p-2 rounded border ${s.start <= Date.now() && Date.now() < s.end ? 'border-lime-400/60' : 'border-white/10'}`}>
-                            <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-pink-300">@{s.name}</span>
-                                <span className="text-[10px] opacity-50">{new Date(s.start).toLocaleDateString()} {fmtT(s.start)}–{fmtT(s.end)}</span>
+                    {history.length === 0 && <p className="text-center text-white text-xs py-6">No boosts yet.</p>}
+                    {history.map(r => {
+                        const live = r.start <= nowMs && nowMs < r.end, later = r.start > nowMs;
+                        return (
+                            <div key={r.key} data-boost-run={live ? 'live' : later ? 'later' : 'past'} className={`bg-white/5 p-2 rounded border ${live ? 'border-lime-400/60' : later ? 'border-cyan-400/50' : 'border-white/10'}`}>
+                                <div className="flex justify-between items-center gap-2">
+                                    <span className="text-[11px] font-bold text-pink-300">@{r.name}</span>
+                                    <span className="text-[11px] text-white">{new Date(r.from).toLocaleDateString()} {fmtT(r.from)}–{fmtT(r.end)}</span>
+                                </div>
+                                <p className="text-[11px] text-gray-100 mt-1">⚡ Boosted: <strong>{r.itemName}</strong></p>
+                                {live && <span className="text-[9px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
+                                {later && <span className="text-[9px] bg-cyan-400 text-black font-black px-1 rounded uppercase">Booked</span>}
                             </div>
-                            <p className="text-[10px] text-gray-100 mt-1">⚡ Boosted: <strong>{s.itemName}</strong> (lane {(s.lane || 0) + 1})</p>
-                            {s.start <= Date.now() && Date.now() < s.end && <span className="text-[9px] bg-lime-500 text-black font-black px-1 rounded uppercase">Live Now</span>}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </Modal>
@@ -11577,10 +11803,66 @@ EOF
 
 # Block 9
 cat << 'EOF' >> src/App.js
-const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, onReplayCreatorTour }) => {
+// V90.86.150.326: BUSINESS ACCOUNTS, the page behind the lock (Milli, at 326: "On click, the lock should redirect user to
+// a location with information on how to get a business account, what to do, what is different, etc."). What it takes,
+// ticked off from the raver's own profile as they go (rkBizReqs, the test the rules apply), what changes, and what to do
+// next. Opened from the lock on Business in Settings → Account type, from Help, and from the marquee's tip.
+const RkBusinessInfo = ({ user, profile, isOpen, onClose }) => {
+    if (!isOpen) return null;
+    const reqs = rkBizReqs(profile, user?.email);
+    const open = rkBizOpen(profile, user?.email);
+    const left = reqs.filter(r => !r.ok).length;
+    const biz = RK_ACCOUNT_TYPES.find(t => t.k === 'business');
+    const H = ({ children }) => <h4 className="text-sm font-black text-purple-200 mb-1.5">{children}</h4>;
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} zClass="z-[60]" title="🏪 Business accounts">
+            <div className="space-y-4" data-biz-info={open ? 'open' : 'locked'}>
+                <div className={'rounded-lg border p-3 ' + (open ? 'bg-lime-900/30 border-lime-400/60' : 'bg-purple-900/30 border-purple-400/50')}>
+                    <p className="text-sm font-black text-white">{open ? '✅ Business is unlocked for you' : '🔒 ' + left + ' thing' + (left === 1 ? '' : 's') + ' left to unlock Business'}</p>
+                    <p className="text-xs text-white mt-1 leading-snug">{open ? 'Close this and tap 🏪 Business in Settings → Account type. You can switch back to Personal whenever you like.' : 'Business opens by itself once all three below are ticked, and you get a notification when it does.'}</p>
+                </div>
+                <div>
+                    <H>How to get one</H>
+                    <ul className="space-y-2">
+                        {reqs.map(r => (
+                            <li key={r.k} data-biz-req={r.k} data-ok={r.ok ? '1' : '0'} className={'rounded-lg border p-2.5 ' + (r.ok ? 'border-lime-400/50 bg-lime-500/10' : 'border-white/25 bg-white/5')}>
+                                <p className="text-sm font-bold text-white">{r.ok ? '✅' : '⬜'} {r.label}{r.need ? ' (' + r.have + ' of ' + r.need + ')' : ''}</p>
+                                <p className="text-xs text-white mt-0.5 leading-snug">{r.ok ? r.done : r.how}</p>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <div>
+                    <H>What's different</H>
+                    <p className="text-xs text-white leading-snug mb-1.5">Business is everything Personal is, plus:</p>
+                    <ul className="space-y-1">{biz.does.filter(d => d !== 'Everything Personal does').map((d, i) => <li key={i} className="text-xs text-white leading-snug">• {d}</li>)}</ul>
+                    <p className="text-xs text-white leading-snug mt-2">Both are free. VIP, your commission and your achievements work the same either way.</p>
+                </div>
+                <div>
+                    <H>Why these three</H>
+                    <p className="text-xs text-white leading-snug">A Business account runs storefronts other ravers buy from. A phone and an email mean buyers and the RaveKandi team can reach you, and 5 sales show you've filled orders before.</p>
+                </div>
+                <div>
+                    <H>Once you've switched</H>
+                    <p className="text-xs text-white leading-snug">Settings → Account type → 🏪 Manage my brands: add a brand, then pick it when you post. Switching back to Personal keeps your brands (hidden), and you can come back to Business any time. Switching the first time unlocks the 🏪 Open for Business achievement, which trims your seller commission.</p>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, onReplayCreatorTour, focus = null }) => {
     const [pinOpen, setPinOpen] = useState(false);
     // V69: brand manager lives here because the button that opens it does.
     const [brandsOpen, setBrandsOpen] = useState(false);
+    // V90.86.150.326: the Business page (the lock), and where a notification or a link asked Settings to open
+    const [bizInfoOpen, setBizInfoOpen] = useState(false);
+    useEffect(() => {
+        if (!isOpen) { setBizInfoOpen(false); return; }   // closed: the page doesn't come back with the next opening
+        if (!focus) return;
+        if (focus === 'bizinfo') setBizInfoOpen(true);
+        const t = setTimeout(() => { try { const el = document.getElementById('rk-acct-type'); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {} }, 250);
+        return () => clearTimeout(t);
+    }, [isOpen, focus]);
     const [txtScale, setTxtScale] = useState(() => { try { return parseFloat(localStorage.getItem('rk_text_scale')) || 1; } catch (e) { return 1; } });
     const applyScale = (v) => { setTxtScale(v); try { localStorage.setItem('rk_text_scale', String(v)); } catch (e) {} window.dispatchEvent(new CustomEvent('rk-text-scale', { detail: v })); };
     // V87.83.150.320: the welcome window's switch (queue item 7: "a Settings toggle to bring it back").
@@ -11791,23 +12073,38 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
                 {/* V69: account type. Shown as a choice with both function sets spelled out, because
                     the difference is about how you work rather than what you are worth — neither
                     costs anything and Business is a superset. */}
-                <div className="mt-4 bg-black/40 border border-purple-500/30 rounded-lg p-3">
+                <div id="rk-acct-type" className="mt-4 bg-black/40 border border-purple-500/30 rounded-lg p-3" data-acct-type="1">
                     <h5 className="text-[11px] font-black text-purple-300 mb-1">🎫 Account type</h5>
-                    <p className="text-[10px] text-white/70 leading-snug mb-2">Both are free and you can switch whenever you like. Nothing is lost either way — switching back leaves your brands intact but hidden.</p>
+                    {/* V90.86.150.326 (Milli: "ensure that users are able to switch types. If a user does not have permissions, block
+                        the business account button with an overlay of a transparent lock"). Saving it was refused for everyone
+                        from the 325 rules until their fix of 12 Nov (too many checks on one save). Business now opens once the
+                        phone and email are on file and 5 sales are made (rkBizOpen, the test the rules apply): until then a see-through
+                        lock covers it, and tapping the lock opens the page that says what's left. */}
+                    <p className="text-xs text-white leading-snug mb-2">Both are free. Personal is open to everyone; Business opens once your phone and email are on file and you've made 5 sales, and from then on you can switch whenever you like. Nothing is lost either way — switching back leaves your brands intact but hidden.</p>
                     <div className="space-y-1.5">
                         {RK_ACCOUNT_TYPES.map(t => {
                             const on = (profile?.accountType || 'personal') === t.k;
+                            const locked = t.k === 'business' && !on && !rkBizOpen(profile, user?.email);
                             return (
-                                <button key={t.k} onClick={async () => {
+                                <div key={t.k} className="relative">
+                                <button data-acct={t.k} data-locked={locked ? '1' : '0'} aria-disabled={locked} tabIndex={locked ? -1 : 0} onClick={async () => {
+                                    if (locked) { setBizInfoOpen(true); return; }
                                     try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { accountType: t.k }, { merge: true }); }
                                     catch (e) { rkReport('accountType save', e); alert('Could not save: ' + e.message); }
                                 }} className={'w-full text-left rounded-lg border p-2.5 transition active:scale-95 ' + (on ? 'bg-purple-500/20 border-purple-400' : 'bg-white/5 border-white/15')}>
                                     <p className={'text-[12px] font-black ' + (on ? 'text-purple-200' : 'text-white')}>{t.emoji} {t.label}{on ? ' ✓' : ''}</p>
-                                    <p className="text-[10px] text-white/60 mb-1">{t.blurb}</p>
+                                    <p className="text-[11px] text-white mb-1">{t.blurb}</p>
                                     <ul className="space-y-0.5">
-                                        {t.does.map((d, i) => <li key={i} className="text-[9px] text-white/70 leading-snug">• {d}</li>)}
+                                        {t.does.map((d, i) => <li key={i} className="text-[10px] text-white leading-snug">• {d}</li>)}
                                     </ul>
                                 </button>
+                                {locked && (
+                                    <button data-biz-lock="1" onClick={() => setBizInfoOpen(true)} aria-label="Business is locked. See what it takes to unlock it" className="absolute inset-0 rounded-lg bg-black/55 border-2 border-white/40 flex flex-col items-center justify-center gap-1 active:scale-[0.98] transition">
+                                        <Lock size={48} strokeWidth={1.5} className="text-white/90" style={{ filter: 'drop-shadow(0 0 6px rgba(0,0,0,0.9))' }}/>
+                                        <span className="text-xs font-black text-white bg-black/85 border border-white/30 rounded-full px-3 py-1">Locked · tap to see how to unlock it</span>
+                                    </button>
+                                )}
+                                </div>
                             );
                         })}
                     </div>
@@ -11815,6 +12112,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
                         <Button onClick={() => setBrandsOpen(true)} color="purple" className="w-full text-xs mt-2">🏪 Manage my brands</Button>
                     )}
                     <RkBrandManager user={user} profile={profile} isOpen={brandsOpen} onClose={() => setBrandsOpen(false)} />
+                    <RkBusinessInfo user={user} profile={profile} isOpen={bizInfoOpen} onClose={() => setBizInfoOpen(false)} />
                     <p className="text-[9px] text-lime-300 leading-snug mt-2">💜 VIP is free for everyone during launch — neither account type changes that, and neither one costs money at any point.</p>
                 </div>
                 <RkInvGrants user={user} profile={profile} />
@@ -12780,7 +13078,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     );
 };
 
-const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false, hideDIY = false }) => {
+const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = false, hideDIY = false, viewerIsFriend = false }) => {
     // V65.36.03: `user` here means "whose collection", which is not always the viewer — profiles
     // open this with user={{ uid: targ.id }}. Comparing against the signed-in account is the only
     // reliable way to know whose stash is on screen, including when you open your own profile.
@@ -12862,7 +13160,9 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             if (me) {
                 // Items this raver shared specifically with the viewer, or with their friends.
                 roAttach('named', query(col, where('ownerId', '==', targetUid), where('visAllowed', 'array-contains', me)));
-                roAttach('friends', query(col, where('ownerId', '==', targetUid), where('vis', '==', 'friends')));
+                // V90.86.150.326: only for their friends (and admins): the rules refuse this query to anyone else, and the
+                // refusal was reported every time a non-friend opened the collection
+                if (viewerIsFriend) roAttach('friends', query(col, where('ownerId', '==', targetUid), where('vis', '==', 'friends')));
             }
             return () => { roUnsubs.forEach(u => { try { u(); } catch (e) {} }); };
         }
@@ -12919,7 +13219,7 @@ const CollectionPopout = ({ user, type, isOpen, onClose, onViewFeed, readOnly = 
             pubReady = true; publish();
         }, e => { rkReport('collection load (public)', e); pubReady = true; publish(); });
         return () => { try { unsubInv(); } catch (e) {} try { if (unsubPub) unsubPub(); } catch (e) {} };
-    }, [isOpen, targetUid, type, readOnly, hideDIY, showHidden]);
+    }, [isOpen, targetUid, type, readOnly, hideDIY, showHidden, viewerIsFriend]);
     
     if(!isOpen) return null;
     return (
@@ -15621,7 +15921,7 @@ const RemoteConfigPanel = () => {
 // meant you could only ever moderate the ONE banner currently on screen. This panel exposes
 // the whole 15-minute-slot schedule: live, queued and expired, searchable, with bulk tools
 // and the ability to drop a house banner into the next free slot.
-const RK_BANNER_W = 900000;   // 15 minutes — must match BannerModal
+const RK_BANNER_W = 900000;   // 15 minutes — must match BannerModal (and RK_BANNER_MS in src/rkShared.js)
 const AdminBannerManager = ({ user, profile, onMessageUser }) => {
     const [slots, setSlots] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -15644,10 +15944,11 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
     const norm = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
     const stateOf = (s) => s.start <= now && now < s.end ? 'live' : s.start > now ? 'upcoming' : 'expired';
 
+    // V90.86.150.326: up to RK_BANNER_LANES banners share a window: the first window from now with a free spot
     const nextFreeStart = () => {
-        const taken = new Set(slots.map(s => s.start));
+        const taken = rkLanesTaken(slots);
         let st = Math.floor(now / RK_BANNER_W) * RK_BANNER_W;
-        while (taken.has(st)) st += RK_BANNER_W;
+        while (rkFreeLane(taken, st, RK_BANNER_LANES) < 0) st += RK_BANNER_W;
         return st;
     };
 
@@ -15685,17 +15986,20 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
         if (!window.confirm('Post this house banner across the next ' + n + ' free slot' + (n === 1 ? '' : 's') + ' (' + (n * 15) + ' minutes of airtime)?')) return;
         setBusy(true);
         try {
-            const taken = new Set(slots.map(s => s.start));
+            // V90.86.150.326: a free spot in each of the next n windows that have one (ravers keep theirs), one booking
+            const taken = rkLanesTaken(slots);
             let st = Math.floor(Date.now() / RK_BANNER_W) * RK_BANNER_W;
             let placed = 0, first = null;
+            const postedAt = Date.now(), bookId = 'house_' + postedAt;
             while (placed < n) {
-                if (!taken.has(st)) {
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', String(st)), {
+                const lane = rkFreeLane(taken, st, RK_BANNER_LANES);
+                if (lane >= 0) {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', st + '_' + lane), {
                         uid: user?.uid || 'house', name: 'RaveKandi', ownerPublicUid: profile?.publicUid || 'ravekandi',
-                        text: txt.slice(0, 90), type: clean ? 'social' : 'message', linkUrl: clean, postedAt: Date.now(),
-                        house: true, start: st, end: st + RK_BANNER_W
+                        text: txt.slice(0, 90), type: clean ? 'social' : 'message', linkUrl: clean, postedAt, bookId,
+                        house: true, start: st, end: st + RK_BANNER_W, lane
                     });
-                    taken.add(st); placed++; if (first === null) first = st;
+                    (taken[st] = taken[st] || []).push(lane); placed++; if (first === null) first = st;
                 }
                 st += RK_BANNER_W;
             }
@@ -15735,11 +16039,11 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
                     </div>
                 ))}
             </div>
-            <p className="text-[10px] text-white/70">Next free slot: <strong className="text-amber-300">{fmt(nextFreeStart())}</strong> · each slot is 15 minutes.</p>
+            <p className="text-xs text-white">Next window with a free spot: <strong className="text-amber-300">{fmt(nextFreeStart())}</strong> · each window is 15 minutes, {RK_BANNER_LANES} banners at a time.</p>
 
             <div className="bg-amber-900/20 border border-amber-500/40 rounded-lg p-3 space-y-2">
                 <h4 className="text-[11px] font-black uppercase text-amber-300">🏠 Post a House Banner</h4>
-                <p className="text-[10px] text-white/70">Goes out as RaveKandi itself, filling the next free slots. Skips any slot a raver already paid for.</p>
+                <p className="text-xs text-white">Goes out as RaveKandi itself, in a free spot of each of the next windows. Ravers' banners keep theirs.</p>
                 <Input label="Message (max 90 chars)" value={houseText} onChange={v => setHouseText(v.slice(0, 90))} placeholder="e.g. New drop live now — 20% off all Creator kandi!"/>
                 <Input label="Link (optional)" value={houseLink} onChange={setHouseLink} placeholder="https://…"/>
                 <div className="flex items-center gap-2">
@@ -15780,7 +16084,7 @@ const AdminBannerManager = ({ user, profile, onMessageUser }) => {
                                 </div>
                                 <p className="text-xs text-white mt-1 break-words">{s.text}</p>
                                 {s.linkUrl && <a href={s.linkUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cyan-300 underline break-all">{s.linkUrl}</a>}
-                                <p className="text-[10px] text-white/60 mt-1">{fmt(s.start)} → {new Date(s.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{s.postedAt ? ' · booked ' + fmt(s.postedAt) : ''}</p>
+                                <p className="text-[10px] text-white mt-1">{fmt(s.start)} → {new Date(s.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · spot {(Number(s.lane) || 0) + 1} of {RK_BANNER_LANES}{s.postedAt ? ' · booked ' + fmt(s.postedAt) : ''}</p>
                                 {onMessageUser && s.uid && s.uid !== user?.uid && <button onClick={() => onMessageUser(s.uid, s.name)} className="text-[10px] text-purple-300 underline mt-1">Message @{s.name || 'raver'}</button>}
                             </div>
                         );
@@ -17887,6 +18191,8 @@ const HELP_TOPICS = [
     // V68.1: sharing hands another raver write access to your stock, which is the most consequential
     // permission in the app. It gets a proper entry rather than a line buried in Settings.
     { cat: 'Selling', title: '🤝 Sharing Your Inventory', content: "You can let a friend, partner, or employee help run your stock. Go to Settings and open \"Let someone help with my inventory\", search for the raver, then choose what they can do: View only, Add only, Edit only, Add + Edit, or Full control. You can change or remove access at any time, and it takes effect immediately.\n\nTwo protections always apply, whatever you grant. They can never change who your items are visible to — visibility stays yours alone, so nobody can accidentally publish your private stash. And they can only delete items THEY added; every item records who created it, so your own work cannot be removed by a helper.\n\nOnly share with people you trust. Someone with Edit can change prices and stock on anything, and there is no history to restore from.", go: { to: 'settings', label: '⚙️ Open Settings' } },
+    // V90.86.150.326: Business accounts, and what unlocks them
+    { cat: 'Selling', title: '🏪 Business Accounts', content: "A Business account runs one or more brands from a single login: inventory split by brand, a storefront per brand, and a helper who can manage one brand without touching the others. Everything else works as it does on Personal, both are free, and VIP is the same on either.\n\nBusiness opens once three things are true: a phone number on file, an email on your account (both in Settings → Contact Info) and 5 sales. Until then the Business choice in Settings → Account type has a lock on it: tap the lock to see which of the three you still need. You get a notification the moment it opens, and the 🏪 Open for Business achievement when you switch. From then on you can switch back and forth whenever you like, and nothing is lost: switching back keeps your brands, hidden.", go: { to: 'business', label: '🏪 Open Account type' } },
     { cat: 'Custom Lab', title: '🎨 The Design Lab', content: "Describe anything you'd make or wear for a rave: kandi, clothing, jewelry, accessories, stickers and more. The Design Lab sends back a cost, materials and time breakdown, plus an AI concept picture.\n\nYou get 5 designs a day, and each picture counts, rerolls included. They come back at midnight UTC, with a notification. Save the ones you like to your collection, or let other ravers request one from a maker. Designs you generate are never for sale by you.\n\nThe Design Lab shares a daily AI allowance with every raver. If that runs out, it says so, and none of your designs is used.", go: { to: 'lab', label: '🎨 Open the Design Lab' } },
     { cat: 'Custom Lab', title: '🛠️ DIY Custom Requests', content: "In the DIY Builder, either pick an individual Creator OR open your request to ALL Creators. Add parts from their stock or describe your vision and set a budget. A requested Creator gets a 24–72h priority window (scaled by price & complexity); if they don't accept, it opens to everyone.", go: { to: 'diy', label: '🛠️ Open the DIY Builder' } },
     { cat: 'Community', title: '💬 Messaging', content: "Tap the Inbox to DM any raver. Messages are private between you and the recipient. You can change your message font in the messenger's own font tool (VIP).", go: { to: 'messages', label: '💬 Open Messages' } },
@@ -21517,7 +21823,7 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
             : (
                 <div className="max-w-4xl mx-auto px-4 pb-20 pt-6 space-y-6">
                     <UserStatsDashboard profile={targ} isOpen={showAnalytics} onClose={() => setShowAnalytics(false)} />
-                    <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} hideDIY={!!targ.hideDIYFromOthers} />
+                    <CollectionPopout user={{ uid: targ.id }} type="posts" isOpen={showCollection} onClose={() => setShowCollection(false)} onViewFeed={onClose} readOnly={true} hideDIY={!!targ.hideDIYFromOthers} viewerIsFriend={!!(viewerProfile && (viewerProfile.isAdmin || (viewerProfile.friends || []).includes(targ.id)))} />
                     <StatDetailModal statKey={statDetail} uid={targ.id} profile={targ} isOpen={!!statDetail} onClose={() => setStatDetail(null)} />
                     <ItemDetailModal item={selectedPinned} user={{ uid: viewerUid }} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onClose}/>
 
@@ -24289,6 +24595,9 @@ const App = () => {
     const [filters, setFilters] = useState({ view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '', priceMin: '', priceMax: '', friendsOnly: false, msort: 'new', mgenre: '', mkind: '', mage: '', rsort: 'new', rfilter: '', rfest: '' });
     const rkClearFilters = { view: 'all', postTypes: [], itemTypes: [], sort: 'recent', searchUid: '', tradeEvent: '', focusItem: '', priceMin: '', priceMax: '', friendsOnly: false, msort: 'new', mgenre: '', mkind: '', mage: '', rsort: 'new', rfilter: '', rfest: '' };
     const [forceSettings, setForceSettings] = useState(false);
+    // V90.86.150.326: where Settings opens when a notification or a link asks ('business': Account type; 'bizinfo': the
+    // Business page over it)
+    const [settingsFocus, setSettingsFocus] = useState(null);
     // V73.11: same pattern as forceSettings — App owns the flag, the profile page consumes it
     // once and clears it. Lets a tapped notification open the Creator Hub, which is state that
     // lives inside the profile page and is otherwise unreachable from here.
@@ -24855,7 +25164,10 @@ const App = () => {
                 // V89.84.150.323: how many ravers have opened RaveKandi as an installed app
                 let homeCount = null;
                 try { if (typeof getCountFromServer === 'function') { const hc = await getCountFromServer(query(collection(db, 'artifacts', appId, 'users'), where('installedApp', '==', true))); homeCount = Number(hc.data().count); } } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit });
+                // V90.86.150.326: the newest Business account (businessSince is the server's), still a Business account
+                let biz = null;
+                try { const bs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('businessSince', 'desc'), limit(5))); const d = bs.docs.find(x => rkMqNamed(x.data()) && x.data().accountType === 'business'); if (d) biz = { ...d.data(), id: d.id }; } catch (e) {}
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -24938,6 +25250,8 @@ const App = () => {
         else if (key === 'radio') setRadioOpen(true);
         else if (key === 'market') { setFilters(rkItemsView); setPage('feed'); }
         else if (key === 'achievements') rkBus(focus ? 'achievements:' + focus : 'achievements');
+        // V90.86.150.326: Business unlocked (and Help, and the marquee's tip) open Settings at Account type
+        else if (key === 'business' || key === 'bizinfo') { setSettingsFocus(key); setForceSettings(true); }
         else if (key === 'vip' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
         else setPage('profile');
     };
@@ -25568,9 +25882,17 @@ const App = () => {
     const uref = (x) => x ? (x.publicUid || x.id) : null;
     // V89.85.150.324: the soonest festival on the calendar (RK_FEST_DATES), for the marquee
     const mqNextFest = rkNextFestival();
-    const activeBanner = bannerSlots.find(s => s.start <= nowTick && nowTick < s.end) || null;
+    // V90.86.150.326 (Milli: "posted user banners should show more frequently - regular/app banners should not take
+    // precedence over posted"): every banner live in this window (up to 6, oldest booking first), not just the first
+    // one found. They go into the marquee in turn with the app's lines between them (rkInterleave, below).
+    const activeBanners = (() => {
+        const seen = new Set();
+        return bannerSlots.filter(s => s.start <= nowTick && nowTick < s.end)
+            .sort((a, b) => ((a.postedAt || 0) - (b.postedAt || 0)) || ((a.lane || 0) - (b.lane || 0)))
+            .filter(s => { const k = s.bookId || s.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    })();
+    const mqBanners = activeBanners.map(b => ({ t: (b.linkUrl ? '🔗 @' : '📢 @') + (b.name || 'VIP') + ': ' + b.text + (b.linkUrl ? ' 🔗' : ' 📢'), uid: b.linkUrl ? null : (b.ownerPublicUid || b.uid), href: b.linkUrl || null, slotId: b.id, banner: true }));
     const mq = [
-        activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null, slotId: activeBanner.id } : null,
         { t: '⚡ GLOBAL VOLUME: ' + (globalStats.userCount * 1337) + ' KANDI ⚡' },
         { t: '🚀 ACTIVE RAVERS: ' + globalStats.userCount + ' 🚀' },
         topTribe ? { t: '🌈 BIGGEST VIBE TRIBE: "' + topTribe.name + '" with ' + topTribe.count + ' members! 🌈', go: (user && !user.isAnonymous && topTribe.id) ? () => rkBus('vibeTribe:' + topTribe.id + '#card') : null } : null,
@@ -25606,6 +25928,9 @@ const App = () => {
         // V90.85.150.325: the leaders for 325's achievements (days with a banner, days with a boost, counted by the server)
         topStats.regular && ((topStats.regular.bannerDays || 0) > 0) ? { t: '📢 MARQUEE REGULAR: @' + rkMqName(topStats.regular) + ' (banners on ' + topStats.regular.bannerDays + ' day' + (topStats.regular.bannerDays === 1 ? '' : 's') + ')', uid: uref(topStats.regular) } : null,
         topStats.spotlit && ((topStats.spotlit.boostDays || 0) > 0) ? { t: '⚡ SPOTLIGHT REGULAR: @' + rkMqName(topStats.spotlit) + ' (boosts on ' + topStats.spotlit.boostDays + ' day' + (topStats.spotlit.boostDays === 1 ? '' : 's') + ')', uid: uref(topStats.spotlit) } : null,
+        // V90.86.150.326: 326's Business accounts: the newest one, and how to get one
+        topStats.biz ? { t: '🏪 NEWEST BUSINESS: @' + rkMqName(topStats.biz) + ' IS OPEN FOR BUSINESS. TAP TO VISIT 🏪', uid: uref(topStats.biz) } : null,
+        (user && !user.isAnonymous && profile && profile.accountType !== 'business') ? { t: '🏪 RUN A LABEL? A BUSINESS ACCOUNT HOLDS SEVERAL BRANDS UNDER ONE LOGIN. TAP TO SEE WHAT UNLOCKS ONE 🏪', kind: 'business', go: () => rkGoPlace('bizinfo') } : null,
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
         (user && !user.isAnonymous) ? { t: '🎪 GOING TO A FESTIVAL? POST IT, PICK THE FESTIVAL AND TAP THE DAYS YOU\'RE GOING 🎪', go: () => { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } } : null,
         topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
@@ -25633,23 +25958,27 @@ const App = () => {
     ].filter(Boolean);
 
     // V63: randomize the marquee order so PLUR facts, global stats and leaderboard shout-outs
-    // intersperse instead of always running stats -> leaderboard -> facts -> repeat. The active
-    // VIP banner (if any) stays pinned FIRST since it's a paid, time-limited slot. A stable
-    // per-2-minute seed keeps the shuffle from re-jumbling on every render (only reshuffles
-    // every couple minutes), so the scroll stays smooth.
+    // intersperse instead of always running stats -> leaderboard -> facts -> repeat. A stable per-2-minute seed keeps the
+    // shuffle from re-jumbling on every render (only reshuffles every couple minutes), so the scroll stays smooth.
+    // V90.86.150.326: the live banners then go in turn between the app's lines: rkBannerGap says how many app lines run
+    // between two banners from how many are live and how long a line takes to cross (the track below runs one line about
+    // every marqueeSpeed / 12 seconds), so each one comes round at least once a minute, never two in a row (325 pinned one
+    // banner first and it came round once a loop, about every 5 minutes).
+    const mqGap = rkBannerGap(mqBanners.length, (RK_CFG.marqueeSpeed || 60) / 12);
     const shuffledMq = (() => {
-        const head = (activeBanner && mq.length && mq[0] && mq[0].slotId) ? [mq[0]] : [];
-        const rest = head.length ? mq.slice(1) : mq.slice();
+        const rest = mq.slice();
         let seed = Math.floor(Date.now() / 120000); // changes every 2 minutes
         const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
         for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const tmp = rest[i]; rest[i] = rest[j]; rest[j] = tmp; }
-        return [...head, ...rest];
+        return rkInterleave(mqBanners, rest, mqGap);
     })();
 
-    // V37.14: boosted posts — pinned to the first 5 spots at the very top of the marketplace Feed — the first thing every browsing raver sees during their hour window
-    const activeBoosts = boostSlots.filter(s => s.start <= nowTick && nowTick < s.end).sort((a, b) => (a.start - b.start) || ((a.lane || 0) - (b.lane || 0))).slice(0, 5);
+    // V37.14: boosted posts at the very top of the marketplace Feed during their hour window.
+    // V90.86.150.326: in the Boosted strip under the search (RkBoostStrip), oldest boost first; the list below keeps its own
+    // order and marks them ⚡ Boosted (moving them up only worked for posts the feed's pages had loaded, so most never moved)
+    const activeBoosts = boostSlots.filter(s => s.start <= nowTick && nowTick < s.end).sort((a, b) => (a.start - b.start) || ((a.postedAt || 0) - (b.postedAt || 0)) || ((a.lane || 0) - (b.lane || 0))).slice(0, 5);
     const boostRank = new Map(activeBoosts.map((s, i) => [s.itemId, i]));
-    const displayedFeedItems = filteredItems.map(i => boostRank.has(i.id) ? { ...i, _boosted: true } : i).sort((a, b) => { const ra = boostRank.has(a.id) ? boostRank.get(a.id) : 99; const rb = boostRank.has(b.id) ? boostRank.get(b.id) : 99; return ra - rb; });
+    const displayedFeedItems = filteredItems.map(i => boostRank.has(i.id) ? { ...i, _boosted: true } : i);
 
     const unreadMsgs = threads.reduce((s, t) => s + ((t.unread && t.unread[user?.uid]) || 0), 0);
     const unreadNotifs = notifs.filter(n => !n.read).length;
@@ -25754,7 +26083,7 @@ cat << 'EOF' >> src/App.js
             <RevShareShareModal user={user} profile={profile} isOpen={showRevSharePortal} onClose={() => setShowRevSharePortal(false)} onViewProfile={(u) => { setShowRevSharePortal(false); setViewingProfileId(u); }} onOpenWallet={() => setWalletModalOpen(true)} />
             {user && <PublicProfilePage uid={viewingProfileId} viewerUid={user.uid} viewerProfile={profile} onViewProfile={(id) => setViewingProfileId(id)} onClose={() => setViewingProfileId(null)} onMessage={(tid, tname) => { setViewingProfileId(null); setMsgTarget({ uid: tid, name: tname }); setMsgOpen(true); }} onViewFeedItem={(it) => { setViewingProfileId(null); handleViewItem(it); }} />}
             {/* V87.80.150.317: onReplayCreatorTour was missing here, so this window's ▶ Replay walkthrough buttons did nothing. */}
-            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} onClose={() => setForceSettings(false)} onReplayTutorial={replayTutorial} onReplayCreatorTour={replayCreatorTour}/>}
+            {user && <MainSettingsModal user={user} profile={profile} isOpen={forceSettings} focus={settingsFocus} onClose={() => { setForceSettings(false); setSettingsFocus(null); }} onReplayTutorial={replayTutorial} onReplayCreatorTour={replayCreatorTour}/>}
             {user && <ShoppingCartModal user={user} items={items} isOpen={cartOpen} onClose={() => setCartOpen(false)} profile={profile} onNeedWallet={() => { window.__rkWalletNudged = true; setWalletNudge({ open: true, next: null }); }}/>}
             <KandiCreatorApplicationModal user={user} profile={profile} isOpen={!!creatorAppOpen} onOpenCreatorHub={() => { setPage('profile'); setForceCreatorHub(true); }} initialType={typeof creatorAppOpen === 'string' ? creatorAppOpen : null} onClose={() => setCreatorAppOpen(false)} />
             <ReferralModal user={user} profile={profile} isOpen={openReferrals} onClose={() => setOpenReferrals(false)} onOpenWallet={() => setWalletModalOpen(true)} onViewProfile={(u) => { setOpenReferrals(false); setViewingProfileId(u); }} />
@@ -25822,7 +26151,7 @@ cat << 'EOF' >> src/App.js
                 <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: Math.round((RK_CFG.marqueeSpeed || 60) * Math.max(1, shuffledMq.length / 12)) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
-                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span data-mq={m.uid ? 'raver' : m.href ? 'link' : m.go ? (m.kind || 'tribe') : 'text'} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : m.go ? m.go : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href || m.go) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
+                            {shuffledMq.map((m, i) => <span key={i} className="inline-flex items-center gap-1"><span data-mq-banner={m.banner ? '1' : undefined} data-mq={m.uid ? 'raver' : m.href ? 'link' : m.go ? (m.kind || 'tribe') : 'text'} onClick={m.href ? () => { try { window.open(m.href, '_blank', 'noopener'); } catch (e) {} } : m.uid ? () => setViewingProfileId(m.uid) : m.go ? m.go : undefined} className={(i % 3 === 2 ? 'text-pink-400 ' : i % 3 === 1 ? 'text-cyan-300 ' : '') + ((m.uid || m.href || m.go) ? 'underline decoration-dashed underline-offset-2 cursor-pointer' : '')}>{m.t}</span>{profile?.isAdmin && m.slotId && <button onClick={(e) => { e.stopPropagation(); adminDeleteBanner(m.slotId); }} className="text-red-500 hover:text-red-300" title="Admin: remove banner">✕</button>}</span>)}
                         </div>
                     ))}
                 </div>
@@ -26048,6 +26377,7 @@ cat << 'EOF' >> src/App.js
                             </div>
                         </div>
                     </Card>
+                    {filters.view === 'all' && <RkBoostStrip boosts={activeBoosts} onViewItem={handleViewItem}/>}
                     {filters.view === 'all' && <SellKandiForm user={user} profile={profile}/>}
                     {showMusic && <div data-feed="music" style={filters.view === 'music' ? undefined : { display: 'none' }}><FeedMusicSection key={musicKey} user={user} profile={profile} viewerUid={user?.uid} onViewProfile={setViewingProfileId} search={filters.view === 'music' ? filters.searchUid : ''} sort={filters.msort} genre={filters.mgenre} kind={filters.mkind} age={filters.mage}/></div>}
                     {showRavers && <div data-feed-wrap="users" style={filters.view === 'users' ? undefined : { display: 'none' }}>
@@ -29063,7 +29393,7 @@ else
     echo "  functions would fail to load, so don't deploy functions from this run. Send me: tail -3 $RK_FN_DIR/rk_shared.js"
 fi
 cat << 'RKSTATSEOF' > "$RK_FN_DIR/rk_stats.js"
-// RaveKandi stats engine, server side (V90.85.150.325). Script-owned: the build regenerates this file.
+// RaveKandi stats engine, server side (V90.85.150.325; V90.86.150.326). Script-owned: the build regenerates this file.
 //
 // Milli, at 323: "ensure all ways users could manually edit stats, analytics, likes, or any other statistic or number
 // is prevented. No user should be able to edit tracked statistics". 323's rules hold what a rule can check. This file
@@ -29076,6 +29406,8 @@ cat << 'RKSTATSEOF' > "$RK_FN_DIR/rk_stats.js"
 //  - VIP: launch founders, rating VIP, plans that end, gifts, and the test-mode checkout
 //  - the daily limits: banners, boosts, featured clips (each one is booked here, never by the app)
 //  - the referral credit (queue item 31): the daily cap, the record, the notice
+//  - V90.86.150.326: banners 6 to a window, boosts that start at once, and Business accounts (businessSince, and the
+//    notice when phone, email and 5 sales unlock one)
 // The definitions it applies are functions/rk_shared.js, made from the app's src/rkShared.js, so the app and the
 // server can't disagree about what an achievement reads or what it rewards.
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
@@ -29089,7 +29421,7 @@ let rkModCleanFor = null;
 try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
 
 const APP = 'ravekandi-core-prod';
-const VER = 'V90.85.150.325';
+const VER = 'V90.86.150.326';
 const db = () => admin.firestore();
 const FV = () => admin.firestore.FieldValue;
 const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
@@ -29124,6 +29456,19 @@ const rkTell = async (appId, uid, type, text, refId, key) => {
   const data = { type, text: String(text).slice(0, 900), refId: refId || null, read: false, at: Date.now() };
   try { if (key) await col.doc('srv_' + key).create(data); else await col.add(data); }
   catch (e) { if (!(e && (e.code === 6 || /already exists/i.test(String(e.message))))) console.error('rk_stats notice', uid, e && e.message); }
+};
+
+// V90.86.150.326: whether a raver's sign-in has an email (one of Business's three requirements). Asked of Firebase Auth
+// only while the other two are met and the notice hasn't gone, and remembered for 10 minutes.
+const rkEmailCache = new Map();
+const rkEmailOf = async (uid) => {
+  const c = rkEmailCache.get(uid);
+  if (c && Date.now() - c.at < 600000) return c.email;
+  let email = '';
+  try { const u = await admin.auth().getUser(uid); email = (u && typeof u.email === 'string') ? u.email : ''; } catch (e) { email = ''; }
+  rkEmailCache.set(uid, { email, at: Date.now() });
+  if (rkEmailCache.size > 500) rkEmailCache.delete(rkEmailCache.keys().next().value);
+  return email;
 };
 
 // ================================================================================================================
@@ -29183,11 +29528,19 @@ const rkRecount = async (appId, uid, parts, cfg, opts) => {
 // it returns what to save and what to say. The app ran most of this on the raver's own phone until 325 (the App
 // effects "self-sync computed stats", V42.23, V63, V42.09); the messages are the same words.
 // ================================================================================================================
-const rkEvaluate = (p, cfg, now) => {
+const rkEvaluate = (p, cfg, now, ext) => {
   const upd = {}, notes = [], cur = Object.assign({}, p);
   const set = (k, v) => { upd[k] = v; cur[k] = v; };
   const setNum = (k, v) => { if (Number.isFinite(v) && num(cur[k]) !== v) set(k, v); };
   const perks = !!(cfg && cfg.launchPerks);
+  // V90.86.150.326: BUSINESS ACCOUNTS. The first time the profile is a Business account (or was one, just before this
+  // write), businessSince: from then on the raver switches freely (the rules), and Open for Business unlocks below. While
+  // it's still locked, the notice once phone, email (ext.email, from their sign-in) and 5 sales open it.
+  if ((cur.accountType === 'business' || (ext && ext.wasBusiness)) && !(num(cur.businessSince) > 0)) set('businessSince', now);
+  if (!(num(cur.bizUnlockedAt) > 0) && !(num(cur.businessSince) > 0) && !cur.isAdmin && ext && typeof ext.email === 'string' && S.rkBizReady(cur, ext.email)) {
+    set('bizUnlockedAt', now);
+    notes.push({ type: 'admin', text: '🏪 Business accounts are unlocked for you: your phone and email are on file and you’ve made ' + S.RK_BIZ_SALES + ' sales. Switch any time in Settings → Account type to run several brands from one login.', refId: '@business', key: 'biz_unlocked' });
+  }
   // the figures the rules check against the profile (derivedOk)
   setNum('friendsCount', Array.isArray(cur.friends) ? cur.friends.length : 0);
   setNum('ratingTxns', num(cur.ratingCount));
@@ -29260,14 +29613,14 @@ const rkEvaluate = (p, cfg, now) => {
 };
 
 // Save what the profile works out to, in a transaction on the newest copy, then send the notices.
-const rkSettle = async (appId, uid, cfg) => {
+const rkSettle = async (appId, uid, cfg, ext) => {
   const ref = userRef(appId, uid);
   const res = await db().runTransaction(async (tx) => {
     const s = await tx.get(ref);
     if (!s.exists) return null;
     const p = s.data() || {};
     if (!rkReady(p)) return null;
-    const ev = rkEvaluate(p, cfg, Date.now());
+    const ev = rkEvaluate(p, cfg, Date.now(), ext);
     if (Object.keys(ev.upd).length) tx.set(ref, ev.upd, { merge: true });
     return { ev, p };
   });
@@ -29349,7 +29702,12 @@ exports.statsOnUser = onDocumentWritten('artifacts/{appId}/users/{uid}', async (
   if (a.referredBy && !a.refCreditedAt && !(b && b.referredBy)) await rkCreditReferral(appId, uid, !(b && b.displayName)).catch(e => console.error('referral', uid, e && e.message));
   if (!rkReady(a)) return;
   if (!b || JSON.stringify(b.friends || []) !== JSON.stringify(a.friends || [])) await rkRecount(appId, uid, { network: true }, cfg).catch(e => console.error('network', uid, e && e.message));
-  if (Object.keys(rkEvaluate(a, cfg, Date.now()).upd).length) await rkSettle(appId, uid, cfg);
+  // V90.86.150.326: a Business account just switched back to Personal still counts as having had one (businessSince);
+  // and while Business is locked with the phone and the 5 sales there, whether the sign-in has an email
+  const ext = {};
+  if (b && b.accountType === 'business') ext.wasBusiness = true;
+  if (!(num(a.bizUnlockedAt) > 0) && !(num(a.businessSince) > 0) && a.accountType !== 'business' && !a.isAdmin && S.rkPhoneOk(a.phoneNumber) && num(a.itemsSold) >= S.RK_BIZ_SALES) ext.email = await rkEmailOf(uid);
+  if (Object.keys(rkEvaluate(a, cfg, Date.now(), ext).upd).length) await rkSettle(appId, uid, cfg, ext);
 });
 
 // A post changed: its owner's post figures (when likes, comments, the festival or what kind of post it is moved, not
@@ -29411,8 +29769,19 @@ const rkRefresh = async (appId, uid, cfg) => {
   return { ok: true, at: Date.now(), changed: Object.keys(upd || {}).filter(k => k !== 'statsAt') };
 };
 
-// A banner: VIP (or launch perks), 5 a day, the next free 15-minute window (the rest of the current one and the
-// next, when the current one is free).
+// V90.86.150.326: a booking that raced another for the same spot finds the spot's document already there, which refuses
+// the whole booking: it's tried again with the spots as they are now (twice more at most). Other refusals stand.
+const rkRetry = async (fn) => {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) { if (i < 2 && e && (e.code === 6 || /already exists/i.test(String(e.message || '')))) continue; throw e; }
+  }
+};
+
+// A banner: VIP (or launch perks), 5 a day. V90.86.150.326: up to 6 share a 15-minute window (RK_BANNER_LANES, Milli's
+// rotation): this window when it has a free spot (the rest of it, and the next window when that has one too), otherwise
+// the next window with one (rkBannerBook). Each window is its own document, `<start>_<spot>`, carrying the booking's id
+// (bookId) so the app shows one booking as one run.
 const rkBanner = async (appId, uid, d, cfg) => {
   if (!cfg.bannersEnabled) fail('failed-precondition', 'Banner posting is temporarily disabled by the admin team.');
   const isSocial = d.mode === 'social';
@@ -29427,8 +29796,9 @@ const rkBanner = async (appId, uid, d, cfg) => {
     if (!text) fail('invalid-argument', 'Type your banner message first.');
   }
   await rkWordCheck(appId, text, 'your banner');
-  const ref = userRef(appId, uid), now = Date.now(), day = S.rkUtcDay(now), W = S.RK_BANNER_MS;
-  return db().runTransaction(async (tx) => {
+  const ref = userRef(appId, uid), W = S.RK_BANNER_MS;
+  return rkRetry(() => db().runTransaction(async (tx) => {
+    const now = Date.now(), day = S.rkUtcDay(now);
     const s = await tx.get(ref);
     if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
     const p = s.data() || {};
@@ -29437,25 +29807,33 @@ const rkBanner = async (appId, uid, d, cfg) => {
     if (used >= max) fail('resource-exhausted', 'Daily limit reached: ' + max + ' banner posts per day (messages and social links combined). It resets at midnight UTC.');
     const cur = Math.floor(now / W) * W;
     const qs = await tx.get(pub(appId, 'bannerSlots').where('start', '>=', cur));
-    const taken = new Set(qs.docs.map(x => num(x.data().start)));
-    const wins = S.rkBannerWindows(now, taken);
-    const payload = { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, text, type: isSocial ? 'social' : 'message', linkUrl, postedAt: now };
-    wins.forEach(st => tx.create(pub(appId, 'bannerSlots').doc(String(st)), Object.assign({}, payload, { start: st, end: st + W })));
+    const rows = qs.docs.map(x => x.data() || {});
+    const taken = S.rkLanesTaken(rows);
+    const wins = S.rkBannerBook(now, taken);
+    const bookId = uid + '_' + now;
+    const payload = { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, text, type: isSocial ? 'social' : 'message', linkUrl, postedAt: now, bookId };
+    wins.forEach(w => tx.create(pub(appId, 'bannerSlots').doc(w.start + '_' + w.lane), Object.assign({}, payload, { start: w.start, end: w.start + W, lane: w.lane })));
     const upd = { bannerPosts: FV().increment(1), bannerDay: day, bannerCountToday: used + 1 };
     if (p.bannerDay !== day) upd.bannerDays = FV().increment(1);
     tx.set(ref, upd, { merge: true });
-    const queueAhead = qs.docs.filter(x => { const v = x.data(); return num(v.start) >= now && num(v.start) < wins[0] && v.uid !== uid; }).length;
-    return { ok: true, startsAt: wins[0], endsAt: wins[wins.length - 1] + W, queueAhead, live: wins[0] <= now, used: used + 1, max };
-  });
+    const first = wins[0].start;
+    const queueAhead = rows.filter(v => num(v.start) >= now && num(v.start) < first && v.uid !== uid).length;
+    return { ok: true, startsAt: first, endsAt: wins[wins.length - 1].start + W, queueAhead, live: first <= now, lane: wins[0].lane,
+      lanesUsed: (taken[first] || []).length + 1, lanes: S.RK_BANNER_LANES, used: used + 1, max };
+  }));
 };
 
-// A boost: VIP (or launch perks), 3 a day, one of your own posts, the next full hour with a free lane (5 an hour).
+// A boost: VIP (or launch perks), 3 a day, one of your own posts, 5 at a time. V90.86.150.326: it starts at once when
+// this hour has a free spot (the rest of the hour, and the next hour when that has one too), otherwise the next hour with
+// one (rkBoostBook). 325 always waited for the next full hour, so a new boost didn't show for up to an hour. A post
+// that's already boosted isn't boosted again on top (it would show twice in the Boosted strip).
 const rkBoost = async (appId, uid, d, cfg) => {
   if (!cfg.boostsEnabled) fail('failed-precondition', 'Post boosting is temporarily disabled by the admin team.');
   const itemId = String(d.itemId || '');
   if (!itemId || itemId.includes('/')) fail('invalid-argument', 'Select one of your posts to boost.');
-  const ref = userRef(appId, uid), itemRef = pub(appId, 'tradeItems').doc(itemId), now = Date.now(), day = S.rkUtcDay(now), H = S.RK_BOOST_MS;
-  return db().runTransaction(async (tx) => {
+  const ref = userRef(appId, uid), itemRef = pub(appId, 'tradeItems').doc(itemId), H = S.RK_BOOST_MS;
+  return rkRetry(() => db().runTransaction(async (tx) => {
+    const now = Date.now(), day = S.rkUtcDay(now);
     const [s, it] = await tx.getAll(ref, itemRef);
     if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
     const p = s.data() || {};
@@ -29465,20 +29843,21 @@ const rkBoost = async (appId, uid, d, cfg) => {
     if (item.isRequest || item.isDIYRequest || item.status === 'request') fail('invalid-argument', "Requests can't be boosted. Pick one of your posts.");
     const used = S.rkDayUsed(p, 'boost', day), max = S.rkDayMax(p, 'boost');
     if (used >= max) fail('resource-exhausted', 'Daily limit reached: ' + max + ' boosts per day. It resets at midnight UTC.');
-    let start = Math.ceil(now / H) * H;
-    const qs = await tx.get(pub(appId, 'boostSlots').where('start', '>=', start));
-    const lanes = {};
-    qs.forEach(x => { const v = x.data(); (lanes[v.start] = lanes[v.start] || new Set()).add(num(v.lane)); });
-    const freeLane = (st) => { for (let l = 0; l < S.RK_BOOST_LANES; l++) if (!(lanes[st] && lanes[st].has(l))) return l; return -1; };
-    while (freeLane(start) < 0) start += H;
-    const lane = freeLane(start);
-    tx.create(pub(appId, 'boostSlots').doc(start + '_' + lane), { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, itemId, itemName: String(item.name || '').slice(0, 120), start, end: start + H, lane, postedAt: now });
+    const cur = Math.floor(now / H) * H;
+    const qs = await tx.get(pub(appId, 'boostSlots').where('start', '>=', cur));
+    const rows = qs.docs.map(x => x.data() || {});
+    if (rows.some(v => v.itemId === itemId && num(v.end) > now)) fail('already-exists', 'This post is already boosted. Pick another one, or boost it again once its boost ends.');
+    const wins = S.rkBoostBook(now, S.rkLanesTaken(rows));
+    const bookId = uid + '_' + now;
+    const base = { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, itemId, itemName: String(item.name || '').slice(0, 120), postedAt: now, bookId };
+    wins.forEach(w => tx.create(pub(appId, 'boostSlots').doc(w.start + '_' + w.lane), Object.assign({}, base, { start: w.start, end: w.start + H, lane: w.lane })));
     const upd = { boostDay: day, boostCountToday: used + 1, boostsUsed: FV().increment(1) };
     if (p.boostDay !== day) upd.boostDays = FV().increment(1);
     tx.set(ref, upd, { merge: true });
-    const queueAhead = qs.docs.filter(x => { const v = x.data(); return num(v.start) >= now && num(v.start) < start; }).length;
-    return { ok: true, start, end: start + H, lane, queueAhead, used: used + 1, max };
-  });
+    const first = wins[0].start;
+    const queueAhead = rows.filter(v => num(v.start) >= now && num(v.start) < first).length;
+    return { ok: true, start: first, end: wins[wins.length - 1].start + H, lane: wins[0].lane, live: first <= now, queueAhead, used: used + 1, max };
+  }));
 };
 
 // A featured festival clip: 4 a day (or the admin's figure for this raver), always a full window, the next free one.
@@ -29594,7 +29973,7 @@ exports.statsDaily = onSchedule({ schedule: '20 3 * * *', timeZone: 'Etc/UTC', t
 });
 
 // for the build's own test (node) only: never exported when deployed
-if (process.env.RK_STATS_TEST) exports._rkTest = { rkEvaluate, rkCount, rkRecount, rkSettle, rkCreditReferral, rkBanner, rkBoost, rkClip, rkVipGift, rkVipBuy, rkRefresh, rkCfg, resetCfg: () => { cfgCache = { at: 0, v: null }; } };
+if (process.env.RK_STATS_TEST) exports._rkTest = { rkEvaluate, rkCount, rkRecount, rkSettle, rkCreditReferral, rkBanner, rkBoost, rkClip, rkVipGift, rkVipBuy, rkRefresh, rkCfg, rkEmailOf, resetCfg: () => { cfgCache = { at: 0, v: null }; rkEmailCache.clear(); } };
 RKSTATSEOF
 echo "  functions/rk_stats.js written (script-owned): the stats engine."
 # V90.85.150.325: and the module loads with what it needs: rk_shared.js parses, and the six functions are exported
@@ -29671,7 +30050,7 @@ echo "  2. functions/ ownership is now explicit:"
 echo "       rk_push.js    SCRIPT-OWNED. Regenerated every build. Never edit."
 echo "       rk_votes.js   SCRIPT-OWNED (V89.84.150.323): vote reminders, every hour."
 echo "       rk_mod.js     SCRIPT-OWNED (V89.84.150.323): the blocked-word check on the server."
-echo "       rk_stats.js   SCRIPT-OWNED (V90.85.150.325): the stats engine (counts, achievements, VIP, daily limits, referrals)."
+echo "       rk_stats.js   SCRIPT-OWNED (V90.85.150.325, 326): the stats engine (counts, achievements, VIP, daily limits, referrals, Business)."
 echo "       rk_shared.js  SCRIPT-OWNED (V90.85.150.325): made from src/rkShared.js, what the app and the server both apply."
 echo "       index.js      YOURS. Payment functions live here. Never overwritten."
 echo "       package.json  YOURS. Created only if absent, so deps survive."
@@ -30088,11 +30467,11 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  325 needs two steps by hand, in this order, once WEB says OK:"
+echo "  326 needs two steps by hand, in this order, once WEB says OK:"
 echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (the stats engine: statsOnUser, statsOnPost, statsOnTrade, statsOnTribe, rkAct, statsDaily)"
-echo "   2. firebase deploy --only firestore:rules, with 325's rules file (RK_VERIFY_325, section 4):"
-echo "      it closes the counts to the app, so the app and the functions go first"
+echo "      (rk_stats.js: banners share a window 6 at a time, boosts start now, Business accounts)"
+echo "   2. firebase deploy --only firestore:rules, with 326's rules file (RK_VERIFY_326, section 4):"
+echo "      Business needs phone, email and 5 sales from then on, so the app and the functions go first"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
