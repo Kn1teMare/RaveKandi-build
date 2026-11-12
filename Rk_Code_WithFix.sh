@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=88
-RK_MINOR=84
+RK_MAJOR=89
+RK_MINOR=85
 RK_PATCH=150
-RK_BUILD=322
+RK_BUILD=324
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -53,6 +53,35 @@ fi
 
 echo "============================================"
 echo " RaveKandi $RK_VER Build Script Starting"
+echo "   BUILD $RK_BUILD"
+echo "============================================"
+# V89.84.150.323 (Milli, at 323: "the updated app is still saying build 321"). Each run now names the file it
+# is running and its md5, which the verify document lists for every build, and stops for 15 seconds when a
+# newer script is sitting in Downloads, so an old copy can't be built by mistake.
+RK_T() { local s="$1"; shift; if command -v timeout >/dev/null 2>&1; then timeout "$s" "$@"; else "$@"; fi; }
+RK_SELF_MD5=$(md5sum "$0" 2>/dev/null | cut -c1-32)
+# V89.85.150.324: the full path, for the GitHub copy at the end of the run (the run changes folders on the way)
+RK_SELF_PATH=$(readlink -f "$0" 2>/dev/null || echo "$0")
+echo " Script file: $0"
+echo " Script md5:  ${RK_SELF_MD5:-unknown}"
+RK_DL_NEWER=$(RK_T 20 bash -c '
+    best=""; bb=0
+    for f in /storage/emulated/0/Download/Rk_Code_WithFix*; do
+        [ -f "$f" ] || continue
+        b=$(grep -m1 "^RK_BUILD=" "$f" 2>/dev/null | cut -d= -f2)
+        case "$b" in ""|*[!0-9]*) continue ;; esac
+        if [ "$b" -gt "$bb" ]; then bb="$b"; best="$f"; fi
+    done
+    [ -n "$best" ] && echo "$bb|$best"' 2>/dev/null)
+if [ -n "$RK_DL_NEWER" ] && [ "${RK_DL_NEWER%%|*}" -gt "$RK_BUILD" ] 2>/dev/null; then
+    echo ""
+    echo " !! A NEWER script is in your Downloads: build ${RK_DL_NEWER%%|*}"
+    echo "    ${RK_DL_NEWER#*|}"
+    echo "    This run would build $RK_BUILD. Press Ctrl+C now, then copy the new one in:"
+    echo "    cp -f \"${RK_DL_NEWER#*|}\" ~/RaveKandi-Build/Rk_Code_WithFix.sh"
+    echo "    Carrying on with build $RK_BUILD in 15 seconds..."
+    sleep 15
+fi
 echo "============================================"
 echo "Bash: $BASH_VERSION"
 echo "User: $(whoami)"
@@ -142,6 +171,16 @@ cat << 'EOF' > public/index.html
       /* V63: lock horizontal scrolling — the page can only scroll up/down, never left/right. */
       html, body { overflow-x: hidden; max-width: 100%; width: 100%; overscroll-behavior-x: none; }
       #root { overflow-x: hidden; max-width: 100%; }
+      /* V89.84.150.323: the tutorial holds the page still while it points at something (rkTourHold), and a tap
+         in the wrong place flashes the ring and the instruction (rk-tour-nudge). */
+      html.rk-tour-lock, html.rk-tour-lock body { overflow: hidden !important; overscroll-behavior: none !important; }
+      @keyframes rkTourNudge { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.12); } 65% { transform: scale(0.96); } }
+      .rk-tour-nudge { animation: rkTourNudge 0.5s ease-in-out 2; }
+      /* V89.85.150.324: the moving bar while a saved sign-in waits for the connection (RkAuthWait). */
+      @keyframes rkAuthSlide { 0% { transform: translateX(-110%); } 100% { transform: translateX(330%); } }
+      .rk-auth-slide { animation: rkAuthSlide 1.4s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .rk-auth-slide { animation: none; width: 100%; opacity: 0.7; } }
+      @media (prefers-reduced-motion: reduce) { .rk-tour-nudge { animation: none; outline: 3px solid #fff; outline-offset: 2px; } }
       @keyframes rkMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
       .rk-zap-cloud { background: linear-gradient(120deg, #fbc2eb, #a6c1ee, #c2ffd8, #fff6b7, #fbc2eb); background-size: 300% 300%; animation: rkCloudShift 10s ease-in-out infinite; filter: blur(6px); opacity: 0.55; }
       @keyframes rkCloudShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
@@ -257,12 +296,38 @@ cat << 'EOF' > public/manifest.json
 {
   "name": "RaveKandi",
   "short_name": "RaveKandi",
+  "description": "Your home base for rave culture: kandi, trades, music and your rave family.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#0f001e",
   "theme_color": "#0f001e",
-  "icons": [ { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" } ]
+  "icons": [
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+  ]
 }
+EOF
+
+# V89.84.150.323: THE SERVICE WORKER. Chrome and Edge offer to install a site (the Install RaveKandi button in
+# Get RaveKandi) only when a service worker handles its requests. This one keeps nothing: pages always come
+# from the network, so it can never hold an old build back, and only when the network is down does a page
+# get a short offline note instead of the browser's error. Firebase's own /__/ paths are left alone.
+cat << 'EOF' > public/rk-sw.js
+// RaveKandi service worker (V89.84.150.323). It caches nothing.
+self.addEventListener('install', function () { self.skipWaiting(); });
+self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', function (e) {
+  var req = e.request;
+  if (req.mode !== 'navigate' || req.method !== 'GET') return;
+  try { if (new URL(req.url).pathname.indexOf('/__/') === 0) return; } catch (x) { return; }
+  e.respondWith(fetch(req).catch(function () {
+    return new Response('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RaveKandi</title></head>'
+      + '<body style="background:#0a0014;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:48px 24px">'
+      + '<h1 style="color:#f0abfc">You are offline</h1><p style="font-size:18px">RaveKandi needs a connection. Reconnect, then pull down or tap below.</p>'
+      + '<p><button onclick="location.reload()" style="font-size:18px;font-weight:800;padding:12px 28px;border-radius:999px;border:0;background:#a3e635;color:#000">Try again</button></p></body></html>',
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }));
+});
 EOF
 
 # V42.12: app icon for Add-to-Home-Screen / PWA installs (192x192 neon bolt)
@@ -480,7 +545,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, browserSessionPersistence, signOut, updateEmail, sendEmailVerification, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, TwitterAuthProvider, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithCredential, signInAnonymously, sendPasswordResetEmail, fetchSignInMethodsForEmail, inMemoryPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword, linkWithCredential } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc, updateDoc, setDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction, writeBatch, deleteField, startAfter, documentId, getCountFromServer } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc as rkFsAddDoc, updateDoc as rkFsUpdateDoc, setDoc as rkFsSetDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction as rkFsRunTransaction, writeBatch as rkFsWriteBatch, deleteField, startAfter, documentId, getCountFromServer } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -587,6 +652,15 @@ import {
   Wand2, X, XCircle, Youtube, Zap, HelpCircle, Search, Phone, Music, Ghost, CheckSquare, Square, Activity, WifiOff, Users, ThumbsUp, MoreHorizontal, ShoppingCart, 
   Trash, Maximize2, List, BarChart3, TrendingUp, Radio, Crown, Music as MusicIcon, Star as StarIcon, Disc
 } from 'lucide-react';
+// V89.84.150.323: EVERY WRITE PASSES THE HATE-SPEECH GATE (rkHateGate, with the filter further down; these only
+// run once the app is going, so it is defined by then). A refused write comes back as a rejected promise, never
+// a throw, so `addDoc(...).catch(...)` still catches it; in a transaction the refusal aborts it; in a batch the
+// commit is refused.
+const addDoc = (ref, data) => { const bad = rkHateGate(ref, data); return bad ? Promise.reject(bad) : rkFsAddDoc(ref, data); };
+const setDoc = (ref, data, opts) => { const bad = rkHateGate(ref, data); if (bad) return Promise.reject(bad); return opts === undefined ? rkFsSetDoc(ref, data) : rkFsSetDoc(ref, data, opts); };
+const updateDoc = (ref, ...args) => { const bad = rkHateGateArgs(ref, args); return bad ? Promise.reject(bad) : rkFsUpdateDoc(ref, ...args); };
+const runTransaction = (dbx, fn, opts) => opts === undefined ? rkFsRunTransaction(dbx, (tx) => fn(rkHateTx(tx))) : rkFsRunTransaction(dbx, (tx) => fn(rkHateTx(tx)), opts);
+const writeBatch = (dbx) => rkHateBatch(rkFsWriteBatch(dbx));
 
 const appId = 'ravekandi-core-prod'; 
 
@@ -900,6 +974,295 @@ const CONNECTION_MODE = (() => {
 // GitHub-hosted Android APK (direct download). App-store links are placeholders until launch.
 const ANDROID_APK_URL = 'https://github.com/Kn1teMare/RaveKandi-build/releases/latest';
 const WEB_APP_URL = 'https://ravekandi.web.app';
+// ============================================================================================
+// V89.84.150.323: GET RAVEKANDI, REBUILT (Milli, at 323: "on the 'Get Ravekandi' pop in window for users to
+// download the apk, the iPhone information is confusing. It notes to tap share, however users may not know
+// where that is. Instead, add a button that users can press which automatically runs the process to install
+// to homescreen, or better guides the user").
+//  - iPhone and iPad: Apple lets no web page start Add to Home Screen itself (WebKit bug 198673, open since
+//    2019), so no button can install it there. The button does the next best thing: the guide works out the
+//    device, the browser and the iOS version, then "Show me where to tap" dims the screen and points a big
+//    arrow at the exact button, with every step drawn the way it looks. iOS 26 Safari hides Share behind ⋯
+//    (its default Compact tabs), which is why "tap Share" stopped making sense; older iOS, and iOS 26 with
+//    Bottom or Top tabs, still show Share. "Can't find it?" switches between the two.
+//  - Inside Instagram, TikTok, Facebook and other apps' browsers there is no Add to Home Screen at all. The
+//    guide says so, copies the link, and shows how to open it in Safari (or Chrome).
+//  - Android and computers (Chrome, Edge, Samsung Internet): the button installs it, one tap and a confirm.
+//    That needs the browser's install offer (beforeinstallprompt), which needs a service worker (rk-sw.js;
+//    it caches nothing) and a 512 px icon. Where a browser makes no offer, its menu steps show instead. The
+//    Android APK stays.
+// The offer can arrive before React has mounted, so it is caught here, at load.
+// ============================================================================================
+let rkInstallEvt = null;
+try {
+    window.addEventListener('beforeinstallprompt', (e) => {
+        try { e.preventDefault(); } catch (_) {}   // the guide's button shows it, not Chrome's own bar
+        rkInstallEvt = e;
+        try { window.dispatchEvent(new Event('rk:installable')); } catch (_) {}
+    });
+    window.addEventListener('appinstalled', () => {
+        rkInstallEvt = null;
+        try { localStorage.setItem('rk_installed', '1'); } catch (_) {}
+        try { window.dispatchEvent(new Event('rk:installed')); } catch (_) {}
+    });
+} catch (e) {}
+// The service worker that makes the offer possible. Never in the APK, never off https.
+const rkRegisterSW = () => {
+    try {
+        if (rkIsNative() || !('serviceWorker' in navigator) || window.location.protocol !== 'https:') return;
+        navigator.serviceWorker.register('/rk-sw.js', { updateViaCache: 'none' }).catch(e => { try { rkReport('service worker', e); } catch (_) {} });
+    } catch (e) {}
+};
+// The device, the browser and, for Safari, the iOS version. iOS 26 Safari reports its own version in
+// "Version/26"; the "OS 18_6" part of its user agent is frozen and can't be trusted from 26 on.
+const rkInstallEnv = (uaIn) => {
+    let ua = '', touches = 0;
+    try { ua = uaIn !== undefined ? String(uaIn) : (navigator.userAgent || ''); touches = uaIn !== undefined ? 0 : (navigator.maxTouchPoints || 0); } catch (e) {}
+    const ipad = /iPad/.test(ua) || (/Macintosh/.test(ua) && touches > 1);
+    const ios = ipad || /iPhone|iPod/.test(ua);
+    const android = /Android/i.test(ua);
+    const appM = ua.match(/(Instagram|FBAN|FBAV|FB_IAB|FBIOS|Messenger|Snapchat|TikTok|BytedanceWebview|musical_ly|Twitter|LinkedInApp|Pinterest|Line\/|MicroMessenger|KAKAOTALK|Discord|GSA\/)/i);
+    const RK_APP_NAMES = { instagram: 'Instagram', fban: 'Facebook', fbav: 'Facebook', fb_iab: 'Facebook', fbios: 'Facebook', messenger: 'Messenger', snapchat: 'Snapchat', tiktok: 'TikTok', bytedancewebview: 'TikTok', musical_ly: 'TikTok', twitter: 'X', linkedinapp: 'LinkedIn', pinterest: 'Pinterest', 'line/': 'LINE', micromessenger: 'WeChat', kakaotalk: 'KakaoTalk', discord: 'Discord', 'gsa/': 'the Google app' };
+    const inApp = appM ? (RK_APP_NAMES[appM[1].toLowerCase()] || 'another app') : '';
+    let browser = 'other';
+    if (inApp) browser = 'inapp';
+    else if (ios) {
+        if (/CriOS/.test(ua)) browser = 'chrome';
+        else if (/FxiOS/.test(ua)) browser = 'firefox';
+        else if (/EdgiOS/.test(ua)) browser = 'edge';
+        else if (/OPiOS|OPT\//.test(ua)) browser = 'opera';
+        else if (/DuckDuckGo/.test(ua)) browser = 'duckduckgo';
+        else if (/Safari\//.test(ua)) browser = 'safari';
+        else browser = 'inapp';               // an app's own web view: no "Safari/" in it
+    } else if (android) {
+        if (/SamsungBrowser/.test(ua)) browser = 'samsung';
+        else if (/Firefox\//.test(ua)) browser = 'firefox';
+        else if (/EdgA\//.test(ua)) browser = 'edge';
+        else if (/OPR\//.test(ua)) browser = 'opera';
+        else if (/; wv\)/.test(ua)) browser = 'inapp';
+        else if (/Chrome\//.test(ua)) browser = 'chrome';
+    } else {
+        if (/Edg\//.test(ua)) browser = 'edge';
+        else if (/Chrome\//.test(ua)) browser = 'chrome';
+        else if (/Firefox\//.test(ua)) browser = 'firefox';
+        else if (/Safari\//.test(ua)) browser = 'safari';
+    }
+    const sv = ua.match(/Version\/(\d+)/), ov = ua.match(/OS (\d+)[_.]/);
+    const iosMajor = ios ? ((browser === 'safari' && sv) ? parseInt(sv[1], 10) : (ov ? parseInt(ov[1], 10) : 0)) : 0;
+    return { device: ipad ? 'ipad' : ios ? 'iphone' : android ? 'android' : 'computer', browser, inApp, iosMajor };
+};
+// Which guide fits. Every key is also in the "Not your device?" list, so a wrong guess is one tap to fix.
+const rkInstallPick = (env) => {
+    if (!env) return 'computer';
+    if (env.device === 'iphone' || env.device === 'ipad') {
+        if (env.browser === 'inapp') return 'iosinapp';
+        if (env.browser === 'chrome') return 'ioschrome';
+        if (env.browser !== 'safari') return 'iosother';
+        if (env.device === 'ipad') return 'ipad';
+        return env.iosMajor >= 26 ? 'ios26' : 'ios';
+    }
+    if (env.device === 'android') {
+        if (env.browser === 'inapp') return 'androidinapp';
+        if (env.browser === 'samsung') return 'samsung';
+        if (env.browser === 'firefox') return 'androidfirefox';
+        return 'android';
+    }
+    return 'computer';
+};
+// The buttons, drawn the way the phone draws them.
+const RkInstIcon = ({ k, s = 26 }) => {
+    const p = { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' };
+    if (k === 'share') return <svg {...p}><path d="M12 3v12"/><path d="M7.5 7.5 12 3l4.5 4.5"/><path d="M8.5 10H6.5a1.5 1.5 0 0 0-1.5 1.5v8A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5h-2"/></svg>;
+    if (k === 'more') return <svg {...p}><circle cx="12" cy="12" r="10"/><circle cx="7.5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="16.5" cy="12" r="1.2" fill="currentColor"/></svg>;
+    if (k === 'add') return <svg {...p}><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M12 8v8M8 12h8"/></svg>;
+    if (k === 'toggle') return <svg {...p}><rect x="2" y="7" width="20" height="10" rx="5" fill="#34c759" stroke="#34c759"/><circle cx="17" cy="12" r="3.6" fill="#fff" stroke="#fff"/></svg>;
+    if (k === 'vdots') return <svg {...p}><circle cx="12" cy="5.5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="18.5" r="1.4" fill="currentColor"/></svg>;
+    if (k === 'menu') return <svg {...p}><path d="M4 7h16M4 12h16M4 17h16"/></svg>;
+    if (k === 'install') return <svg {...p}><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 7v6M9.5 10.5 12 13l2.5-2.5M8 20h8"/></svg>;
+    if (k === 'safari') return <svg {...p}><circle cx="12" cy="12" r="10"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></svg>;
+    if (k === 'link') return <svg {...p}><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>;
+    if (k === 'home') return <svg {...p}><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>;
+    return null;
+};
+// One guide per device and browser. `where` is where the first button is on the screen, for the arrow:
+// br bottom-right, bc bottom-centre, tr top-right. `alt` is the other layout "Can't find it?" switches to.
+const RK_INSTALL_GUIDES = {
+    ios26: { label: 'iPhone, Safari (iOS 26)', where: 'br', alt: 'ios', altText: 'I see a Share button at the bottom instead', steps: [
+        { i: 'more', t: 'Tap the ⋯ button at the bottom-right of your screen, next to the web address.' },
+        { i: 'share', t: 'Tap Share.' },
+        { i: 'add', t: 'Scroll down the list and tap Add to Home Screen.' },
+        { i: 'toggle', t: 'Leave Open as Web App switched on, then tap Add at the top-right.' }] },
+    ios: { label: 'iPhone, Safari (iOS 18 or older)', where: 'bc', alt: 'ios26', altText: 'I see a ⋯ button at the bottom instead', steps: [
+        { i: 'share', t: 'Tap the Share button: the square with an arrow pointing up, in the middle of the bar at the bottom.' },
+        { i: 'add', t: 'Scroll down the list and tap Add to Home Screen.' },
+        { i: 'home', t: 'Tap Add at the top-right.' }] },
+    ipad: { label: 'iPad, Safari', where: 'tr', steps: [
+        { i: 'share', t: 'Tap the Share button at the top-right: the square with an arrow pointing up. (On iPadOS 26 it may be under ⋯.)' },
+        { i: 'add', t: 'Tap Add to Home Screen.' },
+        { i: 'toggle', t: 'Leave Open as Web App on if you see it, then tap Add.' }] },
+    ioschrome: { label: 'iPhone or iPad, Chrome', where: 'tr', steps: [
+        { i: 'share', t: 'Tap the Share button in the address bar at the top (at the bottom, if you moved the address bar there).' },
+        { i: 'add', t: 'Scroll the list and tap Add to Home Screen. If it isn\'t there, tap More first.' },
+        { i: 'home', t: 'Tap Add.' }] },
+    iosother: { label: 'iPhone or iPad, another browser', where: 'br', steps: [
+        { i: 'menu', t: 'Open your browser\'s menu (☰ or ⋯, usually bottom-right).' },
+        { i: 'share', t: 'Tap Share.' },
+        { i: 'add', t: 'Tap Add to Home Screen, then Add. If it isn\'t offered, open ravekandi.web.app in Safari and use the Safari steps.' }] },
+    iosinapp: { label: 'Inside another app (Instagram, TikTok…)', where: 'tr', inapp: true, steps: [
+        { i: 'link', t: 'This screen is inside another app\'s browser, which can\'t add apps to your home screen. Tap Copy link below.' },
+        { i: 'more', t: 'Tap ⋯ (top-right or bottom-right) and choose Open in browser or Open in Safari. Or open Safari and paste the link.' },
+        { i: 'safari', t: 'In Safari, tap Get RaveKandi again: it will show the Safari steps.' }] },
+    android: { label: 'Android, Chrome', where: 'tr', steps: [
+        { i: 'vdots', t: 'Tap ⋮ at the top-right of Chrome.' },
+        { i: 'add', t: 'Tap Add to Home screen (or Install app).' },
+        { i: 'home', t: 'Tap Install.' }] },
+    samsung: { label: 'Android, Samsung Internet', where: 'br', steps: [
+        { i: 'menu', t: 'Tap ☰ at the bottom-right.' },
+        { i: 'add', t: 'Tap Add page to, then Home screen.' },
+        { i: 'home', t: 'Tap Add.' }] },
+    androidfirefox: { label: 'Android, Firefox', where: 'tr', steps: [
+        { i: 'vdots', t: 'Tap ⋮ (top-right or bottom-right).' },
+        { i: 'add', t: 'Tap Install (or Add to Home screen).' },
+        { i: 'home', t: 'Tap Add.' }] },
+    androidinapp: { label: 'Android, inside another app', where: 'tr', inapp: true, steps: [
+        { i: 'link', t: 'This screen is inside another app\'s browser, which can\'t install apps. Tap Copy link below.' },
+        { i: 'vdots', t: 'Tap ⋮ at the top-right and choose Open in Chrome (or Open in browser).' },
+        { i: 'install', t: 'In Chrome, tap Get RaveKandi again and use Install.' }] },
+    computer: { label: 'Computer', where: 'tr', steps: [
+        { i: 'install', t: 'Chrome or Edge: click the install icon at the right end of the address bar, or ⋮ → Cast, save and share → Install page as app.' },
+        { i: 'safari', t: 'Safari on a Mac: File → Add to Dock.' },
+        { i: 'home', t: 'Firefox doesn\'t install sites; RaveKandi works in the tab just the same.' }] },
+};
+const RK_INSTALL_ORDER = ['ios26', 'ios', 'ipad', 'ioschrome', 'iosother', 'iosinapp', 'android', 'samsung', 'androidfirefox', 'androidinapp', 'computer'];
+const rkCopyLink = async (text) => {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return !!ok;
+    } catch (e) { return false; }
+};
+const RkInstallSteps = ({ g, big }) => (
+    <ol className="space-y-2" data-install-steps="1">
+        {g.steps.map((st, i) => (
+            <li key={i} className="flex items-start gap-3">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-pink-500 text-white font-black text-sm flex items-center justify-center">{i + 1}</span>
+                <span className="shrink-0 text-cyan-200 bg-white/10 rounded-lg p-1"><RkInstIcon k={st.i} s={big ? 28 : 24}/></span>
+                <span className={(big ? 'text-base' : 'text-sm') + ' text-white leading-snug font-bold pt-0.5'}>{st.t}</span>
+            </li>
+        ))}
+    </ol>
+);
+// "Show me where to tap": the page dims, the steps sit in the middle, and an arrow points at the first button.
+const RkInstallCoach = ({ gk, onClose, onPick }) => {
+    useRkBackClose(!!gk, onClose);
+    const [copied, setCopied] = useState(false);
+    const g = RK_INSTALL_GUIDES[gk];
+    if (!g) return null;
+    const up = g.where === 'tr';
+    const arrowPos = g.where === 'br' ? { right: 14, bottom: 'calc(8px + env(safe-area-inset-bottom))' }
+        : g.where === 'bc' ? { left: '50%', marginLeft: -32, bottom: 'calc(8px + env(safe-area-inset-bottom))' }
+        : { right: 14, top: 'calc(8px + env(safe-area-inset-top))' };
+    return createPortal(
+        <div className="fixed inset-0 z-[2100] bg-black/85" onClick={onClose} data-install-coach={gk} role="dialog" aria-label="Where to tap">
+            <div className="absolute left-1/2 -translate-x-1/2 w-[92%] max-w-sm" style={{ top: up ? 'calc(110px + env(safe-area-inset-top))' : 'calc(40px + env(safe-area-inset-top))' }} onClick={e => e.stopPropagation()}>
+                <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
+                    <h3 className="text-xl font-black text-white mb-1">Add RaveKandi to your home screen</h3>
+                    <p className="text-sm text-white mb-3">{g.label}. Do these in order; this box stays here while you do.</p>
+                    <RkInstallSteps g={g} big/>
+                    {g.inapp && <button onClick={async () => { setCopied(await rkCopyLink(WEB_APP_URL)); }} data-install-copy="1" className="mt-3 w-full bg-cyan-400 text-black font-black text-sm py-2.5 rounded-full active:scale-95">{copied ? '✓ Link copied: ravekandi.web.app' : '🔗 Copy link'}</button>}
+                    <div className="mt-3 flex flex-wrap gap-2 justify-between items-center">
+                        {g.alt ? <button onClick={() => onPick(g.alt)} data-install-alt={g.alt} className="text-white text-sm font-bold underline underline-offset-2 py-2">Can't find it? {g.altText}</button> : <span/>}
+                        <button onClick={onClose} className="bg-white text-purple-800 font-black text-sm px-5 py-2 rounded-full active:scale-95">Done</button>
+                    </div>
+                </div>
+            </div>
+            <div className="absolute flex flex-col items-center pointer-events-none" style={arrowPos} data-install-arrow={g.where}>
+                {up && <svg width="64" height="64" viewBox="0 0 24 24" className="text-pink-300 animate-bounce motion-reduce:animate-none" style={{ filter: 'drop-shadow(0 0 8px rgba(236,72,153,0.9))' }} aria-hidden="true"><path d="M12 3v15M5 10l7-7 7 7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                <span className="bg-pink-500 text-white font-black text-sm px-3 py-1 rounded-full whitespace-nowrap inline-flex items-center gap-1.5">Start here: <RkInstIcon k={g.steps[0].i} s={18}/></span>
+                {!up && <svg width="64" height="64" viewBox="0 0 24 24" className="text-pink-300 animate-bounce motion-reduce:animate-none" style={{ filter: 'drop-shadow(0 0 8px rgba(236,72,153,0.9))' }} aria-hidden="true"><path d="M12 21V6M5 14l7 7 7-7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+        </div>, document.body);
+};
+// The window's contents. `onCoach(key)` closes the window and starts the arrow guide.
+const RkGetApp = ({ onCoach, onClose, onNeverAgain }) => {
+    const env = useMemo(() => rkInstallEnv(), []);
+    const [gk, setGk] = useState(() => rkInstallPick(env));
+    const [canPrompt, setCanPrompt] = useState(!!rkInstallEvt);
+    const [installed, setInstalled] = useState(() => { try { return localStorage.getItem('rk_installed') === '1'; } catch (e) { return false; } });
+    const [copied, setCopied] = useState(false);
+    const [msg, setMsg] = useState('');
+    useEffect(() => {
+        const on = () => setCanPrompt(!!rkInstallEvt), done = () => { setInstalled(true); setCanPrompt(false); };
+        window.addEventListener('rk:installable', on);
+        window.addEventListener('rk:installed', done);
+        return () => { window.removeEventListener('rk:installable', on); window.removeEventListener('rk:installed', done); };
+    }, []);
+    const g = RK_INSTALL_GUIDES[gk] || RK_INSTALL_GUIDES.computer;
+    const ios = ['ios26', 'ios', 'ipad', 'ioschrome', 'iosother', 'iosinapp'].includes(gk);
+    const androidish = ['android', 'samsung', 'androidfirefox', 'androidinapp'].includes(gk);
+    const install = async () => {
+        const e = rkInstallEvt;
+        if (!e) { setCanPrompt(false); return; }
+        try {
+            await e.prompt();
+            const r = await e.userChoice;
+            rkInstallEvt = null; setCanPrompt(false);
+            if (r && r.outcome === 'accepted') { setInstalled(true); setMsg('🎉 Installing now. RaveKandi will be on your home screen in a moment.'); try { localStorage.setItem('rk_installed', '1'); } catch (_) {} }
+            else setMsg('No problem. The steps below do the same whenever you like.');
+        } catch (err) { setCanPrompt(false); setMsg('Your browser didn\'t open its install window. Use the steps below.'); }
+    };
+    return (
+        <div className="space-y-3 text-sm" data-get-app={gk}>
+            <p className="text-sm text-white leading-relaxed">RaveKandi works right here in your browser. Put it on your home screen and it opens full screen with its own icon, like any app.</p>
+            {msg && <p className="text-sm font-bold text-lime-200 bg-lime-900/30 border border-lime-400/60 rounded-lg p-2" data-install-msg="1">{msg}</p>}
+            {installed && !msg && <p className="text-sm font-bold text-lime-200 bg-lime-900/30 border border-lime-400/60 rounded-lg p-2">✓ RaveKandi is installed on this device. Open it from your home screen.</p>}
+            {canPrompt && !installed && (
+                <button onClick={install} data-install-now="1" className="w-full rounded-xl py-3.5 px-4 bg-gradient-to-r from-lime-400 via-cyan-300 to-pink-300 text-black font-black text-base flex items-center justify-center gap-2 active:scale-[0.98] shadow-[0_0_18px_rgba(163,230,53,0.45)]">
+                    <RkInstIcon k="install" s={22}/> Install RaveKandi
+                </button>
+            )}
+            <div className="bg-white/5 border border-pink-400/50 rounded-xl p-3 space-y-3">
+                <p className="text-sm font-black text-pink-200">{canPrompt && !installed ? 'Or add it yourself' : 'Add it to your home screen'}: {g.label}</p>
+                <RkInstallSteps g={g}/>
+                {g.inapp && <button onClick={async () => { setCopied(await rkCopyLink(WEB_APP_URL)); }} data-install-copy="1" className="w-full bg-cyan-400 text-black font-black text-sm py-2.5 rounded-full active:scale-95">{copied ? '✓ Link copied: ravekandi.web.app' : '🔗 Copy link'}</button>}
+                {(ios || androidish) && !installed && (
+                    <button onClick={() => onCoach(gk)} data-install-coach-open={gk} className="w-full rounded-xl py-3 px-4 bg-pink-600 border-2 border-pink-300 text-white font-black text-base flex items-center justify-center gap-2 active:scale-[0.98]">
+                        👆 Show me where to tap
+                    </button>
+                )}
+                {g.alt && <button onClick={() => setGk(g.alt)} data-install-alt={g.alt} className="text-white text-sm font-bold underline underline-offset-2">Can't find it? {g.altText}</button>}
+                <label className="block text-sm font-bold text-white">Not your device?
+                    <select value={gk} onChange={e => setGk(e.target.value)} data-install-pick="1" className="mt-1 w-full bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white">
+                        {RK_INSTALL_ORDER.map(k => <option key={k} value={k}>{RK_INSTALL_GUIDES[k].label}</option>)}
+                    </select>
+                </label>
+            </div>
+            {androidish && (
+                <div className="bg-white/5 border border-lime-400/50 rounded-xl p-3 space-y-2">
+                    <p className="text-sm font-black text-lime-200">🤖 Or get the Android app (APK)</p>
+                    <a href={ANDROID_APK_URL} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-lime-600/25 border border-lime-400/60 rounded-lg p-2.5 active:scale-[0.99]">
+                        <Download size={20} className="text-lime-200 shrink-0"/>
+                        <span className="text-sm font-black text-lime-100">Download the Android APK</span>
+                    </a>
+                    <p className="text-sm text-white">Android may ask you to allow installs from this source. That's normal for an app from outside the Play Store.</p>
+                </div>
+            )}
+            <a href={WEB_APP_URL} target="_blank" rel="noreferrer" className="flex items-center gap-3 bg-gradient-to-r from-cyan-600/30 to-blue-600/30 border border-cyan-400/50 rounded-xl p-3">
+                <Globe size={24} className="text-cyan-200 shrink-0"/>
+                <span><span className="block font-black text-sm text-cyan-100">Use the web version</span><span className="block text-sm text-white">ravekandi.web.app works on any device, nothing to install.</span></span>
+            </a>
+            <p className="text-sm text-white bg-white/5 border border-white/20 rounded-xl p-3">📱 App Store and Google Play downloads are on the way. Until then: the web version, your home screen, or the Android APK.</p>
+            <div className="flex gap-2">
+                <Button onClick={onNeverAgain} color="accent" className="flex-1 text-sm">Don't show again</Button>
+                <Button onClick={onClose} color="cyan" className="flex-1 text-sm">Got it!</Button>
+            </div>
+        </div>
+    );
+};
 
 // V63: Native story-sharing (Instagram/Snapchat/Facebook ADD_TO_STORY intents) is built but
 // INERT until RaveKandi is fully launched on the native app stores. Flip this to true only when
@@ -948,6 +1311,94 @@ const TRADE_CATEGORIES = ['Kandi', 'Clothing', 'Accessories', 'Plushies', 'Pins/
 
 // V63 — major EDM/rave festivals & events for the trade meet-up autocomplete. Users can still type
 // any custom event; this list just speeds up the common ones. Alphabetized for easy scanning.
+// V89.85.150.324 (Milli: "set a character limit for post name"): a post's name, at most this many characters.
+const RK_POST_NAME_MAX = 60;
+// V89.85.150.324: THE FESTIVALS' ANNOUNCED DATES (see RkEventPicker). Every edition ending on or after 8 Nov 2026
+// whose dates were announced by then; s: 'o' from the festival's or promoter's own announcement, 'p' from the press.
+// A festival missing here has no dates announced yet. Refreshed every build; an admin can correct one without a build
+// (global/config, festDates, the same shape).
+const RK_FEST_DATES = {
+    "beyond wonderland": [
+        { l: "Beyond Wonderland SoCal 2027", f: '2027-03-26', t: '2027-03-27', w: "San Bernardino, CA, NOS Events Center", s: 'p' },
+        { l: "Beyond Wonderland Midwest 2027", f: '2027-06-11', t: '2027-06-13', w: "Joliet, IL, Chicagoland Speedway", s: 'o' },
+        { l: "Beyond Wonderland at The Gorge 2027", f: '2027-06-26', t: '2027-06-27', w: "George, WA, The Gorge Amphitheatre", s: 'o' },
+    ],
+    "coachella": [
+        { l: "Coachella 2027 Weekend 1", f: '2027-04-09', t: '2027-04-11', w: "Indio, CA, Empire Polo Club", s: 'p' },
+        { l: "Coachella 2027 Weekend 2", f: '2027-04-16', t: '2027-04-18', w: "Indio, CA, Empire Polo Club", s: 'p' },
+    ],
+    "countdown nye": [
+        { l: "Countdown NYE 2026", f: '2026-12-31', t: '2027-01-01', w: "San Bernardino, CA, NOS Events Center", s: 'o' },
+    ],
+    "decadence": [
+        { l: "Decadence Arizona 2026", f: '2026-12-30', t: '2026-12-31', w: "Avondale, AZ, Phoenix Raceway", s: 'p' },
+        { l: "Decadence Colorado 2026", f: '2026-12-30', t: '2026-12-31', w: "Denver, CO, Colorado Convention Center", s: 'p' },
+    ],
+    "dreamstate": [
+        { l: "Dreamstate Southern California 2026", f: '2026-11-20', t: '2026-11-21', w: "Long Beach, CA, Queen Mary Waterfront", s: 'o' },
+        { l: "Dreamstate Vancouver (November 2026)", f: '2026-11-28', t: '2026-11-28', w: "Vancouver, BC, Canada", s: 'o' },
+        { l: "Dreamstate Sydney 2027", f: '2027-02-06', t: '2027-02-06', w: "Sydney, Australia, Sydney Showground", s: 'o' },
+        { l: "Dreamstate Melbourne 2027", f: '2027-02-07', t: '2027-02-07', w: "Melbourne, Australia, Flemington Racecourse", s: 'o' },
+    ],
+    "edc las vegas": [
+        { l: "EDC Las Vegas 2027 Weekend 1 (EDC Dusk)", f: '2027-05-14', t: '2027-05-16', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
+        { l: "EDC Las Vegas 2027 Weekend 2 (EDC Dawn)", f: '2027-05-21', t: '2027-05-23', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
+    ],
+    "edc mexico": [
+        { l: "EDC Mexico 2027", f: '2027-02-19', t: '2027-02-21', w: "Mexico City, Autódromo Hermanos Rodríguez", s: 'o' },
+    ],
+    "edc orlando": [
+        { l: "EDC Orlando 2026", f: '2026-11-06', t: '2026-11-08', w: "Orlando, FL, Tinker Field", s: 'p' },
+    ],
+    "electric daisy carnival": [
+        { l: "EDC China 2026: Circuit Dreams Guangzhou", f: '2026-11-21', t: '2026-11-21', w: "Guangzhou, China, Guangzhou New Gateway Music Park (Baiyun District)", s: 'p' },
+        { l: "EDC Thailand 2026 (December edition)", f: '2026-12-18', t: '2026-12-20', w: "Phuket, Thailand, Rhythm Park", s: 'o' },
+    ],
+    "forbidden kingdom": [
+        { l: "Forbidden Kingdom 2027", f: '2027-04-23', t: '2027-04-25', w: "Orlando, FL, Central Florida Fairgrounds", s: 'o' },
+    ],
+    "groove cruise": [
+        { l: "Groove Cruise Miami 2027", f: '2027-01-21', t: '2027-01-25', w: "Miami, FL (round trip), Allure of the Seas", s: 'o' },
+    ],
+    "lightning in a bottle": [
+        { l: "Lightning in a Bottle 2027", f: '2027-05-26', t: '2027-05-30', w: "Buena Vista Lake (near Bakersfield), CA", s: 'p' },
+    ],
+    "lollapalooza": [
+        { l: "Lollapalooza India 2027", f: '2027-01-23', t: '2027-01-24', w: "Mumbai, India, Mahalaxmi Racecourse", s: 'p' },
+        { l: "Lollapalooza Argentina 2027", f: '2027-03-12', t: '2027-03-14', w: "San Isidro (Buenos Aires), Argentina, Hipódromo de San Isidro", s: 'p' },
+        { l: "Lollapalooza Chile 2027", f: '2027-03-12', t: '2027-03-14', w: "Santiago, Chile, Parque O'Higgins", s: 'p' },
+        { l: "Lollapalooza Brasil 2027", f: '2027-03-19', t: '2027-03-21', w: "São Paulo, Brazil, Autódromo de Interlagos", s: 'p' },
+    ],
+    "mysteryland": [
+        { l: "Mysteryland 2027", f: '2027-08-27', t: '2027-08-29', w: "Netherlands", s: 'p' },
+    ],
+    "project glow": [
+        { l: "Project GLOW 2027", f: '2027-06-05', t: '2027-06-06', w: "Washington, DC", s: 'p' },
+    ],
+    "shambhala": [
+        { l: "Shambhala Music Festival 2027", f: '2027-07-23', t: '2027-07-26', w: "Salmo, BC, Canada, Salmo River Ranch", s: 'o' },
+    ],
+    "sunset music festival": [
+        { l: "Sunset On The River 2027 (formerly Sunset Music Festival)", f: '2027-02-20', t: '2027-02-21', w: "Tampa, FL, Julian B. Lane Riverfront Park", s: 'p' },
+    ],
+    "tomorrowland": [
+        { l: "Tomorrowland Thailand 2026", f: '2026-12-11', t: '2026-12-13', w: "Pattaya, Thailand, Wisdom Valley", s: 'p' },
+        { l: "Tomorrowland Winter 2027", f: '2027-03-20', t: '2027-03-27', w: "Alpe d'Huez, France, Alpe d'Huez ski resort", s: 'p' },
+        { l: "Tomorrowland Brasil 2027", f: '2027-04-30', t: '2027-05-02', w: "Brazil", s: 'p' },
+    ],
+    "ultra music festival": [
+        { l: "ULTRA Mexico 2026", f: '2026-11-07', t: '2026-11-08', w: "Mexico City, Mexico", s: 'o' },
+        { l: "ULTRA Taiwan 2026", f: '2026-11-14', t: '2026-11-14', w: "Taipei, Taiwan", s: 'o' },
+        { l: "Ultra Music Festival Miami 2027", f: '2027-03-26', t: '2027-03-28', w: "Miami, FL, Bayfront Park", s: 'o' },
+        { l: "ULTRA Argentina 2027", f: '2027-04-02', t: '2027-04-03', w: "Buenos Aires, Argentina", s: 'o' },
+        { l: "ULTRA South Africa 2027 (Cape Town)", f: '2027-04-30', t: '2027-04-30', w: "Cape Town, South Africa, The Ostrich", s: 'p' },
+        { l: "ULTRA South Africa 2027 (Johannesburg)", f: '2027-05-01', t: '2027-05-01', w: "Johannesburg, South Africa", s: 'o' },
+        { l: "ULTRA Europe 2027", f: '2027-07-09', t: '2027-07-11', w: "Split, Croatia", s: 'o' },
+    ],
+    "untold festival": [
+        { l: "UNTOLD 2027 (Star Edition)", f: '2027-08-05', t: '2027-08-08', w: "Cluj-Napoca, Romania", s: 'p' },
+    ],
+};
 const MAJOR_EVENTS = [
     'Audiotistic', 'Beyond Wonderland', 'Bonnaroo', 'Bass Canyon', 'Buku Music + Art Project', 'Camp Bisco', 'CRSSD Festival',
     'Coachella', 'Countdown NYE', 'Decadence', 'Dreamstate', 'EDC Las Vegas', 'EDC Mexico', 'EDC Orlando', 'EZoo (Electric Zoo)',
@@ -1291,6 +1742,16 @@ const ACHIEVEMENT_TIERS = [
     { id: 'net_250', name: 'Six Degrees', tier: 3, metric: 'networkReach', threshold: 250, icon: Users, desc: "Your friends' friends reach 250 ravers." },
     { id: 'dig_25', name: 'Crate Digger', tier: 1, metric: 'tracksPlayed', threshold: 25, icon: Music, desc: "Play 25 tracks by other artists." },
     { id: 'dig_250', name: 'Selector', tier: 2, metric: 'tracksPlayed', threshold: 250, icon: Radio, desc: "Play 250 tracks by other artists." },
+    // V89.84.150.323: for 323's features. Each trims the seller commission (rkAchBonuses), with its own emblem and a
+    // marquee line.
+    { id: 'install_app', name: 'Home Screen Hero', tier: 1, diff: 1, metric: 'installedApp', threshold: 1, icon: Smartphone, desc: "Open RaveKandi as an app: from your home screen, or the Android app. HELP → Get RaveKandi shows how." },
+    { id: 'vote_fast_10', name: 'Quick Draw', tier: 1, metric: 'tribeVotesFast', threshold: 10, icon: Zap, desc: "Answer 10 tribe votes, yes or no, within 12 hours of each one starting." },
+    { id: 'invite_1', name: 'Welcome Committee', tier: 1, metric: 'tribeInvitesPassed', threshold: 1, icon: UserPlus, desc: "Invite a raver into one of your tribes: they accept, and the members vote them in." },
+    // V89.85.150.324: for 324's festival days. Each trims the seller commission (rkAchBonuses), with its own emblem and a
+    // marquee line.
+    { id: 'fest_days_1', name: 'Day Picker', tier: 1, diff: 1, metric: 'festDaysPicked', threshold: 1, icon: Calendar, desc: "Post for a festival and tap the days you're going from its dates." },
+    { id: 'fest_all_days', name: 'All In', tier: 1, metric: 'festAllDays', threshold: 1, icon: Calendar, desc: "Tap every day of a festival's dates on one post." },
+    { id: 'invite_5', name: 'Talent Scout', tier: 2, metric: 'tribeInvitesPassed', threshold: 5, icon: Users, desc: "Bring 5 ravers into your tribes by invitation." },
 ];
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
 
@@ -1299,9 +1760,400 @@ const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq
 // V62: Radio chat constants. Each in-app station has its own chat channel keyed by station id;
 // 'global' is the shared all-stations room (default).
 const CHAT_GLOBAL_ID = 'global';
-// Hard list of slurs to block (NOT profanity — profanity is allowed). Kept intentionally
-// minimal and focused on hate speech. Leetspeak/spacing bypasses are normalized before match.
-const CHAT_BLOCKED_TERMS = ['nigger','nigga','faggot','fag','retard','chink','spic','kike','wetback','tranny','coon','gook','beaner','dyke'];
+// ============================================================================================
+// V89.84.150.323: NO HATE SPEECH, ANYWHERE (Milli, at 323: "add a mechanism to prevent users from sending racist
+// remarks, and ensure that usernames, messages, posts, and anywhere else in the app users cannot use racist
+// remarks. In the admin panel, add a section with all banned words, and a way for admins to add/remove those
+// words. Include variations of the words. If user tries to send, add, type, update or otherwise, notify them that
+// the word is inappropriate for the platform and will not be tolerated, reminding them of peace and love against
+// hate").
+//  - Every write the app makes passes rkHateGate first: addDoc, setDoc, updateDoc, transactions and batches are
+//    wrapped at the top of this file. A name, Friend UID, bio, post, comment, track, tribe name, review, chat
+//    message, AI prompt or anything else with a blocked word is refused before it leaves the phone, and the
+//    PLUR notice explains why (RkHateNotice). Messages are checked before they are encrypted (rkEncMsg,
+//    rkEncTribe), so the encrypted chats are covered the same way.
+//  - While typing, a text box holding a blocked word gets a red edge and a short notice, the moment it's typed.
+//  - Admin Tools → 🕊️ Blocked words: every word with the variations it catches, built-in words switched off or
+//    on, admins' own words added or removed, and a box to test a phrase. Saved in global/moderation and live for
+//    everyone within seconds.
+//  - functions/rk_mod.js checks again on the server, for anything written around the app: new posts, comments,
+//    tracks, radio messages, creator posts, tribe names, and names, Friend UIDs and bios. A blocked word there
+//    becomes ♥, and the writer is told why.
+//  - Not checked: support tickets (a raver reporting abuse has to be able to quote it), notifications (made by
+//    the app from text already checked), and the admins' word list itself.
+// A word list catches words, not meaning. Racism written in ordinary words is still for reports and admins.
+// ============================================================================================
+// ---- V89.84.150.323: THE HATE-SPEECH MATCHER. One copy here, one in functions/rk_mod.js, generated together. ----
+// The built-in words are ROT13 so the source doesn't spell them out. Each is [word, mode, category, options]:
+//   part   anywhere inside a word ("sandn..."), except the real words in RK_HATE_ALLOW (Nigeria, snigger...)
+//   word   the whole word, plus s, es or z; `prev`/`next` name a neighbour that makes it something else
+//          ("Maine Coon", "kaffir lime", "a chink in the armour")
+//   phrase these words in a row, with or without spaces between them
+//   num    a number code, as typed ("1488", "14/88")
+// What it sees through: capitals, accents and look-alike letters (Cyrillic, Greek, full-width), invisible
+// characters, numbers and symbols for letters inside a word (n1gg3r, f@g, $p1c), letters split by spaces,
+// dots or dashes (n i g g a, k.i.k.e), and stretched letters (kiiike) in words of four letters or more.
+// Doubled letters stay doubled (coon is not "con", nigger is not Niger).
+const RK_HATE_ROT = (s) => String(s).replace(/[a-z]/gi, (c) => { const b = c <= 'Z' ? 65 : 97; return String.fromCharCode(((c.charCodeAt(0) - b + 13) % 26) + b); });
+const RK_HATE_BASE = [
+    ["avttre", "part", "race", {}],
+    ["avttn", "part", "race", {}],
+    ["avtthu", "part", "race", {}],
+    ["pbba", "word", "race", {"prev": ["maine", "rac", "ra"], "next": ["hound", "hounds", "dog", "dogs", "cat", "cats", "skin", "skins", "cap", "caps"]}],
+    ["wvtnobb", "part", "race", {}],
+    ["wvttnobb", "part", "race", {}],
+    ["cbepu zbaxrl", "phrase", "race", {}],
+    ["whatyr ohaal", "phrase", "race", {}],
+    ["fnzob", "word", "race", {"next": ["class", "classes", "fighter", "fighters", "wrestling", "gym", "training", "match", "tournament"]}],
+    ["qnexvr", "word", "race", {}],
+    ["qnexl", "word", "race", {}],
+    ["cvpxnavaal", "part", "race", {}],
+    ["cvppnavaal", "part", "race", {}],
+    ["tbyyvjbt", "part", "race", {}],
+    ["fcvp", "word", "race", {}],
+    ["jrgonpx", "part", "race", {}],
+    ["ornare", "word", "race", {}],
+    ["puvax", "word", "race", {"next": ["in", "of"]}],
+    ["tbbx", "word", "race", {}],
+    ["wnc", "word", "race", {}],
+    ["puvanzna", "word", "race", {}],
+    ["mvccreurnq", "part", "race", {}],
+    ["fynag rlr", "phrase", "race", {}],
+    ["puvat pubat", "phrase", "race", {}],
+    ["xvxr", "word", "race", {}],
+    ["xlxr", "word", "race", {}],
+    ["ulzvr", "word", "race", {}],
+    ["gbjryurnq", "part", "race", {}],
+    ["enturnq", "part", "race", {}],
+    ["pnzry wbpxrl", "phrase", "race", {}],
+    ["fnaq zbaxrl", "phrase", "race", {}],
+    ["cnxv", "word", "race", {}],
+    ["jbc", "word", "race", {}],
+    ["qntb", "word", "race", {}],
+    ["cbynpx", "word", "race", {}],
+    ["xenhg", "word", "race", {"next": ["rock", "rocker", "rockers"]}],
+    ["erqfxva", "word", "race", {}],
+    ["fdhnj", "word", "race", {}],
+    ["unys oerrq", "phrase", "race", {"next": ["dog", "dogs", "puppy", "puppies", "horse", "horses", "cat", "cats", "kitten", "kittens"]}],
+    ["ubaxl", "word", "race", {"next": ["tonk", "tonks"]}],
+    ["ubaxvr", "word", "race", {}],
+    ["ubaxrl", "word", "race", {"next": ["tonk", "tonks"]}],
+    ["jvttre", "word", "race", {}],
+    ["jvttn", "word", "race", {}],
+    ["pbbyvr", "word", "race", {}],
+    ["tlccb", "word", "race", {}],
+    ["cvxrl", "word", "race", {}],
+    ["xnssve", "word", "race", {"next": ["lime", "limes", "leaf", "leaves"]}],
+    ["obbat", "word", "race", {}],
+    ["urvy uvgyre", "phrase", "race", {}],
+    ["fvrt urvy", "phrase", "race", {}],
+    ["juvgr cbjre", "phrase", "race", {"next": ["cable", "cables", "cord", "cords", "bank", "banks", "strip", "strips", "supply", "supplies", "adapter", "adapters", "adaptor", "button", "buttons", "brick", "bricks", "outlet", "outlets", "plug", "plugs", "ranger", "rangers", "led", "leds", "light", "lights", "socket", "sockets", "charger", "chargers", "switch", "tool", "tools", "washer", "wheel", "wheels"]}],
+    ["tnf gur wrjf", "phrase", "race", {}],
+    ["xxx", "word", "race", {}],
+    ["1488", "num", "race", {}],
+    ["snttbg", "part", "other", {}],
+    ["snt", "word", "other", {}],
+    ["ergneq", "word", "other", {}],
+    ["ergneqrq", "word", "other", {}],
+    ["genaal", "word", "other", {}],
+    ["genaavr", "word", "other", {}],
+    ["qlxr", "word", "other", {}]
+].map(e => ({ w: RK_HATE_ROT(e[0]), mode: e[1], cat: e[2], prev: (e[3] && e[3].prev) || null, next: (e[3] && e[3].next) || null, builtin: true }));
+const RK_HATE_ALLOW = new Set(["avtre", "avtrevn", "avtrevna", "avtrevnaf", "avtrevra", "avtrevraf", "favttre", "favttref", "favttrerq", "favttrevat", "favttrere", "avttyr", "avttyrf", "avttyrq", "avttyvat", "avttneq", "avttneqf", "avttneqyl", "avttneqyvarff"].map(RK_HATE_ROT));
+const RK_HATE_GLYPH = { '\u0430': 'a', '\u0432': 'b', '\u0435': 'e', '\u0451': 'e', '\u043A': 'k', '\u043C': 'm', '\u043D': 'h', '\u043E': 'o', '\u0440': 'p', '\u0441': 'c', '\u0442': 't', '\u0443': 'y', '\u0445': 'x', '\u0456': 'i', '\u0457': 'i', '\u0458': 'j', '\u0455': 's', '\u0501': 'd', '\u04CF': 'l', '\u0261': 'g', '\u0131': 'i',
+    '\u03B1': 'a', '\u03B2': 'b', '\u03B5': 'e', '\u03B7': 'n', '\u03B9': 'i', '\u03BA': 'k', '\u03BD': 'v', '\u03BF': 'o', '\u03C1': 'p', '\u03C4': 't', '\u03C5': 'u', '\u03C7': 'x', '\u03B3': 'y', '\u03C9': 'w' };
+const RK_HATE_LEET = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '6': 'g', '7': 't', '8': 'b', '9': 'g', '@': 'a', '$': 's', '!': 'i', '|': 'i', '+': 't', '\u20AC': 'e' };
+const rkHateNorm = (text) => {
+    let s = String(text == null ? '' : text);
+    try { s = s.normalize('NFKC'); } catch (e) {}
+    s = s.toLowerCase().replace(/[\u200B-\u200F\u2060-\u2064\uFEFF\u00AD]/g, '');
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036F]/g, ''); } catch (e) {}
+    s = s.replace(/[\u0250-\u02AF\u0370-\u03FF\u0400-\u04FF]/g, (c) => RK_HATE_GLYPH[c] || c);
+    const raw = s;
+    const parts = s.split(/\s+/).map(ch => /[a-z]/.test(ch) ? ch.replace(/[0-9@$!|+\u20AC]/g, (c) => RK_HATE_LEET[c] || c) : ch)
+        .join(' ').replace(/[^a-z]+/g, ' ').trim().split(' ').filter(Boolean);
+    const toks = [];
+    for (let i = 0; i < parts.length; i++) {
+        if (parts[i].length === 1) {
+            let j = i; while (j < parts.length && parts[j].length === 1) j++;
+            if (j - i >= 3) { toks.push(parts.slice(i, j).join('')); i = j - 1; continue; }
+        }
+        toks.push(parts[i]);
+    }
+    return { toks, joined: ' ' + toks.join(' ') + ' ', raw };
+};
+// One word as a pattern: from four letters up, any letter may be stretched, and a doubled letter must stay at
+// least doubled. Words of three letters or fewer must be exact ("woop" isn't "wop", "kkkkk" isn't "kkk").
+const rkHateCore = (w) => {
+    const runs = String(w).match(/(.)\1*/g) || [];
+    const stretch = String(w).length >= 4;
+    return runs.map(r => { const c = r[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); return !stretch ? c + (r.length > 1 ? '{' + r.length + '}' : '') : r.length > 1 ? c + '{' + r.length + ',}' : c + '+'; }).join('');
+};
+const rkHateCompile = (list) => list.map(e => {
+    const w = String(e.w || '').toLowerCase().trim();
+    if (!w) return null;
+    let re;
+    try {
+        if (e.mode === 'num') re = new RegExp('(^|[^\\d$.,])' + w.replace(/\D/g, '').split('').join('[\\s/]*') + '(?![\\d.,]\\d|\\d)');
+        else if (e.mode === 'phrase') {
+            const ws = w.split(/\s+/);
+            re = new RegExp('^' + ws.map(rkHateCore).join('') + '(?:s|z)?$');
+            return { ...e, w, re, parts: ws.map((x, k) => new RegExp('^' + rkHateCore(x) + (k === ws.length - 1 ? '(?:s|z)?' : '') + '$')) };
+        }
+        else if (e.mode === 'part') re = new RegExp(rkHateCore(w));
+        else re = new RegExp('^' + rkHateCore(w) + '(?:s|es|z|ez|zz)?$');
+    } catch (x) { return null; }
+    return { ...e, w, re };
+}).filter(Boolean);
+const rkHateMask = (w) => String(w).split(' ').map(p => p.length <= 2 ? '*'.repeat(p.length) : p[0] + '*'.repeat(p.length - 2) + p[p.length - 1]).join(' ');
+// The first blocked word in `text`, or null. `list` is a compiled list (rkHateCompile).
+const rkHateMatch = (text, list) => {
+    if (text == null || text === '' || !list || !list.length) return null;
+    const n = rkHateNorm(text);
+    for (const e of list) {
+        if (e.mode === 'num') { if (e.re.test(n.raw)) return { w: e.w, masked: e.w, cat: e.cat, builtin: !!e.builtin }; continue; }
+        if (e.mode === 'phrase') {
+            for (let i = 0; i < n.toks.length; i++) {
+                const span = e.re.test(n.toks[i]) ? 1 : (i + e.parts.length <= n.toks.length && e.parts.every((r, k) => r.test(n.toks[i + k]))) ? e.parts.length : 0;
+                if (!span) continue;
+                if (e.prev && i > 0 && e.prev.includes(n.toks[i - 1])) continue;
+                if (e.next && i + span < n.toks.length && e.next.includes(n.toks[i + span])) continue;
+                return { w: e.w, masked: rkHateMask(e.w), cat: e.cat, builtin: !!e.builtin };
+            }
+            continue;
+        }
+        for (let i = 0; i < n.toks.length; i++) {
+            const tk = n.toks[i];
+            if (!e.re.test(tk)) continue;
+            if (e.mode === 'part' && RK_HATE_ALLOW.has(tk)) continue;
+            if (e.prev && i > 0 && e.prev.includes(n.toks[i - 1])) continue;
+            if (e.next && i < n.toks.length - 1 && e.next.includes(n.toks[i + 1])) continue;
+            return { w: e.w, masked: rkHateMask(e.w), cat: e.cat, builtin: !!e.builtin };
+        }
+    }
+    return null;
+};
+// The words in force: the built-in ones an admin hasn't switched off, and the admins' own (global/moderation:
+// { off: [ROT13 word], words: [{ w13: ROT13 word, mode }] }).
+const rkHateActive = (cfg) => {
+    const off = new Set(((cfg && cfg.off) || []).map(RK_HATE_ROT));
+    const mine = ((cfg && cfg.words) || []).map(x => ({ w: RK_HATE_ROT(x.w13 || ''), mode: ['part', 'word', 'phrase', 'num'].includes(x.mode) ? x.mode : 'word', cat: x.cat || 'race', builtin: false }));
+    return rkHateCompile(RK_HATE_BASE.filter(e => !off.has(e.w)).concat(mine));
+};
+// Every copy of the word in `text` turned into hearts, letter for letter, as far as the original can be
+// matched (spaces, dots and number swaps included). Returns null when the word can't be found in the original.
+const rkHateClean = (text, w) => {
+    const CL = { a: '[a4@\u00E1\u00E0\u00E2\u00E4\u00E3\u00E5\u0430]', b: '[b8\u0432]', c: '[c\u0441(]', e: '[e3\u20AC\u00E9\u00E8\u00EA\u00EB\u0435]', g: '[g96]', i: '[i1!|\u00ED\u00EC\u00EE\u00EF\u0456]', k: '[k\u043A]', l: '[l1|]', o: '[o0\u00F3\u00F2\u00F4\u00F6\u00F5\u043E]', p: '[p\u0440]', s: '[s5$\u0455]', t: '[t7+\u0442]', x: '[x\u0445]', y: '[y\u0443]' };
+    const sep = '[\\s._*\\-]*';
+    const pat = String(w).replace(/\s+/g, '').split('').map(ch => (CL[ch] || ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + '+').join(sep);
+    let re; try { re = new RegExp(pat + '(?:' + sep + '[sz](?![a-z]))?', 'gi'); } catch (e) { return null; }
+    if (!re.test(String(text))) return null;
+    return String(text).replace(re, (m) => '\u2665'.repeat(Math.max(3, Math.min(8, m.replace(/[\s._*\-]/g, '').length))));
+};
+let rkHateList = rkHateActive({});
+const rkHateSetCfg = (cfg) => { try { rkHateList = rkHateActive(cfg || {}); } catch (e) {} };
+const rkHateFind = (text) => { try { return rkHateMatch(text, rkHateList); } catch (e) { return null; } };
+let rkHateLastWarn = 0;
+const rkHateWarn = (hit) => {
+    if (!hit) return;
+    const now = Date.now();
+    if (now - rkHateLastWarn < 1200) return;
+    rkHateLastWarn = now;
+    try { window.dispatchEvent(new CustomEvent('rk:hate', { detail: { masked: hit.masked, cat: hit.cat } })); } catch (e) {}
+};
+// Where and what the gate never reads: tickets (abuse gets quoted in reports), notifications (built from text
+// already checked), the word list, logs and counters; and keys that hold ids, links, pictures or ciphertext.
+const RK_HATE_SKIP_PATH = /(^|\/)(notifications|tickets|voteLog|promo_logs|aiUsage|storageUsage|dailyStats)(\/|$)|(^|\/)global\/moderation$/;
+const RK_HATE_SKIP_KEY = new Set(['id', 'uid', 'ownerId', 'ownerUid', 'sender', 'senderId', 'refId', 'photoURL', 'photo', 'image', 'imageUrl', 'imageURL', 'images', 'img', 'avatar',
+    'url', 'link', 'href', 'token', 'fcmTokens', 'email', 'phone', 'wallet', 'walletAddress', 'payoutWallet', 'sig', 'signature', 'hash', 'reference', 'iv', 'ct',
+    'participants', 'members', 'friends', 'likes', 'viewedBy', 'buyers', 'votes', 'yes', 'no', 'customBackground', 'bg', 'audio', 'sampleData', 'blob', 'file',
+    'thumb', 'thumbnail', 'cover', 'coverImage', 'bannerImage', 'embedUrl', 'watchUrl', 'streamUrl', 'completionImage', 'achKnown']);
+const rkHateIsText = (v) => typeof v === 'string' && v.length > 1 && v.length < 8000 && !/^(data:|blob:|https?:\/\/|g:|x:)/i.test(v) && !(v.length > 160 && !/\s/.test(v.slice(0, 160)));
+const rkHateScan = (v, depth, seen) => {
+    if (depth > 5 || seen.n > 400) return null;
+    if (typeof v === 'string') { seen.n++; return rkHateIsText(v) ? rkHateFind(v) : null; }
+    if (!v || typeof v !== 'object') return null;
+    if (Array.isArray(v)) { for (const x of v) { const h = rkHateScan(x, depth + 1, seen); if (h) return h; } return null; }
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) return null;   // FieldValue sentinels, references, dates
+    for (const k of Object.keys(v)) {
+        if (RK_HATE_SKIP_KEY.has(String(k).split('.').pop())) continue;
+        const h = rkHateScan(v[k], depth + 1, seen); if (h) return h;
+    }
+    return null;
+};
+const rkHateRefuse = (hit) => { const err = new Error('Not saved: "' + hit.masked + '" isn\'t allowed on RaveKandi. Hate has no place here.'); err.code = 'rk/hate'; err.rkHate = hit; return err; };
+// null, or the error that refuses the write (the PLUR notice is already up). It never throws itself, so a
+// fault in the gate can't stop a write.
+const rkHateGate = (ref, data) => {
+    try {
+        if (RK_HATE_SKIP_PATH.test(String((ref && ref.path) || ''))) return null;
+        const hit = rkHateScan(data, 0, { n: 0 });
+        if (!hit) return null;
+        rkHateWarn(hit);
+        return rkHateRefuse(hit);
+    } catch (e) { return null; }
+};
+// updateDoc(ref, data) or updateDoc(ref, field, value, field, value, ...)
+const rkHateGateArgs = (ref, args) => {
+    try {
+        if (!args || !args.length) return null;
+        if (args.length === 1 || (args[0] && typeof args[0] === 'object' && typeof args[0].isEqual !== 'function')) return rkHateGate(ref, args[0]);
+        const o = {}; for (let i = 0; i + 1 < args.length; i += 2) o[String(args[i])] = args[i + 1];
+        return rkHateGate(ref, o);
+    } catch (e) { return null; }
+};
+const rkHateTx = (tx) => {
+    const w = {
+        get: (r) => tx.get(r),
+        set: (r, d, o) => { const bad = rkHateGate(r, d); if (bad) throw bad; if (o === undefined) tx.set(r, d); else tx.set(r, d, o); return w; },
+        update: (r, ...a) => { const bad = rkHateGateArgs(r, a); if (bad) throw bad; tx.update(r, ...a); return w; },
+        delete: (r) => { tx.delete(r); return w; },
+    };
+    return w;
+};
+const rkHateBatch = (b) => {
+    let bad = null;
+    const w = {
+        set: (r, d, o) => { if (!bad) bad = rkHateGate(r, d); if (o === undefined) b.set(r, d); else b.set(r, d, o); return w; },
+        update: (r, ...a) => { if (!bad) bad = rkHateGateArgs(r, a); b.update(r, ...a); return w; },
+        delete: (r) => { b.delete(r); return w; },
+        commit: () => bad ? Promise.reject(bad) : b.commit(),
+    };
+    return w;
+};
+// Text about to be encrypted (messages): stop here, before it becomes unreadable to the gate.
+const rkHateStop = (text) => { const hit = rkHateFind(text); if (hit) { rkHateWarn(hit); throw rkHateRefuse(hit); } };
+// The notice: a full window when something was refused, a strip at the top while typing.
+const RkHateNotice = () => {
+    const [hit, setHit] = useState(null);
+    const [tip, setTip] = useState(null);
+    useEffect(() => {
+        const on = (e) => { setTip(null); setHit((e && e.detail) || {}); };
+        const onTip = (e) => setTip({ ...((e && e.detail) || {}), n: Date.now() });
+        window.addEventListener('rk:hate', on);
+        window.addEventListener('rk:hate-tip', onTip);
+        return () => { window.removeEventListener('rk:hate', on); window.removeEventListener('rk:hate-tip', onTip); };
+    }, []);
+    useEffect(() => { if (!tip) return; const t = setTimeout(() => setTip(null), 7000); return () => clearTimeout(t); }, [tip]);
+    const closeRef = useRef(() => setHit(null));
+    const close = closeRef.current;
+    useRkBackClose(!!hit, close);
+    return (<>
+        {tip && !hit && createPortal(
+            <div role="status" data-hate-tip="1" className="fixed left-1/2 -translate-x-1/2 z-[2200] pointer-events-none w-[92%] max-w-md bg-gradient-to-r from-rose-700 to-fuchsia-700 border-2 border-white rounded-xl p-3 shadow-[0_0_24px_rgba(255,80,160,0.6)]" style={{ top: 'calc(10px + env(safe-area-inset-top))' }}>
+                <p className="text-sm font-black text-white">🕊️ "{tip.masked}" isn't welcome on RaveKandi</p>
+                <p className="text-sm text-white mt-0.5">That word is inappropriate here and won't be tolerated, so it can't be sent or saved. PLUR: peace and love, never hate. 💜</p>
+            </div>, document.body)}
+        {hit && createPortal(
+            <div className="fixed inset-0 z-[2250] bg-black/85 flex items-center justify-center p-4" data-hate-modal="1" onClick={close}>
+                <div onClick={e => e.stopPropagation()} role="alertdialog" aria-label="Not allowed on RaveKandi" className="max-w-sm w-full rounded-2xl border-2 border-pink-300 bg-gradient-to-br from-purple-800 via-fuchsia-800 to-rose-800 p-5 text-center shadow-[0_0_34px_rgba(236,72,153,0.55)]">
+                    <div className="text-4xl mb-2" aria-hidden="true">🕊️</div>
+                    <h3 className="text-xl font-black text-white mb-2">Not on RaveKandi</h3>
+                    <p className="text-sm text-white leading-relaxed">"{hit.masked}" is inappropriate for RaveKandi and won't be tolerated: not in names, messages, posts, comments, bios, tribes or anywhere else. Nothing was sent or saved.</p>
+                    <p className="text-sm text-white leading-relaxed mt-2">RaveKandi runs on PLUR: Peace, Love, Unity and Respect. Everyone on the dancefloor is family, whatever their race, culture, gender, ability or who they love. Choose love over hate. 💜</p>
+                    <button onClick={close} data-hate-ok="1" className="mt-4 bg-white text-purple-800 font-black text-sm px-6 py-2.5 rounded-full active:scale-95">I understand</button>
+                </div>
+            </div>, document.body)}
+    </>);
+};
+// Admin Tools → 🕊️ Blocked words.
+// V89.84.150.323: a raver's profile counts one view from the same viewer every 30 minutes (the rules hold it there).
+const RK_VIEW_GAP_MS = 30 * 60000;
+const RK_HATE_MODES = [['word', 'The whole word (and plurals)'], ['part', 'Anywhere inside a word'], ['phrase', 'A phrase (words in a row)']];
+const RK_HATE_MODE_LABEL = { word: 'whole word', part: 'inside words too', phrase: 'phrase', num: 'number code' };
+const rkHateVariants = (w, mode) => {
+    if (mode === 'num') return [w.slice(0, 2) + '/' + w.slice(2), w.slice(0, 2) + ' ' + w.slice(2)];
+    if (mode === 'phrase') return [w.replace(/ /g, ''), w.replace(/ /g, '-'), w.toUpperCase()];
+    const leet = w.replace(/[aeios]/g, c => ({ a: '4', e: '3', i: '1', o: '0', s: '5' })[c]);
+    const out = [leet, w.split('').join(' '), w.split('').join('.'), w.length >= 4 ? w.replace(/([aeiouy])/, '$1$1$1') : '', mode === 'word' ? w + 's' : 'x' + w + 'x', w.toUpperCase()];
+    return Array.from(new Set(out.filter(x => x && x !== w)));
+};
+const AdminWordsPanel = ({ user }) => {
+    const [cfg, setCfg] = useState({ off: [], words: [] });
+    const [show, setShow] = useState(false);
+    const [nw, setNw] = useState('');
+    const [mode, setMode] = useState('word');
+    const [test, setTest] = useState('');
+    const [q, setQ] = useState('');
+    const [busy, setBusy] = useState(false);
+    useEffect(() => onSnapshot(doc(db, 'artifacts', appId, 'global', 'moderation'),
+        s => { const d = s.exists() ? s.data() : {}; setCfg({ off: Array.isArray(d.off) ? d.off : [], words: Array.isArray(d.words) ? d.words : [] }); },
+        e => rkReport('moderation list', e)), []);
+    const save = async (next) => {
+        setBusy(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'global', 'moderation'), { off: next.off, words: next.words, updatedAt: Date.now(), updatedBy: (user && user.uid) || '' }, { merge: true }); }
+        catch (e) { alert('Could not save: ' + e.message); }
+        setBusy(false);
+    };
+    const offSet = new Set(cfg.off.map(RK_HATE_ROT));
+    const vis = (w) => show ? w : rkHateMask(w);
+    const toggle = (w) => { const k = RK_HATE_ROT(w); save({ ...cfg, off: offSet.has(w) ? cfg.off.filter(x => x !== k) : [...cfg.off, k] }); };
+    const add = () => {
+        const w = nw.trim().toLowerCase().replace(/\s+/g, ' ');
+        if (w.length < 2) { alert('Type the word first (2 letters or more).'); return; }
+        if (cfg.words.some(x => RK_HATE_ROT(x.w13 || '') === w) || RK_HATE_BASE.some(b => b.w === w)) { alert('That word is already on the list.'); return; }
+        const m = w.includes(' ') ? 'phrase' : /^\d+$/.test(w) ? 'num' : mode;
+        save({ ...cfg, words: [...cfg.words, { w13: RK_HATE_ROT(w), mode: m, by: (user && user.uid) || '', at: Date.now() }] });
+        setNw('');
+    };
+    const remove = (x) => { if (!window.confirm('Take "' + vis(RK_HATE_ROT(x.w13 || '')) + '" off the list?')) return; save({ ...cfg, words: cfg.words.filter(y => y !== x) }); };
+    const active = rkHateActive(cfg);
+    const testHit = test.trim() ? rkHateMatch(test, active) : null;
+    const ql = q.trim().toLowerCase();
+    const base = RK_HATE_BASE.filter(b => !ql || b.w.includes(ql));
+    const mine = cfg.words.filter(x => !ql || RK_HATE_ROT(x.w13 || '').includes(ql));
+    const Row = ({ w, mode, cat, children }) => (
+        <div className="bg-black/40 border border-white/20 rounded-lg p-2.5" data-word-row={RK_HATE_ROT(w)}>
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-black text-white break-all">{vis(w)} <span className="text-sm font-bold text-cyan-200">· {RK_HATE_MODE_LABEL[mode] || mode}{cat === 'other' ? ' · other slur' : ''}</span></p>
+                {children}
+            </div>
+            <p className="text-sm text-white mt-1 break-all">Also caught: {rkHateVariants(w, mode).map(vis).join(', ')}{mode === 'word' || mode === 'part' ? ', look-alike letters' : ''}</p>
+        </div>
+    );
+    return (
+        <div className="space-y-3" data-rk-hate-ok="1" data-admin-words="1">
+            <p className="text-sm text-white leading-relaxed">Blocked everywhere a raver can write: names, Friend UIDs, bios, messages and tribe chat (checked before encryption), posts, comments, reviews, music, tribe names and radio chat. Typing one shows a warning at once; sending or saving it is refused with the PLUR notice. Variations are caught too: spaces or dots between letters, numbers and symbols for letters, stretched letters, look-alike letters from other alphabets, and plurals.</p>
+            <div className="bg-black/40 border border-cyan-400/50 rounded-lg p-3 space-y-2">
+                <label className="block text-sm font-bold text-white">Test a phrase
+                    <input value={test} onChange={e => setTest(e.target.value)} placeholder="Type anything to see if it would be blocked" data-word-test="1" className="mt-1 w-full bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white"/>
+                </label>
+                {test.trim() && <p className={'text-sm font-black ' + (testHit ? 'text-rose-200' : 'text-lime-200')} data-word-test-result={testHit ? 'blocked' : 'ok'}>{testHit ? '🚫 Blocked: matches "' + vis(testHit.w) + '"' + (testHit.builtin ? ' (built in)' : ' (added by an admin)') : '✓ Allowed'}</p>}
+            </div>
+            <div className="bg-black/40 border border-pink-400/50 rounded-lg p-3 space-y-2">
+                <p className="text-sm font-black text-pink-100">Add a word</p>
+                <input value={nw} onChange={e => setNw(e.target.value)} placeholder="Word or phrase" data-word-new="1" className="w-full bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white"/>
+                <select value={mode} onChange={e => setMode(e.target.value)} data-word-mode="1" className="w-full bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white">
+                    {RK_HATE_MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+                <p className="text-sm text-white">A phrase (with a space) is matched as a phrase, a number as a number code. Use "Anywhere inside a word" only for words that can't be part of an ordinary word.</p>
+                <button disabled={busy || !nw.trim()} onClick={add} data-word-add="1" className="w-full text-sm font-black bg-pink-600 text-white rounded-lg py-2">Add to the list</button>
+            </div>
+            <div className="flex items-center gap-2">
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Find a word on the list" className="flex-1 bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white"/>
+                <button onClick={() => setShow(!show)} data-word-show="1" className="shrink-0 text-sm font-bold bg-black/50 border border-white/40 text-white rounded-lg px-3 py-2">{show ? 'Hide words' : 'Show words'}</button>
+            </div>
+            <div className="space-y-1.5">
+                <p className="text-sm font-black text-cyan-200">Added by admins ({cfg.words.length})</p>
+                {mine.length === 0 ? <p className="text-sm text-white">{cfg.words.length ? 'None match.' : 'None yet.'}</p> : mine.map((x, i) => (
+                    <Row key={'m' + i} w={RK_HATE_ROT(x.w13 || '')} mode={x.mode} cat={x.cat}>
+                        <button disabled={busy} onClick={() => remove(x)} data-word-remove={x.w13} className="shrink-0 text-sm font-bold text-rose-200 underline">Remove</button>
+                    </Row>
+                ))}
+            </div>
+            <div className="space-y-1.5">
+                <p className="text-sm font-black text-cyan-200">Built in ({RK_HATE_BASE.length}, {RK_HATE_BASE.length - offSet.size} on)</p>
+                {base.map(b => { const on = !offSet.has(b.w); return (
+                    <Row key={b.w} w={b.w} mode={b.mode} cat={b.cat}>
+                        <button disabled={busy} onClick={() => toggle(b.w)} role="switch" aria-checked={on} data-word-toggle={RK_HATE_ROT(b.w)} className={'shrink-0 text-sm font-black rounded-full px-3 py-1 border ' + (on ? 'bg-lime-500 text-black border-lime-300' : 'bg-black/50 text-white border-white/40')}>{on ? 'ON' : 'OFF'}</button>
+                    </Row>
+                ); })}
+            </div>
+            <p className="text-sm text-white">Changes reach everyone within seconds. With the functions deployed, the server also checks new posts, comments, tracks, radio messages, tribe names, names and bios, and turns a blocked word into ♥.</p>
+        </div>
+    );
+};
 // Detect links / contact handles so non-VIP users can't drop them (anti-spam).
 const looksLikeLink = (text) => {
     const t = (text || '').toLowerCase();
@@ -1313,15 +2165,12 @@ const looksLikeLink = (text) => {
     if (/@[a-z0-9_.]{3,}/.test(t) && /(insta|ig|snap|tele|telegram|whatsapp|wa|cashapp|venmo|paypal|onlyfans|of|disc)/.test(t)) return true;
     return false;
 };
-// Normalize leetspeak + separators so "n i g g e r" / "n1gg3r" are caught.
-const normalizeForFilter = (text) => (text || '').toLowerCase()
-    .replace(/[0]/g, 'o').replace(/[1!|]/g, 'i').replace(/[3]/g, 'e').replace(/[4@]/g, 'a').replace(/[5$]/g, 's').replace(/[7]/g, 't')
-    .replace(/[^a-z]/g, '');
 const chatModerate = (text, { isVIP }) => {
     const raw = (text || '').trim();
     if (!raw) return { ok: false, reason: 'empty' };
-    const norm = normalizeForFilter(raw);
-    for (const term of CHAT_BLOCKED_TERMS) { if (norm.includes(normalizeForFilter(term))) return { ok: false, reason: 'hate', flagged: true }; }
+    // V89.84.150.323: the hate-speech filter (rkHateFind), with its PLUR notice
+    const hateHit = rkHateFind(raw);
+    if (hateHit) { rkHateWarn(hateHit); return { ok: false, reason: 'hate', flagged: true }; }
     // Links: blocked for everyone in the normal message path (VIPs share links via the
     // dedicated "share social link" action, which is rate-limited separately).
     if (looksLikeLink(raw)) return { ok: false, reason: 'link', flagged: true };
@@ -1656,7 +2505,8 @@ const _deriveAesKey = async (secret) => {
 const rkSecret = (a, b) => [a, b].sort().join('::') + '::ravekandi::gcm::v1';
 // Group (tribe) secret — shared by all members, derived from the tribe id. Same AES-GCM scheme.
 const rkTribeSecret = (tribeId) => 'tribe::' + tribeId + '::ravekandi::gcm::v1';
-const rkEncTribe = async (text, tribeId) => rkEncGcm(text, rkTribeSecret(tribeId));
+// V89.84.150.323: checked for blocked words before encryption (rkHateStop), where the write gate can still read it.
+const rkEncTribe = async (text, tribeId) => { rkHateStop(text); return rkEncGcm(text, rkTribeSecret(tribeId)); };
 const rkDecTribe = async (blob, tribeId) => {
     if (typeof blob !== 'string') return '[unreadable]';
     if (blob.slice(0, 2) === 'g:') return rkDecGcm(blob, rkTribeSecret(tribeId));
@@ -1684,7 +2534,7 @@ const rkDecGcm = async (blob, secret) => {
 
 // Unified async encrypt/decrypt used by the messaging layer. Encrypt always uses AES-GCM now.
 // Decrypt dispatches on the prefix so old XOR messages and new GCM messages both open correctly.
-const rkEncMsg = async (text, a, b) => rkEncGcm(text, rkSecret(a, b));
+const rkEncMsg = async (text, a, b) => { rkHateStop(text); return rkEncGcm(text, rkSecret(a, b)); };
 const rkDecMsg = async (blob, a, b) => {
     if (typeof blob !== 'string') return '[unreadable]';
     if (blob.slice(0, 2) === 'g:') return rkDecGcm(blob, rkSecret(a, b));
@@ -1803,6 +2653,24 @@ export const performObliterate = async (tid) => {
 //    in the 2/3, so a mute can't hold a vote back.
 //  - The notice that a vote has started goes only to the members who can vote on it. A daily nudge
 //    (rkVoteNudge) names the votes still waiting on you; a vote you said yes or no to isn't one of them.
+// V89.84.150.323: MUTES BACK TO CHAT ONLY, INVITES ACCEPTED FIRST, AND REMINDERS (Milli, at 323).
+//  - "instead of mutes blocking votes, time outs should block voting. Mutes should only pertain to being able to
+//    type in the chat": a muted member reads, votes, calls votes and invites; they can't post. A time-out still
+//    stops all of it (rkTribeOutOf).
+//  - "when user initiates a member invite, the invitee must first accept the invite before the vote process
+//    begins": inviting writes `invites.<uid>` and asks the raver. Accepting marks it (the rules let a raver
+//    touch only their own invite), and the next settle turns it into the vote to add them, with the inviter's
+//    yes counted (rkTribeInvitesIn). Declining removes it. Unanswered, it lapses after 7 days. Someone who
+//    asked to join, or already has a vote running, goes straight to the vote as before.
+//  - "update the invitee via notification ... at the 25% up vote or down vote, 50% up vote, and 75% up vote":
+//    progress is counted toward what decides the vote, since it closes at 2/3: 25%, 50% and 75% of the yes
+//    votes needed, and 25% of the no votes that would end it (rkInviteMile). Each is said once
+//    (`mile`, `noMile` on the vote); passing or failing has its own notice.
+//  - "auto notifications for votes a user hasn't voted on once every 12 hours ... a setting to turn this off,
+//    or ... how many hours or days ... Longest ... once a week": Settings → Notifications → 🗳️ Vote reminders
+//    (voteRemindHours: 6, 12, 24, 48, 72, 120 or 168; 0 is off; unset is 12). The voteReminders Cloud Function
+//    checks every hour, so they arrive with the app closed; the app checks too when it opens (rkVoteNudge).
+//    Whichever goes first stamps voteRemindAt.
 // The votes are still counted by the app; the rules let any member write the tribe document
 // (queue item 23).
 const RK_TRIBE_STATUS = ['open', 'closed'];
@@ -1840,12 +2708,39 @@ const rkTribeRestriction = (t, uid, now) => {
     const r = t && t.restrictions && t.restrictions[uid];
     return (r && Number(r.until) > (now || Date.now())) ? r : null;
 };
-// Who may vote: every member, except the member a vote is about and anyone muted or in a time-out
-// (V88.84.150.322: a mute stops voting too; it used to stop only posting).
+// V89.84.150.323: in a time-out now (a mute doesn't count: it only stops posting). An unknown type counts as a
+// time-out, so nothing new can slip through as a mute.
+const rkTribeOutOf = (rs, m, at) => !!(rs && rs[m] && rs[m].type !== 'mute' && Number(rs[m].until) > (at || Date.now()));
+// Who may vote: every member, except the member a vote is about and anyone in a time-out.
+// V89.84.150.323 (Milli, at 323): a mute no longer stops voting (322 made it); only a time-out does.
 const rkTribeVoters = (members, v, rs, now) => {
     const at = now || Date.now();
-    return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target)
-        && !(rs && rs[m] && Number(rs[m].until) > at));
+    return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target) && !rkTribeOutOf(rs, m, at));
+};
+// V89.84.150.323: AN INVITE, AND HOW ITS VOTE IS GOING. Progress is measured against what decides the vote: the
+// yes votes needed (2/3) and the no votes that would end it. Returns the milestone reached: 0, 25, 50, 75, or
+// 100 (passes).
+const RK_INVITE_MS = 7 * 86400000;
+const rkInviteMile = (yes, need) => { const p = need > 0 ? (100 * (Number(yes) || 0)) / need : 0; return p >= 100 ? 100 : p >= 75 ? 75 : p >= 50 ? 50 : p >= 25 ? 25 : 0; };
+const rkInviteNoMile = (no, killAt) => (killAt > 0 && (100 * (Number(no) || 0)) / killAt >= 25 ? 25 : 0);
+// An accepted invite is a vote to add them, with the inviter's yes already counted (if they're still a
+// member). Pure; the settle and every vote on adding someone run it first.
+const rkTribeInvitesIn = (t, nowIn) => {
+    const inv = (t && t.invites) || {};
+    const ks = Object.keys(inv).filter(cid => inv[cid] && inv[cid].accepted);
+    if (!ks.length) return t;
+    const now = nowIn || Date.now();
+    const members = t.members || [];
+    const pending = { ...(t.pendingVotes || {}) }, invites = { ...inv };
+    const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
+    ks.forEach(cid => {
+        const iv = invites[cid]; delete invites[cid];
+        if (members.includes(cid) || pending[cid]) return;
+        const by = members.includes(iv.by) ? iv.by : '';
+        pending[cid] = { name: String(iv.name || 'Raver').slice(0, 40), votes: by ? [by] : [], no: [], at: Number(iv.acceptedAt) || now, asked: false,
+            invited: iv.by || '', byName: String(iv.byName || '').slice(0, 40), mile: by ? Math.min(75, rkInviteMile(1, need)) : 0, noMile: 0 };
+    });
+    return { ...t, pendingVotes: pending, invites };
 };
 // V88.84.150.322: a vote that can no longer pass. With `n` voters it needs rkTribeNeeded(n) yeses, so once
 // more than n - needed have said no, it can't get there.
@@ -1894,9 +2789,20 @@ const rkTribeReqs = (p, uid) => [
 ];
 // Settles a tribe's votes against its current members. Pure apart from the clock: returns the new
 // state and what passed, expired, ran out or no longer applied.
-const rkTribeSettle = (t0, nowIn) => {
+const rkTribeSettle = (tIn, nowIn) => {
     const now = nowIn || Date.now();
+    // V89.84.150.323: accepted invites become votes; an invite nobody answered lapses after 7 days, or when the
+    // member who sent it has left.
+    const t0 = rkTribeInvitesIn(tIn, now);
+    const invitesStarted = Object.keys(t0.pendingVotes || {}).filter(cid => !((tIn.pendingVotes || {})[cid])).map(cid => ({ uid: cid, name: (t0.pendingVotes[cid] || {}).name || 'Raver', by: (t0.pendingVotes[cid] || {}).invited || '' }));
+    const invites = { ...(t0.invites || {}) }, invitesExpired = [];
     const before = (t0.members || []).slice();
+    Object.keys(invites).forEach((cid) => {
+        const iv = invites[cid] || {};
+        if (before.includes(cid) || (t0.pendingVotes || {})[cid]) { delete invites[cid]; return; }
+        const left = !before.includes(iv.by);
+        if (left || now - (Number(iv.at) || 0) > RK_INVITE_MS) { delete invites[cid]; invitesExpired.push({ uid: cid, name: iv.name || 'Raver', by: iv.by || '', left }); }
+    });
     let members = before.slice();
     const names = { ...(t0.memberNames || {}) };
     const pending = { ...(t0.pendingVotes || {}) };
@@ -1916,8 +2822,8 @@ const rkTribeSettle = (t0, nowIn) => {
         if (before.includes(cid)) { delete pending[cid]; return; }
         const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
         const no = Array.from(new Set(e.no || [])).filter(v => before.includes(v) && !votes.includes(v));
-        if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver' }); delete pending[cid]; }
-        else if (rkTribeDead(admitVoters, no.filter(v => admitVoters.includes(v)).length)) { rejectedAdmits.push({ uid: cid, name: e.name || 'Raver', asked: !!e.asked, by: (e.votes || [])[0] || '' }); delete pending[cid]; }
+        if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver', by: e.invited || '' }); delete pending[cid]; }
+        else if (rkTribeDead(admitVoters, no.filter(v => admitVoters.includes(v)).length)) { rejectedAdmits.push({ uid: cid, name: e.name || 'Raver', asked: !!e.asked, by: e.invited || (e.votes || [])[0] || '' }); delete pending[cid]; }
         else pending[cid] = { ...e, votes, no, needed: admitNeed };
     });
     // Item votes. Stale ones are dropped: the target left, or the tribe already has that status,
@@ -1999,14 +2905,20 @@ const rkTribeSettle = (t0, nowIn) => {
         });
     }
     Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
+    // V89.84.150.323: who brought each member in (Welcome Committee counts them), kept for current members only
+    const invitedBy = { ...(t0.memberInvitedBy || {}) };
+    admitted.forEach(a => { if (a.by) invitedBy[a.uid] = a.by; });
+    Object.keys(invitedBy).forEach(u => { if (!members.includes(u)) delete invitedBy[u]; });
     return { members, names, pending, requests, admitted, kicked, applied, votes, status, statusChanged: status !== rkTribeStatus(t0), name, creatorUid, purgedAt,
-        restrictions, served, expired, dropped, rejected, rejectedAdmits, rev: (Number(t0.rev) || 0) + 1 };
+        restrictions, served, expired, dropped, rejected, rejectedAdmits, rev: (Number(t0.rev) || 0) + 1,
+        invites, invitesStarted, invitesExpired, invitedBy, invitesMoved: invitesStarted.length + invitesExpired.length > 0 };
 };
 const rkTribePatch = (st) => {
     const p = {
         members: st.members, memberNames: st.names, memberCount: st.members.length,
         pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
         votes: st.votes, statusVote: deleteField(), restrictions: st.restrictions, rev: st.rev,
+        invites: st.invites || {}, memberInvitedBy: st.invitedBy || {},
     };
     if (st.name) p.name = st.name;
     if (st.creatorUid) p.creatorUid = st.creatorUid;
@@ -2016,7 +2928,7 @@ const rkTribePatch = (st) => {
 // The tribe document as it stands after a settle is written (the transaction read `t` at commit,
 // so this IS the committed state).
 const rkTribeMerged = (t, st) => {
-    const out = { ...t, members: st.members, memberNames: st.names, memberCount: st.members.length, pendingVotes: st.pending, joinRequests: st.requests, status: st.status, votes: st.votes, restrictions: st.restrictions, rev: st.rev };
+    const out = { ...t, members: st.members, memberNames: st.names, memberCount: st.members.length, pendingVotes: st.pending, joinRequests: st.requests, status: st.status, votes: st.votes, restrictions: st.restrictions, rev: st.rev, invites: st.invites || {}, memberInvitedBy: st.invitedBy || {} };
     delete out.statusVote;
     if (st.name) out.name = st.name;
     if (st.creatorUid) out.creatorUid = st.creatorUid;
@@ -2156,8 +3068,8 @@ const rkTribeAfter = (tribeId, t0, st, skipUid) => {
             const r = st.restrictions[v.target]; if (!r) return;
             const firstAppeal = r.start + (r.until - r.start) / 4;
             rkTribeNotify(tribeId, t0, [v.target], null, v.type === 'mute'
-                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post or vote. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
-                : '⏳ You are in a time-out in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat but not take part. You can appeal from ' + rkTribeWhen(firstAppeal) + '.', 'appeal');
+                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat and vote, but not post. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
+                : '⏳ You are in a time-out in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post or vote. You can appeal from ' + rkTribeWhen(firstAppeal) + '.', 'appeal');
             rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', (v.type === 'mute' ? '🔇 @' + (v.targetName || 'A member') + ' was muted for ' : '⏳ @' + (v.targetName || 'A member') + ' was given a time-out of ') + rkDurTxt(r.dur) + ' in "' + nm + '", by a member vote.', 'card');
             return;
         }
@@ -2199,14 +3111,25 @@ const rkTribeAfter = (tribeId, t0, st, skipUid) => {
         if (a.by) rkTribeNotify(tribeId, t0, [a.by], null, '🗳️ The vote to add @' + a.name + ' to "' + nm + '" was voted down.', 'card');
         rkTribeNotify(tribeId, t0, others(st.members, skipUid, a.by), 'vote', '🗳️ Voted down in "' + nm + '": adding @' + a.name + '.', 'card');
     });
+    // V89.84.150.323: an invite that lapsed: the member who sent it hears (unless it lapsed because they left)
+    (st.invitesExpired || []).forEach(x => {
+        if (x.by && !x.left) rkTribeNotify(tribeId, t0, [x.by], null, '🎟️ Your invite to @' + x.name + ' for "' + nm + '" ran out after 7 days without an answer. You can invite them again.', 'card');
+    });
     if ((st.applied || []).some(v => v.type === 'purge')) rkTribePurgeMessages(tribeId, st.purgedAt);
 };
 // V88.84.150.322: after a raver answers a vote, yes or no: their count of votes goes up by one the first time
 // they answer it (Civic Raver, Tribe Council), and their notifications about it are marked read, because it
 // isn't waiting for them any more.
-const rkTribeVoted = (uid, tribeId, key, fresh) => {
+// V89.84.150.323: `startedAt` is when the vote started: an answer within 12 hours of it also counts toward Quick
+// Draw (tribeVotesFast). Calling or proposing a vote yourself passes 0, so it never counts as quick.
+const RK_FAST_VOTE_MS = 12 * 3600000;
+const rkTribeVoted = (uid, tribeId, key, fresh, startedAt) => {
     if (!uid || !tribeId) return;
-    if (fresh) { try { updateDoc(doc(db, 'artifacts', appId, 'users', uid), { tribeVotesCast: increment(1) }).catch(e => rkReport('tribe vote count', e)); } catch (e) {} }
+    if (fresh) {
+        const upd = { tribeVotesCast: increment(1) };
+        if (Number(startedAt) > 0 && Date.now() - Number(startedAt) <= RK_FAST_VOTE_MS) upd.tribeVotesFast = increment(1);
+        try { updateDoc(doc(db, 'artifacts', appId, 'users', uid), upd).catch(e => rkReport('tribe vote count', e)); } catch (e) {}
+    }
     if (!key) return;
     const refs = [tribeId + '#vote:' + key];
     if (key.indexOf('admit:') === 0) refs.push(tribeId + '#vote:join:' + key.slice(6));
@@ -2218,11 +3141,11 @@ const rkTribeVoted = (uid, tribeId, key, fresh) => {
         } catch (e) {}
     });
 };
-// Refuses votes, calls and invites from a member who is muted or in a time-out. (The app hides the buttons;
-// this is the backstop.) V88.84.150.322: a mute too.
+// Refuses votes, calls and invites from a member in a time-out. (The app hides the buttons; this is the
+// backstop.) V89.84.150.323: a mute no longer does (322 made it); a muted member only can't post.
 const rkTribeNotTimedOut = (t, uid, now) => {
     const r = rkTribeRestriction(t, uid, now);
-    if (r) throw new Error((r.type === 'timeout' ? 'You are in a time-out' : 'You are muted') + ' until ' + rkTribeWhen(r.until) + '. You can read the chat, but not vote, call votes or invite.');
+    if (r && r.type !== 'mute') throw new Error('You are in a time-out until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post, vote, call votes or invite.');
 };
 export const createTribe = async (creatorUid, creatorName, tribeName, status) => {
     if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
@@ -2257,7 +3180,7 @@ export const proposeToTribe = async (tribeId, candidateUid, candidateName, propo
         const req = (t.joinRequests || {})[candidateUid];
         const nm = candidateName || (req && req.name) || 'Raver';
         const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [proposerUid], needed: need, at: now, asked: !!req } };
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [proposerUid], needed: need, at: now, asked: !!req, mile: Math.min(75, rkInviteMile(1, need)), noMile: 0 } };
         const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
         const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
         const st = rkTribeSettle(t1, now);
@@ -2271,21 +3194,24 @@ export const proposeToTribe = async (tribeId, candidateUid, candidateName, propo
     if (!out.approved) {
         // V79.6: the candidate is told too, so a stalled vote doesn't look like nothing happened.
         rkTribeNotify(tribeId, out.t, [candidateUid], null, out.asked
-            ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join.'
-            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now.', 'find');
-        // V88.84.150.322: only the members who can vote on it (not anyone muted or in a time-out).
+            ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join: 1 of ' + out.needed + ' yes votes so far.'
+            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now: 1 of ' + out.needed + ' yes votes so far.', 'invite');
+        // V88.84.150.322: only the members who can vote on it (V89.84.150.323: not anyone in a time-out).
         rkTribeNotify(tribeId, out.t, rkTribeVoters(out.t.members, { type: 'admit' }, out.t.restrictions, Date.now()).filter(m => m !== proposerUid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote yes or no.', 'vote:' + key);
     }
     rkTribeVoted(proposerUid, tribeId, key, true);
     return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.approved ? out.needed : 1, key };
 };
 // Cast a vote; once 2/3 of the current members have said yes, the candidate joins the group chat.
+// V89.84.150.323: an accepted invite is a vote here too (rkTribeInvitesIn), and the candidate hears each
+// milestone toward the yes votes needed (25%, 50%, 75%) once.
 export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
     const ref = rkTribeRef(tribeId);
     const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
+        const raw = snap.data(), now = Date.now();
+        const t = rkTribeInvitesIn(raw, now);
         if (!(t.members || []).includes(voterUid)) throw new Error('Only members can vote.');
         rkTribeNotTimedOut(t, voterUid, now);
         if ((t.members || []).includes(candidateUid)) return { done: true };
@@ -2293,49 +3219,140 @@ export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
         if (!e) throw new Error('No pending vote for this raver');
         const fresh = !(e.votes || []).includes(voterUid) && !(e.no || []).includes(voterUid);
         // V88.84.150.322: a yes replaces a no from the same member.
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...e, votes: Array.from(new Set([...(e.votes || []), voterUid])), no: (e.no || []).filter(u => u !== voterUid) } };
+        const ent = { ...e, votes: Array.from(new Set([...(e.votes || []), voterUid])), no: (e.no || []).filter(u => u !== voterUid) };
+        const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
+        const need = rkTribeNeeded(voters.length);
+        const yesB = (e.votes || []).filter(u => voters.includes(u)).length, yesA = ent.votes.filter(u => voters.includes(u)).length;
+        const prev = e.mile !== undefined ? Number(e.mile) || 0 : rkInviteMile(yesB, need);
+        const mile = rkInviteMile(yesA, need);
+        let told = 0;
+        if (mile > prev && mile < 100) { ent.mile = mile; told = mile; }
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: ent };
         const t1 = { ...t, pendingVotes: pending };
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh, approved: st.admitted.some(a => a.uid === candidateUid) };
+        rkTribeLogTx(tx, tribeId, raw, t1, st, now, {});
+        return { t, st, fresh, at: Number(e.at) || 0, told, yesA, need, approved: st.admitted.some(a => a.uid === candidateUid) };
     });
     if (out.done) return 'approved';
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, voterUid);
-    rkTribeVoted(voterUid, tribeId, 'admit:' + candidateUid, out.fresh);
+    if (out.told && out.st.pending[candidateUid]) rkTribeNotify(tribeId, out.t, [candidateUid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.told + '% of the way there, ' + out.yesA + ' of ' + out.need + ' yes votes.', 'invite');
+    rkTribeVoted(voterUid, tribeId, 'admit:' + candidateUid, out.fresh, out.at);
     return out.approved ? 'approved' : 'voted';
 };
 // V88.84.150.322: VOTE NO on adding someone: a vote that's running, or a join request nobody has voted on yet
 // (the no then starts the vote). A no replaces a yes from the same member. Returns 'rejected' when this no
 // means it can't pass, 'voted', or 'closed' when they're already in.
+// V89.84.150.323: an accepted invite counts as a running vote, and the candidate hears once when a quarter of
+// the no votes that would end it are in.
 export const voteNoTribeMember = async (tribeId, candidateUid, candidateName, uid) => {
     const ref = rkTribeRef(tribeId);
     const out = await rkTribeTx(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
+        const raw = snap.data(), now = Date.now();
+        const t = rkTribeInvitesIn(raw, now);
         if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
         rkTribeNotTimedOut(t, uid, now);
         if ((t.members || []).includes(candidateUid)) return { done: true };
         const e = (t.pendingVotes || {})[candidateUid];
         const req = (t.joinRequests || {})[candidateUid];
         if (!e && !req) throw new Error('This vote has already closed.');
-        const base = e || { name: String(candidateName || (req && req.name) || 'Raver').slice(0, 40), votes: [], at: now, asked: true };
+        const base = e || { name: String(candidateName || (req && req.name) || 'Raver').slice(0, 40), votes: [], at: now, asked: true, mile: 0, noMile: 0 };
         const fresh = !(base.votes || []).includes(uid) && !(base.no || []).includes(uid);
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { ...base, votes: (base.votes || []).filter(u => u !== uid), no: Array.from(new Set([...(base.no || []), uid])) } };
+        const ent = { ...base, votes: (base.votes || []).filter(u => u !== uid), no: Array.from(new Set([...(base.no || []), uid])) };
+        const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
+        const need = rkTribeNeeded(voters.length), killAt = Math.max(1, voters.length - need + 1);
+        const noB = (base.no || []).filter(u => voters.includes(u)).length, noA = ent.no.filter(u => voters.includes(u)).length;
+        const prevNo = base.noMile !== undefined ? Number(base.noMile) || 0 : rkInviteNoMile(noB, killAt);
+        let told = 0;
+        if (rkInviteNoMile(noA, killAt) > prevNo) { ent.noMile = 25; told = 25; }
+        const pending = { ...(t.pendingVotes || {}), [candidateUid]: ent };
         const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
         const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh };
+        rkTribeLogTx(tx, tribeId, raw, t1, st, now, {});
+        return { t, st, fresh, at: e ? Number(e.at) || 0 : 0, told, noA, killAt, need, yes: ent.votes.filter(u => voters.includes(u)).length };
     });
     if (out.done) return 'closed';
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, 'admit:' + candidateUid, out.fresh);
+    if (out.told && out.st.pending[candidateUid]) rkTribeNotify(tribeId, out.t, [candidateUid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.noA + ' said no so far. ' + out.killAt + ' no votes would end it; ' + out.need + ' yes votes get you in (' + out.yes + ' so far).', 'invite');
+    rkTribeVoted(uid, tribeId, 'admit:' + candidateUid, out.fresh, out.at);
     return out.st.rejectedAdmits.some(a => a.uid === candidateUid) ? 'rejected' : 'voted';
+};
+// V89.84.150.323: INVITING SOMEONE (Milli, at 323: "the invitee must first accept the invite before the vote
+// process begins"). A member's invite goes in `invites.<uid>` and the raver is asked. Someone who already asked
+// to join, or already has a vote running, is simply voted for (proposeToTribe), as before.
+// Returns { result: 'invited', already?, by? } or what proposeToTribe returns.
+export const inviteToTribe = async (tribeId, candidateUid, candidateName, inviterUid, inviterName) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Tribe not found');
+        const t = snap.data(), now = Date.now();
+        const members = t.members || [];
+        if (!members.includes(inviterUid)) throw new Error('Only members can invite someone.');
+        rkTribeNotTimedOut(t, inviterUid, now);
+        if (members.includes(candidateUid)) throw new Error('Already a member');
+        if ((t.pendingVotes || {})[candidateUid] || (t.joinRequests || {})[candidateUid]) return { vote: true };
+        const iv = (t.invites || {})[candidateUid];
+        if (iv && iv.accepted) return { vote: true };
+        if (iv && now - (Number(iv.at) || 0) <= RK_INVITE_MS && members.includes(iv.by)) return { already: true, by: iv.byName || '' };
+        const entry = { name: String(candidateName || 'Raver').slice(0, 40), by: inviterUid, byName: String(inviterName || (t.memberNames || {})[inviterUid] || 'A member').slice(0, 40), at: now };
+        tx.update(ref, { ['invites.' + candidateUid]: entry });
+        return { t: { ...t, invites: { ...(t.invites || {}), [candidateUid]: entry } }, entry };
+    });
+    if (out.vote) return await proposeToTribe(tribeId, candidateUid, candidateName, inviterUid);
+    if (out.already) return { result: 'invited', already: true, by: out.by };
+    rkTribeEmit(tribeId, { ...out.t, id: tribeId });
+    rkTribeNotify(tribeId, out.t, [candidateUid], null, '🎟️ @' + out.entry.byName + ' invited you to join the "' + (out.t.name || 'a') + '" Vibe Tribe. Tap to accept or decline. If you accept, the members vote on adding you.', 'invite');
+    return { result: 'invited' };
+};
+// The raver invited says yes. Only their own invite changes (the rules allow nothing else from outside the
+// tribe); the vote it becomes is told to the members who can vote, and the inviter hears they accepted.
+export const acceptTribeInvite = async (tribeId, uid, myName) => {
+    const ref = rkTribeRef(tribeId);
+    const out = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('That tribe no longer exists.');
+        const t = snap.data(), now = Date.now();
+        if ((t.members || []).includes(uid)) return { member: true };
+        const iv = (t.invites || {})[uid];
+        if (!iv) throw new Error('This invite was withdrawn or has run out.');
+        if (now - (Number(iv.at) || 0) > RK_INVITE_MS || !(t.members || []).includes(iv.by)) throw new Error('This invite has run out. Ask a member to invite you again.');
+        if (iv.accepted) return { already: true };
+        tx.update(ref, { ['invites.' + uid + '.accepted']: true, ['invites.' + uid + '.acceptedAt']: now });
+        return { t, iv, now };
+    });
+    if (out.member) return 'member';
+    if (out.already) return 'accepted';
+    const t = out.t, nm = String(myName || out.iv.name || 'Raver').slice(0, 40);
+    const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, Date.now());
+    const need = rkTribeNeeded(voters.length);
+    rkTribeNotify(tribeId, t, voters.filter(m => m !== out.iv.by), 'vote', '🗳️ Vote: should @' + nm + ' join your "' + (t.name || 'tribe') + '" Vibe Tribe? @' + (out.iv.byName || 'A member') + ' invited them and they accepted. Tap to vote yes or no; ' + need + ' of ' + voters.length + ' needed.', 'vote:admit:' + uid);
+    rkTribeNotify(tribeId, t, [out.iv.by], null, '🎟️ @' + nm + ' accepted your invite to "' + (t.name || 'your tribe') + '". The members are voting now, and your yes is counted.', 'vote:admit:' + uid);
+    rkTribeFresh(tribeId);
+    return 'accepted';
+};
+export const declineTribeInvite = async (tribeId, uid, myName, iv) => {
+    await updateDoc(rkTribeRef(tribeId), { ['invites.' + uid]: deleteField() });
+    if (iv && iv.by) pushNotif(iv.by, 'tribe', '🎟️ @' + String(myName || iv.name || 'Raver').slice(0, 40) + ' said no thanks to your invite to "' + (iv.tribeName || 'your tribe') + '".', tribeId + '#card');
+};
+// A member takes an invite back (the one who sent it, or the founder; the app shows the button to them).
+export const withdrawTribeInvite = async (tribeId, candidateUid) => {
+    await updateDoc(rkTribeRef(tribeId), { ['invites.' + candidateUid]: deleteField() });
+};
+// What the app says after a member invites someone, and where it goes.
+const rkInviteRaver = async (tribe, cid, cname, myUid, myName) => {
+    const nm = cname || 'Raver';
+    const r = await inviteToTribe(tribe.id, cid, nm, myUid, myName);
+    if (r.result === 'invited') return { text: r.already ? '🎟️ @' + nm + ' already has an invite to "' + (tribe.name || 'the tribe') + '"' + (r.by ? ' from @' + r.by : '') + '. The vote starts when they accept.' : '🎟️ Invite sent to @' + nm + '. The vote starts when they accept it.' };
+    if (r.result === 'exists') return { text: '🗳️ A vote on @' + nm + ' is already running. Taking you to it so you can vote.', key: r.key };
+    if (r.result === 'approved') return { text: '🎉 @' + nm + ' joined "' + (tribe.name || 'the tribe') + '".' };
+    return { text: '🗳️ @' + nm + ' asked to join, so the vote has started: ' + r.votes + ' of ' + r.needed + ' so far.', key: r.key };
 };
 // Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the
 // last member out removes the tribe. A member in a time-out may still leave.
@@ -2372,7 +3389,7 @@ export const settleTribe = async (tribeId, byUid) => {
         const t = snap.data(), now = Date.now();
         if (!(t.members || []).includes(byUid)) return null;
         const st = rkTribeSettle(t, now);
-        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length) return null;
+        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length && !st.invitesMoved) return null;
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t, st, now, {});
         return { t, st };
@@ -2461,11 +3478,11 @@ export const voteTribeVote = async (tribeId, key, uid) => {
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh };
+        return { t, st, fresh, at: Number(v.at) || 0 };
     });
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, key, out.fresh);
+    rkTribeVoted(uid, tribeId, key, out.fresh, out.at);
     return out.st.applied.some(a => rkTribeVoteKey(a) === key) ? 'passed' : 'voted';
 };
 // V88.84.150.322: VOTE NO on a vote that's running. A no replaces a yes from the same member; the member who
@@ -2488,11 +3505,11 @@ export const voteNoTribeVote = async (tribeId, key, uid) => {
         const st = rkTribeSettle(t1, now);
         tx.update(ref, rkTribePatch(st));
         rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh };
+        return { t, st, fresh, at: Number(v.at) || 0 };
     });
     rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
     rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, key, out.fresh);
+    rkTribeVoted(uid, tribeId, key, out.fresh, out.at);
     return out.st.rejected.includes(key) ? 'rejected' : 'voted';
 };
 // Only the member who called a vote can withdraw it.
@@ -2560,15 +3577,32 @@ export const requestToJoinTribe = async (tribe, uid, name) => {
     await updateDoc(rkTribeRef(tribe.id), { ['joinRequests.' + uid]: { name: nm, at: Date.now() } });
     // V88.84.150.322: only the members who can vote on it.
     rkTribeNotify(tribe.id, tribe, rkTribeVoters(tribe.members, { type: 'admit' }, tribe.restrictions, Date.now()).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Tap to vote yes or no.', 'vote:join:' + uid);
+    // V89.84.150.323: asking to join answers any invite you had to that tribe
+    if ((tribe.invites || {})[uid]) { try { await updateDoc(rkTribeRef(tribe.id), { ['invites.' + uid]: deleteField() }); } catch (e) {} }
 };
-// V88.84.150.322: THE VOTES WAITING ON A RAVER, and the daily nudge about them (Milli, at 322: "If users select
+// V88.84.150.322: THE VOTES WAITING ON A RAVER, and the nudge about them (Milli, at 322: "If users select
 // no, they are no longer notified of a vote awaiting"). Waiting means: they can vote on it, they haven't said
-// yes or no, and it has been open at least 12 hours. A tribe whose vote notices they muted sends no nudge.
-const RK_VOTE_NUDGE_MS = 24 * 3600000, RK_VOTE_NUDGE_AGE = 12 * 3600000;
+// yes or no, and it has been open at least `minAge`. A tribe whose vote notices they muted sends no nudge.
+// V89.84.150.323 (Milli, at 323: "auto notifications for votes a user hasn't voted on once every 12 hours ...
+// Add a setting to turn this off, or selection tool for user to choose between how many hours or days ...
+// Longest time between vote notifications should be once a week"). The interval is the raver's own
+// (voteRemindHours, 12 when unset, 0 = off), a reminder covers votes waiting at least that long, and
+// voteRemindAt on the profile records the last one, shared with the voteReminders Cloud Function so only one
+// of them sends it.
+const RK_VOTE_REMIND_OPTS = [
+    { h: 6, l: 'Every 6 hours' }, { h: 12, l: 'Every 12 hours' }, { h: 24, l: 'Every day' }, { h: 48, l: 'Every 2 days' },
+    { h: 72, l: 'Every 3 days' }, { h: 120, l: 'Every 5 days' }, { h: 168, l: 'Once a week' }, { h: 0, l: 'Off' },
+];
+const RK_VOTE_NUDGE_AGE = 12 * 3600000;
+const rkVoteRemindHours = (p) => {
+    if (p && p.voteRemindHours === 0) return 0;
+    const h = Number(p && p.voteRemindHours);
+    return RK_VOTE_REMIND_OPTS.some(o => o.h > 0 && o.h === h) ? h : 12;
+};
 const rkTribeAwaiting = (t, uid, now, minAge) => {
     const at = now || Date.now(), age = minAge === undefined ? RK_VOTE_NUDGE_AGE : minAge;
     const st = rkTribeSettle(t, at), rs = st.restrictions, out = [];
-    if (!st.members.includes(uid) || (rs[uid] && Number(rs[uid].until) > at)) return out;
+    if (!st.members.includes(uid) || rkTribeOutOf(rs, uid, at)) return out;
     const admitEl = rkTribeVoters(st.members, { type: 'admit' }, rs, at);
     Object.entries(st.pending).forEach(([cid, e]) => {
         if (!admitEl.includes(uid) || (e.votes || []).includes(uid) || (e.no || []).includes(uid)) return;
@@ -2584,25 +3618,48 @@ const rkTribeAwaiting = (t, uid, now, minAge) => {
     });
     return out;
 };
-const rkVoteNudge = async (uid) => {
+const rkVoteNudge = async (uid, p) => {
     if (!uid) return null;
+    const hours = rkVoteRemindHours(p);
+    if (!hours) return null;
+    const ms = hours * 3600000;
+    if (Date.now() - (Number(p && p.voteRemindAt) || 0) < ms) return null;
+    // at most one look an hour from this phone; the Cloud Function covers the rest
     const k = 'rk_vote_nudge_' + uid;
-    try { const last = Number(localStorage.getItem(k) || 0); if (last && Date.now() - last < RK_VOTE_NUDGE_MS) return null; } catch (e) {}
+    try { const last = Number(localStorage.getItem(k) || 0); if (last && Date.now() - last < 3600000) return null; localStorage.setItem(k, String(Date.now())); } catch (e) {}
+    // the stamp, fresh from the server: the function may have just sent one
+    try { const us = await getDocFromServer(doc(db, 'artifacts', appId, 'users', uid)); if (us.exists() && Date.now() - (Number(us.data().voteRemindAt) || 0) < ms) return null; } catch (e) {}
     const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), where('members', 'array-contains', uid)));
     const now = Date.now(), waiting = [];
     snap.docs.forEach(d => {
         const t = { ...d.data(), id: d.id };
         if (((t.mutes || {})[uid] || {}).vote) return;
-        rkTribeAwaiting(t, uid, now).forEach(w => waiting.push({ ...w, tribeId: t.id, tribeName: t.name || 'your tribe' }));
+        rkTribeAwaiting(t, uid, now, ms).forEach(w => waiting.push({ ...w, tribeId: t.id, tribeName: t.name || 'your tribe' }));
     });
-    try { localStorage.setItem(k, String(now)); } catch (e) {}
     if (!waiting.length) return 0;
     waiting.sort((a, b) => a.at - b.at);
     const w = waiting[0];
     await pushNotif(uid, 'tribe', waiting.length === 1
-        ? '🗳️ A vote in "' + w.tribeName + '" is waiting for you: ' + w.label + '. Tap to vote yes or no.'
-        : '🗳️ ' + waiting.length + ' tribe votes are waiting for you, starting in "' + w.tribeName + '": ' + w.label + '. Tap to vote yes or no.', w.tribeId + '#vote:' + w.key);
+        ? '🗳️ Reminder: a vote in "' + w.tribeName + '" is waiting for you: ' + w.label + '. Tap to vote yes or no.'
+        : '🗳️ Reminder: ' + waiting.length + ' tribe votes are waiting for you, starting in "' + w.tribeName + '": ' + w.label + '. Tap to vote yes or no.', w.tribeId + '#vote:' + w.key);
+    try { await setDoc(doc(db, 'artifacts', appId, 'users', uid), { voteRemindAt: now }, { merge: true }); } catch (e) { rkReport('vote reminder stamp', e); }
     return waiting.length;
+};
+// V89.84.150.323: Settings → Notifications → 🗳️ Vote reminders.
+const RkVoteRemindSetting = ({ user, profile }) => {
+    if (!user || user.isAnonymous) return null;
+    const h = rkVoteRemindHours(profile);
+    const save = async (v) => { try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { voteRemindHours: Number(v) }, { merge: true }); } catch (e) { alert('Could not save: ' + e.message); } };
+    return (
+        <div className="mt-3 bg-white/5 border border-white/20 rounded-lg p-3" data-vote-remind="1">
+            <label className="block text-sm font-bold text-white">🗳️ Vote reminders
+                <select value={String(h)} onChange={e => save(e.target.value)} data-vote-remind-pick="1" className="mt-1 w-full bg-black/60 border border-white/30 rounded-lg p-2 text-sm text-white">
+                    {RK_VOTE_REMIND_OPTS.map(o => <option key={o.h} value={String(o.h)}>{o.l}</option>)}
+                </select>
+            </label>
+            <p className="text-sm text-white mt-1.5">{h ? 'For tribe votes you haven\'t answered yet. Each reminder covers votes waiting at least that long; once you vote yes or no on one, it stops coming up.' : 'Off: no reminders. You still hear when a vote starts.'} A tribe whose 🗳️ Votes and results notices you turned off sends none.</p>
+        </div>
+    );
 };
 export const withdrawTribeRequest = async (tribeId, uid) => {
     await updateDoc(rkTribeRef(tribeId), { ['joinRequests.' + uid]: deleteField() });
@@ -2672,7 +3729,7 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
 //   '<tribeId>#<focus>'        a Vibe Tribe vote, chat or card (type 'tribe')
 //   a plain id                 the item, thread or raver its type implies
 // Older notifications without one fall back to the closest screen for their type.
-const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage'];
+const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'radio', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage'];
 const rkNotifDest = (n) => {
     const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
     // V87.78.150.315: '@achievements:<id>' opens the Achievements window at that achievement.
@@ -2696,6 +3753,9 @@ const rkNotifDest = (n) => {
         case 'achievement': return { to: 'place', key: 'achievements' };
         case 'referral': return { to: 'place', key: 'refdash' };
         case 'admin': return { to: 'place', key: 'profile' };
+        // V89.84.150.323: the server's word filter changed something you wrote (functions/rk_mod.js): the post it
+        // changed, or the place in refId ('@profile', '@radio', '@creatorhub', handled above)
+        case 'mod': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'profile' };
         default: return { to: 'none' };
     }
 };
@@ -2837,15 +3897,15 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
                                 uid: referrerUid, status: 'open', createdAt: Date.now(), appVersion: APP_VERSION_FULL, autoFlag: true
                             });
                         } catch (e) { rkReport('referral flag ticket', e); }
-                        await updateDoc(refRef, { refFlaggedAt: Date.now(), refDay: today, refCountToday: usedToday + 1 });
-                    } else {
-                        await updateDoc(refRef, {
-                            referrals: (rp.referrals || 0) + 1,
-                            refDay: today,
-                            refCountToday: usedToday + 1
-                        });
                     }
-                    try { await setDoc(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newName, earnedFromThisUser: 0, timestamp: Date.now() }); } catch (e) {}
+                    // V89.84.150.323 (the statistics lockdown): the credit and the referral record go in one batch. The
+                    // rules allow a +1 to referrals (and the day's count) only beside a new record from the raver whose
+                    // referredBy names the referrer, so it can happen once per account and never by itself.
+                    const rb = writeBatch(db);
+                    if (over) rb.update(refRef, { refFlaggedAt: Date.now(), refDay: today, refCountToday: usedToday + 1 });
+                    else rb.update(refRef, { referrals: increment(1), refDay: today, refCountToday: usedToday + 1 });
+                    rb.set(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newName, earnedFromThisUser: 0, timestamp: Date.now() });
+                    await rb.commit();
                     if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newName + ' just joined RaveKandi using your code! +1 referral', '@refdash');
                     else pushNotif(referrerUid, 'referral', '⏳ ' + newName + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.', '@refdash');
                 }
@@ -3334,7 +4394,11 @@ const getDisplayAchievements = (profile) => {
         contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0,
         // V88.84.150.322: tribe votes answered, festivals dated, network reach and tracks played
         tribeVotesCast: profile?.tribeVotesCast||0, festivalsDated: profile?.festivalsDated||0,
-        networkReach: profile?.networkReach||0, tracksPlayed: profile?.tracksPlayed||0
+        networkReach: profile?.networkReach||0, tracksPlayed: profile?.tracksPlayed||0,
+        // V89.84.150.323: opened as an installed app, quick votes, and ravers brought in by invitation
+        installedApp: profile?.installedApp ? 1 : 0, tribeVotesFast: profile?.tribeVotesFast||0, tribeInvitesPassed: profile?.tribeInvitesPassed||0,
+        // V89.85.150.324: festivals with days tapped from their dates, and a post with every day of one
+        festDaysPicked: profile?.festDaysPicked||0, festAllDays: profile?.festAllDays||0
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -3443,6 +4507,10 @@ const rkSyncTradeTribeStats = async (uid, profile) => {
     let biggest = 0;
     tribes.forEach(d => { const t = d.data(); biggest = Math.max(biggest, Number(t.memberCount) || (t.members || []).length); });
     hi('tribesJoined', tribes.size); hi('biggestTribe', biggest);
+    // V89.84.150.323: ravers you invited who were voted in (Welcome Committee, Talent Scout)
+    let invited = 0;
+    tribes.forEach(d => { invited += Object.values(d.data().memberInvitedBy || {}).filter(v => v === uid).length; });
+    hi('tribeInvitesPassed', invited);
     // V88.84.150.322: network reach (Friend of a Friend, Six Degrees): the ravers your friends connect you to
     try { const mine = await rkLoadFriends((profile?.friends || []).slice(0, 120)); hi('networkReach', rkFriendsOfFriends(mine, uid, profile?.friends || []).filter(e => !e.friend).length); } catch (e) { rkReport('network reach', e); }
     if (Object.keys(upd).length) await setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true });
@@ -4103,7 +5171,7 @@ const Button = ({ children, onClick, disabled, className = '', color = 'primary'
     return ( <button type={type} onClick={onClick} disabled={disabled} className={`px-4 py-2 font-bold rounded-lg uppercase tracking-wider transition-all active:scale-95 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02]'} ${className}`} style={{ backgroundColor: 'rgba(0,0,0,0.3)', color: 'white', border: `2px solid ${c}`, boxShadow: `0 0 5px ${c}, 0 0 15px ${c} inset`, textShadow: `0 0 3px ${c}` }}>{children}</button> );
 };
 
-const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name, id }) => { const ac = autoComplete || 'off'; const noFill = ac === 'off' ? { autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-form-type': 'other' } : {}; return ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} autoComplete={ac} {...noFill} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input id={id || name} name={name} autoComplete={ac} {...noFill} disabled={disabled} type={type} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> ); };
+const Input = ({ label, value, onChange, type = 'text', options, className, placeholder, maxLength, disabled, autoComplete, name, id }) => { const ac = autoComplete || 'off'; const noFill = ac === 'off' ? { autoCorrect: 'off', autoCapitalize: 'off', spellCheck: false, 'data-lpignore': 'true', 'data-form-type': 'other' } : {}; return ( <div className={`mb-4 ${className}`}>{label && <label className="block text-sm font-bold mb-1" style={getTextGlowStyle('purpleGlow')}>{label}</label>}{type === 'select' ? (<select disabled={disabled} value={value} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none text-white"><option value="">Select</option>{options.map(o => <option key={o} value={o} className="text-black">{o}</option>)}</select>) : type === 'textarea' ? (<textarea disabled={disabled} value={value} onChange={e => onChange(e.target.value)} rows="3" maxLength={maxLength} autoComplete={ac} {...noFill} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>) : (<input id={id || name} name={name} autoComplete={ac} {...noFill} disabled={disabled} type={type} value={value} maxLength={maxLength} onChange={e => onChange(e.target.value)} className="w-full p-2 rounded bg-white/10 border-2 border-white/30 focus:outline-none" placeholder={placeholder}/>)}</div> ); };
 
 // ============================================================================================
 // V65.37 — BACK NAVIGATION STACK
@@ -4178,6 +5246,25 @@ const rkTourLift = (el) => {
     const prev = bar.style.zIndex;
     bar.style.zIndex = '1990';
     return () => { bar.style.zIndex = prev; };
+};
+// V89.84.150.323: holds the page still while the tour points at something: no scrolling by finger, wheel or
+// keys (the tour's own scrollIntoView still works), anywhere but the tour's note. Returns the undo.
+const rkTourHold = () => {
+    const html = document.documentElement;
+    html.classList.add('rk-tour-lock');
+    const inNote = (t) => !!(t && t.closest && t.closest('[data-rk-tour-card]'));
+    const stopMove = (e) => { if (!inNote(e.target)) { try { e.preventDefault(); } catch (x) {} } };
+    const KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'Spacebar'];
+    const stopKeys = (e) => { const tg = (e.target && e.target.tagName) || ''; if (KEYS.includes(e.key) && !/^(INPUT|TEXTAREA|SELECT)$/.test(tg)) { try { e.preventDefault(); } catch (x) {} } };
+    document.addEventListener('touchmove', stopMove, { passive: false });
+    document.addEventListener('wheel', stopMove, { passive: false });
+    document.addEventListener('keydown', stopKeys, true);
+    return () => {
+        html.classList.remove('rk-tour-lock');
+        document.removeEventListener('touchmove', stopMove, { passive: false });
+        document.removeEventListener('wheel', stopMove, { passive: false });
+        document.removeEventListener('keydown', stopKeys, true);
+    };
 };
 // Is anything other than the tour itself drawn over the middle of this element?
 const rkTourCovered = (el) => {
@@ -4270,7 +5357,7 @@ const UserRating = ({ sum, count, size = 'sm', center = false }) => {
     return (
         <div className={`flex items-center gap-1 ${center ? 'justify-center' : ''}`}>
             <span className={`${txt} tracking-tight`} style={{ color: '#ffd24a' }}>{'★'.repeat(full)}{'☆'.repeat(Math.max(0,5-full))}</span>
-            <span className={`${txt} opacity-60`}>{avg.toFixed(1)} ({c})</span>
+            <span className={`${txt} text-white`}>{avg.toFixed(1)} ({c})</span>
         </div>
     );
 };
@@ -6443,7 +7530,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
         if (!text || !myUid || cooldown > 0) return;
         const mod = chatModerate(text, { isVIP: vip });
         if (!mod.ok) {
-            if (mod.reason === 'hate') setNotice('🚫 That message contains blocked language and was not sent. Repeated attempts may lead to a ban.');
+            if (mod.reason === 'hate') setNotice('🕊️ Not sent: that word isn\u2019t welcome on RaveKandi. Hate has no place here.');
             else if (mod.reason === 'link') setNotice('🔗 Links aren\u2019t allowed in chat. ' + (vip ? 'Use the "Share Social Link" button below to post one (limited per day).' : 'Spamming or posting links can lead to warnings or a ban.'));
             else setNotice('Message not sent.');
             setTimeout(() => setNotice(''), 4000);
@@ -6481,7 +7568,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
         // whose stored copy had stray whitespace still counted as a change and stamped (edited).
         if (trimmed === String(m.text || '').trim()) return;
         const mod = chatModerate(trimmed, { isVIP: vip });
-        if (!mod.ok) { setNotice('🚫 That edit contains blocked language and was not saved.'); setTimeout(() => setNotice(''), 4000); return; }
+        if (!mod.ok) { setNotice(mod.reason === 'hate' ? '🕊️ Not saved: that word isn\u2019t welcome on RaveKandi.' : '🚫 That edit was not saved.'); setTimeout(() => setNotice(''), 4000); return; }
         try {
             await updateDoc(doc(db, ...chatPath, m.id), { text: trimmed, origText: m.origText || m.text || '', editedAt: Date.now() });
         } catch (e) { setNotice('Couldn\u2019t edit: ' + e.message); setTimeout(() => setNotice(''), 4000); }
@@ -8319,6 +9406,76 @@ function rkEmCrate(t) {
   return { g: g, e: e, h: N };
 }
 
+// V89.85.150.324: Day Picker / All In: a festival calendar page with its days to tap; Day Picker ticks one, All In ticks
+// every day under a sparkle
+function rkEmDays(t) {
+  var N = '#7ae8ff', p = rkEmPal(N), E = rkEmE, e = [], i;
+  var g = { a: rkEmLin([p.l, p.m, N]), c: rkEmLin(['#ffffff', p.l]), k: rkEmLin(['#ff6ec7', '#b464ff']) };
+  var cal = rkEmRound([[14, 20], [86, 20], [86, 88], [14, 88]], 7);
+  e.push(E(cal, 0, 0, 5, 1, 'o'), E(cal, 'c', N, 2.6, 1, 'b'), E('M15 35H85', 0, '#ff6ec7', 10, 1, 'd'));
+  e.push(E('M33 12V27M67 12V27', 0, p.d, 4.5, 1, 'd'), E(rkEmCirc(33, 12, 3), '#ffffff', p.d, 1.4, 1, 'd'), E(rkEmCirc(67, 12, 3), '#ffffff', p.d, 1.4, 1, 'd'));
+  for (i = 0; i < 3; i++) {
+    var x = 20 + i * 21, cell = rkEmRound([[x, 48], [x + 17, 48], [x + 17, 78], [x, 78]], 3.5), on = t === 2 || i === 1;
+    e.push(E(cell, on ? 'k' : 'a', on ? '#ffffff' : p.d, 1.8, 1, 'd'));
+    if (on) e.push(E('M' + (x + 4) + ' 63L' + (x + 7.5) + ' 67.5L' + (x + 13.5) + ' 57', 0, '#ffffff', 2.8, 1, 'd'));
+  }
+  if (t === 2) e.push(E(rkEmSpark(82, 16, 6), '#ffffff', 0, 0, 1, 'h'), E(rkEmSpark(14, 86, 4), '#ffffff', 0, 0, 1, 'h'));
+  else e.push(E(rkEmSpark(80, 18, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// V89.84.150.323: the emblems for 323's achievements.
+// Home Screen Hero: a phone on its home screen, RaveKandi's bolt tile lit, with a plus badge
+function rkEmHome() {
+  var N = '#ff7ad9', p = rkEmPal(N), E = rkEmE, e = [], i, j;
+  var g = { a: rkEmLin([p.l, p.m, N]), s: rkEmLin(['#21123d', '#0e0820']), b: rkEmLin(['#a3e635', '#22d3ee']) };
+  var body = rkEmRound([[28, 8], [72, 8], [72, 92], [28, 92]], 10);
+  e.push(E(body, 0, 0, 5, 1, 'o'), E(body, 'a', N, 2.6, 1, 'b'));
+  e.push(E(rkEmRound([[33, 17], [67, 17], [67, 82], [33, 82]], 4), 's', 0, 0, 1, 'k'));
+  for (i = 0; i < 3; i++) for (j = 0; j < 4; j++) {
+    if (i === 1 && j === 1) continue;
+    var x = 36.5 + i * 10, y = 21 + j * 14;
+    e.push(E(rkEmRound([[x, y], [x + 7, y], [x + 7, y + 7], [x, y + 7]], 1.8), p.d, p.m, 0.8, 0.9, 'd'));
+  }
+  var tile = rkEmRound([[45, 33], [56, 33], [56, 44], [45, 44]], 2.4);
+  e.push(E(tile, 'b', '#ffffff', 1.2, 1, 'b'), E('M51.5 35L47.5 39.5H50.5L49 42.5L53.5 37.5H50.5Z', '#1a0033', 0, 0, 1, 'd'));
+  e.push(E(rkEmCirc(75, 22, 9), 'b', '#ffffff', 1.6, 1, 'b'), E('M75 17V27M70 22H80', 0, '#1a0033', 2.6, 1, 'd'));
+  e.push(E('M45 13H55', 0, p.d, 1.8, 1, 'd'), E(rkEmSpark(22, 32, 4), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// Quick Draw: a stopwatch whose hand is a lightning bolt, with a green tick for the vote
+function rkEmQuick() {
+  var N = '#ffe066', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), f: rkEmRad(['#fffbe0', '#ffd23f'], [0.45, 0.4, 0.7]) };
+  e.push(E(rkEmRound([[43, 5], [57, 5], [57, 13], [43, 13]], 2), 'a', N, 2, 1, 'b'), E('M50 13V20', 0, N, 3.2, 1, 'b'));
+  e.push(E(rkEmRound([[69, 17], [77, 25], [73, 29], [65, 21]], 1.5), 'a', N, 1.6, 1, 'b'));
+  var face = rkEmCirc(50, 56, 34);
+  e.push(E(face, 0, 0, 5, 1, 'o'), E(face, 'a', N, 2.6, 1, 'b'), E(rkEmCirc(50, 56, 27), 'f', p.d, 1.2, 1, 'd'));
+  e.push(rkEmDots(50, 56, 23, 12, 2.6, p.d, 0.8, 'd'));
+  e.push(E('M54 33L42 58H51L46 79L62 50H52L59 33Z', '#ff6ec7', '#ffffff', 1.4, 1, 'd'));
+  e.push(E(rkEmCirc(79, 81, 10), '#2bd67b', '#ffffff', 1.6, 1, 'b'), E('M74.5 81L78 84.5L84 77.5', 0, '#ffffff', 2.6, 1, 'd'));
+  e.push(E(rkEmSpark(21, 27, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// Welcome Committee / Talent Scout: an admit-one ticket with a heart; the scout has a second ticket behind it and a
+// ring of beads
+function rkEmTicket(t) {
+  var N = '#7cf5c4', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), h: rkEmLin(['#ff9ad5', '#ff4fa3']) };
+  if (t === 2) {
+    e.push(rkEmDots(50, 52, 45, 14, 3.4, N, 0.9, 'd'));
+    var back = rkEmRound(rkEmRot([[18, 30], [82, 30], [82, 60], [18, 60]], 50, 45, -12), 4);
+    e.push(E(back, 0, 0, 4, 1, 'o'), E(back, p.d, N, 1.6, 0.95, 'b'));
+  }
+  var tk = rkEmRound([[14, 36], [86, 36], [86, 70], [14, 70]], 5);
+  e.push(E(tk, 0, 0, 5, 1, 'o'), E(tk, 'a', N, 2.6, 1, 'b'));
+  e.push(E(rkEmArc(14, 53, 6, 270, 450) + rkEmArc(86, 53, 6, 90, 270), 0, p.d, 1.6, 0.9, 'd'));
+  e.push(E('M64 39V67', 0, p.d, 1.8, 0.8, 'd'));
+  e.push(E('M37 47C37 42.5 43 41 45.5 45.5C48 41 54 42.5 54 47C54 52 45.5 58 45.5 58C45.5 58 37 52 37 47Z', 'h', '#ffffff', 1.4, 1, 'd'));
+  e.push(E('M70 46H80M70 53H80M70 60H76', 0, p.d, 2, 0.9, 'd'));
+  e.push(E(rkEmSpark(t === 1 ? 80 : 86, t === 1 ? 26 : 20, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -8344,7 +9501,9 @@ function rkEmSpec() {
     ['ach_5', rkEmStars, 1, 1], ['ach_15', rkEmStars, 2, 3], ['contact_full', rkEmPhone, 1, 1], ['notif_all', rkEmBell, 1, 1],
     ['rate_beyond', rkEmBeyond, 1, 5],
     ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
-    ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3]], t = {};
+    ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
+    ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
+    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -8395,16 +9554,19 @@ const RkRateBadge = ({ standing, size = 'sm', className = '' }) => {
     );
 };
 
-const BadgeChip = ({ badge }) => {
+// V89.85.150.324: size 'lg' for the profile page's badge row (32 px high, like the tags beside it). A badge's words
+// stay on one line.
+const BadgeChip = ({ badge, size = 'sm' }) => {
     if (!badge || !badge.id) return null;
     const ach = ACHIEVEMENT_TIERS.find(a => a.id === badge.id);
     if (!ach) return null;
+    const big = size === 'lg';
     // V84.77.150.311: a rank badge wears its tier's colour and band effects wherever it is shown.
-    if (ach.rank) return <RkRankBadge rank={ach.rank} className="ml-1"/>;
+    if (ach.rank) return <RkRankBadge rank={ach.rank} size={big ? 'lg' : 'sm'} className={big ? 'h-8' : 'ml-1'}/>;
     // V84.78.150.312: every badge shows its emblem.
     return (
-        <span className="inline-flex items-center gap-1 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 text-[10px] font-bold pl-0.5 pr-1.5 py-0.5 rounded-full ml-1 align-middle uppercase tracking-wide">
-            <img src={rkEmblemUri(ach.id, { size: 16 })} width={15} height={15} alt="" className="shrink-0"/>{badge.name || ach.name}
+        <span className={'inline-flex items-center gap-1 bg-yellow-500/10 border border-yellow-400/40 text-yellow-300 font-bold rounded-full align-middle uppercase tracking-wide whitespace-nowrap ' + (big ? 'text-xs h-8 pl-1 pr-3' : 'text-[10px] pl-0.5 pr-1.5 py-0.5 ml-1')}>
+            <img src={rkEmblemUri(ach.id, { size: big ? 24 : 16 })} width={big ? 22 : 15} height={big ? 22 : 15} alt="" className="shrink-0"/>{badge.name || ach.name}
         </span>
     );
 };
@@ -10433,7 +11595,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
                 <Button onClick={changePassword} disabled={pwBusy} color="lime" className="text-[10px] w-full">{pwBusy ? 'Saving…' : (hasPassword ? 'Update Password' : 'Add Password')}</Button>
             </div>
         )}
-        <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-3 text-cyan-400">Notifications</h4><div className="grid grid-cols-3 gap-2 text-[10px] mb-2 font-bold opacity-70"><span>Type</span><span className="text-center">Phone</span><span className="text-center">Email</span></div>{NOTIFICATION_TYPES.map(type => (<div key={type.id} className="grid grid-cols-3 gap-2 items-center mb-2 text-[10px]"><span className="truncate">{type.label}</span><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'phone')} className={`${prefs.phone?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.phone?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'email')} className={`${prefs.email?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.email?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div></div>))}</div>
+        <div className="border-b border-white/10 pb-4"><h4 className="font-bold text-xs mb-3 text-cyan-400">Notifications</h4><div className="grid grid-cols-3 gap-2 text-[10px] mb-2 font-bold opacity-70"><span>Type</span><span className="text-center">Phone</span><span className="text-center">Email</span></div>{NOTIFICATION_TYPES.map(type => (<div key={type.id} className="grid grid-cols-3 gap-2 items-center mb-2 text-[10px]"><span className="truncate">{type.label}</span><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'phone')} className={`${prefs.phone?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.phone?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div><div className="flex justify-center"><button onClick={() => togglePref(type.id, 'email')} className={`${prefs.email?.[type.id] ? 'text-lime-400' : 'text-white/20'}`}>{prefs.email?.[type.id] ? <CheckSquare size={16}/> : <Square size={16}/>}</button></div></div>))}<RkVoteRemindSetting user={user} profile={profile}/></div>
         <div className="border-b border-white/10 pb-4">
             <h4 className="font-bold text-xs mb-2 text-lime-400">Display</h4>
             <div className="bg-white/5 p-3 rounded border border-white/10 mb-3">
@@ -11010,7 +12172,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     useEffect(() => {
         // V37.11: view counting moved to App.handleViewItem (unique per UID)
         if(item) {
-            setEditForm({ name: item.name, price: item.price, description: item.description, stockQty: item.stockQty, eventName: (rkEventOf(item) || {}).name || '', eventFrom: (rkEventOf(item) || {}).from || '', eventTo: (rkEventOf(item) || {}).to || '' });
+            setEditForm({ name: item.name, price: item.price, description: item.description, stockQty: item.stockQty, eventName: (rkEventOf(item) || {}).name || '', eventFrom: (rkEventOf(item) || {}).from || '', eventTo: (rkEventOf(item) || {}).to || '', eventDays: (rkEventOf(item) || {}).days || [] });
             setReviews(item.reviews || []);
         }
     }, [isOpen, item, user]);
@@ -11072,11 +12234,17 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
 
     const handleUpdate = async () => {
         // V88.84.150.322: the festival and its days are edited here too
-        const { eventName: evName, eventFrom: evFrom, eventTo: evTo, ...rest } = editForm;
-        const evf = rkEventFields(evName, evFrom, evTo, rkEventOf(item));
+        const { eventName: evName, eventFrom: evFrom, eventTo: evTo, eventDays: evDays, ...rest } = editForm;
+        // V89.85.150.324: a name over the limit, from before 324, can be kept as it is, but a changed one must fit
+        const nmNow = String(rest.name || '').trim();
+        if (nmNow !== String(item.name || '').trim() && nmNow.length > RK_POST_NAME_MAX) return alert('A name can be up to ' + RK_POST_NAME_MAX + ' characters.');
+        if (!nmNow) return alert('Give your post a name.');
+        const evf = rkEventFields(evName, evFrom, evTo, rkEventOf(item), evDays);
         if (evf.error) return alert(evf.error);
         const batch = writeBatch(db);
-        const updates = { ...rest, ...evf.fields, price: parseFloat(rest.price), stockQty: parseInt(rest.stockQty) };
+        // V89.84.150.323: an empty price or stock box saved NaN
+        const pr = parseFloat(rest.price), sq = parseInt(rest.stockQty, 10);
+        const updates = { ...rest, ...evf.fields, price: Number.isFinite(pr) ? pr : 0, stockQty: Number.isFinite(sq) ? sq : 0 };
         if (item.isForTrade) updates.tradeWants = { ...(item.tradeWants || {}), event: evf.fields.event ? evf.fields.event.name : '' };
         batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), updates);
         if(item.refId) batch.update(doc(db, 'artifacts', appId, 'users', meUid, 'inventory', item.refId), updates);
@@ -11183,7 +12351,8 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
     if (isEditing) {
         return (
             <Modal isOpen={isOpen} onClose={() => setIsEditing(false)} title="Edit Post">
-                <Input label="Name" value={editForm.name} onChange={v => setEditForm({...editForm, name: v})} />
+                <Input label="Name" value={editForm.name} onChange={v => setEditForm({...editForm, name: v})} maxLength={RK_POST_NAME_MAX} />
+                <p className="text-xs text-white text-right -mt-3 mb-4" data-name-count="1">{String(editForm.name || '').length}/{RK_POST_NAME_MAX} characters</p>
                 <div className="grid grid-cols-2 gap-2">
                     <Input label="Price ($)" type="number" value={editForm.price} onChange={v => setEditForm({...editForm, price: v})} />
                     <Input label="Stock Qty" type="number" value={editForm.stockQty} onChange={v => setEditForm({...editForm, stockQty: v})} />
@@ -11191,7 +12360,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                 <Input type="textarea" label="Description" value={editForm.description} onChange={v => setEditForm({...editForm, description: v})} />
                 <div className="mb-3 bg-cyan-900/20 border border-cyan-500/40 rounded-lg p-2.5" data-edit-festival="1">
                     <p className="text-xs font-black text-cyan-200 uppercase mb-2">🎪 Festival (optional)</p>
-                    <RkEventPicker name={editForm.eventName} from={editForm.eventFrom} to={editForm.eventTo} onChange={(v) => setEditForm({ ...editForm, eventName: v.name, eventFrom: v.from || '', eventTo: v.to || '' })}/>
+                    <RkEventPicker name={editForm.eventName} from={editForm.eventFrom} to={editForm.eventTo} days={editForm.eventDays} onChange={(v) => setEditForm({ ...editForm, eventName: v.name, eventFrom: v.from || '', eventTo: v.to || '', eventDays: v.days || [] })}/>
                 </div>
                 <Button onClick={handleUpdate} color="lime" className="w-full">Save Changes</Button>
             </Modal>
@@ -11212,7 +12381,8 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                 {rkEventOf(item) && (() => { const e = rkEventOf(item), days = rkEventDays(e); return (
                     <div className="bg-cyan-900/25 border border-cyan-400/50 rounded-lg p-3 flex items-center justify-between gap-2" data-item-festival="1">
                         <div className="min-w-0">
-                            <p className="text-sm font-black text-white">🎪 {e.name}</p>
+                            <p className="text-sm font-black text-white break-words">🎪 {e.name}</p>
+                            {(() => { const ed = rkEditionFor(e); return ed ? <p className="text-xs text-cyan-100" data-item-fest-dates="1">Festival dates: {ed.l} · {rkEventDays({ from: ed.f, to: ed.t })}{ed.w ? ' · ' + ed.w : ''}</p> : null; })()}
                             <p className="text-xs text-white">{days ? (rkEventPast(e) ? 'Was there ' : 'There ') + days : 'Going (no dates given)'}{item.isForTrade ? '. Open to trading there.' : ''}</p>
                         </div>
                         <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: e.name })); } catch (x) {} if (onClose) onClose(); }} className="shrink-0 text-xs font-bold text-white bg-cyan-600/40 border border-cyan-300/60 rounded-full px-3 py-1.5">See who's going</button>
@@ -12708,6 +13878,10 @@ const useBrandName = (ownerId, brandId) => {
     return name;
 };
 
+// V89.85.150.324: one look for the chips on a feed card. RK_CHIP keeps a chip's words on one line; the bulk tiers,
+// which can run long, use RK_CHIP_BASE and wrap inside their own box.
+const RK_CHIP_BASE = 'inline-flex items-center gap-1 text-xs leading-none px-1.5 py-1 rounded border';
+const RK_CHIP = RK_CHIP_BASE + ' whitespace-nowrap';
 const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem }) => {
     const [liked, setLiked] = useState(item.likes?.includes(user?.uid));
     const cardBrand = useBrandName(item.ownerId, item.brandId);
@@ -12745,7 +13919,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
     const avgRating = item.reviews?.length > 0 ? (item.reviews.reduce((a,b)=>a+b.rating,0) / item.reviews.length).toFixed(1) : null;
 
     return ( 
-        <Card className="flex flex-col h-full relative">
+        <Card className="flex flex-col h-full relative min-w-0">
             <CommentModal item={item} user={user} profile={profile} isOpen={showComments} onClose={() => setShowComments(false)} onViewProfile={onViewProfile}/>
             <ItemShareModal item={item} profile={profile} isOpen={showShare} onClose={() => setShowShare(false)} />
             {profile?.isAdmin && (
@@ -12765,62 +13939,56 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 transition-opacity z-30 pointer-events-none"><Maximize2 size={24} className="text-white drop-shadow-md"/></div>
             </div>
             
-            <div className="mb-2">
-                <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400" onClick={() => onViewItem(item)}>{item.name}</h3>
-                <div className="flex justify-between items-center">
-                    <div className="flex flex-col items-start gap-1">
-                        {/* V65.37: the username was a 12px line with the badge stacked underneath and no
-                            padding, so the tap target was a few pixels tall and wedged between two other
-                            controls — easy to miss, easy to hit the wrong thing. Now 14px, badge moved to
-                            the RIGHT on the same line, and py-1.5 gives clear space above and below. */}
-                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2"><User size={12}/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
-                        {/* V84.1 (queue item, raised 249): the brand was a 9px span immediately
-                            after the username on the same line, so it read as part of the name —
-                            "@King Brand: NeonThread" — rather than as a separate business. It is
-                            its own element on the right of the header now, at readable size. A
-                            seller's brand is the thing they are building; it should not look like
-                            a suffix on their handle. */}
-                        {cardBrand && (
-                            <span className="ml-auto mr-2 shrink-0 text-right">
-                                <span className="block text-[8px] uppercase tracking-widest text-white/50 leading-none">Brand</span>
-                                <span className="block text-[13px] font-black text-purple-200 leading-tight max-w-[7.5rem] truncate">{cardBrand}</span>
-                            </span>
-                        )}
+            {/* V89.85.150.324 (Milli: "certain posts "out of stock" and "showing off" blocks split in half. Reposition these and
+                other blocks in the place to align correctly, stack correctly, fit within the block, stack on top of each other
+                (if necessary), and never cut in half", and "wrap post name to the next line if it pushes too far right"). The
+                name wraps anywhere, even a long run of letters, so it can't widen the card. The seller and the price or status
+                share a row that wraps: when they don't fit side by side, the status moves under the seller, still on the
+                right. Every chip keeps its words on one line, and the chips wrap onto as many rows as they need. */}
+            <div className="mb-2 min-w-0" data-card-info="1">
+                <h3 className="font-bold text-lg leading-tight cursor-pointer hover:text-cyan-400 break-words [overflow-wrap:anywhere]" onClick={() => onViewItem(item)} data-card-name="1">{item.name}</h3>
+                <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5" data-card-head="1">
+                    <div className="flex flex-col items-start gap-1 min-w-0 max-w-full">
+                        {/* V65.37: a 14px name with the badge to its right and room above and below, so it is easy to tap. */}
+                        <button onClick={() => onViewProfile(item.ownerPublicUid || item.ownerId)} className="text-left cursor-pointer flex flex-col items-start gap-0.5 py-1.5 -my-0.5 pr-2 active:scale-95 transition max-w-full"><UserRating sum={item.ownerRatingSum} count={item.ownerRatingCount} /><span className="flex items-center gap-1.5 flex-wrap min-w-0"><span className="flex items-center gap-1 text-sm font-bold underline decoration-pink-500/40 underline-offset-2 min-w-0 [overflow-wrap:anywhere]"><User size={12} className="shrink-0"/><RkName name={item.ownerName} style={item.ownerNameStyle} className={item.ownerNameStyle ? '' : 'text-pink-400 hover:text-pink-300'}/></span>{item.ownerBadge && <BadgeChip badge={item.ownerBadge} />}</span></button>
                         {user && !user.isAnonymous && item.ownerId !== user.uid && <AddFriendButton myProfile={profile} myUid={user.uid} targetUid={item.ownerId} targetName={item.ownerName} />}
                     </div>
-                    <span className="text-lime-400 font-bold">
-                        {/* V73.3: a concept shows what it would COST TO MAKE, clearly labelled. A bare
-                            "$91.30" reads as a price tag; "Est. to make" reads as the guide it is.
-                            Checked BEFORE isShowingOff, since concepts now set that too.
-                            The old branch also did item.price?.toFixed() with no fallback, which is
-                            where "$undefined" came from. */}
+                    <div className="ml-auto flex flex-col items-end gap-1 text-right max-w-full" data-card-status="1">
+                        {/* V73.3: a concept shows what it would cost to make, labelled, and is checked before isShowingOff. */}
                         {(item.isAICreation || item.isDesignConcept || item.notForSale)
-                            ? <span className="text-right leading-tight"><span className="block text-[9px] text-white/50 uppercase tracking-wide">Est. to make</span><span className="block text-sm font-black text-cyan-300">${Number(item.estValue || 0).toFixed(2)}</span></span>
-                            : item.isShowingOff ? <span className="text-[10px] text-fuchsia-200 bg-fuchsia-900/40 border border-fuchsia-500/40 px-2 py-1 rounded font-black uppercase">✨ Showing Off</span>
-                            : canSeePrice ? `$${Number(item.price || 0).toFixed(2)}`
-                            : <span className="text-[10px] text-red-300 italic bg-red-900/40 border border-red-500/30 px-2 py-1 rounded font-bold">OUT OF STOCK</span>}
-                    </span>
+                            ? <span className="leading-tight whitespace-nowrap"><span className="block text-xs text-white">Est. to make</span><span className="block text-sm font-black text-cyan-300">${Number(item.estValue || 0).toFixed(2)}</span></span>
+                            : item.isShowingOff ? <span className={RK_CHIP + ' text-fuchsia-100 bg-fuchsia-900/50 border-fuchsia-400/60 px-2 py-1.5 font-black uppercase'} data-card-chip="showing">✨ Showing Off</span>
+                            : canSeePrice ? <span className="whitespace-nowrap text-lime-400 font-bold text-base" data-card-price="1">${Number(item.price || 0).toFixed(2)}</span>
+                            : <span className={RK_CHIP + ' text-red-100 bg-red-900/50 border-red-400/50 px-2 py-1.5 font-black uppercase'} data-card-chip="oos">Out of stock</span>}
+                        {/* V84.1: the brand is its own element on the right, not a suffix on the handle. */}
+                        {cardBrand && (
+                            <span className="block max-w-[10rem]" data-card-brand="1">
+                                <span className="block text-xs text-white leading-none">Brand</span>
+                                <span className="block text-sm font-black text-purple-200 leading-tight break-words">{cardBrand}</span>
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <RkEventChip item={item} onPick={(nm) => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: nm })); } catch (e) {} }}/>
                 {item.description && (
                     <div className={`mt-1 ${item.description.length > 60 ? 'cursor-pointer' : ''}`} onClick={(e) => { if (item.description.length > 60) { e.stopPropagation(); setDescExpanded(!descExpanded); } }}>
-                        <p className={`text-xs text-white/80 ${descExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>{item.description}</p>
+                        <p className={`text-xs text-white ${descExpanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>{item.description}</p>
                         {item.description.length > 60 && (
-                            <span className="text-[10px] text-cyan-400 font-bold flex items-center gap-1 mt-0.5">{descExpanded ? (<>Show Less <ChevronUp size={10}/></>) : (<>Read More <ChevronDown size={10}/></>)}</span>
+                            <span className="text-xs text-cyan-300 font-bold flex items-center gap-1 mt-0.5">{descExpanded ? (<>Show Less <ChevronUp size={12}/></>) : (<>Read More <ChevronDown size={12}/></>)}</span>
                         )}
                     </div>
                 )}
-                <div className="flex gap-2 mt-2">
-                    {item._boosted && <span className="text-[10px] bg-gradient-to-r from-yellow-300 to-pink-500 text-black px-1 rounded font-black uppercase">⚡ BOOSTED</span>}
-                    {item.isShowingOff ? <span className="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 px-1 rounded border border-fuchsia-500/50 font-bold uppercase">Showcase</span> : (item.stockQty ?? 1) <= 0 ? <span className="text-[10px] bg-red-900/60 text-red-300 px-1 rounded border border-red-500/40 font-bold uppercase">Out of Stock · Qty: 0</span> : <span className="text-[10px] bg-white/10 px-1 rounded border border-white/20">Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
-                    {item.isForTrade && <span className="text-[10px] bg-lime-500/20 text-lime-300 px-1 rounded border border-lime-500/50 font-bold uppercase">🤝 Open to Trades</span>}
-                    {!item.isShowingOff && isOwner && (item.stockQty ?? 1) <= 0 && <span className="text-[10px] text-lime-300 bg-lime-900/30 border border-lime-500/40 px-1 rounded font-bold">RESTOCK: Tap item → Edit</span>}
-                    {!item.isShowingOff && ((item.bulkTiers && item.bulkTiers.length > 0) ? <span className="text-[10px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">Bulk: {item.bulkTiers.map(t => `${t.qty}+ ${t.pct}%`).join(' · ')}</span> : (item.bulkDiscountPct > 0 && <span className="text-[10px] bg-lime-500/20 text-lime-400 px-1 rounded border border-lime-500/50">{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>))}
-                    <span className="text-[10px] bg-black/50 px-1 rounded border border-white/10 flex items-center gap-1"><Eye size={8}/> {item.viewCount || 0}</span>
-                    {avgRating && <span className="text-[10px] bg-yellow-900/30 px-1 rounded border border-yellow-500/50 flex items-center gap-1 text-yellow-400"><StarIcon size={8} fill="currentColor"/> {avgRating}</span>}
+                <div className="flex flex-wrap items-center gap-1.5 mt-2" data-card-chips="1">
+                    {item._boosted && <span className={RK_CHIP + ' bg-gradient-to-r from-yellow-300 to-pink-500 text-black border-yellow-200 font-black uppercase'}>⚡ Boosted</span>}
+                    {item.isShowingOff ? <span className={RK_CHIP + ' bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-400/60 font-bold uppercase'}>Showcase</span> : (item.stockQty ?? 1) <= 0 ? <span className={RK_CHIP + ' bg-red-900/60 text-red-100 border-red-400/50 font-bold uppercase'} data-card-chip="qty0">Out of stock · Qty: 0</span> : <span className={RK_CHIP + ' bg-white/10 text-white border-white/25'}>Qty: {Math.max(0, item.stockQty ?? 1)}</span>}
+                    {item.isForTrade && <span className={RK_CHIP + ' bg-lime-500/20 text-lime-100 border-lime-400/60 font-bold uppercase'}>🤝 Open to Trades</span>}
+                    {!item.isShowingOff && isOwner && (item.stockQty ?? 1) <= 0 && <span className={RK_CHIP + ' text-lime-100 bg-lime-900/30 border-lime-400/50 font-bold'}>RESTOCK: Tap item → Edit</span>}
+                    {!item.isShowingOff && ((item.bulkTiers && item.bulkTiers.length > 0) ? <span className={RK_CHIP_BASE + ' max-w-full leading-tight bg-lime-500/20 text-lime-100 border-lime-400/60'}>Bulk: {item.bulkTiers.map(t => `${t.qty}+ ${t.pct}%`).join(' · ')}</span> : (item.bulkDiscountPct > 0 && <span className={RK_CHIP + ' bg-lime-500/20 text-lime-100 border-lime-400/60'}>{item.bulkDiscountPct}% off {item.bulkDiscountQty}+</span>))}
+                    <span className={RK_CHIP + ' bg-black/50 text-white border-white/20'}><Eye size={12}/> {item.viewCount || 0}</span>
+                    {avgRating && <span className={RK_CHIP + ' bg-yellow-900/30 text-yellow-300 border-yellow-500/50'}><StarIcon size={12} fill="currentColor"/> {avgRating}</span>}
                 </div>
             </div>
-            
+
             {/* V79.6: moved OUT of the action row. 285 rewrote this band's internals but left
                 it as a flex CHILD of `mt-auto flex justify-between`, so it still sat between
                 the share button and REQUEST and still pushed REQUEST out of the card.
@@ -12847,7 +14015,7 @@ const ItemCard = ({ item, user, profile, onViewProfile, onAddToCart, onViewItem 
                     </div>
                 </div>
             )}
-            <div className="mt-auto flex justify-between items-center pt-3 border-t border-white/10">
+            <div className="mt-auto flex flex-wrap justify-between items-center gap-2 pt-3 border-t border-white/10" data-card-actions="1">
                 <div className="flex gap-2 items-center">
                     <button onClick={toggleLike} className={'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition ' + (liked ? 'text-pink-400 border-pink-500/50 bg-pink-500/10' : 'text-white/60 border-white/15 hover:border-white/30')}><Heart size={20} fill={liked?"currentColor":"none"}/><span className="text-xs font-bold">{(item.likes?.length || 0)}</span></button>
                     <button onClick={() => setShowComments(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30 hover:text-white transition"><MessageSquare size={20}/><span className="text-xs font-bold">{rkCommentCount(item)}</span></button>
@@ -12986,7 +14154,7 @@ const SellKandiForm = ({ user, profile }) => {
             e => rkReport('post brands', e));
     }, [profile?.accountType, user?.uid]);
     const [postHelp, setPostHelp] = useState(false);
-    const [form, setForm] = useState({ name: '', price: '', description: '', videoLink: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false, isForTrade: false, tradeCategories: [], tradeNote: '', tradeEvent: '', eventFrom: '', eventTo: '', wantsToSell: false });
+    const [form, setForm] = useState({ name: '', price: '', description: '', videoLink: '', type: 'Single (Bracelet)', isOfficial: false, stockQty: 1, bulkDiscountQty: '', bulkDiscountPct: '', bulkTiers: [{ qty: '', pct: '' }], isSeries: false, seriesName: '', seriesNumber: '', isPinned: false, isShowingOff: false, isForTrade: false, tradeCategories: [], tradeNote: '', tradeEvent: '', eventFrom: '', eventTo: '', eventDays: [], wantsToSell: false });
     const [mediaFiles, setMediaFiles] = useState([]);
     const [eventDropOpen, setEventDropOpen] = useState(false);
     const [loading, setLoading] = useState(false); const [uploadPercent, setUploadPercent] = useState(0);
@@ -13017,7 +14185,7 @@ const SellKandiForm = ({ user, profile }) => {
             if(parseInt(form.stockQty) < 1) return alert("Stock Quantity must be at least 1.");
         }
         // V88.84.150.322: the festival and its days, checked before anything uploads
-        const evf = rkEventFields(form.tradeEvent, form.eventFrom, form.eventTo, null);
+        const evf = rkEventFields(form.tradeEvent, form.eventFrom, form.eventTo, null, form.eventDays);
         if (evf.error) return alert(evf.error);
         setLoading(true); setUploadPercent(0);
         
@@ -13032,7 +14200,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const { eventFrom: _ef, eventTo: _et, ...formFields } = form; const item = { ...formFields, ...evf.fields, likeCount: 0, commentCount: 0, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
+            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const { eventFrom: _ef, eventTo: _et, eventDays: _ed, ...formFields } = form; const item = { ...formFields, name: String(form.name || '').trim().slice(0, RK_POST_NAME_MAX), ...evf.fields, likeCount: 0, commentCount: 0, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
                 // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
                 // field does not match an equality query — a post without this would be invisible
                 // to everyone except its author.
@@ -13050,7 +14218,7 @@ const SellKandiForm = ({ user, profile }) => {
             await batch.commit(); setIsOpen(false);
             // a post with festival days tells the poster's friends and the ravers going on the same days
             if (evf.fields.eventFrom) rkFestivalNotify({ uid: user.uid, name: profile?.displayName || 'Raver', friends: profile?.friends || [] }, { ...item, id: publicRef.id }).catch(e => rkReport('festival notices', e));
-            setForm(f => ({ ...f, tradeEvent: '', eventFrom: '', eventTo: '' }));
+            setForm(f => ({ ...f, tradeEvent: '', eventFrom: '', eventTo: '', eventDays: [] }));
         } catch(e) { alert("Error: " + e.message); } finally { setLoading(false); setUploadPercent(0); setMediaFiles([]); } 
     };
 
@@ -13092,7 +14260,8 @@ const SellKandiForm = ({ user, profile }) => {
             <div className="mb-3 bg-cyan-900/20 border border-cyan-500/50 rounded-lg p-2.5">
                 <p className="text-xs font-bold text-cyan-200 leading-relaxed">⭐ Heads up: after every completed sale or trade, <span className="text-white underline">both the buyer AND the seller MUST rate the transaction</span>. Ratings power the trust system that keeps every raver here as safe as possible — for you and for them.</p>
             </div>
-            <Input label="Name" value={form.name} onChange={v => setForm({...form, name: v})} />
+            <Input label="Name" value={form.name} onChange={v => setForm({...form, name: v})} maxLength={RK_POST_NAME_MAX} />
+            <p className="text-xs text-white text-right -mt-3 mb-4" data-name-count="1">{String(form.name || '').length}/{RK_POST_NAME_MAX} characters</p>
             {/* V70.4: only rendered when the account actually has brands - an empty selector on a
                 Personal account is a question with no answers. */}
             {postBrands.length > 0 && (
@@ -13127,7 +14296,7 @@ const SellKandiForm = ({ user, profile }) => {
                 trades box only, with no days. */}
             <div className="mb-4 bg-gradient-to-r from-cyan-900/30 to-purple-900/30 p-3 rounded-lg border border-cyan-500/40" data-post-festival="1">
                 <p className="text-xs font-black text-cyan-200 uppercase mb-2">🎪 Going to a festival? (optional)</p>
-                <RkEventPicker name={form.tradeEvent} from={form.eventFrom} to={form.eventTo} onChange={(v) => setForm({ ...form, tradeEvent: v.name, eventFrom: v.from || '', eventTo: v.to || '' })}/>
+                <RkEventPicker name={form.tradeEvent} from={form.eventFrom} to={form.eventTo} days={form.eventDays} onChange={(v) => setForm({ ...form, tradeEvent: v.name, eventFrom: v.from || '', eventTo: v.to || '', eventDays: v.days || [] })}/>
             </div>
             {(() => {
                 // Trade-only = Open to Trades with no sale price intended. We hide price + bulk discount
@@ -13519,6 +14688,18 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     // the UID step) is the point of the step, so the tour leaves it alone until the step changes.
     const tappedRef = useRef(-1);
     const lastRectRef = useRef('');
+    // V89.84.150.323 (Milli, at 323: "users can scroll behind the tutorial. This misaligns the box ... Ensure the
+    // tutorial locks things in place and forces user to click on the correct location"). While a step points at
+    // something the page can't be scrolled, so the ring can't drift off its control, and a tap anywhere but the
+    // right place flashes the ring and the instruction (`nudge`) instead of reaching the app. On a step that
+    // wants NEXT, the highlighted control itself is covered too, so it can't be used out of turn. A
+    // fill-it-in step (passthrough) leaves the window it opened free to scroll.
+    const [nudge, setNudge] = useState(0);
+    useEffect(() => {
+        if (!active || !cur || cur.passthrough) return;
+        return rkTourHold();
+    }, [active, step]);
+    useEffect(() => { setNudge(0); }, [step]);
 
     // A requireTap step advances only when the spotlighted control is actually used. The cutout
     // already lets taps through — the four dark panels surround the hole rather than covering it —
@@ -13639,33 +14820,38 @@ const TutorialOverlay = ({ active, onFinish, steps, replay }) => {
     // V87.80.150.317: the tour's own length. Every tour counted against the app tutorial's 12, so the
     // Kandi Maker walkthrough ended on "Step 8 of 12" with the bar two-thirds full.
     const pct = Math.round(((step + 1) / STEPS.length) * 100);
+    const poke = (e) => { if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (x) {} } setNudge(n => n + 1); };
     return createPortal(
         <div className="fixed inset-0 z-[2000]" style={{ pointerEvents: 'none' }} data-rk-tour="1">
             {hole ? (
                 <>
-                    <div className="absolute bg-black/80" style={{ top: 0, left: 0, right: 0, height: Math.max(0, hole.top), pointerEvents: 'auto' }}/>
-                    <div className="absolute bg-black/80" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height, pointerEvents: 'auto' }}/>
-                    <div className="absolute bg-black/80" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height, pointerEvents: 'auto' }}/>
-                    <div className="absolute bg-black/80" style={{ top: hole.top + hole.height, left: 0, right: 0, bottom: 0, pointerEvents: 'auto' }}/>
+                    <div className="absolute bg-black/80" onClick={poke} data-rk-tour-dim="1" style={{ top: 0, left: 0, right: 0, height: Math.max(0, hole.top), pointerEvents: 'auto', touchAction: 'none' }}/>
+                    <div className="absolute bg-black/80" onClick={poke} data-rk-tour-dim="1" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height, pointerEvents: 'auto', touchAction: 'none' }}/>
+                    <div className="absolute bg-black/80" onClick={poke} data-rk-tour-dim="1" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height, pointerEvents: 'auto', touchAction: 'none' }}/>
+                    <div className="absolute bg-black/80" onClick={poke} data-rk-tour-dim="1" style={{ top: hole.top + hole.height, left: 0, right: 0, bottom: 0, pointerEvents: 'auto', touchAction: 'none' }}/>
+                    {/* V89.84.150.323: on a NEXT step the control is shown, not used: a clear cover takes the tap */}
+                    {!cur.requireTap && <div className="absolute" onClick={poke} data-rk-tour-cover="1" style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height, pointerEvents: 'auto', touchAction: 'none' }}/>}
                     <div className="absolute rounded-xl border-2 border-pink-400 animate-pulse" style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height, boxShadow: '0 0 20px rgba(236,72,153,0.6)', pointerEvents: 'none' }}/>
+                    {nudge > 0 && <div key={'nudge' + nudge} className="absolute rounded-xl border-4 border-white rk-tour-nudge" data-rk-tour-nudge={nudge} style={{ top: hole.top, left: hole.left, width: hole.width, height: hole.height, boxShadow: '0 0 28px rgba(255,255,255,0.8)', pointerEvents: 'none' }}/>}
                 </>
             ) : (
-                <div className="absolute inset-0 bg-black/85" style={{ pointerEvents: 'auto' }}/>
+                <div className="absolute inset-0 bg-black/85" onClick={poke} data-rk-tour-dim="1" style={{ pointerEvents: 'auto', touchAction: 'none' }}/>
             )}
-            <div className="absolute left-1/2 -translate-x-1/2 w-[88%] max-w-sm" style={{ pointerEvents: 'auto', ...(cur.center ? { top: '50%', transform: 'translate(-50%,-50%)' } : noteTop != null ? { top: noteTop } : { bottom: noteBottom }) }}>
+            <div data-rk-tour-card="1" className="absolute left-1/2 -translate-x-1/2 w-[88%] max-w-sm" style={{ pointerEvents: 'auto', ...(cur.center ? { top: '50%', transform: 'translate(-50%,-50%)' } : noteTop != null ? { top: noteTop } : { bottom: noteBottom }) }}>
                 <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-5 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
                     <p className="text-xs uppercase font-black tracking-widest text-pink-100 mb-1">Step {step + 1} of {STEPS.length}</p>
                     <div className="h-1.5 w-full rounded-full bg-black/40 overflow-hidden mb-2.5"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-pink-300 transition-all duration-300" style={{ width: pct + '%' }}/></div>
                     <h3 className="text-xl font-black text-white mb-2">{cur.title}</h3>
                     <p className="text-sm text-white leading-relaxed mb-4">{cur.body}</p>
+                    {nudge > 0 && <p className="text-sm font-black text-amber-200 mb-3" data-rk-tour-wrong="1">{cur.requireTap ? '☝️ Only the glowing button works right now. Tap it to carry on.' : '☝️ Tap Next to carry on.'}</p>}
                     <div className="flex items-center justify-between gap-2">
                         {/* Skip stays hidden until the UID step is done, then remains available. */}
                         <div>{canSkip && !last && <button onClick={finish} className="text-white text-xs font-bold underline underline-offset-2 px-1 py-2">Skip the rest</button>}</div>
                         <div className="flex items-center gap-2">
                             {step > 0 && <button onClick={back} className="bg-white/15 text-white font-bold text-sm px-4 py-2 rounded-full hover:bg-white/25 active:scale-95 transition flex items-center gap-1"><ChevronLeft size={16}/> Back</button>}
                             {cur.requireTap
-                                ? <span className="text-xs font-black uppercase tracking-wider text-pink-100 px-2 py-2 animate-pulse">👆 Tap it to continue</span>
-                                : <button onClick={next} className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button>}
+                                ? <span key={'hint' + nudge} className={'inline-block ' + (nudge ? 'rk-tour-nudge' : '')} data-rk-tour-hint={nudge}><span className="text-sm font-black text-pink-100 px-2 py-2 animate-pulse">👆 {nudge ? 'Tap the glowing button' : 'Tap it to continue'}</span></span>
+                                : <span key={'next' + nudge} className={'inline-block ' + (nudge ? 'rk-tour-nudge' : '')}><button onClick={next} data-rk-tour-next="1" className="bg-white text-purple-800 font-black uppercase text-sm px-6 py-2 rounded-full hover:bg-pink-100 active:scale-95 transition">{last ? 'Finish 🎉' : 'Next →'}</button></span>}
                         </div>
                     </div>
                 </div>
@@ -14492,6 +15678,7 @@ const RK_ADMIN_TINTS = {
     apps:    { border: 'border-lime-500/40',   bg: 'bg-lime-900/15',   text: 'text-lime-300' },
     look:    { border: 'border-fuchsia-500/40', bg: 'bg-fuchsia-900/15', text: 'text-fuchsia-300' },
     usage:   { border: 'border-sky-500/40',    bg: 'bg-sky-900/15',    text: 'text-sky-300' },
+    words:   { border: 'border-rose-500/40',   bg: 'bg-rose-900/15',   text: 'text-rose-200' },
     reach:   { border: 'border-fuchsia-500/40',bg: 'bg-fuchsia-900/15',text: 'text-fuchsia-300' },
     backfill:{ border: 'border-orange-500/40', bg: 'bg-orange-900/15', text: 'text-orange-300' },
 };
@@ -14963,7 +16150,7 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
             <h3 className="font-bold text-red-400 mb-4 uppercase italic">Admin Console</h3>
 
             <div className="flex flex-wrap gap-1.5 mb-3">
-                {[['config', '🛰 Config'], ['look', '🎨 Background'], ['usage', '📊 Usage'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
+                {[['config', '🛰 Config'], ['look', '🎨 Background'], ['usage', '📊 Usage'], ['banners', '📢 Banners'], ['videos', '🎬 Clips'], ['users', '👥 Users'], ['fees', '💸 Fees'], ['words', '🕊️ Words'], ['apps', '📋 Apps' + (apps.length ? ' (' + apps.length + ')' : '')]].map(([k, l]) => (
                     <button key={k} onClick={() => setOpenSec(openSec === k ? null : k)} className={'px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ' + (openSec === k ? 'bg-red-600 text-white border-red-400' : 'bg-black/40 text-white border-white/20')}>{l}</button>
                 ))}
             </div>
@@ -14978,6 +16165,10 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
 
             <AdminSection id="usage" title="📊 Usage & Limits — Design Lab AI and storage" tint={RK_ADMIN_TINTS.usage} open={openSec === 'usage'} onToggle={setOpenSec}>
                 <AdminUsagePanel user={user}/>
+            </AdminSection>
+            {/* V89.84.150.323: the hate-speech word list (AdminWordsPanel) */}
+            <AdminSection id="words" title="🕊️ Blocked words — hate speech, everywhere" tint={RK_ADMIN_TINTS.words} open={openSec === 'words'} onToggle={setOpenSec}>
+                <AdminWordsPanel user={user}/>
             </AdminSection>
             <AdminSection id="banners" title="📢 Banner Manager" tint={RK_ADMIN_TINTS.banners} open={openSec === 'banners'} onToggle={setOpenSec}>
                 <AdminBannerManager user={user} profile={profile} onMessageUser={onMessageUser} />
@@ -18110,8 +19301,14 @@ const rkByIdMerge = (a, b) => { const m = {}; (a || []).forEach(r => { if (r && 
 // One server-ordered list, a page at a time. `makeQuery(n, after)` builds it: `n` rows (live: the whole
 // limit so far), after the document `after`. `fallback()` is a query needing no composite index, and `cmp`
 // orders its rows. A new `key` starts the list again.
+// V89.85.150.324: FOUND AND FIXED while testing the sign-in wait. A feed that wasn't loading (nobody signed in yet, or the
+// Ravers tail switched off) handed back a new empty list on every render. The Items feed's list (feedItems) is worked
+// out from it, so it "changed" on every render, its effect stored it, and that render started the next: behind the
+// login screen the app re-rendered itself without end, using the phone's processor the whole time (since 322). Every
+// empty feed now shares this one list.
+const RK_PAGED_NONE = [];
 const useRkPaged = ({ key, makeQuery, live = false, fallback = null, cmp = null, enabled = true }) => {
-    const blank = { k: '', rows: [], loaded: false, more: false, busy: false, err: '', fell: false };
+    const blank = { k: '', rows: RK_PAGED_NONE, loaded: false, more: false, busy: false, err: '', fell: false };
     const [st, setSt] = useState(blank);
     const [grow, setGrow] = useState({ k: key, n: RK_PAGE, tick: 0 });
     const n = grow.k === key ? grow.n : RK_PAGE;
@@ -18201,7 +19398,16 @@ const rkEventOf = (i) => {
     if (!i) return null;
     const e = (i.event && i.event.name) ? i.event : (i.tradeWants && i.tradeWants.event) ? { name: i.tradeWants.event } : null;
     if (!e || !String(e.name || '').trim()) return null;
-    return { name: String(e.name).trim(), from: e.from || '', to: e.to || e.from || '' };
+    return { name: String(e.name).trim(), from: e.from || '', to: e.to || e.from || '', days: Array.isArray(e.days) ? e.days.map(String).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 31).sort() : [] };
+};
+// V89.85.150.324: every day from a to b, 'YYYY-MM-DD', up to 31 (a festival's days, or a post's)
+const rkDaysBetween = (a, b) => {
+    const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(a || '')), m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(b || a || ''));
+    const out = [];
+    if (!m1 || !m2) return out;
+    const d = new Date(+m1[1], +m1[2] - 1, +m1[3]), e = new Date(+m2[1], +m2[2] - 1, +m2[3]);
+    while (d <= e && out.length < 31) { out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); d.setDate(d.getDate() + 1); }
+    return out;
 };
 const rkParseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
 // "Fri, May 15 – Sun, May 17", the year added when it isn't this year
@@ -18211,17 +19417,37 @@ const rkEventDays = (e) => {
     const y = new Date().getFullYear();
     const yr = a.getFullYear() !== y || (b && b.getFullYear() !== y);
     const f = (d, withYear) => { try { return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) }); } catch (x) { return rkDayStr(d.getTime()); } };
+    // V89.85.150.324: days tapped that aren't one run are listed: "Fri, May 14 & Sun, May 16"
+    const ds = (e && Array.isArray(e.days)) ? e.days.filter(d => rkParseDay(d)).slice().sort() : [];
+    if (ds.length > 1 && ds.length !== rkDaysBetween(ds[0], ds[ds.length - 1]).length) {
+        const yr2 = ds.some(d => rkParseDay(d).getFullYear() !== y);
+        const parts = ds.map((d, i) => f(rkParseDay(d), yr2 && i === ds.length - 1));
+        return parts.slice(0, -1).join(', ') + ' & ' + parts[parts.length - 1];
+    }
     if (!b || b.getTime() === a.getTime()) return f(a, yr);
     return f(a, false) + ' – ' + f(b, yr);
 };
 const rkEventPast = (e) => { const b = rkParseDay(e && (e.to || e.from)); return !!b && rkDayStr(b.getTime()) < rkDayStr(Date.now()); };
-const rkEventsOverlap = (a, b) => !!(a && b && a.from && b.from && a.from <= (b.to || b.from) && b.from <= (a.to || a.from));
+// V89.85.150.324: with days tapped, the two posts must share a day, not only overlap from first to last
+const rkEventDayList = (e) => {
+    if (!e) return [];
+    if (Array.isArray(e.days) && e.days.length) return e.days.filter(d => rkParseDay(d)).slice().sort();
+    return e.from ? rkDaysBetween(e.from, e.to || e.from) : [];
+};
+const rkEventsOverlap = (a, b) => {
+    if (!(a && b && a.from && b.from && a.from <= (b.to || b.from) && b.from <= (a.to || a.from))) return false;
+    const bd = new Set(rkEventDayList(b));
+    return rkEventDayList(a).some(d => bd.has(d));
+};
 // The fields a post saves for its festival, or { error } to show. Days that have passed are refused, unless
 // they're the days the post already had (editing the price of a post from last season, say).
-const rkEventFields = (name, from, to, prev) => {
+const rkEventFields = (name, from, to, prev, days) => {
     const nm = String(name || '').trim().slice(0, 60);
     if (!nm) return { fields: { event: null, eventKey: '', eventFrom: '', eventTo: '' } };
     let f = String(from || '').trim(), t = String(to || '').trim();
+    // V89.85.150.324: days tapped from the festival's dates; the first and last of them are the post's days
+    const picked = Array.isArray(days) ? Array.from(new Set(days.map(String).filter(d => rkParseDay(d)))).sort() : [];
+    if (picked.length) { f = picked[0]; t = picked[picked.length - 1]; }
     if (!f && t) f = t;
     if (f && !t) t = f;
     if (f && !rkParseDay(f)) return { error: 'Pick the first day from the calendar.' };
@@ -18230,35 +19456,118 @@ const rkEventFields = (name, from, to, prev) => {
     const same = !!(prev && prev.from === f && (prev.to || prev.from) === t);
     if (f && !same && t < rkDayStr(Date.now())) return { error: "Those days have passed. Pick the days you'll be there, or leave the dates empty." };
     if (f && (rkParseDay(t) - rkParseDay(f)) / 86400000 > 31) return { error: 'Pick up to a month of days.' };
-    return { fields: { event: { name: nm, from: f, to: t }, eventKey: rkEventKey(nm), eventFrom: f, eventTo: t } };
+    const ev = { name: nm, from: f, to: t };
+    if (picked.length && f) ev.days = picked;
+    return { fields: { event: ev, eventKey: rkEventKey(nm), eventFrom: f, eventTo: t } };
+};
+// ---- V89.85.150.324: A FESTIVAL'S DATES WHEN YOU PICK IT (Milli, at 324: "when posting to feed, automatically check for
+// the event date and add the information in the app when user selects the festival. This will be positioned above the
+// users going dates. Users should be able to click-select which dates they are attending from known festival dates").
+// RK_FEST_DATES (beside MAJOR_EVENTS) holds each festival's announced editions, from the festivals' and promoters' own
+// announcements, refreshed every build. An admin can add or correct a festival without a build: global/config,
+// field festDates, the same shape ({ "edc las vegas": [{ "l": "EDC Las Vegas 2027", "f": "2027-05-14", "t":
+// "2027-05-16", "w": "Las Vegas Motor Speedway" }] }), keyed like rkEventKey; a key there replaces the built-in one.
+const rkFestCatalog = () => { const o = (RK_CFG && RK_CFG.festDates && typeof RK_CFG.festDates === 'object') ? RK_CFG.festDates : {}; return { ...RK_FEST_DATES, ...o }; };
+const rkFestAll = (name) => {
+    const list = rkFestCatalog()[rkEventKey(name)];
+    return Array.isArray(list) ? list.filter(ed => ed && rkParseDay(ed.f) && rkParseDay(ed.t || ed.f) && (ed.t || ed.f) >= ed.f)
+        .map(ed => ({ l: String(ed.l || name), f: ed.f, t: ed.t || ed.f, w: String(ed.w || ''), s: ed.s === 'p' ? 'p' : 'o' })) : [];
+};
+// the editions still to come (or under way), soonest first
+const rkFestEditions = (name) => {
+    if (!String(name || '').trim()) return [];
+    const today = rkDayStr(Date.now());
+    return rkFestAll(name).filter(ed => ed.t >= today).sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : 0));
+};
+// the edition a post's days fall in (or, with no days, the next one), for the festival's dates beside the post's
+const rkEditionFor = (e) => {
+    if (!e || !e.name) return null;
+    const ds = rkEventDayList(e);
+    if (ds.length) return rkFestAll(e.name).find(ed => ds.some(d => d >= ed.f && d <= ed.t)) || null;
+    return rkFestEditions(e.name)[0] || null;
+};
+// every day of one edition tapped on one post (All In)
+const rkCoversEdition = (e) => {
+    if (!e || !Array.isArray(e.days) || !e.days.length) return false;
+    const have = new Set(e.days);
+    return rkFestAll(e.name).some(ed => { const ds = rkDaysBetween(ed.f, ed.t); return ds.length > 0 && ds.every(d => have.has(d)); });
+};
+const rkDayLabel = (d) => { const x = rkParseDay(d); if (!x) return d; try { return x.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); } catch (e) { return d; } };
+// the soonest festival on the calendar, for the marquee
+const rkNextFestival = () => {
+    let best = null;
+    const today = rkDayStr(Date.now());
+    MAJOR_EVENTS.forEach(nm => { const ed = rkFestEditions(nm).find(x => x.f >= today); if (ed && (!best || ed.f < best.ed.f)) best = { name: nm, ed }; });
+    return best;
 };
 // The festival picker on the post and edit forms: a name (typed, or picked from the list) and the days.
-const RkEventPicker = ({ name, from, to, onChange }) => {
+// V89.85.150.324: a festival with known dates shows them first, each day a button to tap; the two boxes stay below,
+// for a festival RaveKandi has no dates for, or to type the days instead.
+const RkEventPicker = ({ name, from, to, days, onChange }) => {
     const [open, setOpen] = useState(false);
     const today = rkDayStr(Date.now());
     const list = MAJOR_EVENTS.filter(ev => !name || ev.toLowerCase().includes(String(name).toLowerCase()));
+    const picked = Array.isArray(days) ? days : [];
+    const eds = rkFestEditions(name);
+    const known = String(name || '').trim() && rkFestAll(name).length > 0;
+    // another festival drops the days tapped for the last one (days typed in the boxes stay, as before)
+    const setName = (nm) => onChange(picked.length ? { name: nm, from: '', to: '', days: [] } : { name: nm, from, to, days: [] });
+    const tapDay = (d) => {
+        const s = new Set(picked);
+        if (s.has(d)) s.delete(d); else s.add(d);
+        const arr = Array.from(s).sort();
+        onChange({ name, from: arr[0] || '', to: arr[arr.length - 1] || '', days: arr });
+    };
     return (
         <div className="space-y-2" data-event-picker="1">
             <div className="relative">
                 <div className="flex gap-1">
-                    <input value={name || ''} onChange={e => { onChange({ name: e.target.value, from, to }); setOpen(true); }} onFocus={() => setOpen(true)} maxLength={60} placeholder="Type or pick a festival (e.g. EDC Las Vegas)" className="flex-1 p-2 rounded bg-white/10 border border-white/25 text-sm text-white outline-none focus:border-cyan-400"/>
+                    <input value={name || ''} onChange={e => { setName(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} maxLength={60} placeholder="Type or pick a festival (e.g. EDC Las Vegas)" className="flex-1 min-w-0 p-2 rounded bg-white/10 border border-white/25 text-sm text-white outline-none focus:border-cyan-400"/>
                     <button type="button" onClick={() => setOpen(o => !o)} className="px-3 rounded bg-white/10 border border-white/25 text-white text-sm" aria-label="Show festivals">{open ? '▲' : '▼'}</button>
                 </div>
                 {open && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-48 overflow-y-auto rk-scroll bg-[#160026] border border-cyan-500/40 rounded-lg shadow-xl">
-                        {list.map(ev => <button key={ev} type="button" onClick={() => { onChange({ name: ev, from, to }); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-white hover:bg-cyan-500/20 border-b border-white/5">{ev}</button>)}
+                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-56 overflow-y-auto rk-scroll bg-[#160026] border border-cyan-500/40 rounded-lg shadow-xl">
+                        {list.map(ev => { const nx = rkFestEditions(ev)[0]; return (
+                            <button key={ev} type="button" onClick={() => { setName(ev); setOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-white hover:bg-cyan-500/20 border-b border-white/5" data-event-option={rkEventKey(ev)}>
+                                <span className="block">{ev}</span>
+                                {nx && <span className="block text-xs text-cyan-200">📅 {rkEventDays({ from: nx.f, to: nx.t })}</span>}
+                            </button>
+                        ); })}
                         {list.length === 0 && <p className="px-3 py-2 text-xs text-white">No match: "{name}" will be used as it is.</p>}
                         <button type="button" onClick={() => setOpen(false)} className="w-full text-center px-3 py-2 text-xs font-bold text-cyan-200 bg-cyan-900/20">Done</button>
                     </div>
                 )}
             </div>
+            {String(name || '').trim() && eds.length > 0 && (
+                <div data-fest-known={eds.length}>
+                    <p className="text-xs font-bold text-white mb-1">📅 {eds.length === 1 ? "The festival's dates" : "The festival's dates (" + eds.length + ' editions)'}</p>
+                    {eds.map(ed => { const ds = rkDaysBetween(ed.f, ed.t).filter(d => d >= today); return (
+                        <div key={ed.l + ed.f} className="mb-2 rounded-lg border border-cyan-400/60 bg-cyan-500/10 p-2.5" data-fest-edition={ed.f}>
+                            <p className="text-sm font-black text-white break-words">{ed.l}</p>
+                            <p className="text-xs text-white break-words">{rkEventDays({ from: ed.f, to: ed.t })}{ed.w ? ' · ' + ed.w : ''}</p>
+                            <p className="text-xs text-white" data-fest-source={ed.s}>{ed.s === 'o' ? "From the festival's own announcement." : 'From press reports. Check the festival before you book.'}</p>
+                            <p className="text-xs font-bold text-cyan-200 mt-2 mb-1">Tap the days you're going:</p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {ds.map(d => { const on = picked.includes(d); return (
+                                    <button type="button" key={d} aria-pressed={on} onClick={() => tapDay(d)} data-fest-day={d}
+                                        className={'whitespace-nowrap rounded-lg border-2 px-2.5 py-1.5 text-xs font-bold text-white transition active:scale-95 ' + (on ? 'bg-cyan-500/40 border-cyan-200 shadow-[0_0_10px_rgba(34,211,238,0.5)]' : 'bg-black/30 border-white/30')}>
+                                        {on ? '✓ ' : ''}{rkDayLabel(d)}
+                                    </button>
+                                ); })}
+                            </div>
+                        </div>
+                    ); })}
+                </div>
+            )}
+            {String(name || '').trim() && known && eds.length === 0 && <p className="text-xs text-white" data-fest-none="1">📅 The next {String(name).trim()} hasn't announced its dates yet. Add your days below.</p>}
             {String(name || '').trim() && (
                 <div>
-                    <p className="text-xs font-bold text-white mb-1">📅 Which days will you be there? (optional)</p>
+                    <p className="text-xs font-bold text-white mb-1">{eds.length ? '📅 Or type your days (optional)' : '📅 Which days will you be there? (optional)'}</p>
                     <div className="grid grid-cols-2 gap-2">
-                        <label className="text-xs text-white">First day<input type="date" min={today} value={from || ''} onChange={e => onChange({ name, from: e.target.value, to: (!to || to < e.target.value) ? e.target.value : to })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-from="1"/></label>
-                        <label className="text-xs text-white">Last day<input type="date" min={from || today} value={to || ''} onChange={e => onChange({ name, from: from || e.target.value, to: e.target.value })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-to="1"/></label>
+                        <label className="text-xs text-white">First day<input type="date" min={today} value={from || ''} onChange={e => onChange({ name, from: e.target.value, to: (!to || to < e.target.value) ? e.target.value : to, days: [] })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-from="1"/></label>
+                        <label className="text-xs text-white">Last day<input type="date" min={from || today} value={to || ''} onChange={e => onChange({ name, from: from || e.target.value, to: e.target.value, days: [] })} className="mt-1 w-full p-2 rounded bg-white/10 border border-white/25 text-sm text-white" data-event-to="1"/></label>
                     </div>
+                    {picked.length > 0 && <p className="text-xs font-bold text-cyan-200 mt-1" data-fest-picked={picked.length}>You're going: {rkEventDays({ from: picked[0], to: picked[picked.length - 1], days: picked })}</p>}
                     <p className="text-xs text-white mt-1">With dates, your post shows when you'll be there, your friends hear about it, and ravers going on the same days can find you. Always meet in public, well-lit places.</p>
                 </div>
             )}
@@ -18312,19 +19621,21 @@ const rkFestivalNotify = async (me, post) => {
     return n;
 };
 // The festival line on a post: the name and the days, and a tap that shows everyone's posts for it.
+// V89.85.150.324: the festival's own dates sit above the poster's days, and the name wraps instead of being cut.
 const RkEventChip = ({ item, onPick }) => {
     const e = rkEventOf(item);
     if (!e) return null;
-    const days = rkEventDays(e), past = rkEventPast(e);
+    const days = rkEventDays(e), past = rkEventPast(e), ed = rkEditionFor(e);
     return (
         <button type="button" data-event-chip={rkEventKey(e.name)} onClick={(ev) => { ev.stopPropagation(); if (onPick) onPick(e.name); }}
             className="mt-2 w-full text-left flex items-center gap-2 rounded-lg border border-cyan-400/50 bg-cyan-500/10 px-2.5 py-1.5 active:scale-[0.99] transition">
             <span className="text-base leading-none" aria-hidden="true">🎪</span>
             <span className="min-w-0 flex-1">
-                <span className="block text-xs font-black text-white truncate">{e.name}</span>
+                <span className="block text-xs font-black text-white break-words">{e.name}</span>
+                {ed && <span className="block text-xs text-cyan-100" data-event-fest-dates="1">Festival: {rkEventDays({ from: ed.f, to: ed.t })}</span>}
                 <span className="block text-xs text-white">{days ? (past ? 'Was there ' : 'There ') + days : 'Going (no dates given)'}</span>
             </span>
-            <span className="text-xs font-bold text-cyan-200 shrink-0">See who's going</span>
+            <span className="text-xs font-bold text-cyan-200 shrink-0 whitespace-nowrap">See who's going</span>
         </button>
     );
 };
@@ -20019,6 +21330,8 @@ const CreatorSections = ({ targ, isSelf, viewerUid, canEditMusic, canEditContent
     return <><CreatorSocialsRow targ={targ} isSelf={isSelf}/>{kandi}{musicFirst ? <>{music}{content}</> : <>{content}{music}</>}</>;
 };
 
+// V89.85.150.324: the profile page's Collection and Message buttons share this
+const RK_PROFILE_BTN = 'w-full h-12 px-3 rounded-lg text-sm font-black uppercase tracking-wider text-white flex items-center justify-center gap-2 active:scale-95 transition';
 const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, onViewFeedItem, onViewProfile }) => {
     const [targ, setTarg] = useState(null);
     const [errMsg, setErrMsg] = useState('');
@@ -20037,14 +21350,21 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
             try {
                 const vRef = doc(db, 'artifacts', appId, 'users', targ.id, 'profileViewers', viewerUid);
                 const uRef = doc(db, 'artifacts', appId, 'users', targ.id);
+                // V89.84.150.323 (the statistics lockdown): the receipt and the count go together in one batch, so the
+                // rules can check them against each other: a view counts once per viewer every 30 minutes, and a
+                // unique view only when the receipt is new. The view count used to rise on every open.
                 const seen = await getDoc(vRef);
+                const now = Date.now();
+                const b = writeBatch(db);
                 if (seen.exists()) {
-                    await setDoc(vRef, { views: increment(1), lastViewed: Date.now() }, { merge: true });
-                    await setDoc(uRef, { profileViews: increment(1) }, { merge: true });
+                    if (now - (Number(seen.data().lastViewed) || 0) < RK_VIEW_GAP_MS) return;
+                    b.set(vRef, { views: increment(1), lastViewed: now }, { merge: true });
+                    b.set(uRef, { profileViews: increment(1) }, { merge: true });
                 } else {
-                    await setDoc(vRef, { views: 1, firstViewed: Date.now(), lastViewed: Date.now() });
-                    await setDoc(uRef, { profileViews: increment(1), profileViewsUnique: increment(1) }, { merge: true });
+                    b.set(vRef, { views: 1, firstViewed: now, lastViewed: now });
+                    b.set(uRef, { profileViews: increment(1), profileViewsUnique: increment(1) }, { merge: true });
                 }
+                await b.commit();
             } catch (e) { /* best-effort — rules or offline; never block the profile */ }
         })();
     }, [targ && targ.id, viewerUid]);
@@ -20090,10 +21410,10 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
     return (
         <div className="fixed inset-0 bg-[#0a0014] z-[90] overflow-y-auto">
             <div className="sticky top-0 z-10 bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex items-center justify-between">
-                <h2 className="text-lg font-black italic uppercase tracking-widest" style={getTextGlowStyle('primaryGlow')}>
+                <h2 className="min-w-0 flex-1 pr-2 text-lg leading-tight font-black italic uppercase tracking-widest break-words [overflow-wrap:anywhere]" style={getTextGlowStyle('primaryGlow')} data-profile-title="1">
                     {targ === 'not_found' ? 'Not Found' : targ === 'error' ? 'Connection Issue' : (targ?.displayName ? '@' + targ.displayName : 'Loading…')}
                 </h2>
-                <button onClick={onClose} className="text-white hover:text-pink-400"><XCircle size={30}/></button>
+                <button onClick={onClose} className="shrink-0 text-white hover:text-pink-400"><XCircle size={30}/></button>
             </div>
 
             {targ === 'not_found' ? <p className="opacity-50 text-center py-20">This raver no longer exists.</p>
@@ -20121,9 +21441,18 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                             )}
                         </div>
                         <div className="text-center md:text-left flex-1 w-full">
-                            <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                                <UserRating sum={targ.ratingSum} count={targ.ratingCount} size="lg" /><h2 className="text-3xl font-black" style={targ?.nameStyle ? undefined : getTextGlowStyle('primaryGlow')}><RkName name={targ.displayName} style={targ?.nameStyle}/></h2>{targ.featuredBadge && <div className="flex mt-1"><BadgeChip badge={targ.featuredBadge} /></div>}
-                                {(targ.isKandiCreator || targ.isAdmin) && <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-400/50 px-2 py-0.5 rounded-full font-black uppercase tracking-wider flex items-center gap-1"><Hammer size={9}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
+                            {/* V89.85.150.324 (Milli: "change users name location to sit above the users badges displayed, and ensure
+                                badges are properly aligned"). The name has its own line, then the stars; the featured badge and the
+                                creator tag sit under them in one row, each 32 px high and centred on the same line. */}
+                            <div className="mb-3" data-profile-head="1">
+                                <h2 className="text-3xl font-black leading-tight break-words [overflow-wrap:anywhere]" style={targ?.nameStyle ? undefined : getTextGlowStyle('primaryGlow')} data-profile-name="1"><RkName name={targ.displayName} style={targ?.nameStyle}/></h2>
+                                {(targ.ratingCount || 0) > 0 && <div className="mt-1 flex justify-center md:justify-start" data-profile-rating="1"><UserRating sum={targ.ratingSum} count={targ.ratingCount} size="lg"/></div>}
+                                {(targ.featuredBadge || targ.isKandiCreator || targ.isAdmin) && (
+                                    <div className="mt-2 flex flex-wrap items-center justify-center md:justify-start gap-2" data-profile-badges="1">
+                                        {targ.featuredBadge && <span className="inline-flex items-center h-8" data-profile-badge="featured"><BadgeChip badge={targ.featuredBadge} size="lg"/></span>}
+                                        {(targ.isKandiCreator || targ.isAdmin) && <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-yellow-400/60 bg-yellow-500/20 text-yellow-200 text-xs font-black uppercase tracking-wider whitespace-nowrap" data-profile-badge="creator"><Hammer size={14}/>{targ.isAdmin ? 'Team' : 'Official Creator'}</span>}
+                                    </div>
+                                )}
                             </div>
 
                             <RkMutualRow viewerUid={viewerUid} viewerProfile={viewerProfile} targ={targ} onViewProfile={onViewProfile}/>
@@ -20166,9 +21495,11 @@ const PublicProfilePage = ({ uid, viewerUid, viewerProfile, onClose, onMessage, 
                                     <AddFriendButton myProfile={viewerProfile} myUid={viewerUid} targetUid={targ.id} targetName={targ.displayName} size="lg" className="w-full" showHint={true} />
                                 </div>
                             )}
-                            <div className="flex gap-2 mt-2 justify-center md:justify-start">
-                                <button onClick={() => setShowCollection(true)} className="rk-shimmer-border flex-1 text-xs flex justify-center items-center gap-2 py-2 rounded-lg font-bold active:scale-95"><Package size={14}/> Collection</button>
-                                {!isSelf && <Button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} color="purple" className="flex-1 text-xs flex justify-center items-center gap-2"><Mail size={14}/> Message</Button>}
+                            {/* V89.85.150.324 (Milli: "make the collection button and message button the same size"): one class list
+                                for both, two equal columns, the same height, text and border width; only the colours differ. */}
+                            <div className="grid grid-cols-2 gap-2 mt-2" data-profile-actions="1">
+                                <button onClick={() => setShowCollection(true)} className={RK_PROFILE_BTN + ' rk-shimmer-border' + (isSelf ? ' col-span-2' : '')} data-profile-btn="collection"><Package size={18}/> Collection</button>
+                                {!isSelf && <button onClick={() => { if (onMessage) onMessage(targ.id, targ.displayName || 'Raver'); }} className={RK_PROFILE_BTN} style={{ backgroundColor: 'rgba(0,0,0,0.3)', border: '2px solid ' + NEON_COLORS.purpleGlow, boxShadow: '0 0 12px ' + NEON_COLORS.purpleGlow + ' inset' }} data-profile-btn="message"><Mail size={18}/> Message</button>}
                             </div>
                         </div>
                     </div>
@@ -20562,7 +21893,7 @@ const RkTribeAppealBox = ({ tribe, r, myUid, myName }) => {
     return (
         <div data-appeal="1" className={'rounded-lg p-3 border-2 ' + (r.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')}>
             <p className="text-sm font-black text-white">{r.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(r.until)}</p>
-            <p className="text-xs text-white mt-0.5">{r.type === 'timeout' ? "You can read the chat and see votes, but you can't post, vote, call votes or invite until it ends." : "You can read the chat, but you can't post, vote, call votes or invite until it ends."} {rkDurTxt(Number(r.until) - now)} left.</p>
+            <p className="text-sm text-white mt-0.5">{r.type === 'timeout' ? "You can read the chat and see votes, but you can't post, vote, call votes or invite until it ends." : "You can read the chat, vote, call votes and invite, but you can't post until it ends."} {rkDurTxt(Number(r.until) - now)} left.</p>
             <div className="mt-2 h-2.5 rounded-full bg-black/60 overflow-hidden relative">
                 <div className="h-full bg-gradient-to-r from-pink-400 to-cyan-300" style={{ width: served + '%' }}/>
                 {[25, 50, 75].map(m => <span key={m} className="absolute top-0 bottom-0 w-0.5 bg-white" style={{ left: m + '%' }}/>)}
@@ -20578,6 +21909,76 @@ const RkTribeAppealBox = ({ tribe, r, myUid, myName }) => {
                     <button disabled={busy || text.trim().length < 10} onClick={send} className={'w-full text-sm font-bold rounded-lg py-2 ' + (busy || text.trim().length < 10 ? 'bg-pink-900/60 text-white border border-pink-400/40' : 'bg-pink-600 text-white')}>{busy ? 'Sending…' : 'Send appeal'}</button>
                 </div>
             ) : <p className="text-xs text-white mt-2">{ap.nextAt ? 'Your next appeal opens ' + rkTribeWhen(ap.nextAt) + '.' : 'There are no appeals left. It ends ' + rkTribeWhen(r.until) + '.'}</p>}
+        </div>
+    );
+};
+// V89.84.150.323: YOUR INVITES AND THE VOTES ON YOU, at the top of the Tribes tab (Milli, at 323: "the invitee must
+// first accept the invite before the vote process begins. During this process, update the invitee"). An invite is
+// answered here: Accept starts the members' vote, No thanks removes it. A vote on adding you shows how far it has
+// got, toward the yes votes that pass it and the no votes that would end it. Both are live.
+const RkMyTribeInvites = ({ myUid, myName, unlocked, focusN }) => {
+    const [invs, setInvs] = useState([]);
+    const [votes, setVotes] = useState([]);
+    const [busy, setBusy] = useState('');
+    const boxRef = useRef(null);
+    useEffect(() => {
+        if (!myUid) return;
+        const col = collection(db, 'artifacts', appId, 'public', 'data', 'tribes');
+        const u1 = onSnapshot(query(col, where('invites.' + myUid + '.at', '>', 0)), s => setInvs(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('my tribe invites', e));
+        const u2 = onSnapshot(query(col, where('pendingVotes.' + myUid + '.at', '>', 0)), s => setVotes(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => rkReport('tribe votes on me', e));
+        return () => { u1(); u2(); };
+    }, [myUid]);
+    useEffect(() => { if (focusN && boxRef.current) { try { boxRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} } }, [focusN, invs.length, votes.length]);
+    const now = Date.now();
+    const openInvs = invs.filter(t => { const iv = (t.invites || {})[myUid]; return iv && !(t.members || []).includes(myUid) && now - (Number(iv.at) || 0) <= RK_INVITE_MS && (t.members || []).includes(iv.by); });
+    const myVotes = votes.filter(t => !(t.members || []).includes(myUid) && (t.pendingVotes || {})[myUid]);
+    if (!openInvs.length && !myVotes.length) return focusN ? <p className="text-sm font-bold text-white bg-black/40 border border-white/20 rounded-lg p-3" data-my-invites="0">🎟️ No invites or votes on you right now. An invite that was taken back or ran out isn't shown.</p> : null;
+    const accept = async (t) => {
+        if (busy) return;
+        setBusy(t.id);
+        try {
+            const r = await acceptTribeInvite(t.id, myUid, myName);
+            alert(r === 'member' ? 'You are already in "' + (t.name || 'that tribe') + '".' : '🎟️ Accepted. The members of "' + (t.name || 'the tribe') + '" are voting now; you will hear how it goes.');
+        } catch (e) { alert(e.message); }
+        setBusy('');
+    };
+    const decline = async (t) => {
+        const iv = (t.invites || {})[myUid] || {};
+        if (!window.confirm('Say no thanks to "' + (t.name || 'this tribe') + '"?')) return;
+        setBusy(t.id);
+        try { await declineTribeInvite(t.id, myUid, myName, { ...iv, tribeName: t.name }); } catch (e) { alert(e.message); }
+        setBusy('');
+    };
+    return (
+        <div ref={boxRef} data-my-invites="1" className={'rounded-lg p-3 border-2 space-y-2 mb-3 ' + (focusN ? 'border-yellow-300 bg-yellow-500/10' : 'border-pink-400/70 bg-pink-900/20')}>
+            <p className="text-sm font-black text-pink-100">🎟️ YOUR INVITES AND VOTES</p>
+            {openInvs.map(t => { const iv = t.invites[myUid]; const n = (t.members || []).length; return (
+                <div key={'i' + t.id} data-my-invite={t.id} className="bg-black/40 border border-white/20 rounded-lg p-2.5">
+                    <p className="text-sm font-bold text-white">@{iv.byName || 'A member'} invited you to "{t.name}"</p>
+                    <p className="text-sm text-white">{n} member{n === 1 ? '' : 's'} · answer by {rkTribeWhen(Number(iv.at) + RK_INVITE_MS)}</p>
+                    {iv.accepted ? <p className="text-sm font-bold text-lime-200 mt-1">✓ You accepted. The members are voting.</p>
+                    : !unlocked ? <p className="text-sm font-bold text-amber-200 mt-1">Finish the three steps below to accept.</p>
+                    : <div className="flex gap-2 mt-2">
+                        <button disabled={busy === t.id} onClick={() => accept(t)} data-invite-accept={t.id} className="flex-1 text-sm font-black bg-lime-500 text-black rounded-lg py-2">✓ Accept</button>
+                        <button disabled={busy === t.id} onClick={() => decline(t)} data-invite-decline={t.id} className="flex-1 text-sm font-bold bg-black/50 border border-white/40 text-white rounded-lg py-2">No thanks</button>
+                    </div>}
+                </div>); })}
+            {myVotes.map(t => {
+                const e = t.pendingVotes[myUid];
+                const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
+                const need = rkTribeNeeded(voters.length);
+                const yes = Array.from(new Set(e.votes || [])).filter(u => voters.includes(u)).length;
+                const no = rkTribeNoOf(e.no, voters, e.votes || []).length;
+                const killAt = Math.max(1, voters.length - need + 1);
+                const pct = Math.min(100, Math.round((100 * yes) / Math.max(1, need)));
+                return (
+                    <div key={'v' + t.id} data-my-vote={t.id} className="bg-black/40 border border-white/20 rounded-lg p-2.5">
+                        <p className="text-sm font-bold text-white">🗳️ "{t.name}" is voting on adding you</p>
+                        <div className="mt-1.5 h-2.5 rounded-full bg-black/60 overflow-hidden"><div className="h-full bg-gradient-to-r from-pink-400 to-lime-300" style={{ width: pct + '%' }}/></div>
+                        <p className="text-sm text-white mt-1">{yes} of {need} yes votes ({pct}%) · {no} no ({killAt} would end it)</p>
+                    </div>
+                );
+            })}
         </div>
     );
 };
@@ -20743,8 +22144,8 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
     const members = st.members, rs = st.restrictions;
     const names = tribe.memberNames || {};
     const meR = rs[myUid] || null;
-    // V88.84.150.322: a mute stops voting too, the same as a time-out.
-    const out = !!meR;
+    // V89.84.150.323: only a time-out stops voting, calling votes and inviting (322 made a mute do it too).
+    const out = !!(meR && meR.type !== 'mute');
     const status = rkTribeStatus(tribe);
     const admitVoters = rkTribeVoters(members, { type: 'admit' }, rs, now);
     const need = rkTribeNeeded(admitVoters.length);
@@ -20803,18 +22204,23 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
         } catch (e) { alert(e.message); }
         setBusy(false);
     };
+    // V89.84.150.323: an invite is accepted before its vote starts (rkInviteRaver).
     const invite = async () => {
         if (!invitee || busy) return;
         const nm = invitee.displayName || 'Raver';
-        if (!window.confirm('Start a vote to invite @' + nm + ' into "' + (tribe.name || 'the tribe') + '"? ' + need + ' of ' + admitVoters.length + ' members must say yes; yours counts as the first.')) return;
+        if (!window.confirm('Invite @' + nm + ' into "' + (tribe.name || 'the tribe') + '"? They accept the invite first; then the members vote: ' + need + ' of ' + admitVoters.length + ' must say yes, and yours counts as the first.')) return;
         setBusy(true);
         try {
-            const r = await proposeToTribe(tribe.id, invitee.id, nm, myUid);
-            if (r.result === 'exists') { alert('🗳️ A vote on @' + nm + ' is already running. Taking you to it so you can vote.'); if (onFocus) onFocus(r.key); }
-            else { alert(r.result === 'approved' ? '🎉 @' + nm + ' joined.' : '🗳️ Invite vote started for @' + nm + ': ' + r.votes + ' of ' + r.needed + ' so far.'); if (onFocus && r.result !== 'approved') onFocus(r.key); }
+            const r = await rkInviteRaver(tribe, invitee.id, nm, myUid, myName);
+            alert(r.text);
+            if (r.key && onFocus) onFocus(r.key);
             setInvitee(null); setPick('');
         } catch (e) { alert(e.message); }
         setBusy(false);
+    };
+    const takeBack = async (cid, cname) => {
+        if (!window.confirm('Take back the invite to @' + cname + '?')) return;
+        try { await withdrawTribeInvite(tribe.id, cid); } catch (e) { alert(e.message); }
     };
     const restricted = (u) => rs[u] || null;
     const pickable = pick === 'kick' ? members.filter(m => m !== myUid)
@@ -20836,6 +22242,9 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
     };
     const tags = {};
     Object.keys(st.pending).forEach(cid => { tags[cid] = '🗳️ vote running'; });
+    Object.keys(st.invites || {}).forEach(cid => { if (!tags[cid]) tags[cid] = '🎟️ invited'; });
+    // V89.84.150.323: invites waiting for an answer, shown under the votes
+    const inviteRows = Object.entries(st.invites || {}).map(([cid, iv]) => ({ cid, name: (iv && iv.name) || 'Raver', by: (iv && iv.by) || '', byName: (iv && iv.byName) || 'A member', until: (Number(iv && iv.at) || 0) + RK_INVITE_MS }));
     return (
         <div ref={boxRef} className="space-y-3">
             {meR && <RkTribeAppealBox tribe={tribe} r={meR} myUid={myUid} myName={myName}/>}
@@ -20854,7 +22263,7 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
                             <p className="text-xs text-white" data-vote-count="1">✓ {r.yes.length} yes · ✗ {(r.no || []).length} no · {r.need} of {r.of} needed{r.of > 1 ? ' · voted down at ' + failsAt + ' no' : ''}{r.byName && r.kind === 'item' && r.statement === '' ? ' · called by @' + r.byName : ''}{r.exp ? ' · open until ' + rkTribeWhen(r.exp) : ''}</p>
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 {r.aboutMe ? <span className="text-xs font-bold text-amber-200">This vote is about you, so you don't vote on it.</span>
-                                    : out ? <span className="text-xs font-bold text-amber-200">{meR.type === 'timeout' ? "You can't vote during a time-out." : "You can't vote while you're muted."}</span>
+                                    : out ? <span className="text-sm font-bold text-amber-200">You can't vote during a time-out.</span>
                                     : !r.canVote ? null
                                     : said === 'yes' ? <><span className="text-xs font-bold text-lime-300">✓ You said yes</span>{!caller && <button disabled={busy} onClick={() => voteNo(r)} data-vote-no={r.key} className="text-xs font-bold text-white underline">Change to no</button>}</>
                                     : said === 'no' ? <><span className="text-xs font-bold text-red-300">✗ You said no</span><button disabled={busy} onClick={() => vote(r)} data-vote-yes={r.key} className="text-xs font-bold text-white underline">Change to yes</button></>
@@ -20866,10 +22275,22 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
                     );
                 })}
             </div>
-            {out ? <p className="text-xs font-bold text-amber-200">{meR.type === 'timeout' ? '⏳ While you are in a time-out' : '🔇 While you are muted'} you can't vote, call votes or invite anyone.</p> : (
+            {inviteRows.length > 0 && (
+                <div data-invite-rows="1">
+                    <p className="text-sm font-black text-cyan-200 mb-1.5">🎟️ INVITES WAITING FOR AN ANSWER ({inviteRows.length})</p>
+                    {inviteRows.map(r => (
+                        <div key={r.cid} data-invite-row={r.cid} className="rounded-lg p-2.5 mb-1.5 border border-white/20 bg-black/30">
+                            <p className="text-sm font-bold text-white">🎟️ @{r.name}, invited by @{r.byName}</p>
+                            <p className="text-sm text-white">The vote starts when they accept. The invite runs out {rkTribeWhen(r.until)}.</p>
+                            {(r.by === myUid || tribe.creatorUid === myUid) && <button onClick={() => takeBack(r.cid, r.name)} data-invite-withdraw={r.cid} className="mt-1 text-sm font-bold text-white underline">Take back the invite</button>}
+                        </div>
+                    ))}
+                </div>
+            )}
+            {out ? <p className="text-sm font-bold text-amber-200">⏳ While you are in a time-out you can't vote, call votes or invite anyone.</p> : (
             <div>
                 <p className="text-xs font-black text-cyan-200 mb-1">CALL A VOTE</p>
-                <p className="text-xs text-white mb-2">{members.length > 1 ? 'A vote passes at 2/3 of the members who can vote on it: ' + need + ' of ' + admitVoters.length + ' for most votes. Yours counts as the first yes. Once more than a third say no it can\'t pass, and it closes as voted down. A member a vote is about doesn\'t vote on it, and members who are muted or in a time-out don\'t vote.' : 'You are the only member, so what you choose happens at once.'}</p>
+                <p className="text-sm text-white mb-2">{members.length > 1 ? 'A vote passes at 2/3 of the members who can vote on it: ' + need + ' of ' + admitVoters.length + ' for most votes. Yours counts as the first yes. Once more than a third say no it can\'t pass, and it closes as voted down. A member a vote is about doesn\'t vote on it, and members in a time-out don\'t vote (a mute only stops posting).' : 'You are the only member, so what you choose happens at once.'}</p>
                 <div className="grid grid-cols-2 gap-1.5">
                     {CALLS.map(([k, l]) => <button key={k} disabled={busy} onClick={() => onCall(k)} className={'text-xs font-bold rounded-lg py-2 px-1.5 border text-white ' + (pick === k ? 'bg-purple-600/60 border-purple-300' : 'bg-black/40 border-white/30')}>{l}</button>)}
                 </div>
@@ -20878,10 +22299,10 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
                         {pickable.length === 0 ? <p className="text-xs text-white">{pick === 'founder' ? 'There is no one else to make founder.' : pick === 'kick' ? 'There is no one else in the tribe.' : 'There is no one else this can apply to right now.'}</p> : (<>
                             <select value={target} onChange={e => setTarget(e.target.value)} className="w-full bg-black border border-white/30 text-sm text-white rounded p-2">
                                 <option value="">{pick === 'kick' ? 'Choose who to remove…' : pick === 'founder' ? 'Choose the new founder…' : pick === 'mute' ? 'Choose who to mute…' : 'Choose who gets a time-out…'}</option>
-                                {pickable.map(u => <option key={u} value={u}>@{names[u] || 'Raver'}{restricted(u) ? ' (muted)' : ''}</option>)}
+                                {pickable.map(u => <option key={u} value={u}>@{names[u] || 'Raver'}{restricted(u) ? (restricted(u).type === 'mute' ? ' (muted)' : ' (in a time-out)') : ''}</option>)}
                             </select>
                             {(pick === 'mute' || pick === 'timeout') && <>
-                                <p className="text-xs text-white">{pick === 'mute' ? '🔇 A muted member can read the group chat, but can\'t post, vote, call votes or invite.' : '⏳ A member in a time-out can read the chat, but not post, vote, call votes or invite, or delete their own messages.'} They can appeal after each quarter of the time is served.</p>
+                                <p className="text-sm text-white">{pick === 'mute' ? '🔇 A muted member can read the group chat and still vote, call votes and invite, but can\'t post in it.' : '⏳ A member in a time-out can read the chat, but not post, vote, call votes or invite, or delete their own messages.'} They can appeal after each quarter of the time is served.</p>
                                 <RkTimerPicker value={dur} onChange={setDur}/>
                             </>}
                             <button disabled={busy || !target} onClick={() => call(
@@ -20895,12 +22316,12 @@ const RkTribeGovern = ({ tribe, myUid, myName, focusKey, onFocus, appealFocus, f
                 )}
                 {pick === 'invite' && (
                     <div className="mt-2 bg-black/40 border border-white/20 rounded-lg p-2 space-y-2" data-invite="1">
-                        <p className="text-xs text-white">Find anyone on RaveKandi, choose them, then start the vote. They join when it passes.</p>
+                        <p className="text-sm text-white">Find anyone on RaveKandi and choose them. They get an invite; once they accept, the members vote, and they join when it passes.</p>
                         <RkRaverPicker exclude={members} tags={tags} friends={friends} picked={invitee ? invitee.id : ''} onPick={(u) => {
                             if (st.pending[u.id]) { alert('🗳️ A vote on @' + (u.displayName || 'this raver') + ' is already running. Taking you to it so you can vote.'); if (onFocus) onFocus('admit:' + u.id); setPick(''); return; }
                             setInvitee(u);
                         }}/>
-                        <button disabled={busy || !invitee} onClick={invite} className="w-full text-sm font-bold bg-pink-600 text-white rounded-lg py-2">{invitee ? 'Start the vote to invite @' + (invitee.displayName || 'Raver') : 'Choose someone first'}</button>
+                        <button disabled={busy || !invitee} onClick={invite} data-invite-send="1" className="w-full text-sm font-bold bg-pink-600 text-white rounded-lg py-2">{invitee ? 'Invite @' + (invitee.displayName || 'Raver') : 'Choose someone first'}</button>
                     </div>
                 )}
                 {pick === 'rename' && (
@@ -20950,10 +22371,13 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     const [voteFocus, setVoteFocus] = useState(null);       // { tribeId, key, n }: a vote to highlight
     const [cardFocus, setCardFocus] = useState(null);       // { tribeId, n }: a card to scroll to
     const [pendingFocus, setPendingFocus] = useState(null); // a deep link waiting for the tribe list
+    const [inviteFocus, setInviteFocus] = useState(0);       // V89.84.150.323: a notice about your invite or a vote on you
     const [muteFor, setMuteFor] = useState(null);           // id of the tribe whose mute options are open
     const [chatSettings, setChatSettings] = useState(false);
     const purgeRef = useRef({});
     const tribesRef = useRef([]);
+    const profileRef = useRef(null);   // V89.84.150.323: the profile, for the tribe listener's high-water marks
+    profileRef.current = profile;
     // V86.78.150.314: my own votes' results, applied at once (rkTribeEmit); a deep link to my appeal;
     // and a clock so timers, appeal windows and expiries move while the window is open.
     const overlayRef = useRef({});
@@ -21000,7 +22424,11 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
             setTribesLoaded(true);
             // update achievement metrics (best-effort)
             const biggest = list.reduce((m, t) => Math.max(m, (t.memberCount || (t.members || []).length)), 0);
-            try { setDoc(doc(db, 'artifacts', appId, 'users', myUid), { tribesJoined: list.length, biggestTribe: biggest }, { merge: true }); } catch (e) {}
+            // V89.84.150.323: and the ravers you invited who were voted in, kept as a high-water mark
+            const invited = list.reduce((m, t) => m + Object.values(t.memberInvitedBy || {}).filter(v => v === myUid).length, 0);
+            const tu = { tribesJoined: list.length, biggestTribe: biggest };
+            if (invited > (Number(profileRef.current && profileRef.current.tribeInvitesPassed) || 0)) tu.tribeInvitesPassed = invited;
+            try { setDoc(doc(db, 'artifacts', appId, 'users', myUid), tu, { merge: true }); } catch (e) {}
         }, e => console.log('tribes', e));
         return () => unsub();
     }, [isOpen, myUid]);
@@ -21043,7 +22471,9 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         if (initialTab.tab !== 'tribes') return;
         const f = String(initialTab.focus || '');
         setTribeMode(f === 'find' ? 'find' : 'mine');
-        setPendingFocus(unlocked && initialTab.tribeId && f && f !== 'find' && f !== 'gone' ? { tribeId: initialTab.tribeId, focus: f, n: initialTab.n || Date.now() } : null);
+        // V89.84.150.323: '#invite' is about you as a candidate: your invites and the votes on you, at the top
+        setInviteFocus(f === 'invite' ? (initialTab.n || Date.now()) : 0);
+        setPendingFocus(unlocked && initialTab.tribeId && f && f !== 'find' && f !== 'gone' && f !== 'invite' ? { tribeId: initialTab.tribeId, focus: f, n: initialTab.n || Date.now() } : null);
     }, [isOpen, initialTab, unlocked]);
     // A deep link waits for the tribe list, then opens its target.
     useEffect(() => {
@@ -21101,7 +22531,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
         if (!isOpen || !myUid) return;
         tribes.forEach(t => {
             const st = rkTribeSettle(t);
-            if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length) || settlingRef.current[t.id]) return;
+            if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length && !st.invitesMoved) || settlingRef.current[t.id]) return;
             settlingRef.current[t.id] = true;
             settleTribe(t.id, myUid).catch(e => rkReport('tribe settle', e)).finally(() => { delete settlingRef.current[t.id]; });
         });
@@ -21172,11 +22602,12 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     };
     // V85.78.150.313: a raver already up for a vote is not proposed twice; the app goes to the vote.
     const goToVote = (tribeId, key) => { setActiveTribe(null); setChatSettings(false); setTribeMode('mine'); setSettingsFor(tribeId); setVoteFocus({ tribeId, key, n: Date.now() }); setCardFocus({ tribeId, n: Date.now() }); };
+    // V89.84.150.323: inviting a friend sends an invite; the vote starts when they accept (rkInviteRaver)
     const proposeFriend = async (tribe, friendId, friendName) => {
         try {
-            const r = await proposeToTribe(tribe.id, friendId, friendName, myUid);
-            if (r.result === 'exists') { alert('🗳️ A vote on @' + friendName + ' is already running in "' + tribe.name + '". Taking you to it so you can vote.'); goToVote(tribe.id, r.key); return; }
-            alert(r.result === 'approved' ? '🎉 @' + friendName + ' joined "' + tribe.name + '".' : 'Proposed @' + friendName + ' to "' + tribe.name + '". ' + r.votes + ' of ' + r.needed + ' member votes so far.');
+            const r = await rkInviteRaver(tribe, friendId, friendName, myUid, profile?.displayName || 'Raver');
+            alert(r.text);
+            if (r.key) goToVote(tribe.id, r.key);
         }
         catch (e) { alert(e.message); }
     };
@@ -21318,6 +22749,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                                     {!interactive ? <span className="text-xs font-bold text-amber-200 shrink-0">🔐 Locked</span>
                                                     : mem.includes(myUid) ? <span className="text-xs font-bold text-lime-300 shrink-0">✓ You're in</span>
                                                     : pv ? <span className="text-xs font-bold text-yellow-200 shrink-0 text-right">🗳️ Voting on you<br/>{pvVotes}/{need} votes</span>
+                                                    : (t.invites || {})[myUid] ? <span className="text-sm font-bold text-pink-200 shrink-0 text-right">🎟️ You're invited<br/>(answer above)</span>
                                                     : (t.joinRequests || {})[myUid] ? <button onClick={() => doWithdrawRequest(t)} className="text-xs font-bold text-white bg-black/40 border border-white/40 rounded-full px-3 py-1 shrink-0">✓ Requested · Withdraw</button>
                                                     : <button onClick={() => doAskToJoin(t)} className="text-xs font-bold bg-cyan-600 text-white rounded-full px-3 py-1 shrink-0">🙋 Ask to join</button>}
                                                 </div>
@@ -21329,6 +22761,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                         );
                         if (!unlocked) return (
                             <div className="space-y-3">
+                                <RkMyTribeInvites myUid={myUid} myName={profile?.displayName || 'Raver'} unlocked={false} focusN={inviteFocus}/>
                                 {/* V85.78.150.313: THE REQUIREMENTS (Milli, at 313). Each box ticks itself as the profile
                                     changes; once all three are done this list disappears and tribes unlock. Tapping a row
                                     opens that editor (the picture row is the file picker itself). */}
@@ -21356,6 +22789,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                 <button onClick={() => setTribeMode('mine')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='mine' ? 'bg-purple-600 text-white' : 'text-white'}`}>🌈 My Tribes</button>
                                 <button onClick={() => setTribeMode('find')} className={`flex-1 text-xs font-bold py-1.5 rounded-md transition ${tribeMode==='find' ? 'bg-cyan-600 text-white' : 'text-white'}`}>🔍 Find Tribes</button>
                             </div>
+                            <RkMyTribeInvites myUid={myUid} myName={profile?.displayName || 'Raver'} unlocked={true} focusN={inviteFocus}/>
                             {tribeMode === 'find' ? findList(true) : (
                         <div className="space-y-3">
                             <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
@@ -21382,7 +22816,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                 const ov = rkTribeOpenVotes(t, myUid);
                                 const focused = !!(cardFocus && cardFocus.tribeId === t.id);
                                 const cardR = rkTribeRestriction(t, myUid);
-                                const cardOut = !!cardR;   // V88.84.150.322: muted members don't invite either
+                                const cardOut = !!(cardR && cardR.type !== 'mute');   // V89.84.150.323: a time-out stops inviting; a mute doesn't
                                 return (
                                     <div key={t.id} data-tribe={t.id} className={'bg-white/5 border rounded-lg p-3 ' + (focused ? 'border-yellow-300 ring-2 ring-yellow-300/60' : 'border-purple-500/30')}>
                                         <div className="flex items-center justify-between gap-2 mb-2">
@@ -21414,7 +22848,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                         {cardR && <p className={'text-xs font-bold mb-2 ' + (cardR.type === 'timeout' ? 'text-amber-200' : 'text-sky-200')}>{cardR.type === 'timeout' ? '⏳ You are in a time-out' : '🔇 You are muted'} until {rkTribeWhen(cardR.until)}. Appeal in ⚙️ Tribe settings.</p>}
                                         {myFriendsNotIn.length > 0 && !cardOut && (
                                             <div>
-                                                <p className="text-xs text-white mb-1">Invite a friend (starts a vote):</p>
+                                                <p className="text-sm text-white mb-1">Invite a friend (they accept, then the members vote):</p>
                                                 <div className="flex flex-wrap gap-1">
                                                     {myFriendsNotIn.slice(0, 8).map(f => (
                                                         <button key={f.id} onClick={() => proposeFriend(t, f.id, f.displayName)} className="text-xs bg-pink-600/30 text-pink-100 border border-pink-400/40 rounded-full px-2 py-0.5">+ @{f.displayName}</button>
@@ -21477,7 +22911,7 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                     </div>
                     {myR ? (
                         <div className={'shrink-0 rounded-lg p-2.5 border-2 flex items-center gap-2 ' + (myR.type === 'timeout' ? 'border-amber-300/80 bg-amber-900/30' : 'border-sky-300/80 bg-sky-900/30')} data-restricted="1">
-                            <p className="flex-1 text-xs font-bold text-white">{myR.type === 'timeout' ? '⏳ You are in a time-out until ' + rkTribeWhen(myR.until) + '. You can read the chat.' : '🔇 You are muted until ' + rkTribeWhen(myR.until) + '. You can read the chat, but not post or vote.'}</p>
+                            <p className="flex-1 text-sm font-bold text-white">{myR.type === 'timeout' ? '⏳ You are in a time-out until ' + rkTribeWhen(myR.until) + '. You can read the chat.' : '🔇 You are muted until ' + rkTribeWhen(myR.until) + '. You can read the chat and vote, but not post.'}</p>
                             <button onClick={() => { setChatSettings(true); }} className="shrink-0 text-xs font-bold bg-pink-600 text-white rounded-full px-3 py-1">Appeal</button>
                         </div>
                     ) : (
@@ -21512,16 +22946,16 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
                                     ));
                                 })()}
                             </div>
-                            {!myR && (
+                            {!(myR && myR.type !== 'mute') && (
                             <div className="border-t border-white/10 pt-3">
-                                <p className="text-xs font-bold text-cyan-300 mb-2">➕ Invite a raver into this tribe (starts a vote)</p>
-                                <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} friends={profile?.friends || []} tags={Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {})} onPick={async (u) => {
+                                <p className="text-sm font-bold text-cyan-300 mb-2">➕ Invite a raver into this tribe (they accept, then the members vote)</p>
+                                <RkRaverPicker exclude={(liveTribe || activeTribe).members || []} friends={profile?.friends || []} tags={Object.assign(Object.keys((liveTribe || activeTribe).invites || {}).reduce((m, k) => { m[k] = '🎟️ invited'; return m; }, {}), Object.keys((liveTribe || activeTribe).pendingVotes || {}).reduce((m, k) => { m[k] = '🗳️ vote running'; return m; }, {}))} onPick={async (u) => {
                                     const nm = u.displayName || 'Raver';
-                                    if (!window.confirm('Start a vote to invite @' + nm + '?')) return;
+                                    if (!window.confirm('Invite @' + nm + '? They accept first, then the members vote.')) return;
                                     try {
-                                        const r = await proposeToTribe(activeTribe.id, u.id, nm, myUid);
-                                        if (r.result === 'exists') { alert('🗳️ A vote on @' + nm + ' is already running. Taking you to it so you can vote.'); setShowMembers(false); setChatSettings(true); setVoteFocus({ tribeId: activeTribe.id, key: r.key, n: Date.now() }); return; }
-                                        alert(r.result === 'approved' ? '🎉 @' + nm + ' joined.' : '🗳️ Invite vote started for @' + nm + ': ' + r.votes + ' of ' + r.needed + ' so far.');
+                                        const r = await rkInviteRaver(liveTribe || activeTribe, u.id, nm, myUid, profile?.displayName || 'Raver');
+                                        alert(r.text);
+                                        if (r.key) { setShowMembers(false); setChatSettings(true); setVoteFocus({ tribeId: activeTribe.id, key: r.key, n: Date.now() }); }
                                     } catch (e) { alert(e.message); }
                                 }}/>
                             </div>
@@ -22179,6 +23613,101 @@ const WelcomeCarousel = ({ onDone }) => {
     );
 };
 
+// ---- V89.85.150.324: A SAVED SIGN-IN WAITS FOR THE CONNECTION (Milli, at 324: "on login, if user connection is bad, the app
+// still shows the login screen even if user is currently logged in ... It initially opens the Google account selection
+// login, on close of that window shows the login screen. Once connection is restored, it automatically bypasses the
+// screen and logs in ... Ensure the login checks connection, displays loading, and has user wait until connection is
+// restored or until 15 seconds has passed and offers user manual login OR wait until connection").
+// Why it happened: Firebase checks a saved sign-in with Google before it reports it, and on a bad connection that check
+// takes up to 30 seconds. The launch screen gave it 2.5, so the login form opened, and the form's saved-password lookup
+// (navigator.credentials) is the Google account sheet that appeared first. Now a phone that was signed in waits here:
+// it shows the connection, keeps trying, goes straight in once Firebase answers, and after 15 seconds offers the login
+// form or more waiting. "Signed in before" is rk_had_session (written on every sign-in and sign-out), or, for a phone
+// signed in before 324, Firebase's own saved user (its IndexedDB store, read without ever creating it).
+const RK_AUTH_WAIT_SEC = 15;
+const rkSessionKnown = () => { try { return localStorage.getItem('rk_had_session') === '1'; } catch (e) { return false; } };
+const rkMarkSession = (u) => { try { if (u) localStorage.setItem('rk_had_session', '1'); else localStorage.removeItem('rk_had_session'); } catch (e) {} };
+const rkSavedFirebaseUser = () => new Promise((res) => {
+    const key = 'firebase:authUser:' + firebaseConfig.apiKey + ':[DEFAULT]';
+    let done = false;
+    const fin = (v) => { if (!done) { done = true; res(!!v); } };
+    try { if (localStorage.getItem(key)) { fin(true); return; } } catch (e) {}
+    setTimeout(() => fin(false), 1500);
+    try {
+        const rq = indexedDB.open('firebaseLocalStorageDb');
+        rq.onupgradeneeded = () => { try { rq.transaction.abort(); } catch (e) {} fin(false); };
+        rq.onerror = () => fin(false);
+        rq.onsuccess = () => {
+            const dbx = rq.result;
+            try {
+                if (!dbx.objectStoreNames.contains('firebaseLocalStorage')) { dbx.close(); fin(false); return; }
+                const g = dbx.transaction('firebaseLocalStorage', 'readonly').objectStore('firebaseLocalStorage').get(key);
+                g.onsuccess = () => { try { dbx.close(); } catch (x) {} fin(!!g.result); };
+                g.onerror = () => { try { dbx.close(); } catch (x) {} fin(false); };
+            } catch (e) { try { dbx.close(); } catch (x) {} fin(false); }
+        };
+    } catch (e) { fin(false); }
+});
+// One look at the connection: 'offline' (the phone says so), 'down' (nothing came back in 6 s), 'weak' (slow), 'good'.
+const rkReach = async () => {
+    try { if (navigator.onLine === false) return 'offline'; } catch (e) {}
+    const t0 = Date.now();
+    let ctl = null; try { ctl = new AbortController(); } catch (e) {}
+    const kill = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (e) {} }, 6000);
+    try {
+        await fetch('https://www.gstatic.com/generate_204?_=' + Date.now(), { mode: 'no-cors', cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+        clearTimeout(kill);
+        return Date.now() - t0 > 2500 ? 'weak' : 'good';
+    } catch (e) { clearTimeout(kill); try { if (navigator.onLine === false) return 'offline'; } catch (x) {} return 'down'; }
+};
+const RK_AUTH_NET = {
+    checking: { e: '📶', t: 'Checking your connection…', s: 'Signing you back in.' },
+    offline: { e: '📵', t: "You're offline", s: "You're still signed in on this phone. RaveKandi opens as soon as you're back online." },
+    down: { e: '📡', t: "Can't reach RaveKandi yet", s: "Your phone shows a connection, but nothing is getting through. Still trying." },
+    weak: { e: '🐢', t: 'Weak connection', s: 'Still signing you in. A slow connection takes longer.' },
+    good: { e: '✅', t: 'Connected', s: 'Finishing signing you in…' },
+};
+const RkAuthWait = ({ bg, onManual }) => {
+    const [secs, setSecs] = useState(0);
+    const [from, setFrom] = useState(0);
+    const [net, setNet] = useState(() => { try { return navigator.onLine === false ? 'offline' : 'checking'; } catch (e) { return 'checking'; } });
+    useEffect(() => { const t = setInterval(() => setSecs(s => s + 1), 1000); return () => clearInterval(t); }, []);
+    useEffect(() => {
+        let dead = false, timer = null;
+        const look = async () => { const r = await rkReach(); if (!dead) setNet(r); };
+        const loop = async () => { await look(); if (!dead) timer = setTimeout(loop, 4000); };
+        loop();
+        const on = () => { look(); };
+        window.addEventListener('online', on); window.addEventListener('offline', on);
+        return () => { dead = true; clearTimeout(timer); window.removeEventListener('online', on); window.removeEventListener('offline', on); };
+    }, []);
+    const offer = secs - from >= RK_AUTH_WAIT_SEC;
+    const n = RK_AUTH_NET[net] || RK_AUTH_NET.checking;
+    const b = bg || RK_BG_DEFAULT;
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 text-white" data-rk-auth-wait={net}>
+            <RkAppBackground id={b.id} anim={!!b.anim}/>
+            <Card glow="primaryGlow" className="w-full max-w-md p-6 text-center relative">
+                <p className="text-5xl mb-3" aria-hidden="true">{n.e}</p>
+                <h2 className="text-2xl font-black mb-2" style={getTextGlowStyle('primaryGlow')}>Signing you back in</h2>
+                <p className="text-base font-black text-cyan-200" role="status" aria-live="polite" data-auth-net={net}>{n.t}</p>
+                <p className="text-sm text-white mt-1 mb-4">{n.s}</p>
+                <div className="h-2 w-full rounded-full bg-white/15 overflow-hidden mb-2" aria-hidden="true"><div className="h-full w-1/3 bg-cyan-400 rounded-full rk-auth-slide"/></div>
+                <p className="text-sm text-white mb-1" data-auth-secs={secs}>Waiting {secs} s</p>
+                {offer ? (
+                    <div className="mt-3" data-auth-offer="1">
+                        <p className="text-sm text-white mb-3">This is taking a while. Keep waiting and you'll go straight in when the connection comes back, or log in yourself.</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setFrom(secs)} className="h-12 rounded-lg border-2 border-cyan-300 bg-cyan-500/20 text-sm font-black text-white active:scale-95 transition" data-auth-wait="1">⏳ Keep waiting</button>
+                            <button type="button" onClick={onManual} className="h-12 rounded-lg border-2 border-pink-300 bg-pink-500/20 text-sm font-black text-white active:scale-95 transition" data-auth-manual="1">🔑 Log in manually</button>
+                        </div>
+                    </div>
+                ) : <p className="text-sm text-white">You can log in yourself in {RK_AUTH_WAIT_SEC - (secs - from)} s if it's still waiting.</p>}
+            </Card>
+        </div>
+    );
+};
+
 const AuthScreen = ({ setLoadMsg, bg }) => {
     const [isReg, setIsReg] = useState(false);
     const [email, setEmail] = useState('');
@@ -22664,6 +24193,11 @@ const App = () => {
     const viewingProfileRef = useRef(null);
     const [feedWelcomeHidden, setFeedWelcomeHidden] = useState(() => { try { return localStorage.getItem('rk_feed_welcome_hidden') === '1'; } catch (e) { return false; } }); const [tab, setTab] = useState('custom');
     const [user, setUser] = useState(null); const [profile, setProfile] = useState({}); const [items, setItems] = useState([]); const [loading, setLoading] = useState(true);
+    // V89.85.150.324: whether Firebase has answered about the saved sign-in yet, and whether this phone had one (RkAuthWait)
+    const [authReady, setAuthReady] = useState(false);
+    const [rkHadSession, setRkHadSession] = useState(() => (rkSessionKnown() ? true : null));
+    const [manualLogin, setManualLogin] = useState(false);
+    useEffect(() => { if (rkHadSession !== null) return; let dead = false; rkSavedFirebaseUser().then(v => { if (!dead) setRkHadSession(v); }); return () => { dead = true; }; }, []);
     // V65.38: postType was a single-select, so you could see Official OR Trades but never both.
     // Split in two: `view` picks WHICH SECTION renders (items / music / profiles — genuinely
     // exclusive, they are different components), and `postTypes` is a multi-select filter within
@@ -22872,6 +24406,8 @@ const App = () => {
     // away, its first write created a brand-new account's document before ensureUserExists looked for it,
     // and the account was never set up (see ensureUserExists).
     const rkProfileReady = !!(profile && profile.displayName && profile.publicUid);
+    const rkActProfile = useRef(null);
+    rkActProfile.current = profile;
     useEffect(() => {
         if (!user?.uid || user.isAnonymous || !rkProfileReady) return;
         const uid = user.uid;
@@ -22887,9 +24423,15 @@ const App = () => {
             const last = num(flushKey);
             if (last && (Date.now() - last) < 21600000) return; // stats roll-up window: 6h
             const radioKey = 'rk_radio_buf_' + uid;
-            const mins = num(bufKey), opens = num(openKey), rmins = num(radioKey);
+            // V89.84.150.323 (the statistics lockdown): minutes can't exceed the real minutes since they were last saved
+            // (activeSavedAt; a day for the first save), which the rules check. Two phones open at once count the
+            // same minutes once.
+            const p = rkActProfile.current || {};
+            const since = Number(p.activeSavedAt) || (Date.now() - 86400000);
+            const cap = Math.max(0, Math.floor((Date.now() - since) / 60000));
+            const mins = Math.min(num(bufKey), cap), opens = Math.min(num(openKey), cap + 40), rmins = Math.min(num(radioKey), cap);
             const ref = doc(db, 'artifacts', appId, 'users', uid);
-            setDoc(ref, { lastActive: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
+            setDoc(ref, { lastActive: Date.now(), activeSavedAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
                 .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(radioKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
                 .catch(() => {});
         };
@@ -22934,7 +24476,7 @@ const App = () => {
             if(Math.random() > 0.4) setLoadMsg(msgs[Math.floor(Math.random() * msgs.length)]);
         }, 300);
 
-        const unsubAuth = onAuthStateChanged(auth, async (u) => { 
+        const unsubAuth = onAuthStateChanged(auth, async (u) => { setAuthReady(true); rkMarkSession(u); 
             setUser(u); 
             if(u && !u.isAnonymous) { 
                 let rUid = null;
@@ -23221,7 +24763,7 @@ const App = () => {
                 // V87.84.150.321: the leader with a name. A profile that was never set up has none, and its
                 // line read "@undefined". The top three are read and the first named one is shown.
                 const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(3))); const d = s.docs.find(x => rkMqNamed(x.data())); return d ? { ...d.data(), id: d.id } : null; };
-                const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed')]);
+                const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster, welcomer, quick, planner] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed'), grab('tribeInvitesPassed'), grab('tribeVotesFast'), grab('festDaysPicked')]);
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
@@ -23231,7 +24773,10 @@ const App = () => {
                 try { const ts = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'musicTracks'), orderBy('plays', 'desc'), limit(1))); if (!ts.empty) topTrack = { ...ts.docs[0].data(), id: ts.docs[0].id }; } catch (e) {}
                 try { if (typeof getCountFromServer === 'function') { const c = await getCountFromServer(query(collection(db, 'artifacts', appId, 'public', 'data', 'tradeItems'), where('vis', '==', 'public'))); postCount = Number(c.data().count); } } catch (e) {}
                 try { const fl = await rkUpcomingFestivals(); meetup = fl.find(g => g.people.length >= 2) || fl[0] || null; } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup });
+                // V89.84.150.323: how many ravers have opened RaveKandi as an installed app
+                let homeCount = null;
+                try { if (typeof getCountFromServer === 'function') { const hc = await getCountFromServer(query(collection(db, 'artifacts', appId, 'users'), where('installedApp', '==', true))); homeCount = Number(hc.data().count); } } catch (e) {}
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -23311,6 +24856,7 @@ const App = () => {
         else if (key === 'lab') { setPage('shop'); setTab('custom'); }
         else if (key === 'diy') { setPage('shop'); setTab('diy'); }
         else if (key === 'messages') setMsgOpen(true);
+        else if (key === 'radio') setRadioOpen(true);
         else if (key === 'market') { setFilters(rkItemsView); setPage('feed'); }
         else if (key === 'achievements') rkBus(focus ? 'achievements:' + focus : 'achievements');
         else if (key === 'vip' || key === 'analytics' || key === 'banner' || key.indexOf('admin:') === 0) rkBus(key);
@@ -23430,10 +24976,46 @@ const App = () => {
     // guide to add RaveKandi to their home screen as an app.
     const [iosGuide, setIosGuide] = useState(false);
     const [helpOpen, setHelpOpen] = useState(false);
+    // V89.84.150.323: the arrow guide ("Show me where to tap"), by guide key; '' when closed.
+    const [installCoach, setInstallCoach] = useState('');
     useEffect(() => {
-        if (IS_STANDALONE) return; // already installed — never nag
+        if (IS_STANDALONE || rkIsNative()) return; // already installed (home screen or the APK) — never nag
         try { if (localStorage.getItem('rk_ios_a2hs') !== '1') setIosGuide(true); } catch (e) { setIosGuide(true); }
     }, []);
+    // V89.84.150.323: the service worker that lets Chrome and Edge offer "Install RaveKandi" (rkRegisterSW).
+    useEffect(() => { rkRegisterSW(); }, []);
+    // V89.84.150.323: the blocked-word list, live from Admin Tools (global/moderation); the built-in words until it loads.
+    useEffect(() => {
+        if (!user?.uid) return;
+        const unsub = onSnapshot(doc(db, 'artifacts', appId, 'global', 'moderation'), s => rkHateSetCfg(s.exists() ? s.data() : {}), () => {});
+        return () => unsub();
+    }, [user?.uid]);
+    // V89.84.150.323: a blocked word typed into any text box: a red edge on the box and the notice at the top, once
+    // per word per box. Password and email boxes, and the admins' word tools, are left alone.
+    useEffect(() => {
+        const marked = new WeakMap();
+        const onInput = (e) => {
+            const el = e && e.target;
+            if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+            if (el.type === 'password' || el.type === 'email' || (el.closest && el.closest('[data-rk-hate-ok]'))) return;
+            const hit = rkHateFind(el.value);
+            if (!hit) { if (marked.has(el)) { marked.delete(el); el.style.boxShadow = ''; el.removeAttribute('aria-invalid'); } return; }
+            el.style.boxShadow = '0 0 0 3px #f43f5e';
+            el.setAttribute('aria-invalid', 'true');
+            if (marked.get(el) === hit.w) return;
+            marked.set(el, hit.w);
+            try { window.dispatchEvent(new CustomEvent('rk:hate-tip', { detail: { masked: hit.masked } })); } catch (x) {}
+        };
+        document.addEventListener('input', onInput, true);
+        return () => document.removeEventListener('input', onInput, true);
+    }, []);
+    // V89.84.150.323: opened as an installed app (from the home screen, or the APK): remembered on the profile,
+    // once, for Home Screen Hero.
+    useEffect(() => {
+        if (!user?.uid || user.isAnonymous || !profile?.joined || profile.installedApp) return;
+        if (!(IS_STANDALONE || rkIsNative())) return;
+        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { installedApp: true, installedVia: rkIsNative() ? 'apk' : 'home', installedAt: Date.now() }, { merge: true }).catch(e => rkReport('installed mark', e));
+    }, [user?.uid, profile?.joined, profile?.installedApp]);
     // V87.81.150.318: Help's links (queue item 5: "Each item gets a link that takes the user to the place
     // being described"). Help closes, then the place opens, through the same openers Quick Launch and
     // the notifications use, plus the few only Help needs.
@@ -23569,8 +25151,10 @@ const App = () => {
         // V88.84.150.322: the feed loads 50 at a time, so your own posts come from their own listener. Festivals
         // dated: the different festivals you've posted your days for (Festival Planner, Season Pass).
         const fests = new Set();
+        // V89.85.150.324: the festivals you've tapped days for (Day Picker), and a post with every day of one (All In)
+        const picked = new Set(); let allIn = 0;
         rkByIdMerge(items || [], itemBuckets.mine || []).forEach(i => {
-            if (i && i.ownerId === uid) { const e = rkEventOf(i); if (e && e.from) fests.add(rkEventKey(e.name)); }
+            if (i && i.ownerId === uid) { const e = rkEventOf(i); if (e && e.from) fests.add(rkEventKey(e.name)); if (e && e.days && e.days.length) { picked.add(rkEventKey(e.name)); if (!allIn && rkCoversEdition(e)) allIn = 1; } }
             if (!i) return;
             const likes = Array.isArray(i.likes) ? i.likes : [];
             if (i.ownerId === uid) {
@@ -23579,7 +25163,7 @@ const App = () => {
                 if (!i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept) listed++;
             } else if (likes.includes(uid)) likesOut++;
         });
-        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn); hi('festivalsDated', fests.size);
+        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn); hi('festivalsDated', fests.size); hi('festDaysPicked', picked.size); hi('festAllDays', allIn);
         hi('socialInteractions', likesOut + (Number(profile.commentsPosted) || 0));
         // Fully Wired and Full Signal. Both flags were only ever computed when Settings was SAVED, so
         // anyone who added a phone or ticked every box before V64.02 introduced them, or whose ticks
@@ -23587,7 +25171,7 @@ const App = () => {
         if (!profile.contactComplete && profile.phoneNumber && auth.currentUser?.email) upd.contactComplete = true;
         if (!profile.notifsMaxed && rkNotifsMaxed(profile.notificationPreferences)) upd.notifsMaxed = true;
         if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true }).catch(e => rkReport('achievement stats', e));
-    }, [user?.uid, profile?.joined, items, itemBuckets.mine, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, profile?.festivalsDated, rkAchFlagsKey]);
+    }, [user?.uid, profile?.joined, items, itemBuckets.mine, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, profile?.festivalsDated, profile?.festDaysPicked, profile?.festAllDays, rkAchFlagsKey]);
     // V88.84.150.322: what the Ravers feed sorts on. joined, for a profile set up before join dates were kept
     // (Firebase Auth knows when the account was made); friendsCount, kept in step with the friends list.
     useEffect(() => {
@@ -23598,11 +25182,17 @@ const App = () => {
         if (profile.friendsCount !== fc) upd.friendsCount = fc;
         if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(e => rkReport('profile sort fields', e));
     }, [user?.uid, profile?.displayName, profile?.joined, (profile?.friends || []).length, profile?.friendsCount]);
-    // V88.84.150.322: once a day, a nudge about tribe votes waiting on you (rkVoteNudge)
+    // V88.84.150.322: a nudge about tribe votes waiting on you (rkVoteNudge).
+    // V89.84.150.323: at the raver's own interval (Settings → 🗳️ Vote reminders): checked 8 s after the app opens
+    // and every 30 minutes while it stays open.
+    const voteNudgeP = useRef(null);
+    voteNudgeP.current = profile;
     useEffect(() => {
         if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        const t = setTimeout(() => { rkVoteNudge(user.uid).catch(e => rkReport('vote nudge', e)); }, 8000);
-        return () => clearTimeout(t);
+        const run = () => { rkVoteNudge(user.uid, voteNudgeP.current).catch(e => rkReport('vote nudge', e)); };
+        const t = setTimeout(run, 8000);
+        const iv = setInterval(run, 30 * 60000);
+        return () => { clearTimeout(t); clearInterval(iv); };
     }, [user?.uid, profile?.joined]);
     // V84.152 (310): completed PLUR trades were never counted at all (Trader, Trade Master, and the
     // trades share of creator points), and the tribe figures only updated while the Vibe Tribe
@@ -23932,6 +25522,8 @@ const App = () => {
     // onUnlocked re-runs the status check rather than just clearing the flag — that is what arms
     // the re-lock timer for the window that just opened.
     if(user && locked === true) return <AppLockScreen user={user} onUnlocked={() => { rkLastAct.current = Date.now(); rkLastBeat.current = 0; setLocked(false); rkCheckLock(); }} />;
+    // V89.85.150.324: a phone that was signed in waits for Firebase's answer instead of opening the login form
+    if (!user && !authReady && rkHadSession !== false && !manualLogin) return <RkAuthWait bg={bgNow} onManual={() => setManualLogin(true)}/>;
     if(!user) return <AuthScreen setLoadMsg={setLoadMsg} bg={bgNow} />;
 
     const banActive = profile?.bannedUntil && (profile.bannedUntil === 'permanent' || profile.bannedUntil > Date.now());
@@ -24042,6 +25634,8 @@ const App = () => {
         return E[s % E.length] + ' ' + A[s % A.length].toUpperCase() + ' ' + B[(s * 7 + 3) % B.length].toUpperCase() + ' ' + C[(s * 13 + 5) % C.length].toUpperCase() + ' ' + E[(s * 3 + 1) % E.length];
     })();
     const uref = (x) => x ? (x.publicUid || x.id) : null;
+    // V89.85.150.324: the soonest festival on the calendar (RK_FEST_DATES), for the marquee
+    const mqNextFest = rkNextFestival();
     const activeBanner = bannerSlots.find(s => s.start <= nowTick && nowTick < s.end) || null;
     const mq = [
         activeBanner ? { t: (activeBanner.linkUrl ? '🔗 @' : '📢 @') + (activeBanner.name || 'VIP') + ': ' + activeBanner.text + (activeBanner.linkUrl ? ' 🔗' : ' 📢'), uid: activeBanner.linkUrl ? null : (activeBanner.ownerPublicUid || activeBanner.uid), href: activeBanner.linkUrl || null, slotId: activeBanner.id } : null,
@@ -24069,13 +25663,22 @@ const App = () => {
         // V88.84.150.322: the leaders for 322's achievements, the most played track and the next festival meetup
         topStats.voter && ((topStats.voter.tribeVotesCast || 0) > 0) ? { t: '🗳️ MOST CIVIC RAVER: @' + rkMqName(topStats.voter) + ' (' + topStats.voter.tribeVotesCast + ' tribe votes)', uid: uref(topStats.voter) } : null,
         topStats.network && ((topStats.network.networkReach || 0) > 0) ? { t: '🕸️ BIGGEST NETWORK: @' + rkMqName(topStats.network) + ' (friends of friends reach ' + topStats.network.networkReach + ' ravers)', uid: uref(topStats.network) } : null,
+        // V89.84.150.323: the leaders for 323's achievements, and RaveKandi on home screens
+        topStats.welcomer && ((topStats.welcomer.tribeInvitesPassed || 0) > 0) ? { t: '🎟️ MOST WELCOMING RAVER: @' + rkMqName(topStats.welcomer) + ' (' + topStats.welcomer.tribeInvitesPassed + ' raver' + (topStats.welcomer.tribeInvitesPassed === 1 ? '' : 's') + ' brought into tribes)', uid: uref(topStats.welcomer) } : null,
+        topStats.quick && ((topStats.quick.tribeVotesFast || 0) > 0) ? { t: '⚡ QUICKEST VOTER: @' + rkMqName(topStats.quick) + ' (' + topStats.quick.tribeVotesFast + ' tribe vote' + (topStats.quick.tribeVotesFast === 1 ? '' : 's') + ' answered within 12 hours)', uid: uref(topStats.quick) } : null,
+        ((topStats.homeCount || 0) > 0 && !IS_STANDALONE && !rkIsNative()) ? { t: '📲 ' + topStats.homeCount + ' raver' + (topStats.homeCount === 1 ? ' has' : 's have') + ' RaveKandi on their home screen. Tap to add it to yours 📲', kind: 'install', go: () => setIosGuide(true) } : null,
         topStats.digger && ((topStats.digger.tracksPlayed || 0) > 0) ? { t: '📀 TOP CRATE DIGGER: @' + rkMqName(topStats.digger) + ' (' + topStats.digger.tracksPlayed + ' tracks played)', uid: uref(topStats.digger) } : null,
         topStats.topTrack && ((topStats.topTrack.plays || 0) > 0) ? { t: '🎵 MOST PLAYED TRACK: "' + String(topStats.topTrack.title || 'Untitled').slice(0, 40) + '" by @' + (topStats.topTrack.ownerName || 'Artist') + ' (' + topStats.topTrack.plays + ' plays)', uid: topStats.topTrack.publicUid || topStats.topTrack.ownerUid || null } : null,
+        // V89.85.150.324: the leader for 324's achievements, the next festival on the calendar, and posting with festival days
+        topStats.planner && ((topStats.planner.festDaysPicked || 0) > 0) ? { t: '🗓️ TOP FESTIVAL PLANNER: @' + rkMqName(topStats.planner) + ' (days picked at ' + topStats.planner.festDaysPicked + ' festival' + (topStats.planner.festDaysPicked === 1 ? '' : 's') + ')', uid: uref(topStats.planner) } : null,
+        mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
+        (user && !user.isAnonymous) ? { t: '🎪 GOING TO A FESTIVAL? POST IT, PICK THE FESTIVAL AND TAP THE DAYS YOU\'RE GOING 🎪', go: () => { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } } : null,
         topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
         { t: RAVE_EMOJIS[Math.floor(Date.now() / 60000) % RAVE_EMOJIS.length] },
         { t: plurLine },
         // PLUR facts, tips & culture — expanded set
         { t: '💖 PLUR FACT: The PLUR handshake ends with a kandi trade! 💖' },
+        { t: '🕊️ PLUR FACT: Hate has no place on the dancefloor. RaveKandi blocks slurs in every name, post and message 🕊️' },
         { t: '🤝 PLUR FACT: PLUR = Peace, Love, Unity & Respect — the rave code 🤝' },
         { t: '🕰️ PLUR FACT: Kandi trading grew out of the 90s rave scene 🕰️' },
         { t: '💡 PLUR FACT: Single beads can be traded as a promise to meet again 💡' },
@@ -24248,52 +25851,12 @@ cat << 'EOF' >> src/App.js
             </Modal>
             {user && <VideoSubmitModal user={user} profile={profile} isOpen={videoSubmitOpen} onClose={() => setVideoSubmitOpen(false)} slots={videoSlotsForSubmit} />}
             <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} onReportBug={() => setTicketOpen(true)} user={user} profile={profile} onStartTutorial={startTutorial} onGo={helpGo} />
+            {/* V89.84.150.323: Get RaveKandi rebuilt (RkGetApp, RkInstallCoach). */}
             <Modal isOpen={iosGuide} onClose={() => setIosGuide(false)} title="📲 Get RaveKandi">
-                <div className="space-y-3 text-sm">
-                    <p className="text-xs opacity-80">RaveKandi works right here in your browser — or install it for a fullscreen, app-like experience. Pick whatever suits your device:</p>
-
-                    {/* Always-available: open / continue on the web version */}
-                    <a href={WEB_APP_URL} target="_blank" rel="noreferrer" className="block">
-                        <div className="bg-gradient-to-r from-cyan-600/30 to-blue-600/30 border border-cyan-400/50 rounded-lg p-3 flex items-center gap-3 hover:from-cyan-600/50 hover:to-blue-600/50 transition">
-                            <Globe size={26} className="text-cyan-300 shrink-0"/>
-                            <div><p className="font-black text-sm text-cyan-200">Use the Web Version</p><p className="text-[10px] text-white/70">Open ravekandi.web.app in your browser — nothing to install. Works on any device.</p></div>
-                        </div>
-                    </a>
-
-                    {/* iPhone install steps */}
-                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-1.5 text-xs">
-                        <p className="font-bold text-pink-300 uppercase text-[10px] flex items-center gap-1">🍏 On iPhone (Safari) — Install to Home Screen</p>
-                        <p><strong className="text-pink-300">1.</strong> Tap the <strong>Share</strong> button (square with an up-arrow).</p>
-                        <p><strong className="text-pink-300">2.</strong> Scroll down, tap <strong>"Add to Home Screen."</strong></p>
-                        <p><strong className="text-pink-300">3.</strong> Tap <strong>Add</strong> — it launches fullscreen with its own icon. 🌈</p>
-                    </div>
-
-                    {/* Android options: PWA install + direct APK */}
-                    <div className="bg-white/5 border border-white/10 rounded p-3 space-y-1.5 text-xs">
-                        <p className="font-bold text-lime-300 uppercase text-[10px] flex items-center gap-1">🤖 On Android — Two Options</p>
-                        <p><strong className="text-lime-300">A.</strong> <strong>Install from browser:</strong> Chrome <strong>⋮ menu</strong> → <strong>"Install app"</strong> / "Add to Home screen."</p>
-                        <p><strong className="text-lime-300">B.</strong> <strong>Download the APK</strong> for the native app:</p>
-                        <a href={ANDROID_APK_URL} target="_blank" rel="noreferrer" className="block mt-1">
-                            <div className="bg-lime-600/20 border border-lime-400/50 rounded p-2 flex items-center gap-2 hover:bg-lime-600/40 transition">
-                                <Download size={18} className="text-lime-300 shrink-0"/>
-                                <span className="text-[11px] font-bold text-lime-200">Download Android APK</span>
-                            </div>
-                        </a>
-                        <p className="text-[10px] opacity-50 mt-1">APK installs may ask you to allow "install from unknown sources" — that's normal for direct downloads outside the Play Store.</p>
-                    </div>
-
-                    {/* App-store placeholders (hidden until launch) */}
-                    <div className="bg-black/40 border border-dashed border-white/15 rounded p-3 text-center">
-                        <p className="text-[10px] text-white/40 font-bold uppercase tracking-wide">Coming soon</p>
-                        <p className="text-[10px] text-white/40 mt-1">📱 App Store &amp; Google Play downloads are on the way — for now, use the web version or the Android APK above.</p>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <Button onClick={() => { try { localStorage.setItem('rk_ios_a2hs', '1'); } catch (e) {} setIosGuide(false); }} color="accent" className="flex-1 text-xs">Don't Show Again</Button>
-                        <Button onClick={() => setIosGuide(false)} color="cyan" className="flex-1 text-xs">Got It!</Button>
-                    </div>
-                </div>
+                <RkGetApp onCoach={(k) => { setIosGuide(false); setInstallCoach(k); }} onClose={() => setIosGuide(false)} onNeverAgain={() => { try { localStorage.setItem('rk_ios_a2hs', '1'); } catch (e) {} setIosGuide(false); }}/>
             </Modal>
+            {installCoach && <RkInstallCoach gk={installCoach} onClose={() => setInstallCoach('')} onPick={setInstallCoach}/>}
+            <RkHateNotice/>
             
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} dockMode={radioDockMode} onDockMode={setRadioDockModeP} onResetButton={resetRadioButton} />
 
@@ -24504,20 +26067,23 @@ cat << 'EOF' >> src/App.js
                                 <button onClick={() => setFilters({ ...filters, friendsOnly: !filters.friendsOnly })} aria-pressed={!!filters.friendsOnly} data-friends-only="1" className={'self-end rounded-lg border text-xs font-bold py-2 px-1 text-white ' + (filters.friendsOnly ? 'bg-pink-600/40 border-pink-300' : 'bg-black/30 border-white/25')}>🫂 Friends' posts</button>
                             </div>
                         )}
-                        {/* V88.84.150.322: festivals on any post (321 showed them for trades only), soonest first. */}
+                        {/* V88.84.150.322: festivals on any post (321 showed them for trades only), soonest first.
+                            V89.85.150.324 (Milli: "make the festivals a drop down selection box instead of independently showing each
+                            festival attributed to a post"): one dropdown, however many festivals the posts name. */}
                         {filters.view === 'all' && (() => {
                             const evs = {};
                             feedItems.forEach(i => { const e = rkEventOf(i); if (!e) return; const k = rkEventKey(e.name); const g = evs[k] || (evs[k] = { name: e.name, n: 0, from: '' }); g.n++; if (e.from && !rkEventPast(e) && (!g.from || e.from < g.from)) g.from = e.from; });
-                            const list = Object.values(evs).sort((a, b) => ((a.from || '9999') < (b.from || '9999') ? -1 : (a.from || '9999') > (b.from || '9999') ? 1 : b.n - a.n)).slice(0, 30);
+                            const list = Object.values(evs).sort((a, b) => ((a.from || '9999') < (b.from || '9999') ? -1 : (a.from || '9999') > (b.from || '9999') ? 1 : b.n - a.n));
                             if (!list.length && !filters.tradeEvent) return null;
+                            const cur = list.find(g => rkEventKey(g.name) === rkEventKey(filters.tradeEvent));
                             return (
                                 <div className="border-t border-white/10 pt-2 mb-1" data-feed-festivals="1">
-                                    <p className="text-xs font-bold text-cyan-200 uppercase mb-1.5">🎪 Festivals</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        <button onClick={() => setFilters({ ...filters, tradeEvent: '' })} className={'text-xs px-2.5 py-1 rounded-full border text-white transition ' + (!filters.tradeEvent ? 'bg-cyan-500/30 border-cyan-300 font-bold' : 'border-white/30')}>All festivals</button>
-                                        {filters.tradeEvent && !list.some(g => rkEventKey(g.name) === rkEventKey(filters.tradeEvent)) && <button className="text-xs px-2.5 py-1 rounded-full border bg-cyan-500/30 border-cyan-300 font-bold text-white">{filters.tradeEvent}</button>}
-                                        {list.map(g => <button key={g.name} data-festival-chip={rkEventKey(g.name)} onClick={() => setFilters({ ...filters, tradeEvent: g.name })} className={'text-xs px-2.5 py-1 rounded-full border text-white transition ' + (rkEventKey(filters.tradeEvent) === rkEventKey(g.name) ? 'bg-cyan-500/30 border-cyan-300 font-bold' : 'border-white/30')}>{g.name}{g.from ? ' · ' + rkEventDays({ from: g.from }) : ''} ({g.n})</button>)}
-                                    </div>
+                                    <label htmlFor="rk-feed-fest" className="block text-xs font-bold text-white uppercase ml-1">🎪 Festival</label>
+                                    <select id="rk-feed-fest" value={filters.tradeEvent ? (cur ? cur.name : filters.tradeEvent) : ''} onChange={e => setFilters({ ...filters, tradeEvent: e.target.value })} className={selectStyle + ' mt-1 normal-case'} data-feed-fest-select="1">
+                                        <option value="">All festivals ({list.length})</option>
+                                        {filters.tradeEvent && !cur && <option value={filters.tradeEvent}>{filters.tradeEvent}</option>}
+                                        {list.map(g => <option key={g.name} value={g.name} data-festival-option={rkEventKey(g.name)}>{g.name}{g.from ? ' · ' + rkEventDays({ from: g.from }) : ''} ({g.n} post{g.n === 1 ? '' : 's'})</option>)}
+                                    </select>
                                 </div>
                             );
                         })()}
@@ -24987,6 +26553,12 @@ TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 command -v node >/dev/null 2>&1 || pkg install -y nodejs-lts
 command -v java >/dev/null 2>&1 || pkg install -y openjdk-21
 command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 || pkg install -y imagemagick
+# V89.84.150.323: a 512 px icon beside the 192 px one, for Chrome's install offer and its splash screen.
+if [ ! -f public/icon-512.png ]; then
+    if command -v magick >/dev/null 2>&1; then magick public/icon-192.png -filter Lanczos -resize 512x512 public/icon-512.png 2>/dev/null
+    elif command -v convert >/dev/null 2>&1; then convert public/icon-192.png -filter Lanczos -resize 512x512 public/icon-512.png 2>/dev/null; fi
+fi
+if [ -f public/icon-512.png ]; then echo "  [OK]   512 px app icon ready (install offer)"; else sed -i '/icon-512.png/d' public/manifest.json; echo "  [WARN] no ImageMagick: the 512 px icon is skipped, so Chrome may not offer Install."; fi
 
 if [ ! -f "$TERMUX_PREFIX/bin/aapt2" ]; then
     echo "Native AAPT2 missing. Installing from Termux repository..."
@@ -25832,8 +27404,26 @@ echo ""
 
 echo "Building APK natively via Gradle..."
 cd android && chmod +x gradlew
-bash ./gradlew assembleDebug --no-daemon --max-workers=2 --build-cache < /dev/null
-RK_GRADLE_RC=$?
+# V89.84.150.323 (Milli, at 323: "the updated app is still saying build 321"). When Gradle failed, the web
+# deploy still ran and went live, the failure had scrolled far above it, and the newest APK in Downloads was
+# the previous build's. Now Gradle's output is kept in ~/RaveKandi_Output/gradle_B<build>.log, a failure is
+# retried once (one worker, no build cache, after stopping any Gradle daemon: the memory failures a phone
+# hits), and BUILD RESULT, the last thing the run prints, says whether this build's APK exists.
+mkdir -p "$HOME/RaveKandi_Output"
+RK_GRADLE_LOG="$HOME/RaveKandi_Output/gradle_B${RK_BUILD}.log"
+bash ./gradlew assembleDebug --no-daemon --max-workers=2 --build-cache < /dev/null 2>&1 | tee "$RK_GRADLE_LOG"
+RK_GRADLE_RC=${PIPESTATUS[0]}
+RK_GRADLE_TRIES=1
+if [ "$RK_GRADLE_RC" != "0" ]; then
+    echo ""
+    echo "  Gradle failed (exit $RK_GRADLE_RC). Retrying once: one worker, no build cache..."
+    bash ./gradlew --stop >/dev/null 2>&1 || true
+    sleep 5
+    bash ./gradlew assembleDebug --no-daemon --max-workers=1 --no-build-cache < /dev/null 2>&1 | tee -a "$RK_GRADLE_LOG"
+    RK_GRADLE_RC=${PIPESTATUS[0]}
+    RK_GRADLE_TRIES=2
+fi
+RK_APK_RESULT="not built (the run stopped before the APK step)"
 
 # ---- Print the DEBUG-keystore SHA-1 for Google Sign-In setup ---------------------------------
 # Native Google sign-in returns error code 10 (DEVELOPER_ERROR) until this fingerprint is
@@ -25951,13 +27541,37 @@ echo "  [OK] Play Console prep sheet: Downloads/PLAY_STORE_PREP.txt"
 # "The APK built perfectly, but Android blocked the transfer", pointing at storage for what was a
 # compile or download failure. Only a real APK is exported now; the web deploy below still runs.
 RK_APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
+# V89.84.150.323: the web build inside the APK names its version in its <title>. An APK holding any other
+# build's pages is not exported, whatever Gradle said.
+RK_APK_WEB=""
+if [ "$RK_GRADLE_RC" = "0" ] && [ -f "$RK_APK_SRC" ] && command -v python3 >/dev/null 2>&1; then
+    RK_APK_WEB=$(python3 - "$RK_APK_SRC" << 'PYAPK' 2>/dev/null
+import sys, zipfile, re
+try:
+    s = zipfile.ZipFile(sys.argv[1]).read('assets/public/index.html').decode('utf-8', 'ignore')
+    m = re.search(r'<title>RaveKandi ([^<]*)</title>', s)
+    print(m.group(1).strip() if m else '?')
+except Exception:
+    print('?')
+PYAPK
+)
+fi
 if [ "$RK_GRADLE_RC" != "0" ] || [ ! -f "$RK_APK_SRC" ]; then
     echo "==========================================================="
-    echo "APK BUILD FAILED - Gradle exit code ${RK_GRADLE_RC:-unknown}. The cause is in the Gradle"
-    echo "error above. Nothing was exported. The web deploy below still runs."
+    echo "APK BUILD FAILED - Gradle exit code ${RK_GRADLE_RC:-unknown} (tried ${RK_GRADLE_TRIES:-1} times). The cause is in"
+    echo "the Gradle error above, also saved in $RK_GRADLE_LOG. Nothing was exported."
+    echo "The web deploy below still runs."
     echo "==========================================================="
+    RK_APK_RESULT="FAILED: Gradle exit code ${RK_GRADLE_RC:-unknown}, tried ${RK_GRADLE_TRIES:-1} times. No new APK. The newest APK in Downloads is an OLDER build: don't install or upload it. Log: $RK_GRADLE_LOG"
+elif [ -n "$RK_APK_WEB" ] && [ "$RK_APK_WEB" != "?" ] && [ "$RK_APK_WEB" != "$RK_VER" ]; then
+    echo "==========================================================="
+    echo "APK NOT EXPORTED - it holds the pages of $RK_APK_WEB, not $RK_VER."
+    echo "Capacitor's copy step didn't run. Re-run the script."
+    echo "==========================================================="
+    RK_APK_RESULT="FAILED: the APK held the pages of $RK_APK_WEB, not $RK_VER, so it wasn't exported. Re-run the script."
 else
 cp "$RK_APK_SRC" "$OUT_DIR/$APK_NAME"
+RK_APK_RESULT="built, but not copied to Downloads. It is in ~/RaveKandi_Output/$APK_NAME"
 
 echo "Attempting to export APK to public Downloads folder..."
 
@@ -25990,6 +27604,7 @@ if [ -n "$APK_PATH" ]; then
     echo "SUCCESS! APK is saved in your Android Downloads folder:"
     echo "$APK_PATH"
     echo "==========================================================="
+    RK_APK_RESULT="OK: $APK_NAME (in Downloads${RK_APK_WEB:+, holds $RK_APK_WEB})"
 else
     echo "==========================================================="
     echo "TERMUX STORAGE NOT FULLY LINKED"
@@ -26081,6 +27696,9 @@ const TITLES = {
   labcap:      '🎨 Design Lab',
   banner:      '📢 Banner Update',
   diy:         '🎨 Custom Request',
+  // V89.84.150.323
+  tribe:       '🌈 Vibe Tribe',
+  mod:         '🕊️ RaveKandi',
 };
 
 exports.sendPushOnNotification = onDocumentCreated(
@@ -27055,6 +28673,374 @@ exports.radioRecordNow = onCall({ timeoutSeconds: 30, memory: '256MiB' }, async 
 RADIOEOF
 echo "  functions/rk_radio.js written (script-owned)."
 
+# V89.84.150.323: VOTE REMINDERS (Milli, at 323: "add auto notifications for votes a user hasn't voted on once every 12
+# hours. Add a setting to turn this off, or selection tool for user to choose between how many hours or days between
+# vote notifications. Longest time between vote notifications should be once a week"). Script-owned, regenerated
+# every build, like rk_push.js.
+cat << 'VOTESEOF' > "$RK_FN_DIR/rk_votes.js"
+// RaveKandi vote reminders (V89.84.150.323). Script-owned: the build regenerates this file. Never edit it.
+//
+// Every hour: for each tribe with a vote running, each member who can vote on it and hasn't answered yes or no.
+// A raver hears at most once per their own interval (users/{uid}.voteRemindHours: 6, 12, 24, 48, 72, 120 or 168
+// hours; 0 is off; unset is 12), only about votes that have waited at least that long, and never from a tribe
+// whose vote notices they turned off (tribe.mutes.<uid>.vote). One notice says how many are waiting and opens the
+// oldest. voteRemindAt records it; the app does the same check when it opens (rkVoteNudge), and whichever goes
+// first stamps it, so the other stays quiet. Members in a time-out don't vote, so they get none; a mute doesn't
+// stop voting (323).
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+
+const APP_IDS = ['ravekandi-core-prod'];
+const HOURS = [6, 12, 24, 48, 72, 120, 168];
+const ABOUT = ['kick', 'mute', 'timeout', 'repeal'];
+const TYPES = ['kick', 'status', 'purge', 'rename', 'founder', 'mute', 'timeout', 'repeal'];
+const hoursOf = (u) => { if (u && u.voteRemindHours === 0) return 0; const h = Number(u && u.voteRemindHours); return HOURS.includes(h) ? h : 12; };
+const outOf = (rs, m, now) => !!(rs && rs[m] && rs[m].type !== 'mute' && Number(rs[m].until) > now);
+const dur = (ms) => { const m = Math.round((Number(ms) || 0) / 60000); if (m < 60) return m + ' min'; const h = Math.round(m / 6) / 10; if (h < 24) return h + (h === 1 ? ' hour' : ' hours'); const d = Math.round(h / 2.4) / 10; return d + (d === 1 ? ' day' : ' days'); };
+const labelOf = (v) => {
+  if (v.type === 'kick') return 'Remove @' + (v.targetName || 'a member');
+  if (v.type === 'status') return v.to === 'open' ? 'Open the tribe' : 'Close the tribe';
+  if (v.type === 'purge') return 'Purge the group chat';
+  if (v.type === 'rename') return 'Rename the tribe to "' + (v.name || '') + '"';
+  if (v.type === 'founder') return 'Make @' + (v.targetName || 'a member') + ' the founder';
+  if (v.type === 'mute') return 'Mute @' + (v.targetName || 'a member') + ' for ' + dur(v.dur);
+  if (v.type === 'timeout') return 'Time-out @' + (v.targetName || 'a member') + ' for ' + dur(v.dur);
+  if (v.type === 'repeal') return "Lift @" + (v.targetName || 'a member') + "'s " + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' (appeal)';
+  return 'A vote';
+};
+
+exports.voteReminders = onSchedule({ schedule: '17 * * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300 }, async () => {
+  const db = admin.firestore();
+  const now = Date.now();
+  for (const appId of APP_IDS) {
+    const snap = await db.collection('artifacts/' + appId + '/public/data/tribes').get();
+    const waiting = {};
+    snap.docs.forEach((d) => {
+      const t = d.data() || {};
+      const members = t.members || [], rs = t.restrictions || {}, mutes = t.mutes || {}, pending = t.pendingVotes || {};
+      const add = (uid, w) => { if ((mutes[uid] || {}).vote) return; (waiting[uid] = waiting[uid] || []).push(Object.assign({ tribeId: d.id, tribeName: t.name || 'your tribe' }, w)); };
+      const voters = (v) => members.filter((m) => !(v && ABOUT.includes(v.type) && m === v.target) && !outOf(rs, m, now));
+      const admitEl = voters({ type: 'admit' });
+      Object.entries(pending).forEach(([cid, e]) => {
+        if (!e || members.includes(cid)) return;
+        admitEl.forEach((u) => { if ((e.votes || []).includes(u) || (e.no || []).includes(u)) return; add(u, { key: 'admit:' + cid, label: 'Add @' + (e.name || 'Raver') + ' to the tribe', at: Number(e.at) || 0 }); });
+      });
+      // an accepted invite is a vote too (the app turns it into one at its next settle)
+      Object.entries(t.invites || {}).forEach(([cid, e]) => {
+        if (!e || !e.accepted || members.includes(cid) || pending[cid]) return;
+        admitEl.forEach((u) => { if (u === e.by) return; add(u, { key: 'admit:' + cid, label: 'Add @' + (e.name || 'Raver') + ' to the tribe', at: Number(e.acceptedAt) || 0 }); });
+      });
+      Object.entries(t.joinRequests || {}).forEach(([cid, e]) => {
+        if (members.includes(cid) || pending[cid]) return;
+        admitEl.forEach((u) => add(u, { key: 'join:' + cid, label: '@' + ((e && e.name) || 'Raver') + ' asked to join', at: Number(e && e.at) || 0 }));
+      });
+      const votes = Object.assign({}, t.votes || {});
+      if (t.statusVote && !votes.status) votes.status = { type: 'status', to: t.statusVote.to, yes: t.statusVote.votes || [], at: t.statusVote.at || 0 };
+      Object.entries(votes).forEach(([key, v]) => {
+        if (!v || !TYPES.includes(v.type)) return;
+        if (v.type === 'repeal' && now >= Number(v.exp || 0)) return;
+        if (ABOUT.includes(v.type) && !members.includes(v.target)) return;
+        voters(v).forEach((u) => { if ((v.yes || []).includes(u) || (v.no || []).includes(u)) return; add(u, { key, label: labelOf(v), at: Number(v.at) || 0 }); });
+      });
+    });
+    let sent = 0;
+    for (const [uid, list] of Object.entries(waiting)) {
+      try {
+        const uref = db.doc('artifacts/' + appId + '/users/' + uid);
+        const us = await uref.get();
+        if (!us.exists) continue;
+        const u = us.data() || {};
+        const h = hoursOf(u);
+        if (!h) continue;
+        const ms = h * 3600000;
+        if (now - (Number(u.voteRemindAt) || 0) < ms) continue;
+        const due = list.filter((w) => now - w.at >= ms).sort((a, b) => a.at - b.at);
+        if (!due.length) continue;
+        const w = due[0];
+        const text = due.length === 1
+          ? '🗳️ Reminder: a vote in "' + w.tribeName + '" is waiting for you: ' + w.label + '. Tap to vote yes or no.'
+          : '🗳️ Reminder: ' + due.length + ' tribe votes are waiting for you, starting in "' + w.tribeName + '": ' + w.label + '. Tap to vote yes or no.';
+        await db.collection('artifacts/' + appId + '/users/' + uid + '/notifications').add({ type: 'tribe', text, refId: w.tribeId + '#vote:' + w.key, read: false, at: now });
+        await uref.set({ voteRemindAt: now }, { merge: true });
+        sent++;
+      } catch (e) { console.error('voteReminders', uid, e); }
+    }
+    console.log('voteReminders', appId, 'ravers with votes waiting', Object.keys(waiting).length, 'reminded', sent);
+  }
+});
+VOTESEOF
+echo "  functions/rk_votes.js written (script-owned)."
+
+# V89.84.150.323: THE HATE-SPEECH FILTER ON THE SERVER (Milli, at 323: "ensure that usernames, messages, posts, and
+# anywhere else in the app users cannot use racist remarks"). Script-owned, regenerated every build.
+cat << 'MODEOF' > "$RK_FN_DIR/rk_mod.js"
+// RaveKandi hate-speech filter, server side (V89.84.150.323). Script-owned: the build regenerates this file.
+//
+// The app refuses a blocked word before anything is written. This catches what is written around the app,
+// straight to Firestore: new posts, comments, tracks, radio messages, creator posts and services, tribe names,
+// and changes to names, Friend UIDs and bios. Same matcher and list as the app (the built-in words plus Admin
+// Tools → 🕊️ Blocked words, in global/moderation). A blocked word becomes ♥, letter for letter where it can be
+// found in the original (a name that can't be cleaned goes back to a plain one), and the writer is told why.
+// Encrypted chats can't be read here; the app checks those before they're encrypted.
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+
+// ---- V89.84.150.323: THE HATE-SPEECH MATCHER. One copy here, one in functions/rk_mod.js, generated together. ----
+// The built-in words are ROT13 so the source doesn't spell them out. Each is [word, mode, category, options]:
+//   part   anywhere inside a word ("sandn..."), except the real words in RK_HATE_ALLOW (Nigeria, snigger...)
+//   word   the whole word, plus s, es or z; `prev`/`next` name a neighbour that makes it something else
+//          ("Maine Coon", "kaffir lime", "a chink in the armour")
+//   phrase these words in a row, with or without spaces between them
+//   num    a number code, as typed ("1488", "14/88")
+// What it sees through: capitals, accents and look-alike letters (Cyrillic, Greek, full-width), invisible
+// characters, numbers and symbols for letters inside a word (n1gg3r, f@g, $p1c), letters split by spaces,
+// dots or dashes (n i g g a, k.i.k.e), and stretched letters (kiiike) in words of four letters or more.
+// Doubled letters stay doubled (coon is not "con", nigger is not Niger).
+const RK_HATE_ROT = (s) => String(s).replace(/[a-z]/gi, (c) => { const b = c <= 'Z' ? 65 : 97; return String.fromCharCode(((c.charCodeAt(0) - b + 13) % 26) + b); });
+const RK_HATE_BASE = [
+    ["avttre", "part", "race", {}],
+    ["avttn", "part", "race", {}],
+    ["avtthu", "part", "race", {}],
+    ["pbba", "word", "race", {"prev": ["maine", "rac", "ra"], "next": ["hound", "hounds", "dog", "dogs", "cat", "cats", "skin", "skins", "cap", "caps"]}],
+    ["wvtnobb", "part", "race", {}],
+    ["wvttnobb", "part", "race", {}],
+    ["cbepu zbaxrl", "phrase", "race", {}],
+    ["whatyr ohaal", "phrase", "race", {}],
+    ["fnzob", "word", "race", {"next": ["class", "classes", "fighter", "fighters", "wrestling", "gym", "training", "match", "tournament"]}],
+    ["qnexvr", "word", "race", {}],
+    ["qnexl", "word", "race", {}],
+    ["cvpxnavaal", "part", "race", {}],
+    ["cvppnavaal", "part", "race", {}],
+    ["tbyyvjbt", "part", "race", {}],
+    ["fcvp", "word", "race", {}],
+    ["jrgonpx", "part", "race", {}],
+    ["ornare", "word", "race", {}],
+    ["puvax", "word", "race", {"next": ["in", "of"]}],
+    ["tbbx", "word", "race", {}],
+    ["wnc", "word", "race", {}],
+    ["puvanzna", "word", "race", {}],
+    ["mvccreurnq", "part", "race", {}],
+    ["fynag rlr", "phrase", "race", {}],
+    ["puvat pubat", "phrase", "race", {}],
+    ["xvxr", "word", "race", {}],
+    ["xlxr", "word", "race", {}],
+    ["ulzvr", "word", "race", {}],
+    ["gbjryurnq", "part", "race", {}],
+    ["enturnq", "part", "race", {}],
+    ["pnzry wbpxrl", "phrase", "race", {}],
+    ["fnaq zbaxrl", "phrase", "race", {}],
+    ["cnxv", "word", "race", {}],
+    ["jbc", "word", "race", {}],
+    ["qntb", "word", "race", {}],
+    ["cbynpx", "word", "race", {}],
+    ["xenhg", "word", "race", {"next": ["rock", "rocker", "rockers"]}],
+    ["erqfxva", "word", "race", {}],
+    ["fdhnj", "word", "race", {}],
+    ["unys oerrq", "phrase", "race", {"next": ["dog", "dogs", "puppy", "puppies", "horse", "horses", "cat", "cats", "kitten", "kittens"]}],
+    ["ubaxl", "word", "race", {"next": ["tonk", "tonks"]}],
+    ["ubaxvr", "word", "race", {}],
+    ["ubaxrl", "word", "race", {"next": ["tonk", "tonks"]}],
+    ["jvttre", "word", "race", {}],
+    ["jvttn", "word", "race", {}],
+    ["pbbyvr", "word", "race", {}],
+    ["tlccb", "word", "race", {}],
+    ["cvxrl", "word", "race", {}],
+    ["xnssve", "word", "race", {"next": ["lime", "limes", "leaf", "leaves"]}],
+    ["obbat", "word", "race", {}],
+    ["urvy uvgyre", "phrase", "race", {}],
+    ["fvrt urvy", "phrase", "race", {}],
+    ["juvgr cbjre", "phrase", "race", {"next": ["cable", "cables", "cord", "cords", "bank", "banks", "strip", "strips", "supply", "supplies", "adapter", "adapters", "adaptor", "button", "buttons", "brick", "bricks", "outlet", "outlets", "plug", "plugs", "ranger", "rangers", "led", "leds", "light", "lights", "socket", "sockets", "charger", "chargers", "switch", "tool", "tools", "washer", "wheel", "wheels"]}],
+    ["tnf gur wrjf", "phrase", "race", {}],
+    ["xxx", "word", "race", {}],
+    ["1488", "num", "race", {}],
+    ["snttbg", "part", "other", {}],
+    ["snt", "word", "other", {}],
+    ["ergneq", "word", "other", {}],
+    ["ergneqrq", "word", "other", {}],
+    ["genaal", "word", "other", {}],
+    ["genaavr", "word", "other", {}],
+    ["qlxr", "word", "other", {}]
+].map(e => ({ w: RK_HATE_ROT(e[0]), mode: e[1], cat: e[2], prev: (e[3] && e[3].prev) || null, next: (e[3] && e[3].next) || null, builtin: true }));
+const RK_HATE_ALLOW = new Set(["avtre", "avtrevn", "avtrevna", "avtrevnaf", "avtrevra", "avtrevraf", "favttre", "favttref", "favttrerq", "favttrevat", "favttrere", "avttyr", "avttyrf", "avttyrq", "avttyvat", "avttneq", "avttneqf", "avttneqyl", "avttneqyvarff"].map(RK_HATE_ROT));
+const RK_HATE_GLYPH = { '\u0430': 'a', '\u0432': 'b', '\u0435': 'e', '\u0451': 'e', '\u043A': 'k', '\u043C': 'm', '\u043D': 'h', '\u043E': 'o', '\u0440': 'p', '\u0441': 'c', '\u0442': 't', '\u0443': 'y', '\u0445': 'x', '\u0456': 'i', '\u0457': 'i', '\u0458': 'j', '\u0455': 's', '\u0501': 'd', '\u04CF': 'l', '\u0261': 'g', '\u0131': 'i',
+    '\u03B1': 'a', '\u03B2': 'b', '\u03B5': 'e', '\u03B7': 'n', '\u03B9': 'i', '\u03BA': 'k', '\u03BD': 'v', '\u03BF': 'o', '\u03C1': 'p', '\u03C4': 't', '\u03C5': 'u', '\u03C7': 'x', '\u03B3': 'y', '\u03C9': 'w' };
+const RK_HATE_LEET = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '6': 'g', '7': 't', '8': 'b', '9': 'g', '@': 'a', '$': 's', '!': 'i', '|': 'i', '+': 't', '\u20AC': 'e' };
+const rkHateNorm = (text) => {
+    let s = String(text == null ? '' : text);
+    try { s = s.normalize('NFKC'); } catch (e) {}
+    s = s.toLowerCase().replace(/[\u200B-\u200F\u2060-\u2064\uFEFF\u00AD]/g, '');
+    try { s = s.normalize('NFD').replace(/[\u0300-\u036F]/g, ''); } catch (e) {}
+    s = s.replace(/[\u0250-\u02AF\u0370-\u03FF\u0400-\u04FF]/g, (c) => RK_HATE_GLYPH[c] || c);
+    const raw = s;
+    const parts = s.split(/\s+/).map(ch => /[a-z]/.test(ch) ? ch.replace(/[0-9@$!|+\u20AC]/g, (c) => RK_HATE_LEET[c] || c) : ch)
+        .join(' ').replace(/[^a-z]+/g, ' ').trim().split(' ').filter(Boolean);
+    const toks = [];
+    for (let i = 0; i < parts.length; i++) {
+        if (parts[i].length === 1) {
+            let j = i; while (j < parts.length && parts[j].length === 1) j++;
+            if (j - i >= 3) { toks.push(parts.slice(i, j).join('')); i = j - 1; continue; }
+        }
+        toks.push(parts[i]);
+    }
+    return { toks, joined: ' ' + toks.join(' ') + ' ', raw };
+};
+// One word as a pattern: from four letters up, any letter may be stretched, and a doubled letter must stay at
+// least doubled. Words of three letters or fewer must be exact ("woop" isn't "wop", "kkkkk" isn't "kkk").
+const rkHateCore = (w) => {
+    const runs = String(w).match(/(.)\1*/g) || [];
+    const stretch = String(w).length >= 4;
+    return runs.map(r => { const c = r[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); return !stretch ? c + (r.length > 1 ? '{' + r.length + '}' : '') : r.length > 1 ? c + '{' + r.length + ',}' : c + '+'; }).join('');
+};
+const rkHateCompile = (list) => list.map(e => {
+    const w = String(e.w || '').toLowerCase().trim();
+    if (!w) return null;
+    let re;
+    try {
+        if (e.mode === 'num') re = new RegExp('(^|[^\\d$.,])' + w.replace(/\D/g, '').split('').join('[\\s/]*') + '(?![\\d.,]\\d|\\d)');
+        else if (e.mode === 'phrase') {
+            const ws = w.split(/\s+/);
+            re = new RegExp('^' + ws.map(rkHateCore).join('') + '(?:s|z)?$');
+            return { ...e, w, re, parts: ws.map((x, k) => new RegExp('^' + rkHateCore(x) + (k === ws.length - 1 ? '(?:s|z)?' : '') + '$')) };
+        }
+        else if (e.mode === 'part') re = new RegExp(rkHateCore(w));
+        else re = new RegExp('^' + rkHateCore(w) + '(?:s|es|z|ez|zz)?$');
+    } catch (x) { return null; }
+    return { ...e, w, re };
+}).filter(Boolean);
+const rkHateMask = (w) => String(w).split(' ').map(p => p.length <= 2 ? '*'.repeat(p.length) : p[0] + '*'.repeat(p.length - 2) + p[p.length - 1]).join(' ');
+// The first blocked word in `text`, or null. `list` is a compiled list (rkHateCompile).
+const rkHateMatch = (text, list) => {
+    if (text == null || text === '' || !list || !list.length) return null;
+    const n = rkHateNorm(text);
+    for (const e of list) {
+        if (e.mode === 'num') { if (e.re.test(n.raw)) return { w: e.w, masked: e.w, cat: e.cat, builtin: !!e.builtin }; continue; }
+        if (e.mode === 'phrase') {
+            for (let i = 0; i < n.toks.length; i++) {
+                const span = e.re.test(n.toks[i]) ? 1 : (i + e.parts.length <= n.toks.length && e.parts.every((r, k) => r.test(n.toks[i + k]))) ? e.parts.length : 0;
+                if (!span) continue;
+                if (e.prev && i > 0 && e.prev.includes(n.toks[i - 1])) continue;
+                if (e.next && i + span < n.toks.length && e.next.includes(n.toks[i + span])) continue;
+                return { w: e.w, masked: rkHateMask(e.w), cat: e.cat, builtin: !!e.builtin };
+            }
+            continue;
+        }
+        for (let i = 0; i < n.toks.length; i++) {
+            const tk = n.toks[i];
+            if (!e.re.test(tk)) continue;
+            if (e.mode === 'part' && RK_HATE_ALLOW.has(tk)) continue;
+            if (e.prev && i > 0 && e.prev.includes(n.toks[i - 1])) continue;
+            if (e.next && i < n.toks.length - 1 && e.next.includes(n.toks[i + 1])) continue;
+            return { w: e.w, masked: rkHateMask(e.w), cat: e.cat, builtin: !!e.builtin };
+        }
+    }
+    return null;
+};
+// The words in force: the built-in ones an admin hasn't switched off, and the admins' own (global/moderation:
+// { off: [ROT13 word], words: [{ w13: ROT13 word, mode }] }).
+const rkHateActive = (cfg) => {
+    const off = new Set(((cfg && cfg.off) || []).map(RK_HATE_ROT));
+    const mine = ((cfg && cfg.words) || []).map(x => ({ w: RK_HATE_ROT(x.w13 || ''), mode: ['part', 'word', 'phrase', 'num'].includes(x.mode) ? x.mode : 'word', cat: x.cat || 'race', builtin: false }));
+    return rkHateCompile(RK_HATE_BASE.filter(e => !off.has(e.w)).concat(mine));
+};
+// Every copy of the word in `text` turned into hearts, letter for letter, as far as the original can be
+// matched (spaces, dots and number swaps included). Returns null when the word can't be found in the original.
+const rkHateClean = (text, w) => {
+    const CL = { a: '[a4@\u00E1\u00E0\u00E2\u00E4\u00E3\u00E5\u0430]', b: '[b8\u0432]', c: '[c\u0441(]', e: '[e3\u20AC\u00E9\u00E8\u00EA\u00EB\u0435]', g: '[g96]', i: '[i1!|\u00ED\u00EC\u00EE\u00EF\u0456]', k: '[k\u043A]', l: '[l1|]', o: '[o0\u00F3\u00F2\u00F4\u00F6\u00F5\u043E]', p: '[p\u0440]', s: '[s5$\u0455]', t: '[t7+\u0442]', x: '[x\u0445]', y: '[y\u0443]' };
+    const sep = '[\\s._*\\-]*';
+    const pat = String(w).replace(/\s+/g, '').split('').map(ch => (CL[ch] || ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + '+').join(sep);
+    let re; try { re = new RegExp(pat + '(?:' + sep + '[sz](?![a-z]))?', 'gi'); } catch (e) { return null; }
+    if (!re.test(String(text))) return null;
+    return String(text).replace(re, (m) => '\u2665'.repeat(Math.max(3, Math.min(8, m.replace(/[\s._*\-]/g, '').length))));
+};
+
+let rkModCache = { at: 0, list: rkHateActive({}) };
+const rkModList = async (appId) => {
+  if (Date.now() - rkModCache.at < 60000) return rkModCache.list;
+  try {
+    const s = await admin.firestore().doc('artifacts/' + appId + '/global/moderation').get();
+    rkModCache = { at: Date.now(), list: rkHateActive(s.exists ? s.data() : {}) };
+  } catch (e) { rkModCache.at = Date.now(); }
+  return rkModCache.list;
+};
+const SKIP = new Set(['id', 'uid', 'ownerId', 'ownerUid', 'sender', 'senderId', 'refId', 'photoURL', 'photo', 'image', 'imageUrl', 'imageURL', 'images', 'img', 'avatar',
+  'url', 'link', 'href', 'token', 'email', 'phone', 'wallet', 'walletAddress', 'payoutWallet', 'audio', 'sampleData', 'customBackground', 'embedUrl', 'watchUrl', 'streamUrl',
+  'completionImage', 'thumb', 'thumbnail', 'cover', 'coverImage', 'bannerImage', 'publicKey', 'iv', 'ct', 'hash', 'sig', 'signature', 'reference']);
+const isText = (v) => typeof v === 'string' && v.length > 1 && v.length < 8000 && !/^(data:|blob:|https?:\/\/|g:|x:)/i.test(v) && !(v.length > 160 && !/\s/.test(v.slice(0, 160)));
+// A string with every blocked word turned to hearts, or null when one can't be found letter for letter.
+const rkModCleanText = (v, list) => {
+  let out = v;
+  for (let i = 0; i < 6; i++) {
+    const hit = rkHateMatch(out, list);
+    if (!hit) return out;
+    const c = rkHateClean(out, hit.w);
+    if (c === null || c === out) return null;
+    out = c;
+  }
+  return rkHateMatch(out, list) ? null : out;
+};
+// { changes, hit }: the fields of `data` to rewrite. `only` limits it to those fields; `before` skips fields that
+// didn't change. A name or Friend UID that can't be cleaned gets `fallback(field)`.
+const rkModScan = (data, list, only, before, fallback) => {
+  const changes = {}; let hit = null;
+  Object.keys(data || {}).forEach((k) => {
+    if (only && !only.includes(k)) return;
+    if (SKIP.has(k)) return;
+    const v = data[k];
+    if (before && JSON.stringify(before[k]) === JSON.stringify(v)) return;
+    if (isText(v)) {
+      const h = rkHateMatch(v, list);
+      if (!h) return;
+      hit = hit || h;
+      const c = rkModCleanText(v, list);
+      // a name that is only hearts once cleaned gets the plain fallback instead
+      changes[k] = (c !== null && !(fallback && !/[a-z0-9]/i.test(c))) ? c : (fallback ? fallback(k) : '♥♥♥');
+    } else if (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')) {
+      let any = false;
+      const arr = v.map((x) => { if (!isText(x) || !rkHateMatch(x, list)) return x; any = true; hit = hit || rkHateMatch(x, list); const c = rkModCleanText(x, list); return c !== null ? c : '♥♥♥'; });
+      if (any) changes[k] = arr;
+    }
+  });
+  return { changes, hit };
+};
+const WHAT = { users: 'your profile', tradeItems: 'your post', comments: 'your comment', radio: 'your radio chat message', musicTracks: 'your track', creatorContent: 'your showcase post', creatorServices: 'your service listing' };
+// where the notice opens in the app (its notification router): a post or comment opens the post
+const WHERE = { users: () => '@profile', tradeItems: (p) => p.id, comments: (p) => p.id, radio: () => '@radio', musicTracks: () => '@profile', creatorContent: () => '@profile', creatorServices: () => '@creatorhub' };
+const rkModTell = async (appId, uid, what, refId) => {
+  if (!uid) return;
+  try {
+    await admin.firestore().collection('artifacts/' + appId + '/users/' + uid + '/notifications').add({
+      type: 'mod', read: false, at: Date.now(), refId: refId || null,
+      text: '🕊️ A word in ' + what + " isn't allowed on RaveKandi, so it was replaced with hearts. Slurs and hate speech aren't tolerated here. PLUR: peace, love, unity and respect.",
+    });
+  } catch (e) { console.error('rkModTell', e); }
+};
+const rkModRun = async (event, kind, authorOf, only, fallback) => {
+  const after = event.data && (event.data.after ? event.data.after : event.data);
+  if (!after || !after.exists) return;
+  const data = after.data() || {};
+  const before = event.data && event.data.before && event.data.before.exists ? event.data.before.data() : null;
+  const list = await rkModList(event.params.appId);
+  const { changes, hit } = rkModScan(data, list, only, before, fallback ? (k) => fallback(k, event.params, data) : null);
+  if (!hit || !Object.keys(changes).length) return;
+  await after.ref.set(Object.assign({}, changes, { modCleanedAt: Date.now() }), { merge: true });
+  await rkModTell(event.params.appId, authorOf(data, event.params), WHAT[kind] || 'something you wrote', WHERE[kind] ? WHERE[kind](event.params, data) : null);
+  console.log('rk_mod cleaned', kind, after.ref.path, Object.keys(changes));
+};
+const NAME_FALLBACK = (k, p) => k === 'publicUid' ? p.uid : k === 'displayName' ? 'Raver ' + String(p.uid).slice(0, 4) : '♥♥♥';
+
+exports.modUserText = onDocumentWritten('artifacts/{appId}/users/{uid}', (e) => rkModRun(e, 'users', (d, p) => p.uid, ['displayName', 'bio', 'publicUid', 'statusText', 'tagline', 'location'], NAME_FALLBACK));
+exports.modPostText = onDocumentWritten('artifacts/{appId}/public/data/tradeItems/{id}', (e) => rkModRun(e, 'tradeItems', (d) => d.ownerId, ['name', 'title', 'description', 'series', 'event', 'tags', 'ownerName', 'workNote', 'dismissReason']));
+exports.modCommentText = onDocumentWritten('artifacts/{appId}/public/data/tradeItems/{id}/comments/{cid}', (e) => rkModRun(e, 'comments', (d) => d.authorUid, ['text', 'authorName']));
+exports.modRadioText = onDocumentWritten('artifacts/{appId}/public/data/radioChat/{ch}/messages/{mid}', (e) => rkModRun(e, 'radio', (d) => d.uid, ['text', 'name']));
+exports.modTrackText = onDocumentWritten('artifacts/{appId}/public/data/musicTracks/{id}', (e) => rkModRun(e, 'musicTracks', (d) => d.ownerUid, ['title', 'artist', 'genre', 'description']));
+exports.modShowcaseText = onDocumentCreated('artifacts/{appId}/public/data/creatorContent/{id}', (e) => rkModRun(e, 'creatorContent', (d) => d.ownerUid, null));
+exports.modServiceText = onDocumentWritten('artifacts/{appId}/public/data/creatorServices/{id}', (e) => rkModRun(e, 'creatorServices', (d) => d.ownerUid, ['title', 'name', 'description']));
+exports.modTribeName = onDocumentWritten('artifacts/{appId}/public/data/tribes/{id}', (e) => rkModRun(e, 'tribes', () => '', ['name'], (k) => 'Vibe Tribe'));
+MODEOF
+echo "  functions/rk_mod.js written (script-owned)."
+
 # index.js: created if absent, otherwise appended to. Never overwritten.
 if [ ! -f "$RK_FN_DIR/index.js" ]; then
 cat << 'IDXEOF' > "$RK_FN_DIR/index.js"
@@ -27070,6 +29056,8 @@ module.exports = Object.assign(module.exports, require('./rk_image'));
 module.exports = Object.assign(module.exports, require('./rk_pin'));
 module.exports = Object.assign(module.exports, require('./rk_social'));
 module.exports = Object.assign(module.exports, require('./rk_radio'));
+module.exports = Object.assign(module.exports, require('./rk_votes'));
+module.exports = Object.assign(module.exports, require('./rk_mod'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -27104,6 +29092,13 @@ else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
     echo "  functions/index.js: rk_push re-export appended, your existing code preserved."
 fi
+# V89.84.150.323: vote reminders and the server-side word check, whichever branch ran above
+for RK_MOD in rk_votes rk_mod; do
+    if ! grep -q "$RK_MOD" "$RK_FN_DIR/index.js"; then
+        printf '\n// V89.84.150.323: generated by the build script into %s.js.\nmodule.exports = Object.assign(module.exports, require("./%s"));\n' "$RK_MOD" "$RK_MOD" >> "$RK_FN_DIR/index.js"
+        echo "  functions/index.js: $RK_MOD re-export appended."
+    fi
+done
 
 # V65.29: firebase.json is REPAIRED, not commented on. Without a "functions" section,
 # `firebase deploy --only functions` fails with "No targets in firebase.json match" — the
@@ -27158,6 +29153,8 @@ echo "       ~/rk-secrets/functions-backup/         <- timestamped, every build"
 echo ""
 echo "  2. functions/ ownership is now explicit:"
 echo "       rk_push.js    SCRIPT-OWNED. Regenerated every build. Never edit."
+echo "       rk_votes.js   SCRIPT-OWNED (V89.84.150.323): vote reminders, every hour."
+echo "       rk_mod.js     SCRIPT-OWNED (V89.84.150.323): the blocked-word check on the server."
 echo "       index.js      YOURS. Payment functions live here. Never overwritten."
 echo "       package.json  YOURS. Created only if absent, so deps survive."
 echo ""
@@ -27279,7 +29276,11 @@ if [ "$RK_NO_WEB" != "1" ]; then
                     { source: "/", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
                     { source: "/manifest.json", headers: [{ key: "Cache-Control", value: "no-cache" }] },
             { source: "/version.json", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
-                    { source: "**/*.@(js|css|woff|woff2|png|jpg|jpeg|svg|webp)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] }
+                    // V89.84.150.323: the year-long cache only for /static, where every file name carries a hash.
+                    // It used to match every .js and image at the root too, which would have kept rk-sw.js
+                    // (the service worker) and the icons for a year.
+                    { source: "/rk-sw.js", headers: [{ key: "Cache-Control", value: "no-cache" }] },
+                    { source: "/static/**", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] }
                 ]
             };
             if (!j.functions) j.functions = { source: "functions" };
@@ -27305,7 +29306,8 @@ if [ "$RK_NO_WEB" != "1" ]; then
       { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/manifest.json", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-      { "source": "**/*.@(js|css|woff|woff2|png|jpg|jpeg|svg|webp)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+      { "source": "/rk-sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/static/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
     ]
   },
   "functions": { "source": "functions" },
@@ -27329,7 +29331,8 @@ EOF
     # can be abandoned and every Google API call times out, while curl and the app itself connect
     # fine. Seen on the A16. Probe once: if the default fails and IPv4-only works, the Firebase
     # commands below use IPv4-only. If the default works, nothing changes.
-    rk_probe() { node $1 -e "fetch('https://firebase.googleapis.com/v1beta1/projects/ravekandi').then(()=>process.exit(0)).catch(()=>process.exit(1))" >/dev/null 2>&1; }
+    # V89.85.150.324: and Firebase Hosting's upload server, which every web deploy sends its files to.
+    rk_probe() { node $1 -e "Promise.all(['https://firebase.googleapis.com/v1beta1/projects/ravekandi','https://upload-firebasehosting.googleapis.com/'].map(u=>fetch(u))).then(()=>process.exit(0)).catch(()=>process.exit(1))" >/dev/null 2>&1; }
     RK_FB_NODE_OPTS=""
     if rk_probe ""; then
         echo "  Network: Node reaches Google normally."
@@ -27362,6 +29365,42 @@ EOF
         fi
     fi
 
+    # ============================================================================================
+    # V89.85.150.324: HOSTING UPLOADS ON A PHONE CONNECTION (Milli, at 324: "Error: Task 6beef28... failed: retries
+    # exhausted after 6 attempts, with error: Failed to make request to https://upload-firebasehosting.googleapis.com/
+    # ..."). Firebase sends up to 200 files at once and gives each 6 tries inside about 12 seconds, so a short drop in
+    # the phone's connection used up every try and failed the whole deploy. Now: 8 files at a time, then 4, then 2,
+    # four tries each; before a retry the run waits (up to 2 minutes) for the upload server to answer; and a failure
+    # names its file, from Firebase's own list of what it hashed (.firebase/hosting.YnVpbGQ.cache: path,mtime,hash).
+    # A retry sends only the files the server is still missing.
+    # ============================================================================================
+    export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=8
+    RK_FAILED_FILE=""
+    rk_up_conc() { case "$1" in 1) echo 8 ;; 2) echo 4 ;; *) echo 2 ;; esac; }
+    rk_conn_wait() {
+        local t=0
+        while [ "$t" -lt "$1" ]; do
+            curl -s -o /dev/null --max-time 8 https://upload-firebasehosting.googleapis.com/ 2>/dev/null && return 0
+            sleep 5; t=$((t + 13))
+        done
+        return 1
+    }
+    rk_failed_file() {
+        local h f kb
+        h=$(printf '%s\n' "$1" | grep -oE 'Task [0-9a-f]{64} failed' | head -1 | grep -oE '[0-9a-f]{64}')
+        [ -z "$h" ] && return 0
+        f=$(grep -h ",$h\$" .firebase/hosting.*.cache 2>/dev/null | head -1 | cut -d, -f1)
+        if [ -n "$f" ]; then
+            kb=$(du -k "build/$f" 2>/dev/null | cut -f1)
+            RK_FAILED_FILE="build/$f (${kb:-?} KB)"
+        else
+            RK_FAILED_FILE="hash $h (not in Firebase's upload list)"
+        fi
+        echo "  The file that didn't upload: $RK_FAILED_FILE"
+    }
+    echo "  Biggest files in build/ (a changed file is sent whole):"
+    find build -type f -size +400k -exec du -k {} + 2>/dev/null | sort -rn | head -5 | while read -r kb f; do echo "    $kb KB  $f"; done
+
     # ---- STAGE 1: deploy to a private preview channel ----
     echo ""
     echo "🧪 Deploying to STAGING (private test URL)..."
@@ -27369,12 +29408,18 @@ EOF
     # V84.150 (308): retried. A phone's connection drops for seconds at a time, and one dropped
     # connection used to cost the whole deploy.
     STAGE_URL=""
-    for RK_TRY in 1 2 3; do
+    for RK_TRY in 1 2 3 4; do
+        export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=$(rk_up_conc $RK_TRY)
         STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
         echo "$STAGE_OUT"
         STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
         [ -n "$STAGE_URL" ] && break
-        [ "$RK_TRY" -lt 3 ] && { echo "  Staging attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
+        rk_failed_file "$STAGE_OUT"
+        if [ "$RK_TRY" -lt 4 ]; then
+            echo "  Staging attempt $RK_TRY failed. Waiting for Firebase's upload server, then trying again with $(rk_up_conc $((RK_TRY + 1))) files at a time..."
+            rk_conn_wait 120 || echo "  No answer from the upload server for 2 minutes. Trying anyway."
+            sleep 10
+        fi
     done
     if [ -z "$STAGE_URL" ]; then
         echo "⚠ Couldn't capture the staging URL automatically — look for the 'Channel URL' line above."
@@ -27399,18 +29444,27 @@ EOF
     else
         echo "🚀 Publishing to PRODUCTION automatically..."
         RK_LIVE_OK=0
-        for RK_TRY in 1 2 3; do
-            if firebase deploy --only hosting; then RK_LIVE_OK=1; break; fi
-            [ "$RK_TRY" -lt 3 ] && { echo "  Production attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
+        mkdir -p "$HOME/RaveKandi_Output"
+        RK_LIVE_LOG="$HOME/RaveKandi_Output/rk_live_deploy.log"
+        for RK_TRY in 1 2 3 4; do
+            export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=$(rk_up_conc $RK_TRY)
+            firebase deploy --only hosting 2>&1 | tee "$RK_LIVE_LOG"
+            if [ "${PIPESTATUS[0]}" = "0" ]; then RK_LIVE_OK=1; RK_FAILED_FILE=""; break; fi
+            rk_failed_file "$(cat "$RK_LIVE_LOG" 2>/dev/null)"
+            if [ "$RK_TRY" -lt 4 ]; then
+                echo "  Production attempt $RK_TRY failed. Waiting for Firebase's upload server, then trying again with $(rk_up_conc $((RK_TRY + 1))) files at a time..."
+                rk_conn_wait 120 || echo "  No answer from the upload server for 2 minutes. Trying anyway."
+                sleep 10
+            fi
         done
         if [ "$RK_LIVE_OK" = "1" ]; then
             echo ""
             echo "🌐 PRODUCTION IS LIVE AT: https://ravekandi.web.app"
             echo "   (alias: https://ravekandi.firebaseapp.com)"
-            echo "   iPhone users: open that link in Safari → Share → Add to Home Screen."
+            echo "   iPhone users: open that link in Safari, then Get RaveKandi (HELP) shows where to tap."
         else
             echo "⚠ Production deploy failed — check the error above. Staging is unaffected."
-            echo "   Retry without rebuilding: cd ~/RaveKandi-Build && firebase deploy --only hosting"
+            echo "   Retry without rebuilding: cd ~/RaveKandi-Build && FIREBASE_HOSTING_UPLOAD_CONCURRENCY=4 firebase deploy --only hosting"
         fi
     fi
     fi
@@ -27420,3 +29474,45 @@ else
     echo "  Staging:    cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
     echo "  Production: cd ~/RaveKandi-Build && firebase deploy --only hosting"
 fi
+
+# ================================================================================================
+# V89.84.150.323: BUILD RESULT, the last thing the run prints (Milli, at 323: "the updated app is still saying
+# build 321"). What happened to the web build and the APK, checked against the live site, and saved to
+# Downloads/RK_BUILD_RESULT.txt so it can be read after the screen has scrolled.
+# ================================================================================================
+# V89.85.150.324: THE GITHUB COPY (Milli, at 324: the new file names affect "how the upload works in github"). The repo
+# keeps one name, Rk_Code_WithFix.sh: uploading a file with the same name replaces it, and the commit history keeps
+# every build. Download/RK_GitHub/ is its own folder, so the newer-script check at the top (Download/Rk_Code_WithFix*)
+# never takes this copy for a new build.
+RK_GH_DIR="/storage/emulated/0/Download/RK_GitHub"
+if RK_T 15 mkdir -p "$RK_GH_DIR" 2>/dev/null && RK_T 20 cp -f "$RK_SELF_PATH" "$RK_GH_DIR/Rk_Code_WithFix.sh" 2>/dev/null; then
+    RK_GH_RESULT="upload Download/RK_GitHub/Rk_Code_WithFix.sh (build $RK_BUILD). Commit message: Build $RK_BUILD (md5 ${RK_SELF_MD5:0:8})"
+else
+    RK_GH_RESULT="couldn't copy the script to Download/RK_GitHub. Run termux-setup-storage, then run the build again"
+fi
+RK_LIVE_BUILD=$(curl -s --max-time 15 "https://ravekandi.web.app/version.json?t=$(date +%s)" 2>/dev/null | grep -o '"build": *[0-9]*' | grep -o '[0-9]*$')
+mkdir -p "$HOME/RaveKandi_Output"
+{
+echo ""
+echo "=================================================================="
+echo "  BUILD RESULT - $RK_VER (build $RK_BUILD)"
+echo "  Script md5: ${RK_SELF_MD5:-unknown}"
+echo "------------------------------------------------------------------"
+if [ "$RK_NO_WEB" = "1" ]; then echo "  WEB: skipped (RK_NO_WEB=1)"
+elif [ "$RK_LIVE_BUILD" = "$RK_BUILD" ]; then echo "  WEB: OK - ravekandi.web.app is build $RK_LIVE_BUILD"
+elif [ -n "$RK_LIVE_BUILD" ]; then echo "  WEB: NOT LIVE - ravekandi.web.app is still build $RK_LIVE_BUILD. Retry: cd ~/RaveKandi-Build && FIREBASE_HOSTING_UPLOAD_CONCURRENCY=4 firebase deploy --only hosting"
+else echo "  WEB: couldn't read https://ravekandi.web.app/version.json just now. Open it in Chrome: it should say build $RK_BUILD"; fi
+echo "  APK: ${RK_APK_RESULT:-unknown}"
+[ -n "$RK_FAILED_FILE" ] && echo "  The file that didn't upload: $RK_FAILED_FILE"
+echo "  GITHUB: ${RK_GH_RESULT:-not copied}"
+echo "  RELEASE: tag v${RK_SEMVER}.${RK_BUILD}, with only the APK whose name has _B${RK_BUILD}_ in it"
+echo "------------------------------------------------------------------"
+echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
+echo "  324 changes no functions and no rules. If 323's steps by hand aren't"
+echo "  done yet, do them now, in this order:"
+echo "   1. firebase deploy --only functions       (323: vote reminders, word filter)"
+echo "   2. firebase deploy --only firestore:rules (323's file, AFTER the web build"
+echo "      is live: it tightens, so the app goes first)"
+echo "=================================================================="
+} | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
+RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
