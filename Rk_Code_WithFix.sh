@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
 RK_MINOR=86
-RK_PATCH=150
-RK_BUILD=326
+RK_PATCH=151
+RK_BUILD=327
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -169,9 +169,16 @@ cat << 'EOF' > public/index.html
          picker boxes opt back IN to a visible bar below. */
       html, body { scrollbar-width: none; }
       html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
-      /* V63: lock horizontal scrolling — the page can only scroll up/down, never left/right. */
-      html, body { overflow-x: hidden; max-width: 100%; width: 100%; overscroll-behavior-x: none; }
-      #root { overflow-x: hidden; max-width: 100%; }
+      /* V63: lock horizontal scrolling — the page can only scroll up/down, never left/right.
+         V90.86.151.327: with `clip` where the browser has it (Chrome 90+, Safari 16+). `hidden` made #root and body
+         scroll boxes of their own, so the top bar's position: sticky held to #root, which never scrolls: the bar went up
+         with the page and was never sticky. `clip` cuts off sideways overflow the same way without being a scroll box.
+         `hidden` stays first for an older browser, which ignores `clip`. */
+      html, body { overflow-x: hidden; overflow-x: clip; max-width: 100%; width: 100%; overscroll-behavior-x: none; }
+      #root { overflow-x: hidden; overflow-x: clip; max-width: 100%; }
+      /* V90.86.151.327: the nav tucking up behind the marquee, and coming back */
+      .rk-topbar { transition: transform 0.22s ease; }
+      @media (prefers-reduced-motion: reduce) { .rk-topbar { transition: none; } }
       /* V89.84.150.323: the tutorial holds the page still while it points at something (rkTourHold), and a tap
          in the wrong place flashes the ring and the instruction (rk-tour-nudge). */
       html.rk-tour-lock, html.rk-tour-lock body { overflow: hidden !important; overscroll-behavior: none !important; }
@@ -545,7 +552,7 @@ rm -f src/App.js
 # V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
 # functions step, so the two never disagree)
 cat << 'RKSHAREDEOF' > src/rkShared.js
-// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326). Script-owned.
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327). Script-owned.
 // The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
 // module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
 // achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
@@ -776,6 +783,8 @@ const RK_ACH_DEFS = [
     // Radio listening
     { id: 'radio_1', name: 'Tuned In', tier: 1, metric: 'radioMinutes', threshold: 60, desc: "Listen to Rave Radio for 1 hour." },
     { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, desc: "Listen to Rave Radio for 10 hours." },
+    // V90.86.151.327: 327 fixed two Rave Radio reports; the next step up for listeners (the server counts radioMinutes)
+    { id: 'radio_3', name: 'Resident Listener', tier: 2, metric: 'radioMinutes', threshold: 3000, desc: "Listen to Rave Radio for 50 hours." },
     // Vibe Tribe — friends
     { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
     { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
@@ -2253,7 +2262,7 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
 
@@ -9227,11 +9236,14 @@ function rkEmTrade(t) {
 }
 
 // Rave Radio: lattice tower beaming arcs (Tuned In); disco-ball beacon in waveform rosettes (Dancefloor Devotee)
+// V90.86.151.327: 3 is Resident Listener: the 2 tower in gold, a fourth ring and two sparks (1 and 2 are unchanged)
 function rkEmRadio(t) {
-  var N = '#a48bff', p = rkEmPal(N), E = rkEmE, e = [], i, cy = t === 1 ? 36 : 44, top = cy + 7, s, br = '';
+  var N = t === 3 ? '#ffd24a' : '#a48bff', p = rkEmPal(N), E = rkEmE, e = [], i, cy = t === 1 ? 36 : 44, top = cy + 7, s, br = '';
   var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmRad(['#ffffff', p.l, p.m, N], [0.38, 0.32, 0.8]) };
-  if (t === 2) {
-    for (i = 0; i < 3; i++) e.push(E(rkEmWave(50, cy, 17 + i * 8.5, 1.6, 8 + i * 4), 0, i ? p.m : N, 2.6 - i * 0.4, 1 - i * 0.22, i ? 'd' : 'b'));
+  if (t >= 2) {
+    var nw = t === 3 ? 4 : 3, sp = t === 3 ? 7.5 : 8.5;
+    for (i = 0; i < nw; i++) e.push(E(rkEmWave(50, cy, 17 + i * sp, 1.6, 8 + i * 4), 0, i ? p.m : N, 2.6 - i * 0.4, 1 - i * 0.22, i ? 'd' : 'b'));
+    if (t === 3) e.push(E(rkEmSpark(17, 16, 4.2), '#ffffff', 0, 0, 1, 'h'), E(rkEmSpark(84, 20, 3.4), '#ffffff', 0, 0, 1, 'h'));
   } else {
     for (i = 0; i < 3; i++) e.push(E(rkEmArc(50, cy, 11 + i * 8, 236, 304) + rkEmArc(50, cy, 11 + i * 8, 56, 124), 0, N, 3.4 - i * 0.4, 1 - i * 0.2, 'b'));
   }
@@ -9773,7 +9785,7 @@ function rkEmSpec() {
     ['rank_neon_pink', rkEmGem, 1, 1], ['rank_slime_green', rkEmGem, 2, 1], ['rank_liquid_metal', rkEmGem, 3, 2], ['rank_holographic', rkEmGem, 4, 2],
     ['rank_laser_core', rkEmGem, 5, 3], ['rank_plasma', rkEmGem, 6, 3], ['rank_supernova', rkEmGem, 7, 4], ['rank_dark_matter', rkEmGem, 8, 4],
     ['rank_plur_god', rkEmGem, 9, 5], ['rank_cosmic_forge', rkEmGem, 10, 5], ['rank_eternal_rave', rkEmGem, 11, 5],
-    ['trade_1', rkEmTrade, 1, 2], ['trade_2', rkEmTrade, 2, 2], ['radio_1', rkEmRadio, 1, 2], ['radio_2', rkEmRadio, 2, 2],
+    ['trade_1', rkEmTrade, 1, 2], ['trade_2', rkEmTrade, 2, 2], ['radio_1', rkEmRadio, 1, 2], ['radio_2', rkEmRadio, 2, 2], ['radio_3', rkEmRadio, 3, 2],
     ['friend_1', rkEmFriends, 1, 2], ['friend_2', rkEmFriends, 2, 2], ['friend_3', rkEmFriends, 3, 3], ['friend_4', rkEmFriends, 4, 4],
     ['tribe_1', rkEmTribe, 1, 2], ['tribe_3', rkEmTribe, 2, 3], ['tribe_big_5', rkEmTribe, 3, 3], ['tribe_big_10', rkEmTribe, 4, 4],
     ['tribe_msg_50', rkEmTribeChat, 1, 2], ['tribe_msg_500', rkEmTribeChat, 2, 3], ['active_1', rkEmActive, 1, 2], ['active_2', rkEmActive, 2, 2],
@@ -20558,6 +20570,12 @@ const RkMutualRow = ({ viewerUid, viewerProfile, targ, onViewProfile }) => {
     );
 };
 
+// V90.86.151.327: a list field read as a list (Milli, at 327: "the radio player crashes when pressing the artist samples/
+// player button; React Crash: TypeError: (e.musicGenres || []).slice(...).join is not a function"). musicGenres is built by
+// arrayUnion, but some profiles carry it as text (written before V79, or by hand): text's slice() gives text, which has no
+// join(), and the whole Artists tab went down with it. Text is split at commas; anything else is no genres.
+const rkTagList = (v) => Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim())
+    : (typeof v === 'string' ? v.split(/[,·|]/).map(x => x.trim()).filter(Boolean) : []);
 // The Radio hub's Artists TAB — an inline panel (no popup): pick a music creator, hear their
 // stuff, all live-updating. New artists appear the moment they're approved; tracks the moment
 // they're added from a profile.
@@ -20587,7 +20605,7 @@ const MusicCreatorsBrowser = ({ viewerUid, onViewProfile }) => {
                             <button key={c.id} onClick={() => setSel(c)} className="flex flex-col items-center gap-1 bg-black/40 border border-purple-500/30 rounded-xl p-2 hover:bg-white/5">
                                 <img src={c.photoURL || (rkPh(96, 96, '2a0a3a', 'fff', (c.displayName || 'A').charAt(0).toUpperCase()))} onError={(e) => { if (e.target.src.indexOf('placehold') < 0) e.target.src = rkPh(96, 96, '2a0a3a', 'fff', (c.displayName || 'A').charAt(0).toUpperCase()); }} className="w-12 h-12 rounded-full object-cover border-2 border-purple-500/50"/>
                                 <p className="text-[10px] font-bold text-white truncate w-full text-center">@{c.displayName || 'Artist'}</p>
-                                {(c.musicGenres || []).length > 0 && <p className="text-[9px] text-purple-300/80 truncate w-full text-center uppercase tracking-wide">{(c.musicGenres || []).slice(0, 2).join(' · ')}</p>}
+                                {rkTagList(c.musicGenres).length > 0 && <p className="text-[9px] text-purple-300/80 truncate w-full text-center uppercase tracking-wide">{rkTagList(c.musicGenres).slice(0, 2).join(' · ')}</p>}
                             </button>
                         ))}
                     </div>
@@ -24467,6 +24485,10 @@ const RkGradArrow = ({ dir, gradId, size, onClick, title, style }) => (
         </svg>
     </button>
 );
+// V90.86.151.327: the top bar's height (published by <App/> as --rk-topbar-h), and a top that keeps a dock or a round
+// button below it. The bar used to scroll away, so a dock placed high came back into view; it stays now, and would hide one.
+const rkBarH = () => { try { return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--rk-topbar-h'), 10) || 96; } catch (e) { return 96; } };
+const rkBelowBar = (y) => 'max(' + Math.round(Number(y) || 0) + 'px, calc(var(--rk-topbar-h, 96px) + 6px))';
 const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCenter, atomContent, panelContent }) => {
     const MIN = 44, MAX = 88, PW = 124, PH = 340;
     const gradId = 'rkDockGrad_' + storageKey;
@@ -24492,14 +24514,14 @@ const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCente
     const onTouchMove = (e) => { const p = drag.current.pinch; if (p && e.touches && e.touches.length === 2) { e.preventDefault(); const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); const ns = Math.max(MIN, Math.min(MAX, Math.round(p.s0 * (d / p.d0)))); setSize(ns); try { localStorage.setItem('rk_dock_shared_size', String(ns)); window.dispatchEvent(new CustomEvent('rk:docksize', { detail: ns })); } catch (er) {} } };
     const onTouchEnd = () => { drag.current.pinch = null; };
     const onPointerDown = (e) => { const r = drag.current; if (r.pinch) return; r.on = true; r.moved = false; r.offY = e.clientY - y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} };
-    const onPointerMove = (e) => { const r = drag.current; if (!r.on || r.pinch) return; const ny = Math.max(60, Math.min(window.innerHeight - 160, e.clientY - r.offY)); if (!r.moved && Math.abs(ny - y) > 4) r.moved = true; if (r.moved) { setY(ny); persist('_y2', ny); } };
+    const onPointerMove = (e) => { const r = drag.current; if (!r.on || r.pinch) return; const ny = Math.max(rkBarH() + 6, Math.min(window.innerHeight - 160, e.clientY - r.offY)); if (!r.moved && Math.abs(ny - y) > 4) r.moved = true; if (r.moved) { setY(ny); persist('_y2', ny); } };
     const onPointerUp = () => { drag.current.on = false; };
     const onTap = () => { const r = drag.current; if (r.moved) { r.moved = false; return; } setOpenP(true); };
     const sideStyle = side === 'left' ? { left: 0 } : { right: 0 };
     const orbRadius = side === 'left' ? '0 999px 999px 0' : '999px 0 0 999px';
     if (mode === 'panel') {
         return (
-            <div className="fixed z-40" style={{ ...sideStyle, top: centerY(PH) + 'px' }}>
+            <div className="fixed z-40" style={{ ...sideStyle, top: rkBelowBar(centerY(PH)) }}>
                 <RkDockGrad id={gradId}/>
                 <div className="relative bg-black/85 border-2 backdrop-blur-sm overflow-hidden"
                      style={{ width: PW + 'px', height: PH + 'px', borderRadius: orbRadius, borderColor: glowColor, boxShadow: '0 0 16px ' + glowColor }}>
@@ -24516,7 +24538,7 @@ const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCente
                 onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
                 onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
                 className="fixed z-40 touch-none cursor-grab active:cursor-grabbing p-0 flex items-center justify-center"
-                style={{ ...sideStyle, top: y + 'px', width: asz + 'px', height: asz + 'px', background: 'rgba(0,0,0,0.55)',
+                style={{ ...sideStyle, top: rkBelowBar(y), width: asz + 'px', height: asz + 'px', background: 'rgba(0,0,0,0.55)',
                          border: '1.5px solid', borderRadius: orbRadius, borderColor: glowColor, boxShadow: '0 0 8px ' + glowColor }}
                 title="Tap to expand">
                 <RkDockGrad id={gradId}/>
@@ -24538,7 +24560,7 @@ const RkSideDock = ({ side, storageKey, glowColor, collapsedWord, collapsedCente
         <button onClick={onTap} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
             onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             className="fixed z-40 touch-none cursor-grab active:cursor-grabbing p-0 flex flex-col items-center justify-center"
-            style={{ ...sideStyle, top: y + 'px', width: tw + 'px', height: th + 'px', background: 'rgba(0,0,0,0.82)',
+            style={{ ...sideStyle, top: rkBelowBar(y), width: tw + 'px', height: th + 'px', background: 'rgba(0,0,0,0.82)',
                      border: '2px solid', borderRadius: orbRadius, borderColor: glowColor, boxShadow: '0 0 12px ' + glowColor }}
             title="Tap to open · drag to move · two fingers to resize">
             <RkDockGrad id={gradId}/>
@@ -24724,6 +24746,43 @@ const App = () => {
         } catch (e) { /* user cancelled share — fine */ }
     };
     const topBarRef = useRef(null);
+    // V90.86.151.327: THE TOP BAR STAYS (a raver's report, Milli: "Fix this immediately": "when mini player is playing
+    // radio, scrolling up to top nav becomes impossible, its out of viewport. recommend making it sticky or collapse/
+    // expand as part of the marquee bar below it thats always persistent"). It was meant to stay at the top (sticky), but
+    // V63's sideways-scroll lock made #root a scroll box and the bar went up with the page: to reach the nav from far down
+    // a long feed meant scrolling all the way back, with the radio's dock over one side. index.html now uses
+    // overflow-x: clip, so the bar stays. Scrolling down, the nav tucks up behind the marquee, which stays (banners and
+    // all); scrolling up, or ▾ Menu on the marquee, brings it back. At the top of a page, during a tour, and when the
+    // marquee is hidden, the nav is always out.
+    const headerRef = useRef(null);
+    // The bar isn't on screen at the first render (the sign-in wait comes first), so the measuring below waited for a
+    // resize to find it: until then --rk-topbar-h was the 96 px fallback. The bar now says when it's there.
+    const [barOn, setBarOn] = useState(false);
+    const barRef = useRef((el) => { topBarRef.current = el; setBarOn(!!el); }).current;
+    const [navTucked, setNavTucked] = useState(false);
+    const navHoldRef = useRef(false);   // a tour is running, or the marquee is hidden: never tuck
+    useEffect(() => {
+        let last = window.scrollY || 0, run = 0, raf = 0;
+        const onScroll = () => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => {
+                raf = 0;
+                const y = window.scrollY || 0, d = y - last;
+                last = y;
+                const hh = headerRef.current ? headerRef.current.offsetHeight : 0;
+                if (navHoldRef.current || y <= hh || document.documentElement.classList.contains('rk-tour-lock')) { run = 0; setNavTucked(false); return; }
+                if (!d) return;
+                if ((d > 0) !== (run > 0)) run = 0;
+                run += d;
+                if (run > 24) setNavTucked(true);
+                else if (run < -16) setNavTucked(false);
+            });
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+    }, []);
+    // a new page, or a tour, starts with the nav out
+    useEffect(() => { setNavTucked(false); }, [page, tab, tutorialActive, creatorTour]);
     // V66: publish the REAL header height so modals can clear it.
     // 229 padded modals by a hard-coded 96px, which was simply too small — the header and the
     // ticker together run past 140px on this device, and neither is a fixed size: the ticker can
@@ -24733,6 +24792,9 @@ const App = () => {
         const publish = () => {
             const h = topBarRef.current ? topBarRef.current.getBoundingClientRect().height : 0;
             document.documentElement.style.setProperty('--rk-topbar-h', Math.round(h || 96) + 'px');
+            // V90.86.151.327: the nav's own height, which the bar moves up by when the nav tucks away
+            const hh = headerRef.current ? headerRef.current.getBoundingClientRect().height : 0;
+            document.documentElement.style.setProperty('--rk-header-h', Math.round(hh) + 'px');
         };
         publish();
         // The ticker changes height when its content rewraps, so watch the node rather than
@@ -24750,7 +24812,7 @@ const App = () => {
             clearTimeout(t);
             try { if (ro) ro.disconnect(); } catch (e) {}
         };
-    }, []);
+    }, [barOn]);   // V90.86.151.327: again once the bar is on screen, so it's measured and watched from the start
     const [ticketOpen, setTicketOpen] = useState(false);
     // V65.28: live bug counter for the footer BUG REPORT button. This replaces the old
     // floating red pill's badge, which was the only place errors ever surfaced. Seeded from
@@ -25931,6 +25993,8 @@ const App = () => {
         // V90.86.150.326: 326's Business accounts: the newest one, and how to get one
         topStats.biz ? { t: '🏪 NEWEST BUSINESS: @' + rkMqName(topStats.biz) + ' IS OPEN FOR BUSINESS. TAP TO VISIT 🏪', uid: uref(topStats.biz) } : null,
         (user && !user.isAnonymous && profile && profile.accountType !== 'business') ? { t: '🏪 RUN A LABEL? A BUSINESS ACCOUNT HOLDS SEVERAL BRANDS UNDER ONE LOGIN. TAP TO SEE WHAT UNLOCKS ONE 🏪', kind: 'business', go: () => rkGoPlace('bizinfo') } : null,
+        // V90.86.151.327: the nav tucks up as you scroll now; the marquee stays
+        { t: '⬆️ SCROLLING DOWN TUCKS THE MENU UP UNDER THE MARQUEE. SCROLL UP, OR TAP ▾ MENU, AND IT\'S BACK ⬆️' },
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
         (user && !user.isAnonymous) ? { t: '🎪 GOING TO A FESTIVAL? POST IT, PICK THE FESTIVAL AND TAP THE DAYS YOU\'RE GOING 🎪', go: () => { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } } : null,
         topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
@@ -26025,6 +26089,9 @@ cat << 'EOF' >> src/App.js
     // V59: hide the scrolling marquee when an admin banner is set to "announce only" mode.
     const bannerMsgActive = rkConfig.maintenanceMessage && !(rkConfig.maintenanceExpiry > 0 && Date.now() > rkConfig.maintenanceExpiry);
     const hideMarquee = rkConfig.bannerAnnounceOnly && bannerMsgActive;
+    // V90.86.151.327: the nav never tucks while a tour runs or the marquee is hidden (nothing would be left to tap)
+    navHoldRef.current = !!(tutorialActive || creatorTour || hideMarquee);
+    const navIsTucked = navTucked && !navHoldRef.current;
 
     return (
         <div className="min-h-screen pb-24 text-white selection:bg-pink-500/30 relative" style={appBackgroundStyle}>
@@ -26124,8 +26191,8 @@ cat << 'EOF' >> src/App.js
             
             <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} dockMode={radioDockMode} onDockMode={setRadioDockModeP} onResetButton={resetRadioButton} />
 
-            <div className="sticky top-0 z-50" ref={topBarRef} data-rk-lift="1">
-            <header className="bg-black/80 backdrop-blur border-b border-white/10 px-2 py-3 flex items-end justify-between gap-1">
+            <div className="sticky top-0 z-50 rk-topbar" ref={barRef} data-rk-lift="1" data-nav={navIsTucked ? 'tucked' : 'open'} style={navIsTucked ? { transform: 'translateY(calc(-1 * var(--rk-header-h, 0px)))' } : undefined}>
+            <header ref={headerRef} className="bg-black/80 backdrop-blur border-b border-white/10 px-2 py-3 flex items-end justify-between gap-1">
                 <div data-tut="home" onClick={() => setPage('home')} className="flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 pb-1">
                     {/* V65.04: emblem fills the full logo height (no wider), pastel cloud drifts behind a
                         gradient-filled bolt that slowly shifts colors; the wordmark pulses once per tab switch. */}
@@ -26147,7 +26214,7 @@ cat << 'EOF' >> src/App.js
                     <button data-tut="cart" onClick={() => setCartOpen(true)} className="flex flex-col items-center gap-1 w-11"><span className="h-10 flex items-center"><ShoppingCart className="text-lime-400 shadow-neon-green" size={26}/></span><span className="text-[10px] font-bold uppercase tracking-wide leading-none text-lime-400/80">Cart</span></button>
                 </div>
             </header>
-            {!hideMarquee && <div className="w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center">
+            {!hideMarquee && <div className="relative w-full bg-black border-b border-white/10 text-[11px] py-1.5 text-lime-400 font-mono overflow-hidden h-9 flex items-center" data-marquee-bar="1">
                 <div className="rk-marquee-track items-center whitespace-nowrap" style={{ animationDuration: Math.round((RK_CFG.marqueeSpeed || 60) * Math.max(1, shuffledMq.length / 12)) + 's' }}>
                     {[0, 1].map(copy => (
                         <div key={copy} className="flex gap-12 items-center pr-12">
@@ -26155,6 +26222,8 @@ cat << 'EOF' >> src/App.js
                         </div>
                     ))}
                 </div>
+                {/* V90.86.151.327: the nav is tucked: bring it back */}
+                {navIsTucked && <button data-nav-open="1" onClick={() => setNavTucked(false)} aria-label="Show the menu" className="absolute right-0 inset-y-0 z-[2] flex items-center pl-2.5 pr-3 bg-black border-l border-white/30 text-white text-xs font-black font-sans normal-case tracking-normal active:scale-95">▾ Menu</button>}
             </div>}
             </div>
             
@@ -26198,10 +26267,10 @@ cat << 'EOF' >> src/App.js
             />}
             {qlDockMode === 'button' && !qlHidden && <button
                 onPointerDown={(e) => { const r = qlDragRef.current; r.on = true; r.moved = false; r.t = Date.now(); r.ox = e.clientX - qlBtnPos.x; r.oy = e.clientY - qlBtnPos.y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
-                onPointerMove={(e) => { const r = qlDragRef.current; if (!r.on) return; const nx = Math.max(0, Math.min(window.innerWidth - 56, e.clientX - r.ox)); const ny = Math.max(60, Math.min(window.innerHeight - 120, e.clientY - r.oy)); if (Math.abs(nx - qlBtnPos.x) > 3 || Math.abs(ny - qlBtnPos.y) > 3) r.moved = true; if (r.moved) { const p = { x: nx, y: ny }; setQlBtnPos(p); try { localStorage.setItem('rk_ql_btn_pos', JSON.stringify(p)); } catch (er) {} } }}
+                onPointerMove={(e) => { const r = qlDragRef.current; if (!r.on) return; const nx = Math.max(0, Math.min(window.innerWidth - 56, e.clientX - r.ox)); const ny = Math.max(rkBarH() + 6, Math.min(window.innerHeight - 120, e.clientY - r.oy)); if (Math.abs(nx - qlBtnPos.x) > 3 || Math.abs(ny - qlBtnPos.y) > 3) r.moved = true; if (r.moved) { const p = { x: nx, y: ny }; setQlBtnPos(p); try { localStorage.setItem('rk_ql_btn_pos', JSON.stringify(p)); } catch (er) {} } }}
                 onPointerUp={() => { const r = qlDragRef.current; r.on = false; if (!r.moved && Date.now() - r.t > 550) { setQlHidden(true); } else if (!r.moved) { setQuickLaunchOpen(true); } }}
                 className="fixed z-40 rounded-full border-2 border-pink-300/70 bg-gradient-to-br from-pink-600 to-purple-700 flex items-center justify-center touch-none cursor-grab active:cursor-grabbing animate-pulse"
-                style={{ left: qlBtnPos.x + 'px', top: qlBtnPos.y + 'px', width: '52px', height: '52px', boxShadow: '0 0 14px rgba(236,72,153,0.8)' }}
+                style={{ left: qlBtnPos.x + 'px', top: rkBelowBar(qlBtnPos.y), width: '52px', height: '52px', boxShadow: '0 0 14px rgba(236,72,153,0.8)' }}
                 title="Quick Launch — tap to open, drag to move, tap-hold to hide">
                 <Zap size={24} className="text-white" fill="currentColor"/>
             </button>}
@@ -26236,10 +26305,10 @@ cat << 'EOF' >> src/App.js
             />}
             {radioDockMode === 'button' && !radioHidden && <button
                 onPointerDown={(e) => { const r = radioDragRef.current; r.on = true; r.moved = false; r.t = Date.now(); r.ox = e.clientX - radioBtnPos.x; r.oy = e.clientY - radioBtnPos.y; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
-                onPointerMove={(e) => { const r = radioDragRef.current; if (!r.on) return; const nx = Math.max(0, Math.min(window.innerWidth - 56, e.clientX - r.ox)); const ny = Math.max(60, Math.min(window.innerHeight - 120, e.clientY - r.oy)); if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; if (r.moved) { const p = { x: nx, y: ny }; setRadioBtnPos(p); try { localStorage.setItem('rk_radio_btn_pos', JSON.stringify(p)); } catch (er) {} } }}
+                onPointerMove={(e) => { const r = radioDragRef.current; if (!r.on) return; const nx = Math.max(0, Math.min(window.innerWidth - 56, e.clientX - r.ox)); const ny = Math.max(rkBarH() + 6, Math.min(window.innerHeight - 120, e.clientY - r.oy)); if (Math.abs(nx - radioBtnPos.x) > 3 || Math.abs(ny - radioBtnPos.y) > 3) r.moved = true; if (r.moved) { const p = { x: nx, y: ny }; setRadioBtnPos(p); try { localStorage.setItem('rk_radio_btn_pos', JSON.stringify(p)); } catch (er) {} } }}
                 onPointerUp={() => { const r = radioDragRef.current; r.on = false; if (!r.moved && Date.now() - r.t > 550) { setRadioHidden(true); } else if (!r.moved) { setRadioOpen(true); } }}
                 className={'fixed z-40 rounded-full border-2 flex items-center justify-center touch-none cursor-grab active:cursor-grabbing ' + (isRadioPlaying ? 'rk-radio-on border-lime-300 bg-lime-900/50' : 'border-red-400/70 bg-red-900/40')}
-                style={{ left: radioBtnPos.x + 'px', top: radioBtnPos.y + 'px', width: '52px', height: '52px', boxShadow: '0 0 14px ' + (isRadioPlaying ? 'rgba(163,230,53,0.7)' : 'rgba(239,68,68,0.55)') }}
+                style={{ left: radioBtnPos.x + 'px', top: rkBelowBar(radioBtnPos.y), width: '52px', height: '52px', boxShadow: '0 0 14px ' + (isRadioPlaying ? 'rgba(163,230,53,0.7)' : 'rgba(239,68,68,0.55)') }}
                 title="Rave Radio — tap to open, drag to move, tap-hold to hide">
                 <Radio size={24} className="text-white"/>
             </button>}
@@ -30467,11 +30536,12 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  326 needs two steps by hand, in this order, once WEB says OK:"
+echo "  327 needs two steps by hand, in this order, once WEB says OK:"
 echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (rk_stats.js: banners share a window 6 at a time, boosts start now, Business accounts)"
-echo "   2. firebase deploy --only firestore:rules, with 326's rules file (RK_VERIFY_326, section 4):"
-echo "      Business needs phone, email and 5 sales from then on, so the app and the functions go first"
+echo "      (326's server changes and 327's achievement go out together. If it stops at"
+echo "       \"Error generating the service identity for pubsub.googleapis.com\", run the same command again)"
+echo "   2. firebase deploy --only firestore:rules, with 326's rules file (RK_VERIFY_327, section 4),"
+echo "      once the functions say Deploy complete! (327 doesn't change the rules)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
