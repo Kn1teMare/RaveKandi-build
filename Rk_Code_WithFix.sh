@@ -30,10 +30,10 @@
 # how PATCH was recovered: 229 - 66 - 42 = 121, derived rather than guessed.
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
-RK_MAJOR=89
+RK_MAJOR=90
 RK_MINOR=85
 RK_PATCH=150
-RK_BUILD=324
+RK_BUILD=325
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -77,8 +77,9 @@ if [ -n "$RK_DL_NEWER" ] && [ "${RK_DL_NEWER%%|*}" -gt "$RK_BUILD" ] 2>/dev/null
     echo ""
     echo " !! A NEWER script is in your Downloads: build ${RK_DL_NEWER%%|*}"
     echo "    ${RK_DL_NEWER#*|}"
-    echo "    This run would build $RK_BUILD. Press Ctrl+C now, then copy the new one in:"
-    echo "    cp -f \"${RK_DL_NEWER#*|}\" ~/RaveKandi-Build/Rk_Code_WithFix.sh"
+    echo "    This run would build $RK_BUILD. Press Ctrl+C now, then move the new one in (out of Downloads, so the"
+    echo "    next download keeps its name):"
+    echo "    mv -f \"${RK_DL_NEWER#*|}\" ~/RaveKandi-Build/Rk_Code_WithFix.sh"
     echo "    Carrying on with build $RK_BUILD in 15 seconds..."
     sleep 15
 fi
@@ -540,6 +541,673 @@ EOF
 
 # Block 3
 rm -f src/App.js
+# V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
+# functions step, so the two never disagree)
+cat << 'RKSHAREDEOF' > src/rkShared.js
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325). Script-owned.
+// The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
+// module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
+// achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
+// Plain JavaScript only: no screens, no Firebase, no browser objects.
+
+// V67: total comments on an item = legacy array + subcollection.
+// commentCount is maintained on the item at write time. A per-card read would mean one extra
+// query per card on every feed render; one extra write per comment is far cheaper, and the
+// fallback keeps posts that predate the counter showing the right number.
+const rkCommentCount = (i) => {
+    if (!i) return 0;
+    const legacy = (i.comments || []).length;
+    const live = typeof i.commentCount === 'number' ? i.commentCount : 0;
+    return legacy + live;
+};
+
+// V70 — REFERRAL CAPS.
+//
+// Daily ceilings on how many referrals one account can bank, because the rewards are permanent
+// and an uncapped referral system is an invitation to farm it with throwaway accounts.
+//
+// The window is fixed 24h UTC rather than rolling — a rolling window means the limit resets a
+// little at a time and someone patient can trickle past it all day. A hard midnight reset is also
+// something a user can understand and predict, which a rolling one is not.
+//
+// Creators scale with their VERIFIED following (the admin-approved figure from Build 208, never
+// the self-reported one): a raver with a real audience legitimately brings more people.
+const RK_REF_CAPS = { creator: 500, vip: 150, standard: 60 };
+const RK_REF_CREATOR_CEILING = 5000;
+const RK_REF_PER_FOLLOWERS = 200;   // +1 daily referral per this many approved followers
+
+const rkUtcDay = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
+
+const rkReferralCap = (p) => {
+    if (!p) return RK_REF_CAPS.standard;
+    const isCreator = !!(p.isKandiCreator || p.isMusicCreator || p.isContentCreator);
+    if (isCreator) {
+        const bonus = Math.floor((Number(p.approvedFollowers) || 0) / RK_REF_PER_FOLLOWERS);
+        return Math.min(RK_REF_CREATOR_CEILING, RK_REF_CAPS.creator + bonus);
+    }
+    if (p.isVIP) return RK_REF_CAPS.vip;
+    return RK_REF_CAPS.standard;
+};
+
+const COMMISSION_RATE = 0.20;
+// V90.85.150.325: the launch-perk switch is an argument here (the live config in the app, or global/config on the server).
+const rkEffRate = (base, lockedRate, perks) => {
+    const b = (base === null || base === undefined) ? COMMISSION_RATE : base;
+    const live = perks ? Math.max(0, b - 0.10) : b; // current period rate
+    // Permanent launch lock-in: a user granted lockedCommissionRate never pays more than it.
+    if (lockedRate !== null && lockedRate !== undefined && !isNaN(lockedRate)) return Math.min(live, lockedRate);
+    return live;
+};
+
+// V89.85.150.324: THE FESTIVALS' ANNOUNCED DATES (see RkEventPicker). Every edition ending on or after 8 Nov 2026
+// whose dates were announced by then; s: 'o' from the festival's or promoter's own announcement, 'p' from the press.
+// A festival missing here has no dates announced yet. Refreshed every build; an admin can correct one without a build
+// (global/config, festDates, the same shape).
+const RK_FEST_DATES = {
+    "beyond wonderland": [
+        { l: "Beyond Wonderland SoCal 2027", f: '2027-03-26', t: '2027-03-27', w: "San Bernardino, CA, NOS Events Center", s: 'p' },
+        { l: "Beyond Wonderland Midwest 2027", f: '2027-06-11', t: '2027-06-13', w: "Joliet, IL, Chicagoland Speedway", s: 'o' },
+        { l: "Beyond Wonderland at The Gorge 2027", f: '2027-06-26', t: '2027-06-27', w: "George, WA, The Gorge Amphitheatre", s: 'o' },
+    ],
+    "coachella": [
+        { l: "Coachella 2027 Weekend 1", f: '2027-04-09', t: '2027-04-11', w: "Indio, CA, Empire Polo Club", s: 'p' },
+        { l: "Coachella 2027 Weekend 2", f: '2027-04-16', t: '2027-04-18', w: "Indio, CA, Empire Polo Club", s: 'p' },
+    ],
+    "countdown nye": [
+        { l: "Countdown NYE 2026", f: '2026-12-31', t: '2027-01-01', w: "San Bernardino, CA, NOS Events Center", s: 'o' },
+    ],
+    "decadence": [
+        { l: "Decadence Arizona 2026", f: '2026-12-30', t: '2026-12-31', w: "Avondale, AZ, Phoenix Raceway", s: 'p' },
+        { l: "Decadence Colorado 2026", f: '2026-12-30', t: '2026-12-31', w: "Denver, CO, Colorado Convention Center", s: 'p' },
+    ],
+    "dreamstate": [
+        { l: "Dreamstate Southern California 2026", f: '2026-11-20', t: '2026-11-21', w: "Long Beach, CA, Queen Mary Waterfront", s: 'o' },
+        { l: "Dreamstate Vancouver (November 2026)", f: '2026-11-28', t: '2026-11-28', w: "Vancouver, BC, Canada", s: 'o' },
+        { l: "Dreamstate Sydney 2027", f: '2027-02-06', t: '2027-02-06', w: "Sydney, Australia, Sydney Showground", s: 'o' },
+        { l: "Dreamstate Melbourne 2027", f: '2027-02-07', t: '2027-02-07', w: "Melbourne, Australia, Flemington Racecourse", s: 'o' },
+    ],
+    "edc las vegas": [
+        { l: "EDC Las Vegas 2027 Weekend 1 (EDC Dusk)", f: '2027-05-14', t: '2027-05-16', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
+        { l: "EDC Las Vegas 2027 Weekend 2 (EDC Dawn)", f: '2027-05-21', t: '2027-05-23', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
+    ],
+    "edc mexico": [
+        { l: "EDC Mexico 2027", f: '2027-02-19', t: '2027-02-21', w: "Mexico City, Autódromo Hermanos Rodríguez", s: 'o' },
+    ],
+    "edc orlando": [
+        { l: "EDC Orlando 2026", f: '2026-11-06', t: '2026-11-08', w: "Orlando, FL, Tinker Field", s: 'p' },
+    ],
+    "electric daisy carnival": [
+        { l: "EDC China 2026: Circuit Dreams Guangzhou", f: '2026-11-21', t: '2026-11-21', w: "Guangzhou, China, Guangzhou New Gateway Music Park (Baiyun District)", s: 'p' },
+        { l: "EDC Thailand 2026 (December edition)", f: '2026-12-18', t: '2026-12-20', w: "Phuket, Thailand, Rhythm Park", s: 'o' },
+    ],
+    "forbidden kingdom": [
+        { l: "Forbidden Kingdom 2027", f: '2027-04-23', t: '2027-04-25', w: "Orlando, FL, Central Florida Fairgrounds", s: 'o' },
+    ],
+    "groove cruise": [
+        { l: "Groove Cruise Miami 2027", f: '2027-01-21', t: '2027-01-25', w: "Miami, FL (round trip), Allure of the Seas", s: 'o' },
+    ],
+    "lightning in a bottle": [
+        { l: "Lightning in a Bottle 2027", f: '2027-05-26', t: '2027-05-30', w: "Buena Vista Lake (near Bakersfield), CA", s: 'p' },
+    ],
+    "lollapalooza": [
+        { l: "Lollapalooza India 2027", f: '2027-01-23', t: '2027-01-24', w: "Mumbai, India, Mahalaxmi Racecourse", s: 'p' },
+        { l: "Lollapalooza Argentina 2027", f: '2027-03-12', t: '2027-03-14', w: "San Isidro (Buenos Aires), Argentina, Hipódromo de San Isidro", s: 'p' },
+        { l: "Lollapalooza Chile 2027", f: '2027-03-12', t: '2027-03-14', w: "Santiago, Chile, Parque O'Higgins", s: 'p' },
+        { l: "Lollapalooza Brasil 2027", f: '2027-03-19', t: '2027-03-21', w: "São Paulo, Brazil, Autódromo de Interlagos", s: 'p' },
+    ],
+    "mysteryland": [
+        { l: "Mysteryland 2027", f: '2027-08-27', t: '2027-08-29', w: "Netherlands", s: 'p' },
+    ],
+    "project glow": [
+        { l: "Project GLOW 2027", f: '2027-06-05', t: '2027-06-06', w: "Washington, DC", s: 'p' },
+    ],
+    "shambhala": [
+        { l: "Shambhala Music Festival 2027", f: '2027-07-23', t: '2027-07-26', w: "Salmo, BC, Canada, Salmo River Ranch", s: 'o' },
+    ],
+    "sunset music festival": [
+        { l: "Sunset On The River 2027 (formerly Sunset Music Festival)", f: '2027-02-20', t: '2027-02-21', w: "Tampa, FL, Julian B. Lane Riverfront Park", s: 'p' },
+    ],
+    "tomorrowland": [
+        { l: "Tomorrowland Thailand 2026", f: '2026-12-11', t: '2026-12-13', w: "Pattaya, Thailand, Wisdom Valley", s: 'p' },
+        { l: "Tomorrowland Winter 2027", f: '2027-03-20', t: '2027-03-27', w: "Alpe d'Huez, France, Alpe d'Huez ski resort", s: 'p' },
+        { l: "Tomorrowland Brasil 2027", f: '2027-04-30', t: '2027-05-02', w: "Brazil", s: 'p' },
+    ],
+    "ultra music festival": [
+        { l: "ULTRA Mexico 2026", f: '2026-11-07', t: '2026-11-08', w: "Mexico City, Mexico", s: 'o' },
+        { l: "ULTRA Taiwan 2026", f: '2026-11-14', t: '2026-11-14', w: "Taipei, Taiwan", s: 'o' },
+        { l: "Ultra Music Festival Miami 2027", f: '2027-03-26', t: '2027-03-28', w: "Miami, FL, Bayfront Park", s: 'o' },
+        { l: "ULTRA Argentina 2027", f: '2027-04-02', t: '2027-04-03', w: "Buenos Aires, Argentina", s: 'o' },
+        { l: "ULTRA South Africa 2027 (Cape Town)", f: '2027-04-30', t: '2027-04-30', w: "Cape Town, South Africa, The Ostrich", s: 'p' },
+        { l: "ULTRA South Africa 2027 (Johannesburg)", f: '2027-05-01', t: '2027-05-01', w: "Johannesburg, South Africa", s: 'o' },
+        { l: "ULTRA Europe 2027", f: '2027-07-09', t: '2027-07-11', w: "Split, Croatia", s: 'o' },
+    ],
+    "untold festival": [
+        { l: "UNTOLD 2027 (Star Edition)", f: '2027-08-05', t: '2027-08-08', w: "Cluj-Napoca, Romania", s: 'p' },
+    ],
+};
+
+const NOTIFICATION_TYPES = [{ id: 'promos', label: 'Promos' }, { id: 'app_updates', label: 'App Updates' }, { id: 'merch', label: 'Merch Drops' }, { id: 'discounts', label: 'Discounts' }, { id: 'projects', label: 'Project Updates' }];
+
+const RK_ACH_COMM_CUT = [0, 0.0005, 0.001, 0.002, 0.0035, 0.005];   // 0.05% … 0.5% per achievement
+const RK_ACH_REF_ADD = [0, 0.001, 0.002, 0.004, 0.007, 0.01];        // referral-type achievements
+// V84.152 (310): the key was 'notifs_full'; the achievement's id is 'notif_all', so the override never applied.
+const RK_ACH_DIFF_OVERRIDES = { contact_full: 1, notif_all: 1, ach_5: 1, ach_15: 3, kandi_creator: 3 };
+const rkAchDiff = (a) => RK_ACH_DIFF_OVERRIDES[a.id] || a.diff || Math.min(5, (a.tier || 1) + 1);
+const rkAchIsReferral = (a) => /refer/i.test(String(a.metric || '') + String(a.id || ''));
+const rkAchBonuses = (unlockedList) => {
+    let comm = 0, ref = 0;
+    (unlockedList || []).forEach(a => { const d = rkAchDiff(a); if (rkAchIsReferral(a)) ref += RK_ACH_REF_ADD[d]; else comm += RK_ACH_COMM_CUT[d]; });
+    return { comm: Math.min(0.05, comm), ref: Math.min(0.05, ref) };   // caps: 5% commission trim, 5% referral add
+};
+
+// V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
+// V84.77.150.311: moved up from below the achievement list, because that list now builds one rank
+// achievement per tier and a const cannot be read before its line runs. Each tier also gains a
+// `hex`, so its badge can glow in the tier's own colour. Dark Matter's text was grey, which is hard
+// to read on this theme; it is violet now.
+const REFERRAL_TIERS = [
+    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 2, color: 'text-pink-500', hex: '#ff6ec7' },
+    { min: 5, max: 9, badge: 'Slime Green', sharePct: 3.5, color: 'text-lime-400', hex: '#a3e635' },
+    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 5, color: 'text-cyan-400', hex: '#67e8f9' },
+    { min: 25, max: 49, badge: 'Holographic', sharePct: 7, color: 'text-purple-400', hex: '#c084fc' },
+    { min: 50, max: 99, badge: 'Laser Core', sharePct: 9, color: 'text-yellow-400', hex: '#facc15' },
+    { min: 100, max: 249, badge: 'Plasma', sharePct: 11.5, color: 'text-red-500', hex: '#ff5d73' },
+    { min: 250, max: 499, badge: 'Supernova', sharePct: 14, color: 'text-orange-400', hex: '#fb923c' },
+    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 17, color: 'text-violet-300', hex: '#b9a7ff' },
+    { min: 1000, max: 2499, badge: 'PLUR God', sharePct: 20, color: 'text-white', hex: '#ffffff' },
+    { min: 2500, max: 4999, badge: 'Cosmic Forge', sharePct: 22.5, color: 'text-fuchsia-400', hex: '#e879f9' },
+    { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300', hex: '#fcd34d' }
+];
+const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
+// V84.77.150.311: RANKS. Every RevShare tier is now an achievement and a badge (your request at
+// 310). The rank number, 1 to 11, sets the badge's look (rkRankStyle) and the achievement's
+// difficulty, and the difficulty sets its reward. Like every referral achievement, a rank adds to
+// the referral share rather than trimming the commission. Ranks are a bonus track: they do not
+// count toward the 80% free-VIP goal, so adding eleven of them did not move that goal.
+const rkRankOf = (refs) => { const n = Number(refs) || 0; let r = 0; REFERRAL_TIERS.forEach((t, i) => { if (n >= t.min) r = i + 1; }); return r; };
+const RK_RANK_DIFF = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5];
+const RK_RANK_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+const RK_RANK_ACHS = REFERRAL_TIERS.map((t, i) => ({
+    id: 'rank_' + t.badge.toLowerCase().replace(/[^a-z0-9]+/g, '_'), name: t.badge + ' Rank', tier: 1,
+    rank: i + 1, diff: RK_RANK_DIFF[i], metric: 'referrals', threshold: t.min,
+    desc: 'RevShare rank ' + RK_RANK_ROMAN[i] + ': refer ' + t.min.toLocaleString() + ' raver' + (t.min === 1 ? '' : 's') + '. Pays ' + t.sharePct + '% of the commission on everything they buy, and unlocks the ' + t.badge + ' badge.'
+}));
+
+const RK_ACH_DEFS = [
+    // Creator / status
+    { id: 'kandi_creator', name: 'Official Creator', tier: 1, metric: 'isKandiCreator', threshold: 1, desc: "Get approved as a Verified Creator." },
+    { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, desc: "Reach #1 on the Creator Points leaderboard. The badge is yours forever." },
+    // Listing / collection
+    { id: 'collector_1', name: 'Kandi Collector', tier: 1, metric: 'totalItems', threshold: 5, desc: "List 5 unique Kandi items." },
+    { id: 'collector_2', name: 'Kandi Curator', tier: 1, metric: 'totalItems', threshold: 25, desc: "List 25 unique Kandi items." },
+    { id: 'collector_3', name: 'Kandi Hoarder', tier: 1, metric: 'totalItems', threshold: 100, desc: "List 100 unique Kandi items." },
+    // Sales value
+    { id: 'sales_1', name: 'Hustler (Iron)', tier: 1, metric: 'totalSalesValue', threshold: 100, desc: "Reach $100 in total sales." },
+    { id: 'sales_2', name: 'Hustler (Bronze)', tier: 1, metric: 'totalSalesValue', threshold: 500, desc: "Reach $500 in total sales." },
+    { id: 'sales_3', name: 'Hustler (Silver)', tier: 1, metric: 'totalSalesValue', threshold: 1000, desc: "Reach $1,000 in total sales." },
+    { id: 'sales_4', name: 'Hustler (Gold)', tier: 1, metric: 'totalSalesValue', threshold: 5000, desc: "Reach $5,000 in total sales." },
+    { id: 'sales_5', name: 'Kandi Tycoon', tier: 1, metric: 'totalSalesValue', threshold: 10000, desc: "Reach $10,000 in total sales." },
+    // Items sold (count)
+    { id: 'sold_1', name: 'First Sale', tier: 1, metric: 'itemsSold', threshold: 1, desc: "Sell your very first item." },
+    { id: 'sold_2', name: 'Shopkeeper', tier: 1, metric: 'itemsSold', threshold: 25, desc: "Sell 25 items." },
+    { id: 'sold_3', name: 'Kandi Merchant', tier: 1, metric: 'itemsSold', threshold: 100, desc: "Sell 100 items." },
+    // Buying
+    { id: 'buy_1', name: 'First Haul', tier: 1, metric: 'itemsBought', threshold: 1, desc: "Buy your first item." },
+    { id: 'buy_2', name: 'Supporter', tier: 1, metric: 'itemsBought', threshold: 10, desc: "Buy 10 items from the community." },
+    { id: 'buy_3', name: 'Patron of PLUR', tier: 1, metric: 'itemsBought', threshold: 50, desc: "Buy 50 items." },
+    { id: 'spent_1', name: 'Big Spender', tier: 1, metric: 'totalBoughtValue', threshold: 500, desc: "Spend $500 supporting other ravers." },
+    // Likes / comments / social
+    { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, desc: "Interact with the community 10 times." },
+    { id: 'social_2', name: 'Social Butterfly', tier: 1, metric: 'socialInteractions', threshold: 50, desc: "Interact with the community 50 times." },
+    { id: 'likes_1', name: 'Crowd Favorite', tier: 1, metric: 'totalLikes', threshold: 25, desc: "Receive 25 likes across your posts." },
+    { id: 'likes_2', name: 'Kandi Famous', tier: 1, metric: 'totalLikes', threshold: 100, desc: "Receive 100 likes across your posts." },
+    { id: 'comments_1', name: 'Conversation Starter', tier: 1, metric: 'totalComments', threshold: 25, desc: "Receive 25 comments across your posts." },
+    // Referrals
+    { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, desc: "Bring 1 new friend to RaveKandi." },
+    { id: 'biolink', name: 'Link in Bio Hero', tier: 1, metric: 'bioLinkAdded', threshold: 1, desc: "Add your RaveKandi invite link to your social bio." },
+    { id: 'ref_2', name: 'Recruiter', tier: 1, metric: 'referrals', threshold: 10, desc: "Refer 10 ravers." },
+    { id: 'ref_3', name: 'Rave Evangelist', tier: 1, metric: 'referrals', threshold: 50, desc: "Refer 50 ravers." },
+    // V84.77.150.311: the eleven RevShare ranks, Neon Pink to Eternal Rave (RK_RANK_ACHS above).
+    ...RK_RANK_ACHS,
+    // Trades
+    { id: 'trade_1', name: 'Trader', tier: 1, metric: 'completedTrades', threshold: 1, desc: "Complete your first trade." },
+    { id: 'trade_2', name: 'Trade Master', tier: 1, metric: 'completedTrades', threshold: 25, desc: "Complete 25 trades." },
+    // Radio listening
+    { id: 'radio_1', name: 'Tuned In', tier: 1, metric: 'radioMinutes', threshold: 60, desc: "Listen to Rave Radio for 1 hour." },
+    { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, desc: "Listen to Rave Radio for 10 hours." },
+    // Vibe Tribe — friends
+    { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
+    { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
+    { id: 'friend_3', name: 'Social Butterfly', tier: 2, metric: 'friendsCount', threshold: 25, desc: "Reach 25 friends." },
+    { id: 'friend_4', name: 'PLUR Network', tier: 3, metric: 'friendsCount', threshold: 100, desc: "Reach 100 friends." },
+    // Vibe Tribe — tribes & chat
+    { id: 'tribe_1', name: 'Tribe Founder', tier: 1, metric: 'tribesJoined', threshold: 1, desc: "Create or join your first Vibe Tribe." },
+    { id: 'tribe_3', name: 'Multi-Tribe', tier: 2, metric: 'tribesJoined', threshold: 3, desc: "Be part of 3 Vibe Tribes at once." },
+    { id: 'tribe_big_5', name: 'Growing Tribe', tier: 2, metric: 'biggestTribe', threshold: 5, desc: "Be in a tribe with 5+ members." },
+    { id: 'tribe_big_10', name: 'Massive Movement', tier: 3, metric: 'biggestTribe', threshold: 10, desc: "Be in a tribe with 10+ members." },
+    { id: 'tribe_msg_50', name: 'Tribe Chatter', tier: 1, metric: 'tribeMessages', threshold: 50, desc: "Send 50 messages in tribe group chats." },
+    { id: 'tribe_msg_500', name: 'Tribe Voice', tier: 2, metric: 'tribeMessages', threshold: 500, desc: "Send 500 messages in tribe group chats." },
+    // Activity / loyalty
+    { id: 'active_1', name: 'Regular', tier: 1, metric: 'activeMinutes', threshold: 300, desc: "Spend 5 active hours in the app." },
+    { id: 'active_2', name: 'Always Raving', tier: 1, metric: 'activeMinutes', threshold: 3000, desc: "Spend 50 active hours in the app." },
+    // VIP features
+    { id: 'banner_5', name: 'Marquee Mogul', tier: 1, metric: 'bannerPosts', threshold: 5, desc: "Post 5 banner messages on the live marquee." },
+    { id: 'boost_5', name: 'Spotlight Seeker', tier: 1, metric: 'boostsUsed', threshold: 5, desc: "Boost your posts 5 times." },
+    { id: 'video_1', name: 'Festival Filmmaker', tier: 1, metric: 'videosPosted', threshold: 1, desc: "Feature a festival clip in the Spotlight." },
+    { id: 'video_5', name: 'Content Creator', tier: 1, metric: 'videosPosted', threshold: 5, desc: "Feature 5 festival clips." },
+    // Music & Content Creators (V63.19)
+    { id: 'listens_1k', name: 'Underground Hit', tier: 1, metric: 'musicPlays', threshold: 1000, desc: "1,000 total listens on your music." },
+    { id: 'listens_10k', name: 'Local Legend', tier: 2, metric: 'musicPlays', threshold: 10000, desc: "10,000 total listens." },
+    { id: 'listens_100k', name: 'Chart Climber', tier: 3, metric: 'musicPlays', threshold: 100000, desc: "100,000 total listens." },
+    { id: 'listens_1m', name: 'Platinum Raver', tier: 4, metric: 'musicPlays', threshold: 1000000, desc: "1,000,000+ total listens." },
+    { id: 'dl_1k', name: 'First Pressing', tier: 1, metric: 'musicDownloads', threshold: 1000, desc: "1,000 track downloads." },
+    { id: 'dl_10k', name: 'Heavy Rotation', tier: 2, metric: 'musicDownloads', threshold: 10000, desc: "10,000 track downloads." },
+    { id: 'dl_100k', name: 'Distro Machine', tier: 3, metric: 'musicDownloads', threshold: 100000, desc: "100,000 track downloads." },
+    { id: 'dl_1m', name: 'Certified Banger', tier: 4, metric: 'musicDownloads', threshold: 1000000, desc: "1,000,000+ track downloads." },
+    { id: 'views_1k', name: 'Noticed', tier: 1, metric: 'contentViews', threshold: 1000, desc: "1,000 showcase views." },
+    { id: 'views_10k', name: 'Trending', tier: 2, metric: 'contentViews', threshold: 10000, desc: "10,000 showcase views." },
+    { id: 'views_100k', name: 'Going Viral', tier: 3, metric: 'contentViews', threshold: 100000, desc: "100,000 showcase views." },
+    { id: 'views_1m', name: 'Scene Icon', tier: 4, metric: 'contentViews', threshold: 1000000, desc: "1,000,000+ showcase views." },
+    { id: 'links_10', name: 'Curator', tier: 1, metric: 'linksAdded', threshold: 10, desc: "Add 10 tracks or showcase posts." },
+    { id: 'links_50', name: 'Archivist', tier: 2, metric: 'linksAdded', threshold: 50, desc: "Add 50 tracks or showcase posts." },
+    { id: 'links_250', name: 'Library Builder', tier: 3, metric: 'linksAdded', threshold: 250, desc: "Add 250 tracks or showcase posts." },
+    { id: 'links_1000', name: 'The Vault', tier: 4, metric: 'linksAdded', threshold: 1000, desc: "Add 1,000 tracks or showcase posts." },
+    // Meta
+    { id: 'ach_5', name: 'Achiever', tier: 1, metric: 'achievementsUnlocked', threshold: 5, desc: "Unlock 5 achievements." },
+    { id: 'ach_15', name: 'Completionist', tier: 1, metric: 'achievementsUnlocked', threshold: 15, desc: "Unlock 15 achievements." },
+    // V64.02: account-completeness
+    { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, desc: "Add a phone number in Settings → Contact Info. The email you sign in with counts as your email." },
+    { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, desc: "Turn on every notification type for both Phone and Email in Settings → Notifications, then Save Changes." },
+    // V88.84.150.322 (Milli, at 322: "always add an achievement, banner item, etc when updating if its possible").
+    // Each trims the seller commission like the rest (rkAchBonuses), has its own emblem and a marquee line.
+    { id: 'vote_5', name: 'Civic Raver', tier: 1, metric: 'tribeVotesCast', threshold: 5, desc: "Answer 5 tribe votes, yes or no. Calling or proposing one counts." },
+    { id: 'vote_50', name: 'Tribe Council', tier: 2, metric: 'tribeVotesCast', threshold: 50, desc: "Answer 50 tribe votes." },
+    { id: 'fest_1', name: 'Festival Planner', tier: 1, metric: 'festivalsDated', threshold: 1, desc: "Post with a festival and the days you'll be there." },
+    { id: 'fest_5', name: 'Season Pass', tier: 2, metric: 'festivalsDated', threshold: 5, desc: "Post your days for 5 different festivals." },
+    { id: 'net_25', name: 'Friend of a Friend', tier: 1, metric: 'networkReach', threshold: 25, desc: "Your friends' friends reach 25 ravers you haven't added yet." },
+    { id: 'net_250', name: 'Six Degrees', tier: 3, metric: 'networkReach', threshold: 250, desc: "Your friends' friends reach 250 ravers." },
+    { id: 'dig_25', name: 'Crate Digger', tier: 1, metric: 'tracksPlayed', threshold: 25, desc: "Play 25 tracks by other artists." },
+    { id: 'dig_250', name: 'Selector', tier: 2, metric: 'tracksPlayed', threshold: 250, desc: "Play 250 tracks by other artists." },
+    // V89.84.150.323: for 323's features. Each trims the seller commission (rkAchBonuses), with its own emblem and a
+    // marquee line.
+    { id: 'install_app', name: 'Home Screen Hero', tier: 1, diff: 1, metric: 'installedApp', threshold: 1, desc: "Open RaveKandi as an app: from your home screen, or the Android app. HELP → Get RaveKandi shows how." },
+    { id: 'vote_fast_10', name: 'Quick Draw', tier: 1, metric: 'tribeVotesFast', threshold: 10, desc: "Answer 10 tribe votes, yes or no, within 12 hours of each one starting." },
+    { id: 'invite_1', name: 'Welcome Committee', tier: 1, metric: 'tribeInvitesPassed', threshold: 1, desc: "Invite a raver into one of your tribes: they accept, and the members vote them in." },
+    // V89.85.150.324: for 324's festival days. Each trims the seller commission (rkAchBonuses), with its own emblem and a
+    // marquee line.
+    { id: 'fest_days_1', name: 'Day Picker', tier: 1, diff: 1, metric: 'festDaysPicked', threshold: 1, desc: "Post for a festival and tap the days you're going from its dates." },
+    { id: 'fest_all_days', name: 'All In', tier: 1, metric: 'festAllDays', threshold: 1, desc: "Tap every day of a festival's dates on one post." },
+    { id: 'invite_5', name: 'Talent Scout', tier: 2, metric: 'tribeInvitesPassed', threshold: 5, desc: "Bring 5 ravers into your tribes by invitation." },
+    // V90.85.150.325: for 325's daily limits, which the server now books and counts (bannerDays, boostDays: the UTC days
+    // with at least one). Each trims the seller commission (rkAchBonuses), with its own emblem and a marquee line.
+    { id: 'banner_days_5', name: 'Marquee Regular', tier: 1, metric: 'bannerDays', threshold: 5, desc: "Post a banner message on 5 different days." },
+    { id: 'boost_days_5', name: 'Spotlight Regular', tier: 1, metric: 'boostDays', threshold: 5, desc: "Boost one of your posts on 5 different days." },
+];
+
+// V42.09: banner link safety — banners may only link to verified social platforms.
+// Structural checks block shorteners, redirect chains, IP hosts and embedded credentials.
+// (Following redirects isn't possible client-side, hence the strict allowlist approach.)
+const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app','onlyfans.com','fansly.com'];
+const BLOCKED_SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','rb.gy','cutt.ly','is.gd','shorturl.at','ow.ly','rebrand.ly'];
+// V42.14: parse a festival-clip URL into an embeddable player.
+// Supports YouTube (incl. Shorts), TikTok, Instagram Reels/posts. No file
+// hosting — we embed the platform's own player, so nothing is stored on our end.
+const parseVideoLink = (raw) => {
+    try {
+        let s = (raw || '').trim();
+        if (!s) return { ok: false, reason: 'Paste a link to your clip first.' };
+        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+        const u = new URL(s);
+        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
+        const host = u.hostname.toLowerCase().replace(/^www\./, '');
+
+        // YouTube (watch, youtu.be, shorts, embed)
+        if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com') {
+            let id = '';
+            if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+            else if (u.pathname.startsWith('/shorts/')) id = u.pathname.split('/')[2];
+            else if (u.pathname.startsWith('/embed/')) id = u.pathname.split('/')[2];
+            else id = u.searchParams.get('v') || '';
+            if (!/^[A-Za-z0-9_-]{6,15}$/.test(id)) return { ok: false, reason: 'Could not read that YouTube video ID.' };
+            return { ok: true, platform: 'youtube', embedUrl: 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&mute=1&playsinline=1&rel=0', watchUrl: 'https://youtu.be/' + id };
+        }
+        // V65.07: Dropbox — direct-play video files for feed posts. Safety: https-only (checked
+        // above), domain locked to dropbox.com, and the filename extension is checked when the
+        // link exposes one. The share URL is rewritten to the direct-stream host so <video> plays it.
+        if (host === 'dropbox.com' || host === 'dl.dropbox.com' || host === 'dl.dropboxusercontent.com') {
+            const p = u.pathname;
+            const fname = decodeURIComponent(p.split('/').pop() || '');
+            const extOk = /\.(mp4|mov|m4v|webm)$/i.test(fname);
+            const extWarning = fname.indexOf('.') >= 0 && !extOk;
+            if (fname.indexOf('.') >= 0 && !extOk && !/\.(mp4|mov|m4v|webm)/i.test(fname)) {
+                if (/\.(exe|apk|zip|js|html|bat|sh|scr)$/i.test(fname)) return { ok: false, reason: 'That Dropbox link is not a video file.' };
+            }
+            u.searchParams.delete('dl'); u.searchParams.delete('raw');
+            const fileUrl = 'https://dl.dropboxusercontent.com' + p + (u.search ? u.search : '');
+            return { ok: true, platform: 'dropbox', fileUrl, watchUrl: s, extWarning };
+        }
+        // TikTok
+        if (host === 'tiktok.com' || host === 'vm.tiktok.com') {
+            const m = u.pathname.match(/\/video\/(\d+)/);
+            if (m) return { ok: true, platform: 'tiktok', embedUrl: 'https://www.tiktok.com/embed/v2/' + m[1], watchUrl: s };
+            // short vm.tiktok.com links can't be resolved client-side; accept as link-only
+            return { ok: true, platform: 'tiktok', embedUrl: null, watchUrl: s };
+        }
+        // Instagram reels / posts
+        if (host === 'instagram.com') {
+            const m = u.pathname.match(/\/(reel|reels|p|tv)\/([A-Za-z0-9_-]+)/);
+            if (m) return { ok: true, platform: 'instagram', embedUrl: 'https://www.instagram.com/' + (m[1] === 'reels' ? 'reel' : m[1]) + '/' + m[2] + '/embed', watchUrl: s };
+            return { ok: false, reason: 'Use a direct Instagram Reel or post link.' };
+        }
+        // Facebook videos, reels, and fb.watch — embedded via Facebook's video plugin player.
+        if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.watch' || host === 'fb.com') {
+            const isVid = host === 'fb.watch' || /\/(videos|reel|watch|story\.php|share\/v|share\/r)/.test(u.pathname) || u.searchParams.get('v');
+            if (isVid) return { ok: true, platform: 'facebook', embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(s) + '&autoplay=1&mute=1&width=560', watchUrl: s };
+            return { ok: false, reason: 'Use a direct Facebook video or Reel link.' };
+        }
+        // Twitter / X — accept status (tweet) links. X disallows raw iframe video embeds, so we
+        // store it as a watch link (clip opens on X); still verified & profile button shows.
+        if (host === 'twitter.com' || host === 'x.com' || host === 'mobile.twitter.com') {
+            const m = u.pathname.match(/\/([A-Za-z0-9_]+)\/status\/(\d+)/);
+            // V65.17: real inline embed via the platform tweet widget (renders the post in-app),
+            // with the direct link kept as the fallback/open-out.
+            if (m) return { ok: true, platform: 'twitter', embedUrl: 'https://platform.twitter.com/embed/Tweet.html?id=' + m[2] + '&theme=dark&dnt=true', watchUrl: 'https://x.com/' + m[1] + '/status/' + m[2] };
+            return { ok: false, reason: 'Use a direct X/Twitter post (status) link.' };
+        }
+        // SoundCloud — tracks, sets/playlists, and artist pages, via SoundCloud's own embed player.
+        if (host === 'soundcloud.com' || host === 'm.soundcloud.com' || host === 'on.soundcloud.com') {
+            if (u.pathname.length > 1) return { ok: true, platform: 'soundcloud', embedUrl: 'https://w.soundcloud.com/player/?url=' + encodeURIComponent('https://soundcloud.com' + u.pathname) + '&color=%23ff5500&auto_play=false&hide_related=true&show_comments=false&show_user=true&visual=true', watchUrl: 'https://soundcloud.com' + u.pathname };
+            return { ok: false, reason: 'Use a direct SoundCloud track, set, or artist link.' };
+        }
+        // Twitch — live channels and VODs via Twitch's embed player (parent must list our domains).
+        if (host === 'twitch.tv' || host === 'm.twitch.tv') {
+            const vm = u.pathname.match(/^\/videos\/(\d+)/);
+            if (vm) return { ok: true, platform: 'twitch', embedUrl: 'https://player.twitch.tv/?video=' + vm[1] + '&parent=ravekandi.web.app&parent=localhost&autoplay=false&muted=false', watchUrl: s };
+            const cm = u.pathname.match(/^\/([A-Za-z0-9_]{3,26})\/?$/);
+            if (cm) return { ok: true, platform: 'twitch', isLiveChannel: true, embedUrl: 'https://player.twitch.tv/?channel=' + cm[1] + '&parent=ravekandi.web.app&parent=localhost&autoplay=true&muted=true', watchUrl: s };
+            return { ok: false, reason: 'Use a Twitch channel or video link.' };
+        }
+        // V65.17: Reddit — posts, comments & shortlinks, via Reddit's official embed player.
+        if (host === 'reddit.com' || host === 'old.reddit.com' || host === 'new.reddit.com' || host === 'np.reddit.com' || host === 'redd.it') {
+            let embedTarget = s;
+            if (host === 'redd.it') { embedTarget = 'https://www.reddit.com/comments/' + u.pathname.slice(1).split('/')[0]; }
+            // Only real content paths embed (comment threads, posts, subs); bare reddit.com does not.
+            if (host === 'redd.it' || /\/(r|user|u)\/[A-Za-z0-9_]+/.test(u.pathname) || /\/comments\//.test(u.pathname)) {
+                return { ok: true, platform: 'reddit', embedUrl: 'https://www.redditmedia.com/' + (embedTarget.replace(/^https?:\/\/[^/]+\//, '')).replace(/\?.*$/, '') + '?ref_source=embed&embed=true&theme=dark', watchUrl: embedTarget };
+            }
+            return { ok: false, reason: 'Use a direct Reddit post, comment, or subreddit link.' };
+        }
+        return { ok: false, reason: 'Supported: YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, SoundCloud, and Twitch links.' };
+    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
+};
+
+const validateSocialLink = (raw) => {
+    try {
+        let s = (raw || '').trim();
+        if (!s) return { ok: false, reason: 'Empty link.' };
+        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+        const u = new URL(s);
+        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
+        if (u.username || u.password) return { ok: false, reason: 'Links with embedded credentials are blocked.' };
+        const host = u.hostname.toLowerCase().replace(/^www\./, '');
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return { ok: false, reason: 'Raw IP links are blocked.' };
+        if (BLOCKED_SHORTENERS.some(b => host === b || host.endsWith('.' + b))) return { ok: false, reason: 'Link shorteners are blocked — they can hide redirects to scam sites.' };
+        const allowed = SAFE_SOCIAL_HOSTS.some(h => host === h || host.endsWith('.' + h));
+        if (!allowed) return { ok: false, reason: 'Banners may only link to verified social platforms (Instagram, TikTok, X, YouTube, Twitch, SoundCloud, etc).' };
+        const qs = (u.search + u.hash).toLowerCase();
+        if (qs.includes('http%3a') || qs.includes('http://') || qs.includes('https://') || qs.includes('url=') || qs.includes('redirect')) return { ok: false, reason: 'Links containing redirect parameters are blocked.' };
+        return { ok: true, clean: u.toString() };
+    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' } }
+};
+
+// V84.152 (310): every notification type ticked for both channels. Shared by the achievement and
+// by the self-heal in App, so the two can never disagree about what "every" means.
+const rkNotifsMaxed = (prefs) => { try { return NOTIFICATION_TYPES.every(t => !!(prefs?.phone?.[t.id] && prefs?.email?.[t.id])); } catch (e) { return false; } };
+// V90.85.150.325: the figures each achievement reads, for the app (getDisplayAchievements) and the server alike.
+const rkAchStats = (profile) => {
+    const stats = {
+        // V84.152 (310): itemsListed is the raver's own listings, counted by App from the feed it
+        // already loads. `items` was set to [] at signup and never written again, so this line only
+        // ever moved through the itemsSold fallback.
+        // V90.85.150.325: listings and sales, both counted by the server (the legacy `items` array no longer counts)
+        totalItems: Math.max(profile?.itemsListed || 0, profile?.itemsSold || 0),
+        totalSalesValue: profile?.totalSalesValue || 0, totalBoughtValue: profile?.totalBoughtValue || 0,
+        itemsSold: profile?.itemsSold || 0, itemsBought: profile?.itemsBought || 0,
+        totalLikes: profile?.totalLikes || 0, totalComments: profile?.totalComments || 0,
+        isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, bioLinkAdded: profile?.bioLinkAdded?1:0,
+        referrals: profile?.referrals||0, completedTrades: profile?.completedTrades||0,
+        radioMinutes: profile?.radioMinutes||0, activeMinutes: profile?.activeMinutes||0,
+        topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0,
+        boostsUsed: profile?.boostsUsed||0, videosPosted: profile?.videosPosted||0,
+        achievementsUnlocked: profile?.achievementsUnlocked||0,
+        friendsCount: (profile?.friends || []).length,
+        tribesJoined: profile?.tribesJoined||0, tribeMessages: profile?.tribeMessages||0, biggestTribe: profile?.biggestTribe||0,
+        // V84.152 (310): Full Signal reads the saved preferences directly, so it unlocks the moment
+        // the boxes are saved instead of waiting for a flag only Settings ever wrote.
+        contactComplete: profile?.contactComplete?1:0,
+        notifsMaxed: (profile?.notifsMaxed || rkNotifsMaxed(profile?.notificationPreferences)) ? 1 : 0,
+        // V84.152 (310): the 16 music and content achievements (Underground Hit through The Vault)
+        // were missing from this list, so `stats[metric]` was undefined and they could never
+        // unlock, although the counters themselves have been written since V63.19.
+        musicPlays: profile?.musicPlays||0, musicDownloads: profile?.musicDownloads||0,
+        contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0,
+        // V88.84.150.322: tribe votes answered, festivals dated, network reach and tracks played
+        tribeVotesCast: profile?.tribeVotesCast||0, festivalsDated: profile?.festivalsDated||0,
+        networkReach: profile?.networkReach||0, tracksPlayed: profile?.tracksPlayed||0,
+        // V89.84.150.323: opened as an installed app, quick votes, and ravers brought in by invitation
+        installedApp: profile?.installedApp ? 1 : 0, tribeVotesFast: profile?.tribeVotesFast||0, tribeInvitesPassed: profile?.tribeInvitesPassed||0,
+        // V89.85.150.324: festivals with days tapped from their dates, and a post with every day of one
+        festDaysPicked: profile?.festDaysPicked||0, festAllDays: profile?.festAllDays||0,
+        // V90.85.150.325: VIP passes gifted, and days with a banner, both counted by the server
+        vipGiftsSent: profile?.vipGiftsSent||0, bannerDays: profile?.bannerDays||0, boostDays: profile?.boostDays||0
+    };
+    // Any metric a future achievement names but this list forgets falls back to the profile field
+    // of the same name, instead of silently reading 0 forever.
+    return stats;
+};
+const rkAchVal = (profile, m) => { const stats = rkAchStats(profile); return (m in stats) ? stats[m] : (Number(profile?.[m]) || 0); };
+// every achievement with `unlocked`, without icons (the app adds those in ACHIEVEMENT_TIERS)
+const rkAchList = (profile) => { const stats = rkAchStats(profile); return RK_ACH_DEFS.map(ach => ({ ...ach, unlocked: ((ach.metric in stats) ? stats[ach.metric] : (Number(profile?.[ach.metric]) || 0)) >= ach.threshold })); };
+
+// V87.78.150.315: WHICH ACHIEVEMENTS ARE NEW (Milli, at 315: "notifications should take the user
+// directly to the achievement. When a user unlocks a new achievement, mark the achievement with a
+// 'new' until the user views the achievement in the achievements window, then remove the new tag").
+// `achKnown` lists what was unlocked at the last sync, so anything unlocked since is fresh: it gets a
+// NEW tag (`achNew.<id>`, cleared once it has been seen in the Achievements window) and the
+// notification opens it. The first sync records the baseline only, so nothing earned before 315
+// shows as NEW. Returns the fields to save, and the fresh ids.
+const rkAchFresh = (profile, unlockedIds) => {
+    const known = Array.isArray(profile && profile.achKnown) ? profile.achKnown : null;
+    if (!known) return { known: null, fresh: [], upd: { achKnown: unlockedIds.slice() } };
+    const fresh = unlockedIds.filter(id => !known.includes(id));
+    if (!fresh.length) return { known, fresh, upd: {} };
+    const now = Date.now(), achNew = {};
+    fresh.forEach(id => { achNew[id] = now; });
+    return { known, fresh, upd: { achKnown: known.concat(fresh), achNew } };
+};
+// The notification for fresh achievements: named, and opening the first. Crowned Creator has its own
+// notification (in App), which opens it too.
+const rkAchFreshNote = (fresh, allAch) => {
+    const told = (fresh || []).filter(id => id !== 'top_creator');
+    const nm = (id) => ((allAch || []).find(a => a.id === id) || {}).name || 'an achievement';
+    if (!told.length) return { text: '', focus: '' };
+    if (told.length === 1) return { text: '🏅 Achievement unlocked: ' + nm(told[0]) + '! Tap to see it.', focus: told[0] };
+    return { text: '🏅 ' + told.length + ' achievements unlocked: ' + told.slice(0, 3).map(nm).join(', ') + (told.length > 3 ? ' and ' + (told.length - 3) + ' more' : '') + '. Tap to see them.', focus: told[0] };
+};
+
+// V84.77.150.311: ACHIEVEMENT REWARDS, APPLIED (queue item 22).
+// Since V65.19 the REWARDS chart has promised that each achievement permanently trims the seller's
+// commission, or for referral achievements raises their referral share. Both bonuses were worked
+// out and saved (achCommBonus, achRefBonus), but nothing that charges or pays ever read them.
+// These helpers are now the ONLY place a rate comes from. Checkout, the analytics card, the RevShare
+// panel, the avatar badge, the inventory profit line and the admin panel all call them, so the
+// figure a raver is shown is the figure they are charged or paid.
+//  - The 5% caps are enforced here, at the point of use, so a hand-edited field cannot pass them.
+//  - "Permanent", as the chart promises: the larger of what is earned today and what was saved
+//    before, so a figure that later drops (an unfriend) never takes a reward back.
+//  - V84.78.150.312: a custom rate set in the admin panel REPLACES the achievement rewards (Milli,
+//    at 312); 311 stacked them. The seller rate never goes below 0%, and the referral share
+//    never above 100% of the commission.
+const RK_ACH_CAP = 0.05;
+const rkCapBonus = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.min(RK_ACH_CAP, n) : 0; };
+const rkAchRewards = (p) => {
+    if (!p) return { comm: 0, ref: 0 };
+    let live = { comm: 0, ref: 0 };
+    try { live = rkAchBonuses(rkAchList(p).filter(a => a.unlocked)); } catch (e) {}
+    return { comm: rkCapBonus(Math.max(live.comm, Number(p.achCommBonus) || 0)), ref: rkCapBonus(Math.max(live.ref, Number(p.achRefBonus) || 0)) };
+};
+// Seller commission before achievements: custom rate, launch perks and launch lock, as before.
+const rkBaseSellerRateAt = (p, perks) => rkEffRate(p?.customCommissionRate, p?.lockedCommissionRate, perks);
+const rkHasCustom = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+const rkSellerRateAt = (p, perks) => rkHasCustom(p?.customCommissionRate) ? rkBaseSellerRateAt(p, perks) : Math.max(0, rkBaseSellerRateAt(p, perks) - rkAchRewards(p).comm);
+// Referral share before achievements, in percent: an admin's custom rate if one is set, else the tier.
+const rkRefBasePct = (p) => { const o = p?.customRevSharePct; return (o !== null && o !== undefined && o !== '' && Number.isFinite(Number(o))) ? Number(o) : getReferralTier(Number(p?.referrals) || 0).sharePct; };
+const rkRefSharePct = (p) => rkHasCustom(p?.customRevSharePct) ? Math.min(100, Math.max(0, Number(p.customRevSharePct))) : Math.min(100, Math.round((rkRefBasePct(p) + rkAchRewards(p).ref * 100) * 100) / 100);
+// The rewards actually APPLIED: earned rewards, except where a custom rate replaces them.
+const rkAchApplied = (p) => { const aw = rkAchRewards(p); return { comm: rkHasCustom(p?.customCommissionRate) ? 0 : aw.comm, ref: rkHasCustom(p?.customRevSharePct) ? 0 : aw.ref }; };
+
+// 0.0965 -> "9.65%", 0.1 -> "10%". Never rounded into a figure the raver is not actually charged.
+const rkRatePct = (r) => { const v = Math.round((Number(r) || 0) * 10000) / 100; return (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0$/, '')) + '%'; };
+// A figure that is already a percentage: 2.3 -> "2.3%".
+const rkPctTxt = (v) => { const n = Math.round((Number(v) || 0) * 100) / 100; return (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, '')) + '%'; };
+
+const rkEventKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const rkEventOf = (i) => {
+    if (!i) return null;
+    const e = (i.event && i.event.name) ? i.event : (i.tradeWants && i.tradeWants.event) ? { name: i.tradeWants.event } : null;
+    if (!e || !String(e.name || '').trim()) return null;
+    return { name: String(e.name).trim(), from: e.from || '', to: e.to || e.from || '', days: Array.isArray(e.days) ? e.days.map(String).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 31).sort() : [] };
+};
+
+// V89.85.150.324: every day from a to b, 'YYYY-MM-DD', up to 31 (a festival's days, or a post's)
+const rkDaysBetween = (a, b) => {
+    const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(a || '')), m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(b || a || ''));
+    const out = [];
+    if (!m1 || !m2) return out;
+    const d = new Date(+m1[1], +m1[2] - 1, +m1[3]), e = new Date(+m2[1], +m2[2] - 1, +m2[3]);
+    while (d <= e && out.length < 31) { out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); d.setDate(d.getDate() + 1); }
+    return out;
+};
+const rkParseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+
+const rkFestAllIn = (catalog, name) => {
+    const list = (catalog || {})[rkEventKey(name)];
+    return Array.isArray(list) ? list.filter(ed => ed && rkParseDay(ed.f) && rkParseDay(ed.t || ed.f) && (ed.t || ed.f) >= ed.f)
+        .map(ed => ({ l: String(ed.l || name), f: ed.f, t: ed.t || ed.f, w: String(ed.w || ''), s: ed.s === 'p' ? 'p' : 'o' })) : [];
+};
+
+// every day of one edition tapped on one post (All In)
+const rkCoversEditionIn = (catalog, e) => {
+    if (!e || !Array.isArray(e.days) || !e.days.length) return false;
+    const have = new Set(e.days);
+    return rkFestAllIn(catalog, e.name).some(ed => { const ds = rkDaysBetween(ed.f, ed.t); return ds.length > 0 && ds.every(d => have.has(d)); });
+};
+
+// Everyone your friends are friends with, by how many of your friends link you: your network. `friend` marks
+// the ones who are already your friends.
+const rkFriendsOfFriends = (myFriendDocs, meUid, myFriendIds) => {
+    const mine = new Set(myFriendIds || []), tally = {};
+    (myFriendDocs || []).forEach(f => {
+        if (!f || f.hideMutuals) return;
+        (f.friends || []).forEach(g => {
+            if (!g || g === meUid) return;
+            const e = tally[g] || (tally[g] = { id: g, n: 0, via: [], friend: mine.has(g) });
+            e.n++;
+            if (e.via.length < 6) e.via.push(f);
+        });
+    });
+    return Object.values(tally).sort((a, b) => b.n - a.n);
+};
+
+const rkVipGiftAllotment = (refs) => refs >= 50 ? 20 : refs >= 25 ? 10 : refs >= 10 ? 5 : refs >= 5 ? 3 : refs >= 1 ? 1 : 0;
+
+// ---- V90.85.150.325: THE STATS ENGINE (Milli, at 323: "No user should be able to edit tracked statistics") ----
+// The server (functions/rk_stats.js) counts these from the documents themselves and is the only one that can save
+// them; the app shows them. Both use these functions, so the two always agree.
+
+// The daily allowances, per UTC day: they reset at midnight UTC, like the referral cap and the Design Lab. `video`
+// is the featured festival clip (videoMaxDaily, set by an admin, replaces it for one raver).
+const RK_DAILY = { banner: 5, boost: 3, video: 4 };
+// how many of today's `kind` ('banner', 'boost', 'video') a raver has used: {kind}Day is the UTC day, {kind}CountToday the count
+const rkDayUsed = (p, kind, day) => (p && p[kind + 'Day'] === (day || rkUtcDay())) ? (Number(p[kind + 'CountToday']) || 0) : 0;
+const rkDayMax = (p, kind) => (kind === 'video' && typeof (p && p.videoMaxDaily) === 'number' && p.videoMaxDaily >= 0) ? p.videoMaxDaily : RK_DAILY[kind];
+// the banner windows: 15 minutes each. The current one when it's free (the rest of it, plus the next one when that is
+// free too), otherwise the next free one. `taken` is a Set of the window starts already booked.
+const RK_BANNER_MS = 900000;
+const rkBannerWindows = (now, taken) => {
+    const cur = Math.floor(now / RK_BANNER_MS) * RK_BANNER_MS;
+    if (!taken.has(cur)) return taken.has(cur + RK_BANNER_MS) ? [cur] : [cur, cur + RK_BANNER_MS];
+    let s = cur + RK_BANNER_MS;
+    while (taken.has(s)) s += RK_BANNER_MS;
+    return [s];
+};
+// boosts: an hour each, starting on the next full hour, 5 lanes an hour
+const RK_BOOST_MS = 3600000;
+const RK_BOOST_LANES = 5;
+// featured clips: the admin's window length (VIDEO_WINDOW_CHOICES, in minutes), always a full window, the next free one
+const RK_VIDEO_WINDOWS = [1, 5, 10, 15, 30, 45, 60];
+const rkVideoWindowMs = (min) => (RK_VIDEO_WINDOWS.includes(min) ? min : 30) * 60000;
+
+// Creator points: the formula the rules check (pointsOk).
+const rkCreatorPoints = (p) => (p && p.isKandiCreator) ? Math.round((Number(p.itemsSold) || 0) * 5 + (Number(p.totalSalesValue) || 0) * 0.5 + (Number(p.totalLikes) || 0) + (Number(p.completedTrades) || 0) * 3) : 0;
+// The average rating x100 (an integer the leaderboard can sort by), and how many ratings it's from.
+const rkAvgX100 = (p) => { const c = Number(p && p.ratingCount) || 0; return c > 0 ? Math.round((Number(p.ratingSum) || 0) / c * 100) : 0; };
+
+// What a raver's own posts add up to: listings (Kandi Collector), likes and comments received (Crowd Favorite,
+// Conversation Starter), festivals dated (Festival Planner), festivals with days tapped (Day Picker), and a post with
+// every day of an edition (All In). `catalog` is the festival dates: RK_FEST_DATES with global/config's festDates.
+const rkPostStats = (posts, uid, catalog) => {
+    let itemsListed = 0, totalLikes = 0, totalComments = 0, festAllDays = 0;
+    const fests = new Set(), picked = new Set();
+    (posts || []).forEach(i => {
+        if (!i || i.ownerId !== uid) return;
+        const e = rkEventOf(i);
+        if (e && e.from) fests.add(rkEventKey(e.name));
+        if (e && e.days && e.days.length) { picked.add(rkEventKey(e.name)); if (!festAllDays && rkCoversEditionIn(catalog, e)) festAllDays = 1; }
+        const likes = Array.isArray(i.likes) ? i.likes : [];
+        totalLikes += likes.filter(x => x !== uid).length;
+        totalComments += rkCommentCount(i);
+        if (!i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept) itemsListed++;
+    });
+    return { itemsListed, totalLikes, totalComments, festivalsDated: fests.size, festDaysPicked: picked.size, festAllDays };
+};
+// Likes given on other ravers' posts (half of Vibe Spreader and Social Butterfly; comments posted are the other half).
+const rkLikesGiven = (posts, uid) => (posts || []).filter(i => i && i.ownerId !== uid && Array.isArray(i.likes) && i.likes.includes(uid)).length;
+// Tribes: how many, the biggest, and the ravers this one invited who were voted in (Welcome Committee, Talent Scout).
+const rkTribeStats = (tribes, uid) => {
+    let tribesJoined = 0, biggestTribe = 0, tribeInvitesPassed = 0;
+    (tribes || []).forEach(t => {
+        if (!t || !Array.isArray(t.members) || !t.members.includes(uid)) return;
+        tribesJoined++;
+        biggestTribe = Math.max(biggestTribe, Number(t.memberCount) || t.members.length);
+        tribeInvitesPassed += Object.values(t.memberInvitedBy || {}).filter(v => v === uid).length;
+    });
+    return { tribesJoined, biggestTribe, tribeInvitesPassed };
+};
+// Network reach (Friend of a Friend, Six Degrees): the ravers your friends connect you to who aren't your friends yet.
+const rkNetworkReach = (friendDocs, uid, friendIds) => rkFriendsOfFriends(friendDocs, uid, friendIds).filter(e => !e.friend).length;
+// The counts that only ever go up (high-water marks): a deleted post or a withdrawn like never takes an
+// achievement back.
+const RK_HIGH_WATER = ['itemsListed', 'totalLikes', 'totalComments', 'festivalsDated', 'festDaysPicked', 'festAllDays', 'socialInteractions',
+    'completedTrades', 'tribesJoined', 'biggestTribe', 'tribeInvitesPassed', 'networkReach'];
+
+// VIP. A plan with an end date counts until then; the permanent kinds (launch founder, 80% of the achievements, a
+// gift, lifetime) never end.
+const rkVipForever = (p) => !!(p && (p.vipPermanent || p.lifetimeVipGranted || p.achFreeVip || p.vipPlan === 'lifetime'));
+const rkVipLapsed = (p, now) => !!(p && p.isVIP && !rkVipForever(p) && Number(p.vipExpires) > 0 && Number(p.vipExpires) <= (now || Date.now()));
+const rkIsVipAt = (p, perks, now) => !!(perks || (p && p.isVIP && !rkVipLapsed(p, now)));
+// Rating VIP: 4.5 stars or more from at least 5 rated orders earns VIP for the month (after launch perks).
+const RK_RATING_VIP_MIN = 5;
+const rkRatingQualifies = (p) => { const c = Number(p && p.ratingCount) || 0; return c >= RK_RATING_VIP_MIN && (Number(p.ratingSum) || 0) / c >= 4.5; };
+const rkMonthKey = (t) => { const d = new Date(t || Date.now()); return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1); };
+const rkNextMonthStart = (t) => { const d = new Date(t || Date.now()); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); };
+// The share of the core achievements (not the RevShare ranks) that earns permanent free VIP.
+const RK_FREE_VIP_SHARE = 0.8;
+const rkFreeVipNeed = () => Math.ceil(RK_ACH_DEFS.filter(a => !a.rank).length * RK_FREE_VIP_SHARE);
+
+// ---- what the app imports (the functions copy ends with module.exports instead) ----
+export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed };
+RKSHAREDEOF
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -548,6 +1216,8 @@ import { getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence, i
 import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, addDoc as rkFsAddDoc, updateDoc as rkFsUpdateDoc, setDoc as rkFsSetDoc, deleteDoc, arrayUnion, arrayRemove, where, getDoc, getDocs, getDocFromServer, orderBy, limit, increment, runTransaction as rkFsRunTransaction, writeBatch as rkFsWriteBatch, deleteField, startAfter, documentId, getCountFromServer } from 'firebase/firestore';
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
+// V90.85.150.325: what the app and the server both apply (achievements, rates, festival dates, link checks)
+import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed } from './rkShared';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -710,44 +1380,9 @@ const adminBanUser = async (uid, name, durationMs, label) => {
 //
 // Matching on time + author + text is stable across all of that, and the result is verified
 // against the array length so a miss reports honestly instead of pretending.
-// V67: total comments on an item = legacy array + subcollection.
-// commentCount is maintained on the item at write time. A per-card read would mean one extra
-// query per card on every feed render; one extra write per comment is far cheaper, and the
-// fallback keeps posts that predate the counter showing the right number.
-const rkCommentCount = (i) => {
-    if (!i) return 0;
-    const legacy = (i.comments || []).length;
-    const live = typeof i.commentCount === 'number' ? i.commentCount : 0;
-    return legacy + live;
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 
-// V70 — REFERRAL CAPS.
-//
-// Daily ceilings on how many referrals one account can bank, because the rewards are permanent
-// and an uncapped referral system is an invitation to farm it with throwaway accounts.
-//
-// The window is fixed 24h UTC rather than rolling — a rolling window means the limit resets a
-// little at a time and someone patient can trickle past it all day. A hard midnight reset is also
-// something a user can understand and predict, which a rolling one is not.
-//
-// Creators scale with their VERIFIED following (the admin-approved figure from Build 208, never
-// the self-reported one): a raver with a real audience legitimately brings more people.
-const RK_REF_CAPS = { creator: 500, vip: 150, standard: 60 };
-const RK_REF_CREATOR_CEILING = 5000;
-const RK_REF_PER_FOLLOWERS = 200;   // +1 daily referral per this many approved followers
-
-const rkUtcDay = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
-
-const rkReferralCap = (p) => {
-    if (!p) return RK_REF_CAPS.standard;
-    const isCreator = !!(p.isKandiCreator || p.isMusicCreator || p.isContentCreator);
-    if (isCreator) {
-        const bonus = Math.floor((Number(p.approvedFollowers) || 0) / RK_REF_PER_FOLLOWERS);
-        return Math.min(RK_REF_CREATOR_CEILING, RK_REF_CAPS.creator + bonus);
-    }
-    if (p.isVIP) return RK_REF_CAPS.vip;
-    return RK_REF_CAPS.standard;
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 
 // Today's count, reset lazily. Storing the day alongside the counter means no scheduled job is
 // needed — a stale day simply reads as zero.
@@ -836,7 +1471,7 @@ const GEMINI_API_KEY = "AIzaSyBVM6ot4YUYk4RpD4AgAymh4PuDczwJSh0";
 // The maker's time is now the profit. 1.15 covers consumables, breakage and listing fees —
 // the things a flat materials figure misses — rather than a second markup.
 const PROFIT_MARGIN = 1.15;
-const COMMISSION_RATE = 0.20;
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 const KANDI_TYPES = [
     'Anklet', 'Arm Sleeves', 'Bag / Purse', 'Bead Supplies', 'Beaded Ring', 'Beaded Watch', 'Beanie', 'Belt', 'Bodysuit', 'Boot Covers', 'Bra / Top', 'Bucket Hat', 'Charm Bracelet', 'Charms (loose)', 'Choker', 'Cuff', 'Custom Commission', 'Earrings', 'Full Outfit / Set', 'Gloves / Fluffies', 'Goggles', 'Hair Clip / Accessory', 'Harness', 'Hat / Cap', 'Hood', 'Keychain', 'Leg Warmers', 'Mask', 'Multi-Bead Set', 'Necklace', 'Pacifier / Bottle', 'Pashmina', 'Pasties', 'Patch', 'Perler / Fuse Art', 'Pin / Button', 'Shorts / Bottoms', 'Single (Bracelet)', 'String / Cord', 'Sunglasses / Shades', 'Tutu / Skirt', 'Wings', 'Other'
 ];
@@ -946,14 +1581,9 @@ const cmpVer = (a, b) => { const pa = String(a).replace(/^V/i, '').split('.').ma
 // V42.12: launch perks — while RK_CFG.launchPerks is ON, every raver is treated
 // as VIP and seller commission drops by 10 points (20% → 10%). Admin toggles it
 // off in Remote Config at full release; paid plans then resume.
-const isEffVIP = (profile) => !!(profile?.isVIP || RK_CFG.launchPerks);
-const effCommissionRate = (base, lockedRate) => {
-    const b = (base === null || base === undefined) ? COMMISSION_RATE : base;
-    const live = RK_CFG.launchPerks ? Math.max(0, b - 0.10) : b; // current period rate
-    // Permanent launch lock-in: a user granted lockedCommissionRate never pays more than it.
-    if (lockedRate !== null && lockedRate !== undefined && !isNaN(lockedRate)) return Math.min(live, lockedRate);
-    return live;
-};
+// V90.85.150.325: a plan with an end date counts until then (rkIsVipAt). The server sets isVIP itself, and ends the plan.
+const isEffVIP = (profile) => rkIsVipAt(profile, RK_CFG.launchPerks);
+const effCommissionRate = (base, lockedRate) => rkEffRate(base, lockedRate, RK_CFG.launchPerks);
 // V42.12: iOS-in-browser detection for the Add-to-Home-Screen guide
 const IS_IOS_BROWSER = (() => { try { const ua = navigator.userAgent || ''; const ios = /iphone|ipad|ipod/i.test(ua); const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; return ios && !standalone; } catch (e) { return false; } })();
 // V42.16: true when running in a normal browser tab (NOT the installed home-screen app).
@@ -1313,92 +1943,7 @@ const TRADE_CATEGORIES = ['Kandi', 'Clothing', 'Accessories', 'Plushies', 'Pins/
 // any custom event; this list just speeds up the common ones. Alphabetized for easy scanning.
 // V89.85.150.324 (Milli: "set a character limit for post name"): a post's name, at most this many characters.
 const RK_POST_NAME_MAX = 60;
-// V89.85.150.324: THE FESTIVALS' ANNOUNCED DATES (see RkEventPicker). Every edition ending on or after 8 Nov 2026
-// whose dates were announced by then; s: 'o' from the festival's or promoter's own announcement, 'p' from the press.
-// A festival missing here has no dates announced yet. Refreshed every build; an admin can correct one without a build
-// (global/config, festDates, the same shape).
-const RK_FEST_DATES = {
-    "beyond wonderland": [
-        { l: "Beyond Wonderland SoCal 2027", f: '2027-03-26', t: '2027-03-27', w: "San Bernardino, CA, NOS Events Center", s: 'p' },
-        { l: "Beyond Wonderland Midwest 2027", f: '2027-06-11', t: '2027-06-13', w: "Joliet, IL, Chicagoland Speedway", s: 'o' },
-        { l: "Beyond Wonderland at The Gorge 2027", f: '2027-06-26', t: '2027-06-27', w: "George, WA, The Gorge Amphitheatre", s: 'o' },
-    ],
-    "coachella": [
-        { l: "Coachella 2027 Weekend 1", f: '2027-04-09', t: '2027-04-11', w: "Indio, CA, Empire Polo Club", s: 'p' },
-        { l: "Coachella 2027 Weekend 2", f: '2027-04-16', t: '2027-04-18', w: "Indio, CA, Empire Polo Club", s: 'p' },
-    ],
-    "countdown nye": [
-        { l: "Countdown NYE 2026", f: '2026-12-31', t: '2027-01-01', w: "San Bernardino, CA, NOS Events Center", s: 'o' },
-    ],
-    "decadence": [
-        { l: "Decadence Arizona 2026", f: '2026-12-30', t: '2026-12-31', w: "Avondale, AZ, Phoenix Raceway", s: 'p' },
-        { l: "Decadence Colorado 2026", f: '2026-12-30', t: '2026-12-31', w: "Denver, CO, Colorado Convention Center", s: 'p' },
-    ],
-    "dreamstate": [
-        { l: "Dreamstate Southern California 2026", f: '2026-11-20', t: '2026-11-21', w: "Long Beach, CA, Queen Mary Waterfront", s: 'o' },
-        { l: "Dreamstate Vancouver (November 2026)", f: '2026-11-28', t: '2026-11-28', w: "Vancouver, BC, Canada", s: 'o' },
-        { l: "Dreamstate Sydney 2027", f: '2027-02-06', t: '2027-02-06', w: "Sydney, Australia, Sydney Showground", s: 'o' },
-        { l: "Dreamstate Melbourne 2027", f: '2027-02-07', t: '2027-02-07', w: "Melbourne, Australia, Flemington Racecourse", s: 'o' },
-    ],
-    "edc las vegas": [
-        { l: "EDC Las Vegas 2027 Weekend 1 (EDC Dusk)", f: '2027-05-14', t: '2027-05-16', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
-        { l: "EDC Las Vegas 2027 Weekend 2 (EDC Dawn)", f: '2027-05-21', t: '2027-05-23', w: "Las Vegas, NV, Las Vegas Motor Speedway", s: 'p' },
-    ],
-    "edc mexico": [
-        { l: "EDC Mexico 2027", f: '2027-02-19', t: '2027-02-21', w: "Mexico City, Autódromo Hermanos Rodríguez", s: 'o' },
-    ],
-    "edc orlando": [
-        { l: "EDC Orlando 2026", f: '2026-11-06', t: '2026-11-08', w: "Orlando, FL, Tinker Field", s: 'p' },
-    ],
-    "electric daisy carnival": [
-        { l: "EDC China 2026: Circuit Dreams Guangzhou", f: '2026-11-21', t: '2026-11-21', w: "Guangzhou, China, Guangzhou New Gateway Music Park (Baiyun District)", s: 'p' },
-        { l: "EDC Thailand 2026 (December edition)", f: '2026-12-18', t: '2026-12-20', w: "Phuket, Thailand, Rhythm Park", s: 'o' },
-    ],
-    "forbidden kingdom": [
-        { l: "Forbidden Kingdom 2027", f: '2027-04-23', t: '2027-04-25', w: "Orlando, FL, Central Florida Fairgrounds", s: 'o' },
-    ],
-    "groove cruise": [
-        { l: "Groove Cruise Miami 2027", f: '2027-01-21', t: '2027-01-25', w: "Miami, FL (round trip), Allure of the Seas", s: 'o' },
-    ],
-    "lightning in a bottle": [
-        { l: "Lightning in a Bottle 2027", f: '2027-05-26', t: '2027-05-30', w: "Buena Vista Lake (near Bakersfield), CA", s: 'p' },
-    ],
-    "lollapalooza": [
-        { l: "Lollapalooza India 2027", f: '2027-01-23', t: '2027-01-24', w: "Mumbai, India, Mahalaxmi Racecourse", s: 'p' },
-        { l: "Lollapalooza Argentina 2027", f: '2027-03-12', t: '2027-03-14', w: "San Isidro (Buenos Aires), Argentina, Hipódromo de San Isidro", s: 'p' },
-        { l: "Lollapalooza Chile 2027", f: '2027-03-12', t: '2027-03-14', w: "Santiago, Chile, Parque O'Higgins", s: 'p' },
-        { l: "Lollapalooza Brasil 2027", f: '2027-03-19', t: '2027-03-21', w: "São Paulo, Brazil, Autódromo de Interlagos", s: 'p' },
-    ],
-    "mysteryland": [
-        { l: "Mysteryland 2027", f: '2027-08-27', t: '2027-08-29', w: "Netherlands", s: 'p' },
-    ],
-    "project glow": [
-        { l: "Project GLOW 2027", f: '2027-06-05', t: '2027-06-06', w: "Washington, DC", s: 'p' },
-    ],
-    "shambhala": [
-        { l: "Shambhala Music Festival 2027", f: '2027-07-23', t: '2027-07-26', w: "Salmo, BC, Canada, Salmo River Ranch", s: 'o' },
-    ],
-    "sunset music festival": [
-        { l: "Sunset On The River 2027 (formerly Sunset Music Festival)", f: '2027-02-20', t: '2027-02-21', w: "Tampa, FL, Julian B. Lane Riverfront Park", s: 'p' },
-    ],
-    "tomorrowland": [
-        { l: "Tomorrowland Thailand 2026", f: '2026-12-11', t: '2026-12-13', w: "Pattaya, Thailand, Wisdom Valley", s: 'p' },
-        { l: "Tomorrowland Winter 2027", f: '2027-03-20', t: '2027-03-27', w: "Alpe d'Huez, France, Alpe d'Huez ski resort", s: 'p' },
-        { l: "Tomorrowland Brasil 2027", f: '2027-04-30', t: '2027-05-02', w: "Brazil", s: 'p' },
-    ],
-    "ultra music festival": [
-        { l: "ULTRA Mexico 2026", f: '2026-11-07', t: '2026-11-08', w: "Mexico City, Mexico", s: 'o' },
-        { l: "ULTRA Taiwan 2026", f: '2026-11-14', t: '2026-11-14', w: "Taipei, Taiwan", s: 'o' },
-        { l: "Ultra Music Festival Miami 2027", f: '2027-03-26', t: '2027-03-28', w: "Miami, FL, Bayfront Park", s: 'o' },
-        { l: "ULTRA Argentina 2027", f: '2027-04-02', t: '2027-04-03', w: "Buenos Aires, Argentina", s: 'o' },
-        { l: "ULTRA South Africa 2027 (Cape Town)", f: '2027-04-30', t: '2027-04-30', w: "Cape Town, South Africa, The Ostrich", s: 'p' },
-        { l: "ULTRA South Africa 2027 (Johannesburg)", f: '2027-05-01', t: '2027-05-01', w: "Johannesburg, South Africa", s: 'o' },
-        { l: "ULTRA Europe 2027", f: '2027-07-09', t: '2027-07-11', w: "Split, Croatia", s: 'o' },
-    ],
-    "untold festival": [
-        { l: "UNTOLD 2027 (Star Edition)", f: '2027-08-05', t: '2027-08-08', w: "Cluj-Napoca, Romania", s: 'p' },
-    ],
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 const MAJOR_EVENTS = [
     'Audiotistic', 'Beyond Wonderland', 'Bonnaroo', 'Bass Canyon', 'Buku Music + Art Project', 'Camp Bisco', 'CRSSD Festival',
     'Coachella', 'Countdown NYE', 'Decadence', 'Dreamstate', 'EDC Las Vegas', 'EDC Mexico', 'EDC Orlando', 'EZoo (Electric Zoo)',
@@ -1591,7 +2136,7 @@ const DEFAULT_INVENTORY = [
 // fallback is a last resort, never "undefined".
 const rkMqNamed = (u) => !!(u && typeof u.displayName === 'string' && u.displayName.trim());
 const rkMqName = (u) => (rkMqNamed(u) ? u.displayName.trim() : 'Raver');
-const NOTIFICATION_TYPES = [{ id: 'promos', label: 'Promos' }, { id: 'app_updates', label: 'App Updates' }, { id: 'merch', label: 'Merch Drops' }, { id: 'discounts', label: 'Discounts' }, { id: 'projects', label: 'Project Updates' }];
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V65.19 DIFFICULTY SYSTEM — every achievement gets a difficulty (1 Easy → 5 Legendary).
 // Defaults come from the achievement's tier; RK_ACH_DIFF_OVERRIDES pins specific ones.
 // Rewards: each completed achievement permanently trims the owner's commission a sliver —
@@ -1603,156 +2148,12 @@ const RK_DIFF_META = [null,
     { n: 'EPIC', c: '#ffb36b', glow: 'rgba(255,179,107,0.65)', fx: 'rk-ach-shift rk-ach-sparkle' },
     { n: 'LEGENDARY', c: '#ff7fd1', glow: 'rgba(255,127,209,0.75)', fx: 'rk-ach-legend' },
 ];
-const RK_ACH_COMM_CUT = [0, 0.0005, 0.001, 0.002, 0.0035, 0.005];   // 0.05% … 0.5% per achievement
-const RK_ACH_REF_ADD = [0, 0.001, 0.002, 0.004, 0.007, 0.01];        // referral-type achievements
-// V84.152 (310): the key was 'notifs_full'; the achievement's id is 'notif_all', so the override never applied.
-const RK_ACH_DIFF_OVERRIDES = { contact_full: 1, notif_all: 1, ach_5: 1, ach_15: 3, kandi_creator: 3 };
-const rkAchDiff = (a) => RK_ACH_DIFF_OVERRIDES[a.id] || a.diff || Math.min(5, (a.tier || 1) + 1);
-const rkAchIsReferral = (a) => /refer/i.test(String(a.metric || '') + String(a.id || ''));
-const rkAchBonuses = (unlockedList) => {
-    let comm = 0, ref = 0;
-    (unlockedList || []).forEach(a => { const d = rkAchDiff(a); if (rkAchIsReferral(a)) ref += RK_ACH_REF_ADD[d]; else comm += RK_ACH_COMM_CUT[d]; });
-    return { comm: Math.min(0.05, comm), ref: Math.min(0.05, ref) };   // caps: 5% commission trim, 5% referral add
-};
-// V42.10: launch rework — RevShare now pays up to 25% of the app's commission.
-// V84.77.150.311: moved up from below the achievement list, because that list now builds one rank
-// achievement per tier and a const cannot be read before its line runs. Each tier also gains a
-// `hex`, so its badge can glow in the tier's own colour. Dark Matter's text was grey, which is hard
-// to read on this theme; it is violet now.
-const REFERRAL_TIERS = [
-    { min: 1, max: 4, badge: 'Neon Pink', sharePct: 2, color: 'text-pink-500', hex: '#ff6ec7' },
-    { min: 5, max: 9, badge: 'Slime Green', sharePct: 3.5, color: 'text-lime-400', hex: '#a3e635' },
-    { min: 10, max: 24, badge: 'Liquid Metal', sharePct: 5, color: 'text-cyan-400', hex: '#67e8f9' },
-    { min: 25, max: 49, badge: 'Holographic', sharePct: 7, color: 'text-purple-400', hex: '#c084fc' },
-    { min: 50, max: 99, badge: 'Laser Core', sharePct: 9, color: 'text-yellow-400', hex: '#facc15' },
-    { min: 100, max: 249, badge: 'Plasma', sharePct: 11.5, color: 'text-red-500', hex: '#ff5d73' },
-    { min: 250, max: 499, badge: 'Supernova', sharePct: 14, color: 'text-orange-400', hex: '#fb923c' },
-    { min: 500, max: 999, badge: 'Dark Matter', sharePct: 17, color: 'text-violet-300', hex: '#b9a7ff' },
-    { min: 1000, max: 2499, badge: 'PLUR God', sharePct: 20, color: 'text-white', hex: '#ffffff' },
-    { min: 2500, max: 4999, badge: 'Cosmic Forge', sharePct: 22.5, color: 'text-fuchsia-400', hex: '#e879f9' },
-    { min: 5000, max: 999999, badge: 'Eternal Rave', sharePct: 25, color: 'text-amber-300', hex: '#fcd34d' }
-];
-export const getReferralTier = (count) => { return REFERRAL_TIERS.find(t => count >= t.min && count <= t.max) || { badge: 'None', sharePct: 0, color: 'text-white/30' }; };
-// V84.77.150.311: RANKS. Every RevShare tier is now an achievement and a badge (your request at
-// 310). The rank number, 1 to 11, sets the badge's look (rkRankStyle) and the achievement's
-// difficulty, and the difficulty sets its reward. Like every referral achievement, a rank adds to
-// the referral share rather than trimming the commission. Ranks are a bonus track: they do not
-// count toward the 80% free-VIP goal, so adding eleven of them did not move that goal.
-const rkRankOf = (refs) => { const n = Number(refs) || 0; let r = 0; REFERRAL_TIERS.forEach((t, i) => { if (n >= t.min) r = i + 1; }); return r; };
-const RK_RANK_DIFF = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5];
-const RK_RANK_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
-const RK_RANK_ACHS = REFERRAL_TIERS.map((t, i) => ({
-    id: 'rank_' + t.badge.toLowerCase().replace(/[^a-z0-9]+/g, '_'), name: t.badge + ' Rank', tier: 1,
-    rank: i + 1, diff: RK_RANK_DIFF[i], metric: 'referrals', threshold: t.min,
-    icon: i >= 8 ? Crown : i >= 4 ? Zap : Award,
-    desc: 'RevShare rank ' + RK_RANK_ROMAN[i] + ': refer ' + t.min.toLocaleString() + ' raver' + (t.min === 1 ? '' : 's') + '. Pays ' + t.sharePct + '% of the commission on everything they buy, and unlocks the ' + t.badge + ' badge.'
-}));
-const ACHIEVEMENT_TIERS = [
-    // Creator / status
-    { id: 'kandi_creator', name: 'Official Creator', tier: 1, metric: 'isKandiCreator', threshold: 1, icon: Hammer, desc: "Get approved as a Verified Creator." },
-    { id: 'top_creator', name: 'Crowned Creator', tier: 1, metric: 'topCreatorUnlocked', threshold: 1, icon: Crown, desc: "Reach #1 on the Creator Points leaderboard. The badge is yours forever." },
-    // Listing / collection
-    { id: 'collector_1', name: 'Kandi Collector', tier: 1, metric: 'totalItems', threshold: 5, icon: Package, desc: "List 5 unique Kandi items." },
-    { id: 'collector_2', name: 'Kandi Curator', tier: 1, metric: 'totalItems', threshold: 25, icon: Package, desc: "List 25 unique Kandi items." },
-    { id: 'collector_3', name: 'Kandi Hoarder', tier: 1, metric: 'totalItems', threshold: 100, icon: Package, desc: "List 100 unique Kandi items." },
-    // Sales value
-    { id: 'sales_1', name: 'Hustler (Iron)', tier: 1, metric: 'totalSalesValue', threshold: 100, icon: DollarSign, desc: "Reach $100 in total sales." },
-    { id: 'sales_2', name: 'Hustler (Bronze)', tier: 1, metric: 'totalSalesValue', threshold: 500, icon: DollarSign, desc: "Reach $500 in total sales." },
-    { id: 'sales_3', name: 'Hustler (Silver)', tier: 1, metric: 'totalSalesValue', threshold: 1000, icon: DollarSign, desc: "Reach $1,000 in total sales." },
-    { id: 'sales_4', name: 'Hustler (Gold)', tier: 1, metric: 'totalSalesValue', threshold: 5000, icon: DollarSign, desc: "Reach $5,000 in total sales." },
-    { id: 'sales_5', name: 'Kandi Tycoon', tier: 1, metric: 'totalSalesValue', threshold: 10000, icon: TrendingUp, desc: "Reach $10,000 in total sales." },
-    // Items sold (count)
-    { id: 'sold_1', name: 'First Sale', tier: 1, metric: 'itemsSold', threshold: 1, icon: Tag, desc: "Sell your very first item." },
-    { id: 'sold_2', name: 'Shopkeeper', tier: 1, metric: 'itemsSold', threshold: 25, icon: Tag, desc: "Sell 25 items." },
-    { id: 'sold_3', name: 'Kandi Merchant', tier: 1, metric: 'itemsSold', threshold: 100, icon: Tag, desc: "Sell 100 items." },
-    // Buying
-    { id: 'buy_1', name: 'First Haul', tier: 1, metric: 'itemsBought', threshold: 1, icon: ShoppingBag, desc: "Buy your first item." },
-    { id: 'buy_2', name: 'Supporter', tier: 1, metric: 'itemsBought', threshold: 10, icon: ShoppingBag, desc: "Buy 10 items from the community." },
-    { id: 'buy_3', name: 'Patron of PLUR', tier: 1, metric: 'itemsBought', threshold: 50, icon: ShoppingBag, desc: "Buy 50 items." },
-    { id: 'spent_1', name: 'Big Spender', tier: 1, metric: 'totalBoughtValue', threshold: 500, icon: CreditCard, desc: "Spend $500 supporting other ravers." },
-    // Likes / comments / social
-    { id: 'social_1', name: 'Vibe Spreader', tier: 1, metric: 'socialInteractions', threshold: 10, icon: MessageSquare, desc: "Interact with the community 10 times." },
-    { id: 'social_2', name: 'Social Butterfly', tier: 1, metric: 'socialInteractions', threshold: 50, icon: MessageSquare, desc: "Interact with the community 50 times." },
-    { id: 'likes_1', name: 'Crowd Favorite', tier: 1, metric: 'totalLikes', threshold: 25, icon: Heart, desc: "Receive 25 likes across your posts." },
-    { id: 'likes_2', name: 'Kandi Famous', tier: 1, metric: 'totalLikes', threshold: 100, icon: Heart, desc: "Receive 100 likes across your posts." },
-    { id: 'comments_1', name: 'Conversation Starter', tier: 1, metric: 'totalComments', threshold: 25, icon: MessageSquare, desc: "Receive 25 comments across your posts." },
-    // Referrals
-    { id: 'ref_1', name: 'PLUR Ambassador', tier: 1, metric: 'referrals', threshold: 1, icon: Users, desc: "Bring 1 new friend to RaveKandi." },
-    { id: 'biolink', name: 'Link in Bio Hero', tier: 1, metric: 'bioLinkAdded', threshold: 1, icon: Link, desc: "Add your RaveKandi invite link to your social bio." },
-    { id: 'ref_2', name: 'Recruiter', tier: 1, metric: 'referrals', threshold: 10, icon: Users, desc: "Refer 10 ravers." },
-    { id: 'ref_3', name: 'Rave Evangelist', tier: 1, metric: 'referrals', threshold: 50, icon: Users, desc: "Refer 50 ravers." },
-    // V84.77.150.311: the eleven RevShare ranks, Neon Pink to Eternal Rave (RK_RANK_ACHS above).
-    ...RK_RANK_ACHS,
-    // Trades
-    { id: 'trade_1', name: 'Trader', tier: 1, metric: 'completedTrades', threshold: 1, icon: Gift, desc: "Complete your first trade." },
-    { id: 'trade_2', name: 'Trade Master', tier: 1, metric: 'completedTrades', threshold: 25, icon: Gift, desc: "Complete 25 trades." },
-    // Radio listening
-    { id: 'radio_1', name: 'Tuned In', tier: 1, metric: 'radioMinutes', threshold: 60, icon: Radio, desc: "Listen to Rave Radio for 1 hour." },
-    { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, icon: Radio, desc: "Listen to Rave Radio for 10 hours." },
-    // Vibe Tribe — friends
-    { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, icon: UserPlus, desc: "Add your first friend." },
-    { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, icon: Users, desc: "Reach 5 friends." },
-    { id: 'friend_3', name: 'Social Butterfly', tier: 2, metric: 'friendsCount', threshold: 25, icon: Users, desc: "Reach 25 friends." },
-    { id: 'friend_4', name: 'PLUR Network', tier: 3, metric: 'friendsCount', threshold: 100, icon: Users, desc: "Reach 100 friends." },
-    // Vibe Tribe — tribes & chat
-    { id: 'tribe_1', name: 'Tribe Founder', tier: 1, metric: 'tribesJoined', threshold: 1, icon: Star, desc: "Create or join your first Vibe Tribe." },
-    { id: 'tribe_3', name: 'Multi-Tribe', tier: 2, metric: 'tribesJoined', threshold: 3, icon: Star, desc: "Be part of 3 Vibe Tribes at once." },
-    { id: 'tribe_big_5', name: 'Growing Tribe', tier: 2, metric: 'biggestTribe', threshold: 5, icon: Users, desc: "Be in a tribe with 5+ members." },
-    { id: 'tribe_big_10', name: 'Massive Movement', tier: 3, metric: 'biggestTribe', threshold: 10, icon: Users, desc: "Be in a tribe with 10+ members." },
-    { id: 'tribe_msg_50', name: 'Tribe Chatter', tier: 1, metric: 'tribeMessages', threshold: 50, icon: MessageSquare, desc: "Send 50 messages in tribe group chats." },
-    { id: 'tribe_msg_500', name: 'Tribe Voice', tier: 2, metric: 'tribeMessages', threshold: 500, icon: MessageSquare, desc: "Send 500 messages in tribe group chats." },
-    // Activity / loyalty
-    { id: 'active_1', name: 'Regular', tier: 1, metric: 'activeMinutes', threshold: 300, icon: Activity, desc: "Spend 5 active hours in the app." },
-    { id: 'active_2', name: 'Always Raving', tier: 1, metric: 'activeMinutes', threshold: 3000, icon: Activity, desc: "Spend 50 active hours in the app." },
-    // VIP features
-    { id: 'banner_5', name: 'Marquee Mogul', tier: 1, metric: 'bannerPosts', threshold: 5, icon: Zap, desc: "Post 5 banner messages on the live marquee." },
-    { id: 'boost_5', name: 'Spotlight Seeker', tier: 1, metric: 'boostsUsed', threshold: 5, icon: TrendingUp, desc: "Boost your posts 5 times." },
-    { id: 'video_1', name: 'Festival Filmmaker', tier: 1, metric: 'videosPosted', threshold: 1, icon: Video, desc: "Feature a festival clip in the Spotlight." },
-    { id: 'video_5', name: 'Content Creator', tier: 1, metric: 'videosPosted', threshold: 5, icon: Video, desc: "Feature 5 festival clips." },
-    // Music & Content Creators (V63.19)
-    { id: 'listens_1k', name: 'Underground Hit', tier: 1, metric: 'musicPlays', threshold: 1000, icon: Music, desc: "1,000 total listens on your music." },
-    { id: 'listens_10k', name: 'Local Legend', tier: 2, metric: 'musicPlays', threshold: 10000, icon: Music, desc: "10,000 total listens." },
-    { id: 'listens_100k', name: 'Chart Climber', tier: 3, metric: 'musicPlays', threshold: 100000, icon: Music, desc: "100,000 total listens." },
-    { id: 'listens_1m', name: 'Platinum Raver', tier: 4, metric: 'musicPlays', threshold: 1000000, icon: Music, desc: "1,000,000+ total listens." },
-    { id: 'dl_1k', name: 'First Pressing', tier: 1, metric: 'musicDownloads', threshold: 1000, icon: Download, desc: "1,000 track downloads." },
-    { id: 'dl_10k', name: 'Heavy Rotation', tier: 2, metric: 'musicDownloads', threshold: 10000, icon: Download, desc: "10,000 track downloads." },
-    { id: 'dl_100k', name: 'Distro Machine', tier: 3, metric: 'musicDownloads', threshold: 100000, icon: Download, desc: "100,000 track downloads." },
-    { id: 'dl_1m', name: 'Certified Banger', tier: 4, metric: 'musicDownloads', threshold: 1000000, icon: Download, desc: "1,000,000+ track downloads." },
-    { id: 'views_1k', name: 'Noticed', tier: 1, metric: 'contentViews', threshold: 1000, icon: Eye, desc: "1,000 showcase views." },
-    { id: 'views_10k', name: 'Trending', tier: 2, metric: 'contentViews', threshold: 10000, icon: Eye, desc: "10,000 showcase views." },
-    { id: 'views_100k', name: 'Going Viral', tier: 3, metric: 'contentViews', threshold: 100000, icon: Eye, desc: "100,000 showcase views." },
-    { id: 'views_1m', name: 'Scene Icon', tier: 4, metric: 'contentViews', threshold: 1000000, icon: Eye, desc: "1,000,000+ showcase views." },
-    { id: 'links_10', name: 'Curator', tier: 1, metric: 'linksAdded', threshold: 10, icon: Link, desc: "Add 10 tracks or showcase posts." },
-    { id: 'links_50', name: 'Archivist', tier: 2, metric: 'linksAdded', threshold: 50, icon: Link, desc: "Add 50 tracks or showcase posts." },
-    { id: 'links_250', name: 'Library Builder', tier: 3, metric: 'linksAdded', threshold: 250, icon: Link, desc: "Add 250 tracks or showcase posts." },
-    { id: 'links_1000', name: 'The Vault', tier: 4, metric: 'linksAdded', threshold: 1000, icon: Link, desc: "Add 1,000 tracks or showcase posts." },
-    // Meta
-    { id: 'ach_5', name: 'Achiever', tier: 1, metric: 'achievementsUnlocked', threshold: 5, icon: Award, desc: "Unlock 5 achievements." },
-    { id: 'ach_15', name: 'Completionist', tier: 1, metric: 'achievementsUnlocked', threshold: 15, icon: Award, desc: "Unlock 15 achievements." },
-    // V64.02: account-completeness
-    { id: 'contact_full', name: 'Fully Wired', tier: 1, metric: 'contactComplete', threshold: 1, icon: Smartphone, desc: "Add a phone number in Settings → Contact Info. The email you sign in with counts as your email." },
-    { id: 'notif_all', name: 'Full Signal', tier: 1, metric: 'notifsMaxed', threshold: 1, icon: Bell, desc: "Turn on every notification type for both Phone and Email in Settings → Notifications, then Save Changes." },
-    // V88.84.150.322 (Milli, at 322: "always add an achievement, banner item, etc when updating if its possible").
-    // Each trims the seller commission like the rest (rkAchBonuses), has its own emblem and a marquee line.
-    { id: 'vote_5', name: 'Civic Raver', tier: 1, metric: 'tribeVotesCast', threshold: 5, icon: CheckSquare, desc: "Answer 5 tribe votes, yes or no. Calling or proposing one counts." },
-    { id: 'vote_50', name: 'Tribe Council', tier: 2, metric: 'tribeVotesCast', threshold: 50, icon: CheckSquare, desc: "Answer 50 tribe votes." },
-    { id: 'fest_1', name: 'Festival Planner', tier: 1, metric: 'festivalsDated', threshold: 1, icon: Calendar, desc: "Post with a festival and the days you'll be there." },
-    { id: 'fest_5', name: 'Season Pass', tier: 2, metric: 'festivalsDated', threshold: 5, icon: Calendar, desc: "Post your days for 5 different festivals." },
-    { id: 'net_25', name: 'Friend of a Friend', tier: 1, metric: 'networkReach', threshold: 25, icon: UserPlus, desc: "Your friends' friends reach 25 ravers you haven't added yet." },
-    { id: 'net_250', name: 'Six Degrees', tier: 3, metric: 'networkReach', threshold: 250, icon: Users, desc: "Your friends' friends reach 250 ravers." },
-    { id: 'dig_25', name: 'Crate Digger', tier: 1, metric: 'tracksPlayed', threshold: 25, icon: Music, desc: "Play 25 tracks by other artists." },
-    { id: 'dig_250', name: 'Selector', tier: 2, metric: 'tracksPlayed', threshold: 250, icon: Radio, desc: "Play 250 tracks by other artists." },
-    // V89.84.150.323: for 323's features. Each trims the seller commission (rkAchBonuses), with its own emblem and a
-    // marquee line.
-    { id: 'install_app', name: 'Home Screen Hero', tier: 1, diff: 1, metric: 'installedApp', threshold: 1, icon: Smartphone, desc: "Open RaveKandi as an app: from your home screen, or the Android app. HELP → Get RaveKandi shows how." },
-    { id: 'vote_fast_10', name: 'Quick Draw', tier: 1, metric: 'tribeVotesFast', threshold: 10, icon: Zap, desc: "Answer 10 tribe votes, yes or no, within 12 hours of each one starting." },
-    { id: 'invite_1', name: 'Welcome Committee', tier: 1, metric: 'tribeInvitesPassed', threshold: 1, icon: UserPlus, desc: "Invite a raver into one of your tribes: they accept, and the members vote them in." },
-    // V89.85.150.324: for 324's festival days. Each trims the seller commission (rkAchBonuses), with its own emblem and a
-    // marquee line.
-    { id: 'fest_days_1', name: 'Day Picker', tier: 1, diff: 1, metric: 'festDaysPicked', threshold: 1, icon: Calendar, desc: "Post for a festival and tap the days you're going from its dates." },
-    { id: 'fest_all_days', name: 'All In', tier: 1, metric: 'festAllDays', threshold: 1, icon: Calendar, desc: "Tap every day of a festival's dates on one post." },
-    { id: 'invite_5', name: 'Talent Scout', tier: 2, metric: 'tribeInvitesPassed', threshold: 5, icon: Users, desc: "Bring 5 ravers into your tribes by invitation." },
-];
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
+// now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap };
+const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
 
 // V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
@@ -2292,102 +2693,8 @@ export const getIdleWindowHours = (price = 0, parts = 0) => {
     return h;
 };
 
-// V42.09: banner link safety — banners may only link to verified social platforms.
-// Structural checks block shorteners, redirect chains, IP hosts and embedded credentials.
-// (Following redirects isn't possible client-side, hence the strict allowlist approach.)
-const SAFE_SOCIAL_HOSTS = ['instagram.com','tiktok.com','twitter.com','x.com','youtube.com','youtu.be','facebook.com','twitch.tv','soundcloud.com','spotify.com','open.spotify.com','discord.gg','discord.com','linktr.ee','threads.net','snapchat.com','reddit.com','t.me','wa.me','radiate.app','onlyfans.com','fansly.com'];
-const BLOCKED_SHORTENERS = ['bit.ly','tinyurl.com','t.co','goo.gl','rb.gy','cutt.ly','is.gd','shorturl.at','ow.ly','rebrand.ly'];
-// V42.14: parse a festival-clip URL into an embeddable player.
-// Supports YouTube (incl. Shorts), TikTok, Instagram Reels/posts. No file
-// hosting — we embed the platform's own player, so nothing is stored on our end.
-const parseVideoLink = (raw) => {
-    try {
-        let s = (raw || '').trim();
-        if (!s) return { ok: false, reason: 'Paste a link to your clip first.' };
-        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
-        const u = new URL(s);
-        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
-        const host = u.hostname.toLowerCase().replace(/^www\./, '');
-
-        // YouTube (watch, youtu.be, shorts, embed)
-        if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com') {
-            let id = '';
-            if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
-            else if (u.pathname.startsWith('/shorts/')) id = u.pathname.split('/')[2];
-            else if (u.pathname.startsWith('/embed/')) id = u.pathname.split('/')[2];
-            else id = u.searchParams.get('v') || '';
-            if (!/^[A-Za-z0-9_-]{6,15}$/.test(id)) return { ok: false, reason: 'Could not read that YouTube video ID.' };
-            return { ok: true, platform: 'youtube', embedUrl: 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&mute=1&playsinline=1&rel=0', watchUrl: 'https://youtu.be/' + id };
-        }
-        // V65.07: Dropbox — direct-play video files for feed posts. Safety: https-only (checked
-        // above), domain locked to dropbox.com, and the filename extension is checked when the
-        // link exposes one. The share URL is rewritten to the direct-stream host so <video> plays it.
-        if (host === 'dropbox.com' || host === 'dl.dropbox.com' || host === 'dl.dropboxusercontent.com') {
-            const p = u.pathname;
-            const fname = decodeURIComponent(p.split('/').pop() || '');
-            const extOk = /\.(mp4|mov|m4v|webm)$/i.test(fname);
-            const extWarning = fname.indexOf('.') >= 0 && !extOk;
-            if (fname.indexOf('.') >= 0 && !extOk && !/\.(mp4|mov|m4v|webm)/i.test(fname)) {
-                if (/\.(exe|apk|zip|js|html|bat|sh|scr)$/i.test(fname)) return { ok: false, reason: 'That Dropbox link is not a video file.' };
-            }
-            u.searchParams.delete('dl'); u.searchParams.delete('raw');
-            const fileUrl = 'https://dl.dropboxusercontent.com' + p + (u.search ? u.search : '');
-            return { ok: true, platform: 'dropbox', fileUrl, watchUrl: s, extWarning };
-        }
-        // TikTok
-        if (host === 'tiktok.com' || host === 'vm.tiktok.com') {
-            const m = u.pathname.match(/\/video\/(\d+)/);
-            if (m) return { ok: true, platform: 'tiktok', embedUrl: 'https://www.tiktok.com/embed/v2/' + m[1], watchUrl: s };
-            // short vm.tiktok.com links can't be resolved client-side; accept as link-only
-            return { ok: true, platform: 'tiktok', embedUrl: null, watchUrl: s };
-        }
-        // Instagram reels / posts
-        if (host === 'instagram.com') {
-            const m = u.pathname.match(/\/(reel|reels|p|tv)\/([A-Za-z0-9_-]+)/);
-            if (m) return { ok: true, platform: 'instagram', embedUrl: 'https://www.instagram.com/' + (m[1] === 'reels' ? 'reel' : m[1]) + '/' + m[2] + '/embed', watchUrl: s };
-            return { ok: false, reason: 'Use a direct Instagram Reel or post link.' };
-        }
-        // Facebook videos, reels, and fb.watch — embedded via Facebook's video plugin player.
-        if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.watch' || host === 'fb.com') {
-            const isVid = host === 'fb.watch' || /\/(videos|reel|watch|story\.php|share\/v|share\/r)/.test(u.pathname) || u.searchParams.get('v');
-            if (isVid) return { ok: true, platform: 'facebook', embedUrl: 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(s) + '&autoplay=1&mute=1&width=560', watchUrl: s };
-            return { ok: false, reason: 'Use a direct Facebook video or Reel link.' };
-        }
-        // Twitter / X — accept status (tweet) links. X disallows raw iframe video embeds, so we
-        // store it as a watch link (clip opens on X); still verified & profile button shows.
-        if (host === 'twitter.com' || host === 'x.com' || host === 'mobile.twitter.com') {
-            const m = u.pathname.match(/\/([A-Za-z0-9_]+)\/status\/(\d+)/);
-            // V65.17: real inline embed via the platform tweet widget (renders the post in-app),
-            // with the direct link kept as the fallback/open-out.
-            if (m) return { ok: true, platform: 'twitter', embedUrl: 'https://platform.twitter.com/embed/Tweet.html?id=' + m[2] + '&theme=dark&dnt=true', watchUrl: 'https://x.com/' + m[1] + '/status/' + m[2] };
-            return { ok: false, reason: 'Use a direct X/Twitter post (status) link.' };
-        }
-        // SoundCloud — tracks, sets/playlists, and artist pages, via SoundCloud's own embed player.
-        if (host === 'soundcloud.com' || host === 'm.soundcloud.com' || host === 'on.soundcloud.com') {
-            if (u.pathname.length > 1) return { ok: true, platform: 'soundcloud', embedUrl: 'https://w.soundcloud.com/player/?url=' + encodeURIComponent('https://soundcloud.com' + u.pathname) + '&color=%23ff5500&auto_play=false&hide_related=true&show_comments=false&show_user=true&visual=true', watchUrl: 'https://soundcloud.com' + u.pathname };
-            return { ok: false, reason: 'Use a direct SoundCloud track, set, or artist link.' };
-        }
-        // Twitch — live channels and VODs via Twitch's embed player (parent must list our domains).
-        if (host === 'twitch.tv' || host === 'm.twitch.tv') {
-            const vm = u.pathname.match(/^\/videos\/(\d+)/);
-            if (vm) return { ok: true, platform: 'twitch', embedUrl: 'https://player.twitch.tv/?video=' + vm[1] + '&parent=ravekandi.web.app&parent=localhost&autoplay=false&muted=false', watchUrl: s };
-            const cm = u.pathname.match(/^\/([A-Za-z0-9_]{3,26})\/?$/);
-            if (cm) return { ok: true, platform: 'twitch', isLiveChannel: true, embedUrl: 'https://player.twitch.tv/?channel=' + cm[1] + '&parent=ravekandi.web.app&parent=localhost&autoplay=true&muted=true', watchUrl: s };
-            return { ok: false, reason: 'Use a Twitch channel or video link.' };
-        }
-        // V65.17: Reddit — posts, comments & shortlinks, via Reddit's official embed player.
-        if (host === 'reddit.com' || host === 'old.reddit.com' || host === 'new.reddit.com' || host === 'np.reddit.com' || host === 'redd.it') {
-            let embedTarget = s;
-            if (host === 'redd.it') { embedTarget = 'https://www.reddit.com/comments/' + u.pathname.slice(1).split('/')[0]; }
-            // Only real content paths embed (comment threads, posts, subs); bare reddit.com does not.
-            if (host === 'redd.it' || /\/(r|user|u)\/[A-Za-z0-9_]+/.test(u.pathname) || /\/comments\//.test(u.pathname)) {
-                return { ok: true, platform: 'reddit', embedUrl: 'https://www.redditmedia.com/' + (embedTarget.replace(/^https?:\/\/[^/]+\//, '')).replace(/\?.*$/, '') + '?ref_source=embed&embed=true&theme=dark', watchUrl: embedTarget };
-            }
-            return { ok: false, reason: 'Use a direct Reddit post, comment, or subreddit link.' };
-        }
-        return { ok: false, reason: 'Supported: YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, SoundCloud, and Twitch links.' };
-    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' }; }
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 
 // ---- 30-second music sample pipeline (zero server, zero Firebase-Storage setup) -----------------
 // Samples are trimmed to 30s, downmixed to mono 22.05kHz, and MP3-encoded at 64kbps via lamejs
@@ -2456,24 +2763,7 @@ const rkCompressAudioSample = async (file, startSec) => {
     throw new Error("Couldn't compress the audio on this device, and the file is too big to store raw. Please upload a clip under 700KB (about 30 seconds of MP3).");
 };
 
-const validateSocialLink = (raw) => {
-    try {
-        let s = (raw || '').trim();
-        if (!s) return { ok: false, reason: 'Empty link.' };
-        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
-        const u = new URL(s);
-        if (u.protocol !== 'https:') return { ok: false, reason: 'Only https:// links are allowed.' };
-        if (u.username || u.password) return { ok: false, reason: 'Links with embedded credentials are blocked.' };
-        const host = u.hostname.toLowerCase().replace(/^www\./, '');
-        if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return { ok: false, reason: 'Raw IP links are blocked.' };
-        if (BLOCKED_SHORTENERS.some(b => host === b || host.endsWith('.' + b))) return { ok: false, reason: 'Link shorteners are blocked — they can hide redirects to scam sites.' };
-        const allowed = SAFE_SOCIAL_HOSTS.some(h => host === h || host.endsWith('.' + h));
-        if (!allowed) return { ok: false, reason: 'Banners may only link to verified social platforms (Instagram, TikTok, X, YouTube, Twitch, SoundCloud, etc).' };
-        const qs = (u.search + u.hash).toLowerCase();
-        if (qs.includes('http%3a') || qs.includes('http://') || qs.includes('https://') || qs.includes('url=') || qs.includes('redirect')) return { ok: false, reason: 'Links containing redirect parameters are blocked.' };
-        return { ok: true, clean: u.toString() };
-    } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' } }
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 
 // V63 SECURE MESSAGING — message encryption. THREE schemes, identified by a 2-char prefix on the
 // stored ciphertext so decryption always knows how to read it:
@@ -3852,7 +4142,8 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
             // 'lifetime', not a second plan name. Writing it AT CREATION as well means a brand-new
             // account is a permanent VIP from its first render rather than waiting for an effect,
             // but both paths agree on what they write, so whichever gets there first is correct.
-            ...(RK_CFG.launchPerks ? { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipPermanent: true, vipExpires: null } : { isVIP: false }),
+            // V90.85.150.325: VIP is the server's to set. During launch perks it makes a new account a permanent VIP within
+            // seconds (rk_stats.js), and isEffVIP counts everyone as VIP while perks are on, so nothing waits on it.
             customBackground: null, showPing: true, featuredBadge: null, textStyle: null, msgTextStyle: null, friends: [], msgPrivacy: 'all', msgNotifs: true
         };
         // STEP 1 — the account's OWN document, filled in where it's missing. The name it ends up with is
@@ -3872,48 +4163,28 @@ export const ensureUserExists = async (uid, customName = null, referrerUid = nul
         // ANY of them can never undo the account that was just created above.
         try { const gsRef = doc(db, 'artifacts', appId, 'global', 'stats'); const gs = await getDoc(gsRef); if (gs.exists()) await updateDoc(gsRef, { userCount: increment(1) }); else await setDoc(gsRef, { userCount: currentCount + 1 }); } catch (e) { console.log('stats bump skipped', e); }
 
-        if (referrerUid) {
-            try {
-                const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
-                const refDoc = await getDoc(refRef);
-                if (refDoc.exists()) {
-                    // V70: cap check before crediting. Over the limit the signup still completes and
-                    // the link is still recorded — the new raver did nothing wrong and must not lose
-                    // their account over the referrer's behaviour. Only the CREDIT is withheld.
-                    const rp = refDoc.data();
-                    const cap = rkReferralCap(rp);
-                    const today = rkUtcDay();
-                    const usedToday = (rp.refDay === today) ? (Number(rp.refCountToday) || 0) : 0;
-                    const over = usedToday >= cap;
-
-                    if (over) {
-                        // A flag, not a ban. Legitimate spikes happen — a set, a festival, a viral
-                        // post — so this raises a ticket for a human rather than punishing silently.
-                        try {
-                            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-                                category: 'Referral Review', subject: 'Daily referral cap reached',
-                                message: 'Account ' + (rp.displayName || referrerUid) + ' hit its daily cap of ' + cap +
-                                         ' referrals. Referral from new account ' + newName + ' was recorded but not credited.',
-                                uid: referrerUid, status: 'open', createdAt: Date.now(), appVersion: APP_VERSION_FULL, autoFlag: true
-                            });
-                        } catch (e) { rkReport('referral flag ticket', e); }
-                    }
-                    // V89.84.150.323 (the statistics lockdown): the credit and the referral record go in one batch. The
-                    // rules allow a +1 to referrals (and the day's count) only beside a new record from the raver whose
-                    // referredBy names the referrer, so it can happen once per account and never by itself.
-                    const rb = writeBatch(db);
-                    if (over) rb.update(refRef, { refFlaggedAt: Date.now(), refDay: today, refCountToday: usedToday + 1 });
-                    else rb.update(refRef, { referrals: increment(1), refDay: today, refCountToday: usedToday + 1 });
-                    rb.set(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', uid), { uid, displayName: newName, earnedFromThisUser: 0, timestamp: Date.now() });
-                    await rb.commit();
-                    if (!over) pushNotif(referrerUid, 'referral', '🎉 ' + newName + ' just joined RaveKandi using your code! +1 referral', '@refdash');
-                    else pushNotif(referrerUid, 'referral', '⏳ ' + newName + ' joined with your code, but you have hit today\u2019s referral limit of ' + cap + '. It resets at midnight UTC.', '@refdash');
-                }
-            } catch (e) { console.log('referral credit skipped', e); }
-        }
+        // V90.85.150.325 (queue item 31): the referral credit is the server's (rk_stats.js, statsOnUser). It sees referredBy
+        // on the new profile, applies the referrer's daily cap, writes their referral record and sends the notice, once
+        // per account. The app used to write the referrer's count itself, as a stranger.
     } catch (e) { console.error("User Creation Error", e); throw e; }
 };
 
+// V90.85.150.325: THE SERVER'S ACTIONS (functions/rk_stats.js, one callable: rkAct). Banners, boosts, featured clips, VIP
+// gifts and the test-mode VIP checkout are booked and counted there, never written by the app, so the daily limits
+// and the counts can't be edited (Milli, at 323: "No user should be able to edit tracked statistics"). A refusal comes
+// back as an Error with the server's own words.
+const rkAct = async (op, data) => {
+    try { const r = await httpsCallable(getFunctions(app), 'rkAct')(Object.assign({ op }, data || {})); return (r && r.data) || {}; }
+    catch (e) {
+        const code = String((e && e.code) || '').replace('functions/', ''), m = String((e && e.message) || '');
+        const msg = code === 'not-found' ? "This needs RaveKandi's 325 server update, which isn't live yet. Try again later."
+            : (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || !m || /^internal$/i.test(m)) ? "The server didn't answer. Check your connection and try again."
+            : m;
+        const err = new Error(msg); err.code = code; throw err;
+    }
+};
+// when the daily allowances come back: midnight UTC, in the raver's own time ("4:00 PM")
+const rkUtcResetLocal = () => { try { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return 'midnight UTC'; } };
 // V42.16: handles images (canvas-compressed) AND videos (read as-is). Previously
 // fed videos into new Image() whose onload never fires -> upload hung forever at
 // "Processing Media". Now resolves for both, never hangs (img errors reject), and
@@ -4363,103 +4634,12 @@ const rkDeriveEffort = (a) => {
     };
 };
 
-// V84.152 (310): every notification type ticked for both channels. Shared by the achievement and
-// by the self-heal in App, so the two can never disagree about what "every" means.
-const rkNotifsMaxed = (prefs) => { try { return NOTIFICATION_TYPES.every(t => !!(prefs?.phone?.[t.id] && prefs?.email?.[t.id])); } catch (e) { return false; } };
-const getDisplayAchievements = (profile) => {
-    const stats = {
-        // V84.152 (310): itemsListed is the raver's own listings, counted by App from the feed it
-        // already loads. `items` was set to [] at signup and never written again, so this line only
-        // ever moved through the itemsSold fallback.
-        totalItems: Math.max(profile?.itemsListed || 0, (profile?.items || []).length, profile?.itemsSold || 0),
-        totalSalesValue: profile?.totalSalesValue || 0, totalBoughtValue: profile?.totalBoughtValue || 0,
-        itemsSold: profile?.itemsSold || 0, itemsBought: profile?.itemsBought || 0,
-        totalLikes: profile?.totalLikes || 0, totalComments: profile?.totalComments || 0,
-        isKandiCreator: profile?.isKandiCreator?1:0, socialInteractions: profile?.socialInteractions||0, bioLinkAdded: profile?.bioLinkAdded?1:0,
-        referrals: profile?.referrals||0, completedTrades: profile?.completedTrades||0,
-        radioMinutes: profile?.radioMinutes||0, activeMinutes: profile?.activeMinutes||0,
-        topCreatorUnlocked: profile?.topCreatorUnlocked?1:0, bannerPosts: profile?.bannerPosts||0,
-        boostsUsed: profile?.boostsUsed||0, videosPosted: profile?.videosPosted||0,
-        achievementsUnlocked: profile?.achievementsUnlocked||0,
-        friendsCount: (profile?.friends || []).length,
-        tribesJoined: profile?.tribesJoined||0, tribeMessages: profile?.tribeMessages||0, biggestTribe: profile?.biggestTribe||0,
-        // V84.152 (310): Full Signal reads the saved preferences directly, so it unlocks the moment
-        // the boxes are saved instead of waiting for a flag only Settings ever wrote.
-        contactComplete: profile?.contactComplete?1:0,
-        notifsMaxed: (profile?.notifsMaxed || rkNotifsMaxed(profile?.notificationPreferences)) ? 1 : 0,
-        // V84.152 (310): the 16 music and content achievements (Underground Hit through The Vault)
-        // were missing from this list, so `stats[metric]` was undefined and they could never
-        // unlock, although the counters themselves have been written since V63.19.
-        musicPlays: profile?.musicPlays||0, musicDownloads: profile?.musicDownloads||0,
-        contentViews: profile?.contentViews||0, linksAdded: profile?.linksAdded||0,
-        // V88.84.150.322: tribe votes answered, festivals dated, network reach and tracks played
-        tribeVotesCast: profile?.tribeVotesCast||0, festivalsDated: profile?.festivalsDated||0,
-        networkReach: profile?.networkReach||0, tracksPlayed: profile?.tracksPlayed||0,
-        // V89.84.150.323: opened as an installed app, quick votes, and ravers brought in by invitation
-        installedApp: profile?.installedApp ? 1 : 0, tribeVotesFast: profile?.tribeVotesFast||0, tribeInvitesPassed: profile?.tribeInvitesPassed||0,
-        // V89.85.150.324: festivals with days tapped from their dates, and a post with every day of one
-        festDaysPicked: profile?.festDaysPicked||0, festAllDays: profile?.festAllDays||0
-    };
-    // Any metric a future achievement names but this list forgets falls back to the profile field
-    // of the same name, instead of silently reading 0 forever.
-    const val = (m) => (m in stats) ? stats[m] : (Number(profile?.[m]) || 0);
-    return ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: val(ach.metric) >= ach.threshold }));
-};
-// V87.78.150.315: WHICH ACHIEVEMENTS ARE NEW (Milli, at 315: "notifications should take the user
-// directly to the achievement. When a user unlocks a new achievement, mark the achievement with a
-// 'new' until the user views the achievement in the achievements window, then remove the new tag").
-// `achKnown` lists what was unlocked at the last sync, so anything unlocked since is fresh: it gets a
-// NEW tag (`achNew.<id>`, cleared once it has been seen in the Achievements window) and the
-// notification opens it. The first sync records the baseline only, so nothing earned before 315
-// shows as NEW. Returns the fields to save, and the fresh ids.
-const rkAchFresh = (profile, unlockedIds) => {
-    const known = Array.isArray(profile && profile.achKnown) ? profile.achKnown : null;
-    if (!known) return { known: null, fresh: [], upd: { achKnown: unlockedIds.slice() } };
-    const fresh = unlockedIds.filter(id => !known.includes(id));
-    if (!fresh.length) return { known, fresh, upd: {} };
-    const now = Date.now(), achNew = {};
-    fresh.forEach(id => { achNew[id] = now; });
-    return { known, fresh, upd: { achKnown: known.concat(fresh), achNew } };
-};
-// The notification for fresh achievements: named, and opening the first. Crowned Creator has its own
-// notification (in App), which opens it too.
-const rkAchFreshNote = (fresh, allAch) => {
-    const told = (fresh || []).filter(id => id !== 'top_creator');
-    const nm = (id) => ((allAch || []).find(a => a.id === id) || {}).name || 'an achievement';
-    if (!told.length) return { text: '', focus: '' };
-    if (told.length === 1) return { text: '🏅 Achievement unlocked: ' + nm(told[0]) + '! Tap to see it.', focus: told[0] };
-    return { text: '🏅 ' + told.length + ' achievements unlocked: ' + told.slice(0, 3).map(nm).join(', ') + (told.length > 3 ? ' and ' + (told.length - 3) + ' more' : '') + '. Tap to see them.', focus: told[0] };
-};
-// V84.77.150.311: ACHIEVEMENT REWARDS, APPLIED (queue item 22).
-// Since V65.19 the REWARDS chart has promised that each achievement permanently trims the seller's
-// commission, or for referral achievements raises their referral share. Both bonuses were worked
-// out and saved (achCommBonus, achRefBonus), but nothing that charges or pays ever read them.
-// These helpers are now the ONLY place a rate comes from. Checkout, the analytics card, the RevShare
-// panel, the avatar badge, the inventory profit line and the admin panel all call them, so the
-// figure a raver is shown is the figure they are charged or paid.
-//  - The 5% caps are enforced here, at the point of use, so a hand-edited field cannot pass them.
-//  - "Permanent", as the chart promises: the larger of what is earned today and what was saved
-//    before, so a figure that later drops (an unfriend) never takes a reward back.
-//  - V84.78.150.312: a custom rate set in the admin panel REPLACES the achievement rewards (Milli,
-//    at 312); 311 stacked them. The seller rate never goes below 0%, and the referral share
-//    never above 100% of the commission.
-const RK_ACH_CAP = 0.05;
-const rkCapBonus = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.min(RK_ACH_CAP, n) : 0; };
-const rkAchRewards = (p) => {
-    if (!p) return { comm: 0, ref: 0 };
-    let live = { comm: 0, ref: 0 };
-    try { live = rkAchBonuses(getDisplayAchievements(p).filter(a => a.unlocked)); } catch (e) {}
-    return { comm: rkCapBonus(Math.max(live.comm, Number(p.achCommBonus) || 0)), ref: rkCapBonus(Math.max(live.ref, Number(p.achRefBonus) || 0)) };
-};
-// Seller commission before achievements: custom rate, launch perks and launch lock, as before.
-const rkBaseSellerRate = (p) => effCommissionRate(p?.customCommissionRate, p?.lockedCommissionRate);
-const rkHasCustom = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
-const rkSellerRate = (p) => rkHasCustom(p?.customCommissionRate) ? rkBaseSellerRate(p) : Math.max(0, rkBaseSellerRate(p) - rkAchRewards(p).comm);
-// Referral share before achievements, in percent: an admin's custom rate if one is set, else the tier.
-const rkRefBasePct = (p) => { const o = p?.customRevSharePct; return (o !== null && o !== undefined && o !== '' && Number.isFinite(Number(o))) ? Number(o) : getReferralTier(Number(p?.referrals) || 0).sharePct; };
-const rkRefSharePct = (p) => rkHasCustom(p?.customRevSharePct) ? Math.min(100, Math.max(0, Number(p.customRevSharePct))) : Math.min(100, Math.round((rkRefBasePct(p) + rkAchRewards(p).ref * 100) * 100) / 100);
-// The rewards actually APPLIED: earned rewards, except where a custom rate replaces them.
-const rkAchApplied = (p) => { const aw = rkAchRewards(p); return { comm: rkHasCustom(p?.customCommissionRate) ? 0 : aw.comm, ref: rkHasCustom(p?.customRevSharePct) ? 0 : aw.ref }; };
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+const getDisplayAchievements = (profile) => ACHIEVEMENT_TIERS.map(ach => ({ ...ach, unlocked: rkAchVal(profile, ach.metric) >= ach.threshold }));
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+const rkSellerRate = (p) => rkSellerRateAt(p, RK_CFG.launchPerks);
+const rkBaseSellerRate = (p) => rkBaseSellerRateAt(p, RK_CFG.launchPerks);
 // V84.78.150.312: WHERE A RAVER STANDS ON THE REVSHARE CHART. Without a custom rate it is their
 // rank by referrals. With one, it is that rate: a line of its own placed by %, and at the end of
 // the chart when it is above the top rank. Milli: "revshare % over 25 doesn't have a badge".
@@ -4481,41 +4661,8 @@ const rkShareRows = (standing) => {
     }
     return rows;
 };
-// 0.0965 -> "9.65%", 0.1 -> "10%". Never rounded into a figure the raver is not actually charged.
-const rkRatePct = (r) => { const v = Math.round((Number(r) || 0) * 10000) / 100; return (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0$/, '')) + '%'; };
-// A figure that is already a percentage: 2.3 -> "2.3%".
-const rkPctTxt = (v) => { const n = Math.round((Number(v) || 0) * 100) / 100; return (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, '')) + '%'; };
-// The App effect that saves rewards announces each change once, even if it runs twice before the
-// saved values come back.
-let rkAchNoticeSig = '';
-// V84.152 (310): see the App effect that calls this. Trades are queried one side at a time because
-// the rules only let you read offers you are part of, and a query has to PROVE that.
-const RK_ACH_SYNC_MS = 6 * 60 * 60 * 1000;
-const rkSyncTradeTribeStats = async (uid, profile) => {
-    const key = 'rk_ach_sync_' + uid;
-    try { const last = Number(localStorage.getItem(key) || 0); if (last && Date.now() - last < RK_ACH_SYNC_MS) return; } catch (e) {}
-    const col = (n) => collection(db, 'artifacts', appId, 'public', 'data', n);
-    const upd = {};
-    const hi = (f, v) => { if (Number.isFinite(v) && v > (Number(profile?.[f]) || 0)) upd[f] = v; };
-    const seen = new Set();
-    for (const f of ['itemOwnerId', 'offererId']) {
-        const snap = await getDocs(query(col('tradeOffers'), where(f, '==', uid)));
-        snap.forEach(d => { if (d.data().status === 'completed') seen.add(d.id); });
-    }
-    hi('completedTrades', seen.size);
-    const tribes = await getDocs(query(col('tribes'), where('members', 'array-contains', uid)));
-    let biggest = 0;
-    tribes.forEach(d => { const t = d.data(); biggest = Math.max(biggest, Number(t.memberCount) || (t.members || []).length); });
-    hi('tribesJoined', tribes.size); hi('biggestTribe', biggest);
-    // V89.84.150.323: ravers you invited who were voted in (Welcome Committee, Talent Scout)
-    let invited = 0;
-    tribes.forEach(d => { invited += Object.values(d.data().memberInvitedBy || {}).filter(v => v === uid).length; });
-    hi('tribeInvitesPassed', invited);
-    // V88.84.150.322: network reach (Friend of a Friend, Six Degrees): the ravers your friends connect you to
-    try { const mine = await rkLoadFriends((profile?.friends || []).slice(0, 120)); hi('networkReach', rkFriendsOfFriends(mine, uid, profile?.friends || []).filter(e => !e.friend).length); } catch (e) { rkReport('network reach', e); }
-    if (Object.keys(upd).length) await setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true });
-    try { localStorage.setItem(key, String(Date.now())); } catch (e) {}
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: trades, tribes and network reach are counted by the server now (rk_stats.js).
 EOF
 
 # Block 6
@@ -6257,15 +6404,12 @@ const ReferralModal = ({ user, profile, isOpen, onClose, onOpenWallet, onViewPro
             if (snap.empty) { setLoading(false); return alert("Invalid Referral Code."); }
             const referrerUid = snap.docs[0].id;
 
-            const batch = writeBatch(db);
-            batch.update(doc(db, 'artifacts', appId, 'users', user.uid), { referredBy: referrerUid });
-            batch.update(doc(db, 'artifacts', appId, 'users', referrerUid), { referrals: increment(1) });
-            batch.set(doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', user.uid), {
-                uid: user.uid, displayName: profile?.displayName || 'Raver', earnedFromThisUser: 0, timestamp: Date.now()
-            });
-            await batch.commit();
-            pushNotif(referrerUid, 'referral', '🤝 ' + (profile?.displayName || 'A raver') + ' linked you as their referrer! +1 referral', '@refdash');
-            alert("Referral code accepted!");
+            if (referrerUid === user.uid) { setLoading(false); return alert("You cannot refer yourself."); }
+            if (profile?.referredBy) { setLoading(false); return alert("You already have a referrer."); }
+            // V90.85.150.325: only your referredBy, which can be set once. The server credits the referrer (their daily cap
+            // included, which this path used to skip), writes their record and tells them.
+            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { referredBy: referrerUid });
+            alert("Referral code accepted! @" + (snap.docs[0].data().displayName || 'your referrer') + " gets the credit in a moment.");
         } catch(e) { alert(e.message); } finally { setLoading(false); }
     };
     
@@ -7203,15 +7347,11 @@ const VIPCheckoutForm = ({ user, onClose }) => {
         setLoading(true);
         setTimeout(async () => {
             try {
-                let vipExpires = null;
-                if (plan === 'monthly') {
-                    const cur = await getDoc(doc(db, 'artifacts', appId, 'users', user.uid));
-                    const base = Math.max(Date.now(), cur.data()?.vipExpires || 0);
-                    vipExpires = base + 2592000000; // renewals stack +30 days on remaining time
-                }
-                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: plan, vipSince: Date.now(), vipExpires });
+                // V90.85.150.325: the server sets VIP (rk_stats.js, vipBuy); renewals still stack +30 days on the time left
+                const r = await rkAct('vipBuy', { plan });
+                const vipExpires = r.vipExpires || null;
                 alert(plan === 'monthly' ? "VIP Monthly active until " + new Date(vipExpires).toLocaleDateString() + "! Renewing later stacks +30 days." : "VIP Lifetime unlocked! Enjoy 6 Profile Pins, Themes, Banner Messages, Post Boosts & the Font Selector forever.");
-            } catch(err) { console.error(err); }
+            } catch(err) { console.error(err); alert(err.message || 'VIP checkout failed. Try again.'); }
             setLoading(false);
             onClose();
         }, 1500);
@@ -9476,6 +9616,29 @@ function rkEmTicket(t) {
   return { g: g, e: e, h: N };
 }
 
+// V90.85.150.325: the emblems for 325's achievements.
+// Marquee Regular: the marquee strip lit over five days, every one ticked. Spotlight Regular: a bolt over the five days.
+function rkEmRegular(t) {
+  var N = t === 2 ? '#ffb347' : '#5fe8ff', p = rkEmPal(N), E = rkEmE, e = [], i;
+  var g = { a: rkEmLin([p.l, p.m, N]), d: rkEmLin(['#2c0a40', '#16052a']), y: rkEmLin(['#fff3c4', '#ffc93c']) };
+  if (t === 2) {
+    e.push(E(rkEmCirc(50, 27, 21), 0, 0, 5, 1, 'o'), E(rkEmCirc(50, 27, 21), 'a', N, 2.4, 1, 'b'));
+    e.push(E('M55 9L40 31H49L44 45L61 22H52L58 9Z', 'y', '#ffffff', 1.4, 1, 'd'));
+  } else {
+    var strip = rkEmRound([[8, 12], [92, 12], [92, 44], [8, 44]], 7);
+    e.push(E(strip, 0, 0, 5, 1, 'o'), E(strip, 'a', N, 2.4, 1, 'b'));
+    e.push(E(rkEmRound([[15, 19], [85, 19], [85, 37], [15, 37]], 3), 'd', p.l, 1, 1, 'k'));
+    for (i = 0; i < 4; i++) e.push(E('M' + (24 + i * 15) + ' 23L' + (31 + i * 15) + ' 28L' + (24 + i * 15) + ' 33', 0, i === 3 ? '#ffffff' : p.m, 3, 0.5 + i * 0.16, 'd'));
+  }
+  for (i = 0; i < 5; i++) {
+    var x = 9 + i * 17, cell = rkEmRound([[x, 56], [x + 14, 56], [x + 14, 86], [x, 86]], 3);
+    e.push(E(cell, 0, 0, 4, 1, 'o'), E(cell, 'a', '#ffffff', 1.6, 1, 'b'));
+    e.push(E('M' + (x + 3.5) + ' 71L' + (x + 6.5) + ' 75L' + (x + 11) + ' 66', 0, '#1a0033', 2.6, 1, 'd'));
+  }
+  e.push(E(rkEmSpark(t === 2 ? 84 : 88, t === 2 ? 12 : 6, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -9503,7 +9666,7 @@ function rkEmSpec() {
     ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
-    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2]], t = {};
+    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -11194,8 +11357,8 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
 
     if (!isOpen) return null;
 
-    const todayKey = new Date().toDateString();
-    const usedToday = profile?.bannerDay === todayKey ? (profile?.bannerCountToday || 0) : 0;
+    // V90.85.150.325: the server counts today's banners (UTC day) and books the windows
+    const usedToday = rkDayUsed(profile, 'banner');
     const mySocials = SOCIAL_PLATFORMS.filter(p => profile?.socialLinks?.[p.id]);
 
     const pickSocial = (p) => {
@@ -11215,22 +11378,15 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
         const isSocial = bMode === 'social';
         if (isSocial && !chosenLink) return alert("Pick one of your saved socials or validate a custom link first.");
         if (!isSocial && !text.trim()) return alert("Type your banner message first.");
-        if (usedToday >= 5) return alert("Daily limit reached — 5 banner posts per day (messages and social links combined). Resets at midnight.");
+        if (usedToday >= RK_DAILY.banner) return alert("Daily limit reached — " + RK_DAILY.banner + " banner posts per day (messages and social links combined). They come back at midnight UTC (" + rkUtcResetLocal() + " your time).");
         setBusy(true);
         try {
-            const now = Date.now();
-            const curStart = Math.floor(now / W) * W;
-            const taken = new Set(slots.map(s => s.start));
-            let assigned = [];
-            if (!taken.has(curStart)) { assigned = [curStart, curStart + W]; } // missed-window rule: remainder + next full block
-            else { let s = curStart + W; while (taken.has(s)) s += W; assigned = [s]; }
-            const bodyText = isSocial ? ('Follow me → ' + chosenLink.label) : text.trim().slice(0, 90);
-            const payload = { uid: user.uid, name: profile?.displayName || 'VIP Raver', ownerPublicUid: profile?.publicUid || user.uid, text: bodyText, type: isSocial ? 'social' : 'message', linkUrl: isSocial ? chosenLink.url : null, postedAt: now };
-            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'bannerSlots', String(st)), { ...payload, start: st, end: st + W }); }
-            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { bannerPosts: increment(1), bannerDay: todayKey, bannerCountToday: usedToday + 1 }, { merge: true });
-            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
-            const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
-            setConfirmation({ startsAt, endsAt, queueAhead, live: startsAt <= Date.now() });
+            // V90.85.150.325: the server books the windows (the rest of the current 15 minutes and the next, or the next free
+            // one), counts it and checks the words (rk_stats.js, banner)
+            const bodyText = isSocial ? '' : text.trim().slice(0, 90);
+            if (bodyText) rkHateStop(bodyText);
+            const r = await rkAct('banner', isSocial ? { mode: 'social', link: chosenLink.url, label: chosenLink.label } : { mode: 'msg', text: bodyText });
+            setConfirmation({ startsAt: r.startsAt, endsAt: r.endsAt, queueAhead: r.queueAhead || 0, live: !!r.live });
             setText(''); setChosenLink(null); setCustomLink('');
         } catch (e) { alert("Banner failed: " + e.message); } finally { setBusy(false); }
     };
@@ -11256,7 +11412,7 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
             ) : (
                 <div className="space-y-3">
                     <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                        <strong className="text-cyan-400">How it works:</strong> Your banner joins the scrolling marquee for a <strong>15-minute window</strong> (windows start on the dot: :00, :15, :30, :45). One banner runs at a time — submissions queue for the next free window; an empty current window grants its remainder <strong>plus</strong> the next full block. You can post a <strong>message OR one of your social links</strong> — each counts as one of your <strong>5 daily posts</strong>. The daily limit resets at <strong>midnight</strong>. Social links are safety-checked and restricted to verified platforms.
+                        <strong className="text-cyan-400">How it works:</strong> Your banner joins the scrolling marquee for a <strong>15-minute window</strong> (windows start on the dot: :00, :15, :30, :45). One banner runs at a time — submissions queue for the next free window; an empty current window grants its remainder <strong>plus</strong> the next full block. You can post a <strong>message OR one of your social links</strong> — each counts as one of your <strong>5 daily posts</strong>. The daily limit resets at <strong>midnight UTC</strong> ({rkUtcResetLocal()} your time). Social links are safety-checked and restricted to verified platforms.
                     </div>
                     {confirmation && (
                         <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -11272,7 +11428,7 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
                     {bMode === 'msg' ? (
                         <div>
                             <textarea value={text} onChange={e => setText(e.target.value)} maxLength={90} placeholder="Your marquee message (90 chars max)..." className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs h-16"/>
-                            <p className="text-[10px] text-right opacity-50">{text.length}/90 · {5 - usedToday} posts left today</p>
+                            <p className="text-xs text-right text-white" data-banner-left={RK_DAILY.banner - usedToday}>{text.length}/90 · {Math.max(0, RK_DAILY.banner - usedToday)} posts left today · more at {rkUtcResetLocal()}</p>
                         </div>
                     ) : (
                         <div className="space-y-2">
@@ -11291,11 +11447,11 @@ const BannerModal = ({ user, profile, isOpen, onClose, onGoVip }) => {
                                 <Button onClick={useCustomLink} color="cyan" className="text-[10px] px-2">Check</Button>
                             </div>
                             {chosenLink && <p className="text-[10px] text-lime-300 bg-lime-900/20 border border-lime-500/40 rounded p-1.5">✅ Verified: {chosenLink.label}</p>}
-                            <p className="text-[10px] opacity-50 text-right">{5 - usedToday} posts left today</p>
+                            <p className="text-xs text-white text-right">{Math.max(0, RK_DAILY.banner - usedToday)} posts left today · more at {rkUtcResetLocal()}</p>
                         </div>
                     )}
                     {upcoming.length > 0 && <p className="text-[10px] opacity-60">⏳ {upcoming.length} banner(s) currently queued — next free window assigned automatically.</p>}
-                    <Button onClick={submitBanner} disabled={busy || usedToday >= 5} color="cyan" className="w-full">{busy ? "Posting..." : bMode === 'social' ? "Post Social Link to Marquee" : "Post to Marquee"}</Button>
+                    <Button onClick={submitBanner} disabled={busy || usedToday >= RK_DAILY.banner} color="cyan" className="w-full">{busy ? "Posting..." : bMode === 'social' ? "Post Social Link to Marquee" : "Post to Marquee"}</Button>
                 </div>
             ))}
 
@@ -11338,28 +11494,19 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
 
     if (!isOpen) return null;
 
-    const todayKey = new Date().toDateString();
-    const usedToday = profile?.boostDay === todayKey ? (profile?.boostCountToday || 0) : 0;
+    // V90.85.150.325: the server counts today's boosts (UTC day) and books the hour and lane
+    const usedToday = rkDayUsed(profile, 'boost');
     const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const submitBoost = async () => {
         if (!RK_CFG.boostsEnabled) return alert('Post boosting is temporarily disabled by the admin team.');
         if (!pick) return alert("Select one of your posts to boost.");
-        if (usedToday >= 3) return alert("Daily limit reached — 3 boosts per day. Resets at midnight.");
+        if (usedToday >= RK_DAILY.boost) return alert("Daily limit reached — " + RK_DAILY.boost + " boosts per day. They come back at midnight UTC (" + rkUtcResetLocal() + " your time).");
         setBusy(true);
         try {
-            const now = Date.now();
-            let start = Math.ceil(now / H) * H; // boosts start exactly on a fresh hour
-            const countAt = (st) => slots.filter(s => s.start === st).length;
-            while (countAt(start) >= 5) start += H; // 5 boost lanes per hour, then queue
-            const lane = countAt(start);
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'boostSlots', start + '_' + lane), {
-                uid: user.uid, name: profile?.displayName || 'VIP Raver', ownerPublicUid: profile?.publicUid || user.uid,
-                itemId: pick.id, itemName: pick.name, start, end: start + H, lane, postedAt: now
-            });
-            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { boostDay: todayKey, boostCountToday: usedToday + 1, boostsUsed: increment(1) }, { merge: true });
-            const queueAhead = slots.filter(s => s.start >= now && s.start < start).length;
-            setConfirmation({ start, end: start + H, lane, queueAhead });
+            // V90.85.150.325: the server books the next full hour with a free lane (5 an hour) and counts it (rk_stats.js, boost)
+            const r = await rkAct('boost', { itemId: pick.id });
+            setConfirmation({ start: r.start, end: r.end, lane: r.lane, queueAhead: r.queueAhead || 0 });
             setPick(null);
         } catch (e) { alert("Boost failed: " + e.message); } finally { setBusy(false); }
     };
@@ -11383,7 +11530,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
             ) : (
                 <div className="space-y-3">
                     <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                        <strong className="text-pink-400">How it works:</strong> Boosted posts get pinned into the <strong>first 5 spots at the very top of the marketplace Feed — the first thing every browsing raver sees</strong> with a ⚡ BOOSTED badge for <strong>1 hour</strong>. Boost windows start exactly on the hour — up to 5 boosts run per hour; extras queue for the next free hour. Limit: <strong>3 boosts/day</strong>.
+                        <strong className="text-pink-400">How it works:</strong> Boosted posts get pinned into the <strong>first 5 spots at the very top of the marketplace Feed — the first thing every browsing raver sees</strong> with a ⚡ BOOSTED badge for <strong>1 hour</strong>. Boost windows start exactly on the hour — up to 5 boosts run per hour; extras queue for the next free hour. Limit: <strong>3 boosts/day</strong>, back at midnight UTC ({rkUtcResetLocal()} your time).
                     </div>
                     {confirmation && (
                         <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -11392,7 +11539,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                             {confirmation.queueAhead > 0 && <p className="text-[10px] opacity-70">{confirmation.queueAhead} boost(s) scheduled before yours.</p>}
                         </div>
                     )}
-                    <p className="text-[10px] font-bold text-pink-400 uppercase">Pick a post ({3 - usedToday} boosts left today):</p>
+                    <p className="text-xs font-bold text-pink-300 uppercase" data-boost-left={RK_DAILY.boost - usedToday}>Pick a post ({Math.max(0, RK_DAILY.boost - usedToday)} boosts left today, more at {rkUtcResetLocal()}):</p>
                     <div className="space-y-1 max-h-[28vh] overflow-y-auto pr-1">
                         {myItems.length === 0 && <p className="text-center opacity-50 text-[10px] py-4">You have no live posts yet.</p>}
                         {myItems.map(i => (
@@ -11404,7 +11551,7 @@ const BoostModal = ({ user, profile, isOpen, onClose, onGoVip, onGoSell }) => {
                         ))}
                     </div>
                     <button onClick={() => { onClose(); onGoSell(); }} className="w-full text-[10px] text-cyan-400 underline">…or create a new post in the Trade Hub, then come back and boost it</button>
-                    <Button onClick={submitBoost} disabled={busy || !pick || usedToday >= 3} color="primary" className="w-full">{busy ? "Scheduling..." : "Boost for 1 Hour ⚡"}</Button>
+                    <Button onClick={submitBoost} disabled={busy || !pick || usedToday >= RK_DAILY.boost} color="primary" className="w-full">{busy ? "Scheduling..." : "Boost for 1 Hour ⚡"}</Button>
                 </div>
             ))}
 
@@ -15724,7 +15871,7 @@ const rkFmtReach = (n) => n >= 1000000 ? (n / 1000000).toFixed(n >= 10000000 ? 0
     : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n || 0);
 
 // Allotment by lifetime referrals (admins can add bonus passes on top via vipGiftBonus).
-const rkVipGiftAllotment = (refs) => refs >= 50 ? 20 : refs >= 25 ? 10 : refs >= 10 ? 5 : refs >= 5 ? 3 : refs >= 1 ? 1 : 0;
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
     const [adminTab, setAdminTab] = useState('tools');
     const [openSec, setOpenSec] = useState('config');   // V65.24: one Admin Console panel open at a time
@@ -16294,13 +16441,13 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
 
                             <div className="mt-3 pt-3 border-t border-white/10">
                                 <p className="text-[10px] font-black uppercase text-pink-300 mb-1">🎬 Rave Clip Limit</p>
-                                <p className="text-[10px] opacity-60 mb-2">Used today: <strong>{managedUser.videoDay === todayKey() ? (managedUser.videoCountToday || 0) : 0}</strong> · Daily max: <strong>{typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4}</strong> {typeof managedUser.videoMaxDaily === 'number' ? '(custom)' : '(default)'}</p>
+                                <p className="text-[10px] opacity-60 mb-2">Used today: <strong>{rkDayUsed(managedUser, 'video')}</strong> · Daily max: <strong>{typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4}</strong> {typeof managedUser.videoMaxDaily === 'number' ? '(custom)' : '(default)'}</p>
                                 <div className="flex gap-2 items-center mb-2">
                                     <input value={clipMaxEdit} onChange={e => setClipMaxEdit(e.target.value)} type="number" min="0" max="99" placeholder="4" className="bg-black border border-white/20 text-[10px] p-2 rounded w-16"/>
                                     <Button onClick={async () => { const v = parseInt(clipMaxEdit); if (isNaN(v) || v < 0) { alert('Enter a number (0 or more).'); return; } try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoMaxDaily: v }, { merge: true }); setManagedUser({ ...managedUser, videoMaxDaily: v }); alert('Set ' + (managedUser.displayName || 'user') + "'s daily clip max to " + v + '.'); } catch (e) { alert('Failed: ' + e.message); } }} color="cyan" className="text-[10px]">Set Max</Button>
                                     <Button onClick={async () => { try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoMaxDaily: null }, { merge: true }); const m = { ...managedUser }; delete m.videoMaxDaily; setManagedUser(m); setClipMaxEdit(''); alert('Reset to default (4/day).'); } catch (e) { alert('Failed: ' + e.message); } }} color="accent" className="text-[10px]">Default</Button>
                                 </div>
-                                <Button onClick={async () => { const max = typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4; if (!window.confirm("Hard reset " + (managedUser.displayName || 'user') + "'s clip count? This sets clips-used-today back to 0, giving them their full " + max + " clips for today.")) return; try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoDay: todayKey(), videoCountToday: 0 }, { merge: true }); setManagedUser({ ...managedUser, videoDay: todayKey(), videoCountToday: 0 }); alert('Clip count hard reset — they have their full ' + max + ' clips for today.'); } catch (e) { alert('Failed: ' + e.message); } }} color="primary" className="w-full text-[10px] flex items-center justify-center gap-1"><Video size={12}/> Hard Reset Clip Count (give full {typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4} today)</Button>
+                                <Button onClick={async () => { const max = typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4; if (!window.confirm("Hard reset " + (managedUser.displayName || 'user') + "'s clip count? This sets clips-used-today back to 0, giving them their full " + max + " clips for today.")) return; try { await setDoc(doc(db, 'artifacts', appId, 'users', managedUser.id), { videoDay: rkUtcDay(), videoCountToday: 0 }, { merge: true }); setManagedUser({ ...managedUser, videoDay: rkUtcDay(), videoCountToday: 0 }); alert('Clip count hard reset — they have their full ' + max + ' clips for today.'); } catch (e) { alert('Failed: ' + e.message); } }} color="primary" className="w-full text-[10px] flex items-center justify-center gap-1"><Video size={12}/> Hard Reset Clip Count (give full {typeof managedUser.videoMaxDaily === 'number' ? managedUser.videoMaxDaily : 4} today)</Button>
                             </div>
 
                             <div className="mt-3 pt-3 border-t border-white/10">
@@ -18285,19 +18432,10 @@ const VipGiftModal = ({ user, profile, isOpen, onClose }) => {
         if (!window.confirm('Gift PERMANENT free VIP to @' + (sel ? (sel.displayName || 'this raver') : uid) + '? This uses one of your ' + left + ' passes and cannot be undone.')) return;
         setBusy(true);
         try {
-            let realUid = uid;
-            let snap = await getDoc(doc(db, 'artifacts', appId, 'users', uid));
-            if (!snap.exists()) {
-                const q = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('publicUid', '==', uid)));
-                if (!q.empty) { realUid = q.docs[0].id; snap = q.docs[0]; }
-            }
-            if (!snap.exists()) { setBusy(false); return alert('No raver found with that ID.'); }
-            if (realUid === user.uid) { setBusy(false); return alert('You cannot gift yourself — spread the PLUR outward! 💖'); }
-            if (snap.data().isVIP) { setBusy(false); return alert('@' + (snap.data().displayName || 'That raver') + ' is already VIP — pick someone new to bless!'); }
-            await updateDoc(doc(db, 'artifacts', appId, 'users', realUid), { isVIP: true, vipPermanent: true, vipGiftedBy: user.uid, vipGiftedAt: Date.now() });
-            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid), { vipGiftsSent: increment(1) });
-            pushNotif(realUid, 'achievement', '👑💝 @' + (profile?.displayName || 'A raver') + ' gifted you PERMANENT FREE VIP! All VIP perks are yours forever. PLUR!', '@vip');
-            pushNotif(user.uid, 'achievement', '💝 Your VIP gift landed! @' + (snap.data().displayName || 'raver') + ' is now permanent VIP thanks to you.', '@vipgift');
+            // V90.85.150.325: the server checks the passes, finds the raver (uid or Friend UID), sets their VIP, counts the
+            // gift and tells you both (rk_stats.js, vipGift). Until 325 any signed-in raver could set anyone's VIP.
+            const r = await rkAct('vipGift', { target: uid });
+            const realUid = r.uid;
             setTarget(''); setSel(null); setQ('');
             setDirUsers(prev => prev.map(u => u.id === realUid ? { ...u, isVIP: true } : u));
             alert('👑 Gift sent! They\'re VIP forever now.');
@@ -19393,23 +19531,8 @@ const RkLoadMore = ({ more, busy, onMore, count, doneText, kind }) => {
 // (event.from, event.to, 'YYYY-MM-DD'). eventKey, eventFrom and eventTo sit at the top level for the
 // feed's festival filter and "soonest" sort, and for finding everyone going. A trade post keeps
 // tradeWants.event as well, which older versions of the app read.
-const rkEventKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
-const rkEventOf = (i) => {
-    if (!i) return null;
-    const e = (i.event && i.event.name) ? i.event : (i.tradeWants && i.tradeWants.event) ? { name: i.tradeWants.event } : null;
-    if (!e || !String(e.name || '').trim()) return null;
-    return { name: String(e.name).trim(), from: e.from || '', to: e.to || e.from || '', days: Array.isArray(e.days) ? e.days.map(String).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 31).sort() : [] };
-};
-// V89.85.150.324: every day from a to b, 'YYYY-MM-DD', up to 31 (a festival's days, or a post's)
-const rkDaysBetween = (a, b) => {
-    const m1 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(a || '')), m2 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(b || a || ''));
-    const out = [];
-    if (!m1 || !m2) return out;
-    const d = new Date(+m1[1], +m1[2] - 1, +m1[3]), e = new Date(+m2[1], +m2[2] - 1, +m2[3]);
-    while (d <= e && out.length < 31) { out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); d.setDate(d.getDate() + 1); }
-    return out;
-};
-const rkParseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // "Fri, May 15 – Sun, May 17", the year added when it isn't this year
 const rkEventDays = (e) => {
     const a = rkParseDay(e && e.from), b = rkParseDay(e && e.to);
@@ -19468,11 +19591,7 @@ const rkEventFields = (name, from, to, prev, days) => {
 // field festDates, the same shape ({ "edc las vegas": [{ "l": "EDC Las Vegas 2027", "f": "2027-05-14", "t":
 // "2027-05-16", "w": "Las Vegas Motor Speedway" }] }), keyed like rkEventKey; a key there replaces the built-in one.
 const rkFestCatalog = () => { const o = (RK_CFG && RK_CFG.festDates && typeof RK_CFG.festDates === 'object') ? RK_CFG.festDates : {}; return { ...RK_FEST_DATES, ...o }; };
-const rkFestAll = (name) => {
-    const list = rkFestCatalog()[rkEventKey(name)];
-    return Array.isArray(list) ? list.filter(ed => ed && rkParseDay(ed.f) && rkParseDay(ed.t || ed.f) && (ed.t || ed.f) >= ed.f)
-        .map(ed => ({ l: String(ed.l || name), f: ed.f, t: ed.t || ed.f, w: String(ed.w || ''), s: ed.s === 'p' ? 'p' : 'o' })) : [];
-};
+const rkFestAll = (name) => rkFestAllIn(rkFestCatalog(), name);
 // the editions still to come (or under way), soonest first
 const rkFestEditions = (name) => {
     if (!String(name || '').trim()) return [];
@@ -19487,11 +19606,7 @@ const rkEditionFor = (e) => {
     return rkFestEditions(e.name)[0] || null;
 };
 // every day of one edition tapped on one post (All In)
-const rkCoversEdition = (e) => {
-    if (!e || !Array.isArray(e.days) || !e.days.length) return false;
-    const have = new Set(e.days);
-    return rkFestAll(e.name).some(ed => { const ds = rkDaysBetween(ed.f, ed.t); return ds.length > 0 && ds.every(d => have.has(d)); });
-};
+const rkCoversEdition = (e) => rkCoversEditionIn(rkFestCatalog(), e);
 const rkDayLabel = (d) => { const x = rkParseDay(d); if (!x) return d; try { return x.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); } catch (e) { return d; } };
 // the soonest festival on the calendar, for the marquee
 const rkNextFestival = () => {
@@ -19917,27 +20032,8 @@ const rkMutualWith = (myFriendDocs, other, meUid) => {
     const theirs = new Set(other.friends || []);
     return (myFriendDocs || []).filter(f => f && f.id && !f.hideMutuals && f.id !== other.id && theirs.has(f.id));
 };
-// Everyone your friends are friends with, by how many of your friends link you: your network. `friend` marks
-// the ones who are already your friends.
-const rkFriendsOfFriends = (myFriendDocs, meUid, myFriendIds) => {
-    const mine = new Set(myFriendIds || []), tally = {};
-    (myFriendDocs || []).forEach(f => {
-        if (!f || f.hideMutuals) return;
-        (f.friends || []).forEach(g => {
-            if (!g || g === meUid) return;
-            const e = tally[g] || (tally[g] = { id: g, n: 0, via: [], friend: mine.has(g) });
-            e.n++;
-            if (e.via.length < 6) e.via.push(f);
-        });
-    });
-    return Object.values(tally).sort((a, b) => b.n - a.n);
-};
-// Network reach (Friend of a Friend, Six Degrees): how many ravers your friends connect you to, kept as a
-// high-water mark on your profile.
-const rkSaveReach = (uid, profile, reach) => {
-    if (!uid || !Number.isFinite(reach) || reach <= (Number(profile && profile.networkReach) || 0)) return;
-    setDoc(doc(db, 'artifacts', appId, 'users', uid), { networkReach: reach }, { merge: true }).catch(e => rkReport('network reach', e));
-};
+// V90.85.150.325: moved to src/rkShared.js (shared with the server).
+// V90.85.150.325: network reach (Friend of a Friend, Six Degrees) is counted by the server (rk_stats.js).
 // "🤝 3 mutual friends: @A, @B, @C", each name a link to that raver.
 const RkMutualLine = ({ list, onView, max = 3 }) => {
     if (!list || !list.length) return null;
@@ -20035,7 +20131,6 @@ const RkRaversFeed = ({ user, profile, search, sort, filter, fest, dir, dirLoadi
                 if (myFriends === null) return;
                 const fof = rkFriendsOfFriends(myFriends, uid, myIds);
                 fof.forEach(e => { ids.push(e.id); info[e.id] = { n: e.n, friend: e.friend }; });
-                rkSaveReach(uid, profile, fof.filter(e => !e.friend).length);
             }
             if (!dead) setComp({ key: compKey, ids, info, rows: compKey === 'friends' ? (myFriends || []) : [], shown: compKey === 'friends' ? ids.length : 0, loading: compKey !== 'friends', ready: true });
         })().catch(e => { rkReport('ravers list', e); if (!dead) setComp({ key: compKey, ids: [], info: {}, rows: [], shown: 0, loading: false, ready: true }); });
@@ -21526,9 +21621,9 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
 
     if (!isOpen) return null;
 
-    const todayKey = new Date().toDateString();
-    const usedToday = profile?.videoDay === todayKey ? (profile?.videoCountToday || 0) : 0;
-    const clipMax = (typeof profile?.videoMaxDaily === 'number' && profile.videoMaxDaily >= 0) ? profile.videoMaxDaily : 4;
+    // V90.85.150.325: the server counts today's clips (UTC day) and books the window
+    const usedToday = rkDayUsed(profile, 'video');
+    const clipMax = rkDayMax(profile, 'video');
 
     const checkLink = () => {
         const v = parseVideoLink(link);
@@ -21538,26 +21633,15 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
 
     const submitVideo = async () => {
         if (!parsed) return alert('Paste your clip link and tap Check first.');
-        if (usedToday >= clipMax) return alert('Daily limit reached — ' + clipMax + ' featured clips per day. Resets at midnight.');
+        if (usedToday >= clipMax) return alert('Daily limit reached — ' + clipMax + ' featured clips per day. They come back at midnight UTC (' + rkUtcResetLocal() + ' your time).');
         setBusy(true);
         try {
-            const W = videoWindowMs();
-            const now = Date.now();
-            const curStart = Math.floor(now / W) * W;
-            const taken = new Set(slots.map(s => s.start));
-            // V52.2: a user must get a FULL window. The current window has almost always
-            // already started, so giving it to them = a partial slot. Instead, always start
-            // at the NEXT clean window boundary (the first free one from there).
-            let s = curStart + W;
-            while (taken.has(s)) s += W;
-            const assigned = [s];
-            const payload = { uid: user.uid, name: profile?.displayName || 'Raver', ownerPublicUid: profile?.publicUid || user.uid, platform: parsed.platform, embedUrl: parsed.embedUrl || null, watchUrl: parsed.watchUrl, caption: (caption || '').slice(0, 100), postedAt: now };
-            // end must equal start + W exactly (an allowed window length) or the security rule rejects the write.
-            for (const st of assigned) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'videoSlots', String(st)), { ...payload, start: st, end: st + W }); }
-            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { videoDay: todayKey, videoCountToday: usedToday + 1, videosPosted: increment(1) }, { merge: true });
-            const startsAt = assigned[0], endsAt = assigned[assigned.length - 1] + W;
-            const queueAhead = slots.filter(s => s.start >= Date.now() && s.start < startsAt && s.uid !== user.uid).length;
-            setConfirmation({ startsAt, endsAt, queueAhead, live: startsAt <= Date.now() });
+            // V52.2: a FULL window, the next free one. V90.85.150.325: booked and counted by the server (rk_stats.js, clip),
+            // which checks the link and the caption again
+            const cap = (caption || '').slice(0, 100);
+            if (cap) rkHateStop(cap);
+            const r = await rkAct('clip', { link: parsed.watchUrl || link, caption: cap });
+            setConfirmation({ startsAt: r.startsAt, endsAt: r.endsAt, queueAhead: r.queueAhead || 0, live: !!r.live });
             setLink(''); setParsed(null); setCaption('');
         } catch (e) { alert('Submit failed: ' + e.message); } finally { setBusy(false); }
     };
@@ -21568,7 +21652,7 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
         <Modal isOpen={isOpen} onClose={onClose} title="🎬 Feature Your Rave Clip">
             <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded p-2 text-[10px] text-gray-100 leading-relaxed">
-                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, Facebook, or X/Twitter</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>4 clips/day</strong>, resets at midnight. Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
+                    <strong className="text-pink-400">How it works:</strong> Paste a link to your clip on <strong>YouTube, TikTok, Instagram, Facebook, or X/Twitter</strong> (Shorts & Reels work great). Use this spot to <strong>advertise yourself, your products, content, streams, brand, or social media</strong> — your profile button shows next to your clip the whole time so every raver can find and follow you. Your clip plays in the homepage <strong>Spotlight</strong> for a rotation window set by the team; windows run one at a time on the clock and queue automatically. Limit: <strong>{rkDayMax(profile, 'video')} clips/day</strong>, back at midnight UTC ({rkUtcResetLocal()} your time). Keep it festival/rave content and PLUR-friendly. <span className="text-yellow-300">We embed the platform's own player — nothing is stored on our servers, and your clip stops showing the moment its window ends.</span>
                 </div>
                 {confirmation && (
                     <div className="bg-lime-900/30 border border-lime-400/60 rounded p-3 text-center">
@@ -21591,8 +21675,8 @@ const VideoSubmitModal = ({ user, profile, isOpen, onClose, slots }) => {
                     </div>
                 )}
                 <input value={caption} onChange={e => setCaption(e.target.value)} maxLength={100} placeholder="Caption (optional, 100 chars)" className="w-full p-2 rounded bg-white/10 border-2 border-white/30 text-xs"/>
-                <p className="text-[10px] opacity-50 text-right">{Math.max(0, clipMax - usedToday)} clips left today</p>
-                <Button onClick={submitVideo} disabled={busy || !parsed || usedToday >= 4} color="primary" className="w-full">{busy ? 'Submitting…' : 'Feature My Clip 🎬'}</Button>
+                <p className="text-xs text-white text-right" data-clip-left={clipMax - usedToday}>{Math.max(0, clipMax - usedToday)} clips left today · more at {rkUtcResetLocal()}</p>
+                <Button onClick={submitVideo} disabled={busy || !parsed || usedToday >= clipMax} color="primary" className="w-full">{busy ? 'Submitting…' : 'Feature My Clip 🎬'}</Button>
             </div>
         </Modal>
     );
@@ -22422,13 +22506,8 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
             const list = rkTribeOverlay(s.docs.map(d => ({ ...d.data(), id: d.id })), overlayRef.current);
             setTribes(list);
             setTribesLoaded(true);
-            // update achievement metrics (best-effort)
-            const biggest = list.reduce((m, t) => Math.max(m, (t.memberCount || (t.members || []).length)), 0);
-            // V89.84.150.323: and the ravers you invited who were voted in, kept as a high-water mark
-            const invited = list.reduce((m, t) => m + Object.values(t.memberInvitedBy || {}).filter(v => v === myUid).length, 0);
-            const tu = { tribesJoined: list.length, biggestTribe: biggest };
-            if (invited > (Number(profileRef.current && profileRef.current.tribeInvitesPassed) || 0)) tu.tribeInvitesPassed = invited;
-            try { setDoc(doc(db, 'artifacts', appId, 'users', myUid), tu, { merge: true }); } catch (e) {}
+            // V90.85.150.325: tribes joined, the biggest and ravers invited in are counted by the server (rk_stats.js,
+            // statsOnTribe) when a tribe's members change
         }, e => console.log('tribes', e));
         return () => unsub();
     }, [isOpen, myUid]);
@@ -24763,7 +24842,7 @@ const App = () => {
                 // V87.84.150.321: the leader with a name. A profile that was never set up has none, and its
                 // line read "@undefined". The top three are read and the first named one is shown.
                 const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(3))); const d = s.docs.find(x => rkMqNamed(x.data())); return d ? { ...d.data(), id: d.id } : null; };
-                const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster, welcomer, quick, planner] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed'), grab('tribeInvitesPassed'), grab('tribeVotesFast'), grab('festDaysPicked')]);
+                const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster, welcomer, quick, planner, regular, spotlit] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed'), grab('tribeInvitesPassed'), grab('tribeVotesFast'), grab('festDaysPicked'), grab('bannerDays'), grab('boostDays')]);
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
@@ -24776,7 +24855,7 @@ const App = () => {
                 // V89.84.150.323: how many ravers have opened RaveKandi as an installed app
                 let homeCount = null;
                 try { if (typeof getCountFromServer === 'function') { const hc = await getCountFromServer(query(collection(db, 'artifacts', appId, 'users'), where('installedApp', '==', true))); homeCount = Number(hc.data().count); } } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner });
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -24916,15 +24995,8 @@ const App = () => {
         }
     }, [page, tab]);
 
-    // V42.09: monthly VIP enforcement — auto-downgrade the moment the paid window ends.
-    // Re-checks every 30s via nowTick while the app is open and on every fresh launch.
-    useEffect(() => {
-        if (!user?.uid || !profile?.isVIP) return;
-        if (profile.vipPlan === 'monthly' && profile.vipExpires && Date.now() > profile.vipExpires) {
-            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: false, vipPlan: 'expired' }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'admin', '👑 Your VIP monthly subscription has expired — renew anytime to restore 6 Profile Pins, Themes, Banner Messages & Post Boosts. (Your first 3 pins stay free!)', '@vip');
-        }
-    }, [user, profile?.isVIP, profile?.vipPlan, profile?.vipExpires, nowTick]);
+    // V42.09: monthly VIP enforcement. V90.85.150.325: the perks stop at the end date on their own (isEffVIP), and the
+    // server ends the plan and sends the notice (rk_stats.js); the app no longer writes VIP.
 
     // V42.11: remote config — admin-controlled kill switches, maintenance & version gate
     const [rkConfig, setRkConfig] = useState(RK_CFG);
@@ -25057,121 +25129,32 @@ const App = () => {
         if (pubItems.loaded) { itemDeepLinkRef.current = true; rkFetchItem(RK_URL_PARAMS.item).then(it => { if (it) setViewingItem(it); }); }
     }, [items, pubItems.loaded]);
 
-    // V37.13: self-sync computed stats so the marquee leaderboards can query them,
-    // and self-notify on newly unlocked achievements.
-    // V84.152 (310): keyed on WHICH achievements are unlocked, and on the rating fields it reads. It
-    // listed nine fields while the count depends on about thirty, so an achievement earned through
-    // friends, radio time, tribes or music never updated achievementsUnlocked, and never sent its
-    // notification, until one of the nine happened to change.
-    const rkAchKey = profile?.joined ? getDisplayAchievements(profile).filter(a => a.unlocked).map(a => a.id).join(',') : '';
+    // V37.13 / V84.152 (310) / V87.78.150.315: the achievements, their rewards, the NEW tags, the RevShare rank and free
+    // VIP were worked out and saved here, on the raver's own phone, and so could be written by hand.
+    // V90.85.150.325 (Milli, at 323: "No user should be able to edit tracked statistics"): the server does all of it
+    // (rk_stats.js, statsOnUser), from counts it keeps itself, and sends the same notices. The app asks for a full recount
+    // when it opens and every 2 hours while it stays open (the server does one at most every 30 minutes), so network
+    // reach, which no single write moves, and anything a trigger missed catch up.
     useEffect(() => {
         if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        const allAch = getDisplayAchievements(profile);
-        const unlockedList = allAch.filter(a => a.unlocked);
-        const unlocked = unlockedList.length;
-        const pts = profile.isKandiCreator ? Math.round((profile.itemsSold || 0) * 5 + (profile.totalSalesValue || 0) * 0.5 + (profile.totalLikes || 0) + (profile.completedTrades || 0) * 3) : 0;
-        const upd = {};
-        if ((profile.achievementsUnlocked || 0) !== unlocked) upd.achievementsUnlocked = unlocked;
-        if ((profile.creatorPoints || 0) !== pts) upd.creatorPoints = pts;
-        // V63: computed average rating (x100 so it's an integer the leaderboard can orderBy).
-        const rc = profile.ratingCount || 0; const avg = rc > 0 ? (profile.ratingSum || 0) / rc : 0;
-        const avgX100 = Math.round(avg * 100);
-        if ((profile.avgRatingX100 || 0) !== avgX100) upd.avgRatingX100 = avgX100;
-        if ((profile.ratingTxns || 0) !== rc) upd.ratingTxns = rc;
-        // V84.77.150.311: achievement rewards, saved as high-water marks and announced when they rise.
-        // This used to live in the Achievements card, which saved them only while the raver was looking
-        // at their own profile, and nothing ever charged them. Checkout now applies them through
-        // rkSellerRate and rkRefSharePct, which also read today's achievements directly, so a reward
-        // counts at checkout even before this save lands.
-        const live = rkAchBonuses(unlockedList);
-        const roseComm = live.comm > (Number(profile.achCommBonus) || 0) + 1e-9;
-        const roseRef = live.ref > (Number(profile.achRefBonus) || 0) + 1e-9;
-        if (roseComm) upd.achCommBonus = live.comm;
-        if (roseRef) upd.achRefBonus = live.ref;
-        const firstLive = !profile.achRewardsLive;
-        if (firstLive) upd.achRewardsLive = true;
-        // 80% of the achievements earns permanent free VIP (moved here from the card too). The
-        // RevShare ranks are a bonus track and do not count, so adding them did not move the goal.
-        const core = allAch.filter(a => !a.rank);
-        const vipNow = !profile.achFreeVip && core.length > 0 && core.filter(a => a.unlocked).length / core.length >= 0.8;
-        if (vipNow) { upd.achFreeVip = true; upd.isVIP = true; upd.vipPermanent = true; }
-        // A RevShare rank reached. Its achievement and badge unlock through the list above; this
-        // only makes sure the raver hears about it once.
-        const rank = rkRankOf(profile.referrals);
-        const prevRank = Number(profile.rankNotified) || 0;
-        if (rank > prevRank) upd.rankNotified = rank;
-        // V87.78.150.315: achievements unlocked since the last sync get a NEW tag, and the notification
-        // opens the first of them (rkAchFresh, rkAchFreshNote).
-        const af = rkAchFresh(profile, unlockedList.map(a => a.id));
-        Object.assign(upd, af.upd);
-        if (Object.keys(upd).length === 0) return;
-        const p2 = { ...profile, ...upd };
-        const aw = rkAchApplied(p2);
-        const msgs = [];
-        const an = rkAchFreshNote(af.fresh, allAch);
-        if (an.text) msgs.push(an.text);
-        else if (!af.known && unlocked > (profile.achievementsUnlocked || 0) && (profile.achievementsUnlocked !== undefined)) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
-        // The notification opens the first new achievement; a rank alone opens that rank's achievement.
-        const rankAch = rank > prevRank ? allAch.find(a => a.rank === rank) : null;
-        const focusId = an.focus || (rankAch && rankAch.id) || '';
-        if (rank > prevRank) { const t = REFERRAL_TIERS[rank - 1]; msgs.push('🏆 ' + (profile.rankNotified === undefined ? 'Your RevShare rank: ' : 'New RevShare rank: ') + t.badge + ' (rank ' + RK_RANK_ROMAN[rank - 1] + '). You earn ' + rkPctTxt(rkRefSharePct(p2)) + ' of the commission on everything your referrals buy, and the ' + t.badge + ' badge is yours: feature it from My Badges.'); }
-        if (roseComm || roseRef || (firstLive && (aw.comm > 0 || aw.ref > 0))) msgs.push((firstLive ? '💸 Your achievement rewards are now applied at checkout: ' : '💸 Achievement reward earned: ') + 'seller commission ' + rkRatePct(rkSellerRate(p2)) + (aw.comm > 0 ? ' (−' + rkRatePct(aw.comm) + ' earned)' : '') + ', referral share ' + rkPctTxt(rkRefSharePct(p2)) + (aw.ref > 0 ? ' (+' + rkPctTxt(aw.ref * 100) + ' earned)' : '') + '.');
-        if (vipNow) msgs.push('👑 LEGENDARY: you completed 80% of all achievements — PERMANENT FREE VIP unlocked. Thank you for being the heartbeat of RaveKandi!');
-        // Notify only once the save has landed, and only once per change (rkAchNoticeSig), so a
-        // second run before the saved values come back cannot send the same news twice.
-        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true })
-            .then(() => {
-                if (!msgs.length) return;
-                const sig = user.uid + '|' + msgs.join('|');
-                if (sig === rkAchNoticeSig) return;
-                rkAchNoticeSig = sig;
-                pushNotif(user.uid, 'achievement', msgs.join(' '), focusId ? '@achievements:' + focusId : '@achievements');
-            })
-            .catch(e => rkReport('achievement sync', e));
-    }, [user, rkAchKey, profile?.itemsSold, profile?.totalSalesValue, profile?.totalLikes, profile?.completedTrades, profile?.isKandiCreator, profile?.joined, profile?.ratingSum, profile?.ratingCount, profile?.referrals, profile?.achCommBonus, profile?.achRefBonus, profile?.achRewardsLive, profile?.achFreeVip, profile?.rankNotified]);
+        const run = () => { rkAct('refresh').catch(e => { if (e && e.code !== 'not-found') rkReport('stats refresh', e); }); };
+        const t = setTimeout(run, 6000);
+        const iv = setInterval(run, 2 * 3600000);
+        return () => { clearTimeout(t); clearInterval(iv); };
+    }, [user?.uid, profile?.joined]);
 
-    // V84.152 (310): achievement counters that NOTHING maintained, now computed from data the app
-    // already holds. Each was declared at signup, read by the achievements and by the profile's stat
-    // tiles, and never written again: Crowd Favorite, Kandi Famous, Conversation Starter, Vibe
-    // Spreader and Social Butterfly could never unlock, the Kandi Collector line only moved through
-    // sales, and the profile's Likes and Comments tiles always read 0.
-    //  - itemsListed, totalLikes, totalComments: the raver's own posts, which the feed already
-    //    loads (its query 2), so this costs no reads.
-    //  - socialInteractions: likes given across the loaded feed, plus comments posted. Comments
-    //    are counted from 310 on; older ones cannot be attributed without a new index.
-    // High-water marks: written only when a figure goes UP, so a deleted post or a withdrawn like
-    // never takes an achievement back, and a feed that is still loading can only under-count.
+    // V84.152 (310): Fully Wired and Full Signal, the raver's own settings, saved as flags once they're met (Settings only
+    // worked them out when it was saved). V90.85.150.325: the counts this effect also worked out from the loaded feed
+    // (listings, likes and comments received, likes given, festivals and their days) are the server's now, counted from
+    // every post (rk_stats.js, statsOnPost), not just the ones loaded.
     const rkAchFlagsKey = JSON.stringify(profile?.notificationPreferences || null) + '|' + (profile?.phoneNumber || '');
     useEffect(() => {
         if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        const uid = user.uid;
         const upd = {};
-        const hi = (f, v) => { if (Number.isFinite(v) && v > (Number(profile[f]) || 0)) upd[f] = v; };
-        let listed = 0, likesIn = 0, commentsIn = 0, likesOut = 0;
-        // V88.84.150.322: the feed loads 50 at a time, so your own posts come from their own listener. Festivals
-        // dated: the different festivals you've posted your days for (Festival Planner, Season Pass).
-        const fests = new Set();
-        // V89.85.150.324: the festivals you've tapped days for (Day Picker), and a post with every day of one (All In)
-        const picked = new Set(); let allIn = 0;
-        rkByIdMerge(items || [], itemBuckets.mine || []).forEach(i => {
-            if (i && i.ownerId === uid) { const e = rkEventOf(i); if (e && e.from) fests.add(rkEventKey(e.name)); if (e && e.days && e.days.length) { picked.add(rkEventKey(e.name)); if (!allIn && rkCoversEdition(e)) allIn = 1; } }
-            if (!i) return;
-            const likes = Array.isArray(i.likes) ? i.likes : [];
-            if (i.ownerId === uid) {
-                likesIn += likes.filter(x => x !== uid).length;
-                commentsIn += rkCommentCount(i);
-                if (!i.isDIYRequest && !i.isRequest && i.status !== 'request' && !i.isDesignConcept) listed++;
-            } else if (likes.includes(uid)) likesOut++;
-        });
-        hi('itemsListed', listed); hi('totalLikes', likesIn); hi('totalComments', commentsIn); hi('festivalsDated', fests.size); hi('festDaysPicked', picked.size); hi('festAllDays', allIn);
-        hi('socialInteractions', likesOut + (Number(profile.commentsPosted) || 0));
-        // Fully Wired and Full Signal. Both flags were only ever computed when Settings was SAVED, so
-        // anyone who added a phone or ticked every box before V64.02 introduced them, or whose ticks
-        // were wiped before saving (see MainSettingsModal), never got them.
         if (!profile.contactComplete && profile.phoneNumber && auth.currentUser?.email) upd.contactComplete = true;
         if (!profile.notifsMaxed && rkNotifsMaxed(profile.notificationPreferences)) upd.notifsMaxed = true;
-        if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', uid), upd, { merge: true }).catch(e => rkReport('achievement stats', e));
-    }, [user?.uid, profile?.joined, items, itemBuckets.mine, profile?.itemsListed, profile?.totalLikes, profile?.totalComments, profile?.socialInteractions, profile?.commentsPosted, profile?.contactComplete, profile?.notifsMaxed, profile?.festivalsDated, profile?.festDaysPicked, profile?.festAllDays, rkAchFlagsKey]);
+        if (Object.keys(upd).length) setDoc(doc(db, 'artifacts', appId, 'users', user.uid), upd, { merge: true }).catch(e => rkReport('achievement flags', e));
+    }, [user?.uid, profile?.joined, profile?.contactComplete, profile?.notifsMaxed, rkAchFlagsKey]);
     // V88.84.150.322: what the Ravers feed sorts on. joined, for a profile set up before join dates were kept
     // (Firebase Auth knows when the account was made); friendsCount, kept in step with the friends list.
     useEffect(() => {
@@ -25194,51 +25177,13 @@ const App = () => {
         const iv = setInterval(run, 30 * 60000);
         return () => { clearTimeout(t); clearInterval(iv); };
     }, [user?.uid, profile?.joined]);
-    // V84.152 (310): completed PLUR trades were never counted at all (Trader, Trade Master, and the
-    // trades share of creator points), and the tribe figures only updated while the Vibe Tribe
-    // window was open. Both need a few reads, so they run at most every 6 hours per device.
-    useEffect(() => {
-        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        rkSyncTradeTribeStats(user.uid, profile).catch(e => rkReport('trade/tribe stats', e));
-    }, [user?.uid, profile?.joined]);
+    // V84.152 (310): completed trades and the tribe figures. V90.85.150.325: counted by the server (rk_stats.js).
 
-    // V42.23 Phase 7: PERMANENT early-adopter VIP. While Launch Perks are ON, grant every
-    // active raver real lifetime VIP exactly once. Because this writes isVIP:true (not just
-    // relying on the launchPerks flag), turning perks OFF later keeps these users VIP forever.
-    useEffect(() => {
-        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        if (!RK_CFG.launchPerks) return;           // only grant during the free period
-        if (profile.isVIP && profile.lifetimeVipGranted) return; // already locked in
-        setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: 'lifetime', lifetimeVipGranted: true, vipSince: profile.vipSince || Date.now(), vipExpires: null }, { merge: true })
-            .then(() => { if (!profile.lifetimeVipGranted) pushNotif(user.uid, 'admin', '🎉 Early Adopter perk: your VIP is now PERMANENT — Radio, Themes, Banners, Boosts & Font Selector are yours forever, even after launch pricing returns. PLUR! 💖', '@vip'); })
-            .catch(() => {});
-    }, [user, profile?.joined, profile?.isVIP, profile?.lifetimeVipGranted]);
+    // V42.23 Phase 7: PERMANENT early-adopter VIP while Launch Perks are on. V90.85.150.325: granted by the server
+    // (rk_stats.js), with the same notice, the first time a profile changes during launch perks.
 
-    // V63: RATING-BASED MONTHLY VIP. A 4.5★+ seller/buyer with enough completed transactions earns
-    // free VIP for the current month. It re-checks monthly: keep it up, keep VIP; drop below and it
-    // lapses at month's end. Lifetime/launch VIP holders skip this (they already have VIP). This is
-    // gated to NOT run during launch perks (everyone's already VIP then) — it activates post-launch.
-    useEffect(() => {
-        if (!user?.uid || user.isAnonymous || !profile?.joined) return;
-        if (RK_CFG.launchPerks) return;                       // launch era: everyone's VIP already
-        if (profile.lifetimeVipGranted) return;               // permanent VIP: nothing to do
-        const MIN_RATING_TXNS = 5;                            // X completed sales/purchases required
-        const rc = profile.ratingCount || 0;
-        const avg = rc > 0 ? (profile.ratingSum || 0) / rc : 0;
-        const qualifies = avg >= 4.5 && rc >= MIN_RATING_TXNS;
-        const monthKey = new Date().getFullYear() + '-' + (new Date().getMonth() + 1);
-        const hasRatingVip = profile.ratingVipMonth === monthKey;
-        if (qualifies && !hasRatingVip) {
-            // Grant VIP for this month.
-            const expires = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime();
-            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: true, vipPlan: 'rating', ratingVipMonth: monthKey, vipExpires: expires }, { merge: true })
-                .then(() => pushNotif(user.uid, 'admin', '⭐ You earned FREE VIP this month for your ' + avg.toFixed(1) + '★ rating! Keep it above 4.5★ to keep your perks. 💖', '@vip'))
-                .catch(() => {});
-        } else if (!qualifies && profile.vipPlan === 'rating' && profile.ratingVipMonth && profile.ratingVipMonth !== monthKey) {
-            // Lapsed: previously had rating-VIP but no longer qualifies in the new month — remove it.
-            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { isVIP: false, vipPlan: '', ratingVipMonth: '' }, { merge: true }).catch(() => {});
-        }
-    }, [user, profile?.joined, profile?.ratingSum, profile?.ratingCount, profile?.vipPlan, profile?.ratingVipMonth]);
+    // V63: RATING-BASED MONTHLY VIP (4.5★ from 5 rated orders, after launch perks). V90.85.150.325: granted, renewed at the
+    // turn of the month and ended by the server (rk_stats.js), with its notices.
 
     // V47 Stage E: PERMANENT launch commission lock-in. While Launch Perks are ON, lock every
     // active user to a 10% (or lower, if they have a better custom rate) commission FOREVER.
@@ -25254,20 +25199,7 @@ const App = () => {
             .catch(() => {});
     }, [user, profile?.joined, profile?.commissionLockedIn]);
 
-    // V37.13: Crowned Creator — permanent unlock when you hit #1 on Creator Points.
-    // V63: a session ref guarantees the notification fires EXACTLY ONCE. The previous version
-    // re-fired because the topCreatorUnlocked write is async — the effect could re-run on the
-    // next topStats tick before the profile refreshed, sending duplicate "Crowned Creator" pings.
-    const crownNotifiedRef = useRef(false);
-    useEffect(() => {
-        if (!user?.uid || !topStats.creator) return;
-        if (profile?.topCreatorUnlocked) { crownNotifiedRef.current = true; return; } // already earned: never notify again
-        if (topStats.creator.id === user.uid && (topStats.creator.creatorPoints || 0) > 0 && !crownNotifiedRef.current) {
-            crownNotifiedRef.current = true; // lock immediately, before the async write
-            setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { topCreatorUnlocked: 1 }, { merge: true }).catch(() => {});
-            pushNotif(user.uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.', '@achievements:top_creator');
-        }
-    }, [topStats, user, profile?.topCreatorUnlocked]);
+    // V37.13: Crowned Creator, #1 on Creator Points. V90.85.150.325: unlocked and announced by the server (rk_stats.js).
     
     const addToCart = async (i) => {
         if (!profile?.walletReady && !window.__rkWalletNudged) {
@@ -25671,6 +25603,9 @@ const App = () => {
         topStats.topTrack && ((topStats.topTrack.plays || 0) > 0) ? { t: '🎵 MOST PLAYED TRACK: "' + String(topStats.topTrack.title || 'Untitled').slice(0, 40) + '" by @' + (topStats.topTrack.ownerName || 'Artist') + ' (' + topStats.topTrack.plays + ' plays)', uid: topStats.topTrack.publicUid || topStats.topTrack.ownerUid || null } : null,
         // V89.85.150.324: the leader for 324's achievements, the next festival on the calendar, and posting with festival days
         topStats.planner && ((topStats.planner.festDaysPicked || 0) > 0) ? { t: '🗓️ TOP FESTIVAL PLANNER: @' + rkMqName(topStats.planner) + ' (days picked at ' + topStats.planner.festDaysPicked + ' festival' + (topStats.planner.festDaysPicked === 1 ? '' : 's') + ')', uid: uref(topStats.planner) } : null,
+        // V90.85.150.325: the leaders for 325's achievements (days with a banner, days with a boost, counted by the server)
+        topStats.regular && ((topStats.regular.bannerDays || 0) > 0) ? { t: '📢 MARQUEE REGULAR: @' + rkMqName(topStats.regular) + ' (banners on ' + topStats.regular.bannerDays + ' day' + (topStats.regular.bannerDays === 1 ? '' : 's') + ')', uid: uref(topStats.regular) } : null,
+        topStats.spotlit && ((topStats.spotlit.boostDays || 0) > 0) ? { t: '⚡ SPOTLIGHT REGULAR: @' + rkMqName(topStats.spotlit) + ' (boosts on ' + topStats.spotlit.boostDays + ' day' + (topStats.spotlit.boostDays === 1 ? '' : 's') + ')', uid: uref(topStats.spotlit) } : null,
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
         (user && !user.isAnonymous) ? { t: '🎪 GOING TO A FESTIVAL? POST IT, PICK THE FESTIVAL AND TAP THE DAYS YOU\'RE GOING 🎪', go: () => { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } } : null,
         topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
@@ -27638,6 +27573,8 @@ mkdir -p ~/RaveKandi-Build/functions
 RK_FN_DIR="$HOME/RaveKandi-Build/functions"
 RK_FN_BACKUP="$HOME/rk-secrets/functions-backup"
 mkdir -p "$RK_FN_BACKUP"
+# V90.85.150.325: the script-owned function files as they were before this run, for BUILD RESULT (FUNCTIONS: ...)
+RK_FN_BEFORE=$(cd "$RK_FN_DIR" 2>/dev/null && md5sum rk_*.js 2>/dev/null)
 
 # Timestamped backup on every single build, before anything is written.
 for f in index.js package.json; do
@@ -27656,7 +27593,7 @@ cat << 'FNPKGEOF' > "$RK_FN_DIR/package.json"
 {
   "name": "ravekandi-functions",
   "description": "RaveKandi Cloud Functions",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "dependencies": {
     "firebase-admin": "^12.0.0",
@@ -27672,6 +27609,15 @@ else
             echo "  WARNING: functions/package.json is missing \"$dep\" — add it before deploying."
         fi
     done
+    # V90.85.150.325: Node.js 20 was decommissioned for Cloud Functions on 2026-10-30 ("Runtime Node.js 20 was
+    # decommissioned"): a function on 18 or 20 can't be deployed any more. 22 is the newest runtime 1st-gen functions
+    # (your payment functions may be) also have; it is deprecated on 2027-04-30 and decommissioned on 2027-10-31.
+    if grep -qE '"node" *: *"(18|20)"' "$RK_FN_DIR/package.json"; then
+        RK_NODE_WAS=$(grep -oE '"node" *: *"[0-9]+"' "$RK_FN_DIR/package.json" | grep -oE '[0-9]+' | head -1)
+        cp "$RK_FN_DIR/package.json" "$RK_FN_BACKUP/package.json.node$RK_NODE_WAS.$(date +%Y%m%d-%H%M%S)"
+        sed -i -E 's/"node" *: *"(18|20)"/"node": "22"/' "$RK_FN_DIR/package.json"
+        echo "  functions/package.json: engines.node changed from $RK_NODE_WAS to 22 (Node $RK_NODE_WAS can't be deployed any more). Backup in ~/rk-secrets/functions-backup/."
+    fi
     echo "  functions/package.json left untouched (yours)."
 fi
 
@@ -29029,6 +28975,16 @@ const rkModRun = async (event, kind, authorOf, only, fallback) => {
   console.log('rk_mod cleaned', kind, after.ref.path, Object.keys(changes));
 };
 const NAME_FALLBACK = (k, p) => k === 'publicUid' ? p.uid : k === 'displayName' ? 'Raver ' + String(p.uid).slice(0, 4) : '♥♥♥';
+// V90.85.150.325: the same check for text the server writes itself (banners and clip captions, in rk_stats.js): the
+// text with every blocked word as hearts, and the word found. A plain function, not a Cloud Function, so the deploy
+// leaves it alone.
+exports.rkModCleanFor = async (appId, text) => {
+  const list = await rkModList(appId);
+  const s = String(text || ''), hit = rkHateMatch(s, list);
+  if (!hit) return { text: s, hit: null };
+  const c = rkModCleanText(s, list);
+  return { text: c !== null ? c : '♥♥♥', hit };
+};
 
 exports.modUserText = onDocumentWritten('artifacts/{appId}/users/{uid}', (e) => rkModRun(e, 'users', (d, p) => p.uid, ['displayName', 'bio', 'publicUid', 'statusText', 'tagline', 'location'], NAME_FALLBACK));
 exports.modPostText = onDocumentWritten('artifacts/{appId}/public/data/tradeItems/{id}', (e) => rkModRun(e, 'tradeItems', (d) => d.ownerId, ['name', 'title', 'description', 'series', 'event', 'tags', 'ownerName', 'workNote', 'dismissReason']));
@@ -29058,6 +29014,7 @@ module.exports = Object.assign(module.exports, require('./rk_social'));
 module.exports = Object.assign(module.exports, require('./rk_radio'));
 module.exports = Object.assign(module.exports, require('./rk_votes'));
 module.exports = Object.assign(module.exports, require('./rk_mod'));
+module.exports = Object.assign(module.exports, require('./rk_stats'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -29092,13 +29049,572 @@ else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
     echo "  functions/index.js: rk_push re-export appended, your existing code preserved."
 fi
+# V90.85.150.325: THE STATS ENGINE (rk_stats.js) and the definitions it shares with the app (rk_shared.js, made from
+# src/rkShared.js here, so the two can never disagree).
+if [ -f "$HOME/RaveKandi-Build/src/rkShared.js" ]; then
+    sed -e 's/^export { \(.*\) };$/module.exports = { \1 };/' "$HOME/RaveKandi-Build/src/rkShared.js" > "$RK_FN_DIR/rk_shared.js"
+else
+    sed -e 's/^export { \(.*\) };$/module.exports = { \1 };/' "$HOME/ravekandi-app/src/rkShared.js" > "$RK_FN_DIR/rk_shared.js"
+fi
+if grep -q "^module.exports = { " "$RK_FN_DIR/rk_shared.js" && ! grep -q "^export " "$RK_FN_DIR/rk_shared.js"; then
+    echo "  functions/rk_shared.js written (script-owned, from src/rkShared.js)."
+else
+    echo "  ERROR: functions/rk_shared.js didn't come out right (its last line should start module.exports). The stats"
+    echo "  functions would fail to load, so don't deploy functions from this run. Send me: tail -3 $RK_FN_DIR/rk_shared.js"
+fi
+cat << 'RKSTATSEOF' > "$RK_FN_DIR/rk_stats.js"
+// RaveKandi stats engine, server side (V90.85.150.325). Script-owned: the build regenerates this file.
+//
+// Milli, at 323: "ensure all ways users could manually edit stats, analytics, likes, or any other statistic or number
+// is prevented. No user should be able to edit tracked statistics". 323's rules hold what a rule can check. This file
+// works out the rest from the documents themselves, and from 325 it is the only thing that can save them (the rules
+// close these fields to the app):
+//  - counts from many documents: listings, likes and comments received, likes given, festivals and festival days,
+//    completed trades, tribes, ravers invited in, network reach
+//  - achievements, their rewards (seller commission, referral share), the NEW tags and their notices, Crowned
+//    Creator, and permanent free VIP at 80% of them
+//  - VIP: launch founders, rating VIP, plans that end, gifts, and the test-mode checkout
+//  - the daily limits: banners, boosts, featured clips (each one is booked here, never by the app)
+//  - the referral credit (queue item 31): the daily cap, the record, the notice
+// The definitions it applies are functions/rk_shared.js, made from the app's src/rkShared.js, so the app and the
+// server can't disagree about what an achievement reads or what it rewards.
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+const S = require('./rk_shared');
+// the blocked-word check (rk_mod.js), for the banner and clip text this file writes itself
+let rkModCleanFor = null;
+try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
+
+const APP = 'ravekandi-core-prod';
+const VER = 'V90.85.150.325';
+const db = () => admin.firestore();
+const FV = () => admin.firestore.FieldValue;
+const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
+const pub = (appId, n) => db().collection('artifacts/' + appId + '/public/data/' + n);
+const rkReady = (p) => !!(p && p.displayName && p.publicUid);
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+// ---- the live config (global/config), read at most once a minute per instance. Defaults match the app's RK_CFG. ----
+let cfgCache = { at: 0, v: null };
+const rkCfg = async (appId) => {
+  if (cfgCache.v && Date.now() - cfgCache.at < 60000) return cfgCache.v;
+  let d = {};
+  try { const s = await db().doc('artifacts/' + appId + '/global/config').get(); d = s.exists ? (s.data() || {}) : {}; } catch (e) { console.error('rk_stats config', e && e.message); }
+  const on = (k, dflt) => (k in d) ? !!d[k] : dflt;
+  const v = {
+    launchPerks: on('launchPerks', true), checkoutEnabled: on('checkoutEnabled', true), paymentsLive: on('paymentsLive', false),
+    bannersEnabled: on('bannersEnabled', true), boostsEnabled: on('boostsEnabled', true), videoWindowMin: Number(d.videoWindowMin) || 30,
+    maintenanceMessage: typeof d.maintenanceMessage === 'string' ? d.maintenanceMessage : '',
+    festDates: (d.festDates && typeof d.festDates === 'object') ? d.festDates : {},
+  };
+  cfgCache = { at: Date.now(), v };
+  return v;
+};
+const rkCatalog = (cfg) => Object.assign({}, S.RK_FEST_DATES, (cfg && cfg.festDates) || {});
+
+// ---- notices: the same shape the app's pushNotif writes, so the push function delivers them and the app's router
+// opens them. `key` makes a notice once-only: a second delivery of the same event can't send it twice. ----
+const rkHash = (s) => { let h = 5381; s = String(s); for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const rkTell = async (appId, uid, type, text, refId, key) => {
+  if (!uid || !text) return;
+  const col = db().collection('artifacts/' + appId + '/users/' + uid + '/notifications');
+  const data = { type, text: String(text).slice(0, 900), refId: refId || null, read: false, at: Date.now() };
+  try { if (key) await col.doc('srv_' + key).create(data); else await col.add(data); }
+  catch (e) { if (!(e && (e.code === 6 || /already exists/i.test(String(e.message))))) console.error('rk_stats notice', uid, e && e.message); }
+};
+
+// ================================================================================================================
+// COUNTS FROM MANY DOCUMENTS. Each part reads only what it needs; the result is saved as high-water marks (a figure
+// only goes up, so a deleted post or a withdrawn like never takes an achievement back).
+// ================================================================================================================
+const ALL = { posts: true, likes: true, trades: true, tribes: true, network: true };
+const rkCount = async (appId, uid, parts, cfg, p) => {
+  const found = {};
+  if (parts.posts) {
+    const qs = await pub(appId, 'tradeItems').where('ownerId', '==', uid).get();
+    Object.assign(found, S.rkPostStats(qs.docs.map(d => d.data()), uid, rkCatalog(cfg)));
+  }
+  if (parts.likes) {
+    const qs = await pub(appId, 'tradeItems').where('likes', 'array-contains', uid).get();
+    found.likesGiven = S.rkLikesGiven(qs.docs.map(d => d.data()), uid);
+  }
+  if (parts.trades) {
+    const seen = new Set();
+    for (const f of ['itemOwnerId', 'offererId']) {
+      const qs = await pub(appId, 'tradeOffers').where(f, '==', uid).where('status', '==', 'completed').get();
+      qs.forEach(d => seen.add(d.id));
+    }
+    found.completedTrades = seen.size;
+  }
+  if (parts.tribes) {
+    const qs = await pub(appId, 'tribes').where('members', 'array-contains', uid).get();
+    Object.assign(found, S.rkTribeStats(qs.docs.map(d => d.data()), uid));
+  }
+  if (parts.network) {
+    const ids = [...new Set((Array.isArray(p.friends) ? p.friends : []).filter(x => typeof x === 'string' && x && x !== uid && !x.includes('/')))].slice(0, 120);
+    const docs = ids.length ? await db().getAll(...ids.map(id => userRef(appId, id))) : [];
+    found.networkReach = S.rkNetworkReach(docs.filter(d => d.exists).map(d => d.data()), uid, p.friends || []);
+  }
+  return found;
+};
+const RK_COUNTED = S.RK_HIGH_WATER.concat(['likesGiven']);
+const rkRecount = async (appId, uid, parts, cfg, opts) => {
+  const ref = userRef(appId, uid);
+  const snap = await ref.get();
+  if (!snap.exists || !rkReady(snap.data())) return null;
+  const found = await rkCount(appId, uid, parts, cfg, snap.data() || {});
+  return db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return null;
+    const cur = s.data() || {}, upd = {};
+    Object.keys(found).forEach(k => { const v = num(found[k]); if (RK_COUNTED.includes(k) && v > num(cur[k])) upd[k] = v; });
+    if (opts && opts.stamp) upd.statsAt = Date.now();
+    if (Object.keys(upd).length) tx.set(ref, upd, { merge: true });
+    return upd;
+  });
+};
+
+// ================================================================================================================
+// EVERYTHING WORKED OUT FROM THE PROFILE ITSELF: the figures the rules check, the achievements and their rewards,
+// the NEW tags, the RevShare rank notice, free VIP at 80%, launch founders, rating VIP, and plans that end. Pure:
+// it returns what to save and what to say. The app ran most of this on the raver's own phone until 325 (the App
+// effects "self-sync computed stats", V42.23, V63, V42.09); the messages are the same words.
+// ================================================================================================================
+const rkEvaluate = (p, cfg, now) => {
+  const upd = {}, notes = [], cur = Object.assign({}, p);
+  const set = (k, v) => { upd[k] = v; cur[k] = v; };
+  const setNum = (k, v) => { if (Number.isFinite(v) && num(cur[k]) !== v) set(k, v); };
+  const perks = !!(cfg && cfg.launchPerks);
+  // the figures the rules check against the profile (derivedOk)
+  setNum('friendsCount', Array.isArray(cur.friends) ? cur.friends.length : 0);
+  setNum('ratingTxns', num(cur.ratingCount));
+  setNum('avgRatingX100', S.rkAvgX100(cur));
+  // likes given and comments posted: Vibe Spreader, Social Butterfly (a high-water mark)
+  const social = num(cur.likesGiven) + num(cur.commentsPosted);
+  if (social > num(cur.socialInteractions)) set('socialInteractions', social);
+  setNum('creatorPoints', S.rkCreatorPoints(cur));
+  // achievements: the count feeds two achievements of its own (ach_5, ach_15), so settle it
+  for (let i = 0; i < 4; i++) { const n = S.rkAchList(cur).filter(a => a.unlocked).length; if (num(cur.achievementsUnlocked) === n) break; set('achievementsUnlocked', n); }
+  const allAch = S.rkAchList(cur), unlockedList = allAch.filter(a => a.unlocked), unlocked = unlockedList.length;
+  // rewards, kept as high-water marks and announced when they rise
+  const live = S.rkAchBonuses(unlockedList);
+  const roseComm = live.comm > num(cur.achCommBonus) + 1e-9, roseRef = live.ref > num(cur.achRefBonus) + 1e-9;
+  if (roseComm) set('achCommBonus', live.comm);
+  if (roseRef) set('achRefBonus', live.ref);
+  const firstLive = !cur.achRewardsLive;
+  if (firstLive) set('achRewardsLive', true);
+  // 80% of the core achievements (the RevShare ranks are a bonus track) earns permanent free VIP
+  const core = allAch.filter(a => !a.rank);
+  const vipNow = !cur.achFreeVip && core.length > 0 && core.filter(a => a.unlocked).length / core.length >= S.RK_FREE_VIP_SHARE;
+  if (vipNow) { set('achFreeVip', true); set('isVIP', true); set('vipPermanent', true); }
+  // a RevShare rank reached: its achievement unlocks through the list; this makes sure the raver hears once
+  const rank = S.rkRankOf(cur.referrals), prevRank = num(cur.rankNotified);
+  if (rank > prevRank) set('rankNotified', rank);
+  // NEW tags: what was unlocked since the last time (achKnown); the first time records the baseline only
+  const af = S.rkAchFresh(cur, unlockedList.map(a => a.id));
+  if (af.upd.achKnown) set('achKnown', af.upd.achKnown);
+  if (af.upd.achNew) { upd.achNew = af.upd.achNew; cur.achNew = Object.assign({}, cur.achNew || {}, af.upd.achNew); }
+  // the notice, as the app wrote it
+  const msgs = [];
+  const an = S.rkAchFreshNote(af.fresh, allAch);
+  if (an.text) msgs.push(an.text);
+  else if (!af.known && unlocked > num(p.achievementsUnlocked) && p.achievementsUnlocked !== undefined) msgs.push('🏅 You unlocked a new achievement! (' + unlocked + ' total)');
+  const rankAch = rank > prevRank ? allAch.find(a => a.rank === rank) : null;
+  const focusId = an.focus || (rankAch && rankAch.id) || '';
+  const aw = S.rkAchApplied(cur);
+  if (rank > prevRank) { const t = S.REFERRAL_TIERS[rank - 1]; msgs.push('🏆 ' + (p.rankNotified === undefined ? 'Your RevShare rank: ' : 'New RevShare rank: ') + t.badge + ' (rank ' + S.RK_RANK_ROMAN[rank - 1] + '). You earn ' + S.rkPctTxt(S.rkRefSharePct(cur)) + ' of the commission on everything your referrals buy, and the ' + t.badge + ' badge is yours: feature it from My Badges.'); }
+  if (roseComm || roseRef || (firstLive && (aw.comm > 0 || aw.ref > 0))) msgs.push((firstLive ? '💸 Your achievement rewards are now applied at checkout: ' : '💸 Achievement reward earned: ') + 'seller commission ' + S.rkRatePct(S.rkSellerRateAt(cur, perks)) + (aw.comm > 0 ? ' (−' + S.rkRatePct(aw.comm) + ' earned)' : '') + ', referral share ' + S.rkPctTxt(S.rkRefSharePct(cur)) + (aw.ref > 0 ? ' (+' + S.rkPctTxt(aw.ref * 100) + ' earned)' : '') + '.');
+  if (vipNow) msgs.push('👑 LEGENDARY: you completed 80% of all achievements — PERMANENT FREE VIP unlocked. Thank you for being the heartbeat of RaveKandi!');
+  if (msgs.length) notes.push({ type: 'achievement', text: msgs.join(' '), refId: focusId ? '@achievements:' + focusId : '@achievements', key: 'ach_' + rkHash(msgs.join('|') + '|' + (af.fresh || []).join(',') + '|' + rank) });
+
+  // ---- VIP ----
+  if (perks) {
+    // V42.23 / V74: everyone set up during launch perks keeps VIP for good (it survives perks being switched off)
+    if (!(cur.isVIP && cur.lifetimeVipGranted)) {
+      set('isVIP', true); set('vipPlan', 'lifetime'); set('lifetimeVipGranted', true); set('vipSince', num(cur.vipSince) || now); set('vipExpires', null);
+      if (!p.lifetimeVipGranted) notes.push({ type: 'admin', text: '🎉 Early Adopter perk: your VIP is now PERMANENT — Radio, Themes, Banners, Boosts & Font Selector are yours forever, even after launch pricing returns. PLUR! 💖', refId: '@vip', key: 'founder' });
+    }
+  } else if (!cur.lifetimeVipGranted) {
+    // V63: 4.5 stars or more from 5 rated orders earns VIP for the month; it lapses at the month's end
+    const month = S.rkMonthKey(now), qualifies = S.rkRatingQualifies(cur), hasIt = cur.ratingVipMonth === month;
+    const otherVip = cur.isVIP && cur.vipPlan !== 'rating' && !S.rkVipLapsed(cur, now);
+    if (qualifies && !hasIt && !otherVip) {
+      set('isVIP', true); set('vipPlan', 'rating'); set('ratingVipMonth', month); set('vipExpires', S.rkNextMonthStart(now));
+      notes.push({ type: 'admin', text: '⭐ You earned FREE VIP this month for your ' + (num(cur.ratingSum) / num(cur.ratingCount)).toFixed(1) + '★ rating! Keep it above 4.5★ to keep your perks. 💖', refId: '@vip', key: 'ratingvip_' + month });
+    } else if (!qualifies && cur.vipPlan === 'rating' && cur.ratingVipMonth && cur.ratingVipMonth !== month) {
+      set('isVIP', false); set('vipPlan', ''); set('ratingVipMonth', '');
+      notes.push({ type: 'admin', text: '⭐ Your rating VIP ended with the month. 4.5★ or more from 5 rated orders brings it back, for the month you reach it.', refId: '@vip', key: 'ratingend_' + month });
+    }
+  }
+  // V42.09: a plan that ends (monthly, or an admin's grant for a set time) ends on its date
+  if (cur.vipPlan !== 'rating' && S.rkVipLapsed(cur, now)) {
+    const monthly = cur.vipPlan === 'monthly';
+    const ended = num(cur.vipExpires);
+    set('isVIP', false); set('vipPlan', 'expired');
+    notes.push({ type: 'admin', text: monthly ? '👑 Your VIP monthly subscription has expired — renew anytime to restore 6 Profile Pins, Themes, Banner Messages & Post Boosts. (Your first 3 pins stay free!)' : '👑 Your VIP time has ended. Thanks for raving with the perks! VIP is in Settings whenever you want it back.', refId: '@vip', key: 'vipend_' + ended });
+  }
+  return { upd, notes, cur };
+};
+
+// Save what the profile works out to, in a transaction on the newest copy, then send the notices.
+const rkSettle = async (appId, uid, cfg) => {
+  const ref = userRef(appId, uid);
+  const res = await db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return null;
+    const p = s.data() || {};
+    if (!rkReady(p)) return null;
+    const ev = rkEvaluate(p, cfg, Date.now());
+    if (Object.keys(ev.upd).length) tx.set(ref, ev.upd, { merge: true });
+    return { ev, p };
+  });
+  if (!res) return null;
+  for (const n of res.ev.notes) await rkTell(appId, uid, n.type, n.text, n.refId, n.key);
+  // V37.13 / V63: Crowned Creator, #1 on creator points (the leader with a name, as the marquee shows it)
+  if (!res.p.topCreatorUnlocked && num(res.ev.cur.creatorPoints) > 0 && ('creatorPoints' in res.ev.upd)) await rkCrown(appId, uid).catch(e => console.error('crown', uid, e && e.message));
+  return res.ev.upd;
+};
+const rkCrown = async (appId, uid) => {
+  const qs = await db().collection('artifacts/' + appId + '/users').orderBy('creatorPoints', 'desc').limit(3).get();
+  const top = qs.docs.find(d => { const x = d.data() || {}; return typeof x.displayName === 'string' && x.displayName.trim(); });
+  if (!top || top.id !== uid || !(num(top.data().creatorPoints) > 0)) return;
+  const ref = userRef(appId, uid);
+  const won = await db().runTransaction(async (tx) => { const s = await tx.get(ref); if (!s.exists || s.data().topCreatorUnlocked) return false; tx.set(ref, { topCreatorUnlocked: 1 }, { merge: true }); return true; });
+  if (won) await rkTell(appId, uid, 'achievement', '👑 CROWNED CREATOR unlocked — you are the #1 Creator on RaveKandi! This badge is yours forever.', '@achievements:top_creator', 'crown');
+};
+
+// ================================================================================================================
+// THE REFERRAL CREDIT (queue item 31). When a profile first names a referrer (at sign-up, or a code entered later),
+// the referrer gets +1, up to their daily cap (rkReferralCap, midnight UTC). Over the cap, the link is still recorded
+// and a Referral Review ticket goes to the admins: the new raver did nothing wrong. Once per account (refCreditedAt).
+// ================================================================================================================
+const rkCreditReferral = async (appId, uid, atSignup) => {
+  const meRef = userRef(appId, uid);
+  const out = await db().runTransaction(async (tx) => {
+    const me = await tx.get(meRef);
+    if (!me.exists) return null;
+    const m = me.data() || {};
+    const refUid = typeof m.referredBy === 'string' ? m.referredBy : '';
+    if (!refUid || refUid === uid || refUid.includes('/') || m.refCreditedAt) return null;
+    const rRef = userRef(appId, refUid), recRef = db().doc('artifacts/' + appId + '/users/' + refUid + '/myReferrals/' + uid);
+    const [rs, rec] = await tx.getAll(rRef, recRef);
+    if (!rs.exists) return null;
+    // a 324 app credits the referral itself, with its record, until the 325 rules take that away: when the record is
+    // already there, the credit was made, so it isn't made twice
+    if (rec.exists) { tx.set(meRef, { refCreditedAt: Date.now() }, { merge: true }); return null; }
+    const rp = rs.data() || {};
+    const cap = S.rkReferralCap(rp), today = S.rkUtcDay();
+    const used = rp.refDay === today ? num(rp.refCountToday) : 0;
+    const over = used >= cap, name = m.displayName || 'A raver', now = Date.now();
+    if (over) tx.set(rRef, { refFlaggedAt: now, refDay: today, refCountToday: used + 1 }, { merge: true });
+    else tx.set(rRef, { referrals: FV().increment(1), refDay: today, refCountToday: used + 1 }, { merge: true });
+    tx.set(recRef, { uid, displayName: name, earnedFromThisUser: 0, timestamp: now });
+    tx.set(meRef, { refCreditedAt: now }, { merge: true });
+    return { refUid, over, cap, name, rName: rp.displayName || refUid };
+  });
+  if (!out) return null;
+  if (out.over) {
+    try {
+      await pub(appId, 'tickets').add({ category: 'Referral Review', subject: 'Daily referral cap reached', message: 'Account ' + out.rName + ' hit its daily cap of ' + out.cap + ' referrals. Referral from new account ' + out.name + ' was recorded but not credited.', uid: out.refUid, status: 'open', createdAt: Date.now(), appVersion: VER + ' (server)', autoFlag: true });
+    } catch (e) { console.error('referral ticket', e && e.message); }
+    await rkTell(appId, out.refUid, 'referral', '⏳ ' + out.name + ' joined with your code, but you have hit today’s referral limit of ' + out.cap + '. It resets at midnight UTC.', '@refdash', 'ref_' + uid);
+  } else {
+    await rkTell(appId, out.refUid, 'referral', atSignup ? '🎉 ' + out.name + ' just joined RaveKandi using your code! +1 referral' : '🤝 ' + out.name + ' linked you as their referrer! +1 referral', '@refdash', 'ref_' + uid);
+  }
+  return out;
+};
+
+// ================================================================================================================
+// TRIGGERS
+// ================================================================================================================
+const rkData = (snap) => (snap && snap.exists ? (snap.data() || {}) : null);
+const rkEach = async (list, n, fn) => {
+  let i = 0;
+  const run = async () => { while (i < list.length) { const x = list[i++]; try { await fn(x); } catch (e) { console.error('rk_stats', x, e && e.message); } } };
+  await Promise.all(Array.from({ length: Math.min(n, list.length) }, run));
+};
+const rkIds = (...lists) => [...new Set([].concat(...lists.map(l => Array.isArray(l) ? l : [l])).filter(x => typeof x === 'string' && x && !x.includes('/')))];
+
+// A profile changed: the referral credit when a referrer first appears; network reach when the friends list moves;
+// then everything the profile itself works out to. Its own writes come back here and change nothing more.
+exports.statsOnUser = onDocumentWritten('artifacts/{appId}/users/{uid}', async (event) => {
+  const { appId, uid } = event.params;
+  if (appId !== APP) return;
+  const b = rkData(event.data && event.data.before), a = rkData(event.data && event.data.after);
+  if (!a) return;
+  const cfg = await rkCfg(appId);
+  if (a.referredBy && !a.refCreditedAt && !(b && b.referredBy)) await rkCreditReferral(appId, uid, !(b && b.displayName)).catch(e => console.error('referral', uid, e && e.message));
+  if (!rkReady(a)) return;
+  if (!b || JSON.stringify(b.friends || []) !== JSON.stringify(a.friends || [])) await rkRecount(appId, uid, { network: true }, cfg).catch(e => console.error('network', uid, e && e.message));
+  if (Object.keys(rkEvaluate(a, cfg, Date.now()).upd).length) await rkSettle(appId, uid, cfg);
+});
+
+// A post changed: its owner's post figures (when likes, comments, the festival or what kind of post it is moved, not
+// on a view), and likes given for whoever liked or unliked it.
+const RK_POST_FIELDS = ['ownerId', 'likes', 'comments', 'commentCount', 'event', 'tradeWants', 'isDIYRequest', 'isRequest', 'status', 'isDesignConcept'];
+exports.statsOnPost = onDocumentWritten('artifacts/{appId}/public/data/tradeItems/{id}', async (event) => {
+  const { appId } = event.params;
+  if (appId !== APP) return;
+  const b = rkData(event.data && event.data.before), a = rkData(event.data && event.data.after);
+  if (b && a && !RK_POST_FIELDS.some(k => JSON.stringify(b[k]) !== JSON.stringify(a[k]))) return;
+  const cfg = await rkCfg(appId);
+  const owners = rkIds(b && b.ownerId, a && a.ownerId);
+  await rkEach(owners, 2, (u) => rkRecount(appId, u, { posts: true }, cfg));
+  const lb = new Set((b && Array.isArray(b.likes)) ? b.likes : []), la = new Set((a && Array.isArray(a.likes)) ? a.likes : []);
+  const flipped = rkIds([...la].filter(x => !lb.has(x)), [...lb].filter(x => !la.has(x))).filter(x => !owners.includes(x)).slice(0, 50);
+  await rkEach(flipped, 4, (u) => rkRecount(appId, u, { likes: true }, cfg));
+});
+
+// A trade offer completed (or stopped being completed): both sides' completed trades.
+exports.statsOnTrade = onDocumentWritten('artifacts/{appId}/public/data/tradeOffers/{id}', async (event) => {
+  const { appId } = event.params;
+  if (appId !== APP) return;
+  const b = rkData(event.data && event.data.before), a = rkData(event.data && event.data.after);
+  const done = (x) => !!(x && x.status === 'completed');
+  if (done(b) === done(a) && (!done(a) || (b.itemOwnerId === a.itemOwnerId && b.offererId === a.offererId))) return;
+  const cfg = await rkCfg(appId);
+  await rkEach(rkIds(b && b.itemOwnerId, b && b.offererId, a && a.itemOwnerId, a && a.offererId), 2, (u) => rkRecount(appId, u, { trades: true }, cfg));
+});
+
+// A tribe's members changed: every member's tribe figures (a join changes everyone's biggest tribe).
+exports.statsOnTribe = onDocumentWritten('artifacts/{appId}/public/data/tribes/{id}', async (event) => {
+  const { appId } = event.params;
+  if (appId !== APP) return;
+  const b = rkData(event.data && event.data.before), a = rkData(event.data && event.data.after);
+  if (b && a && !['members', 'memberCount', 'memberInvitedBy'].some(k => JSON.stringify(b[k]) !== JSON.stringify(a[k]))) return;
+  const cfg = await rkCfg(appId);
+  await rkEach(rkIds(b && b.members, a && a.members).slice(0, 300), 6, (u) => rkRecount(appId, u, { tribes: true }, cfg));
+});
+
+// ================================================================================================================
+// WHAT THE APP ASKS FOR (one callable, so one more function to deploy instead of six)
+// ================================================================================================================
+const fail = (code, msg) => { throw new HttpsError(code, msg); };
+const rkWordCheck = async (appId, text, what) => {
+  if (!rkModCleanFor || !text) return;
+  let r = null;
+  try { r = await rkModCleanFor(appId, text); } catch (e) { console.error('word check', e && e.message); }
+  if (r && r.hit) fail('invalid-argument', 'A word in ' + what + " isn't allowed on RaveKandi. Slurs and hate speech aren't tolerated here. PLUR: peace, love, unity and respect.");
+};
+
+// A full recount for the raver who opened the app, at most every 30 minutes.
+const RK_REFRESH_MS = 30 * 60000;
+const rkRefresh = async (appId, uid, cfg) => {
+  const s = await userRef(appId, uid).get();
+  if (!s.exists || !rkReady(s.data())) return { ok: false, reason: 'no-profile' };
+  const p = s.data() || {};
+  if (num(p.statsAt) > Date.now() - RK_REFRESH_MS) return { ok: true, skipped: true, at: num(p.statsAt) };
+  const upd = await rkRecount(appId, uid, ALL, cfg, { stamp: true });
+  return { ok: true, at: Date.now(), changed: Object.keys(upd || {}).filter(k => k !== 'statsAt') };
+};
+
+// A banner: VIP (or launch perks), 5 a day, the next free 15-minute window (the rest of the current one and the
+// next, when the current one is free).
+const rkBanner = async (appId, uid, d, cfg) => {
+  if (!cfg.bannersEnabled) fail('failed-precondition', 'Banner posting is temporarily disabled by the admin team.');
+  const isSocial = d.mode === 'social';
+  let text = '', linkUrl = null;
+  if (isSocial) {
+    const v = S.validateSocialLink(String(d.link || ''));
+    if (!v.ok) fail('invalid-argument', 'Link rejected: ' + v.reason);
+    linkUrl = v.clean;
+    text = 'Follow me → ' + (String(d.label || '').trim().slice(0, 60) || v.clean.replace('https://', '').slice(0, 50));
+  } else {
+    text = String(d.text || '').trim().slice(0, 90);
+    if (!text) fail('invalid-argument', 'Type your banner message first.');
+  }
+  await rkWordCheck(appId, text, 'your banner');
+  const ref = userRef(appId, uid), now = Date.now(), day = S.rkUtcDay(now), W = S.RK_BANNER_MS;
+  return db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
+    const p = s.data() || {};
+    if (!S.rkIsVipAt(p, cfg.launchPerks, now)) fail('permission-denied', 'Banner messages are a VIP perk.');
+    const used = S.rkDayUsed(p, 'banner', day), max = S.rkDayMax(p, 'banner');
+    if (used >= max) fail('resource-exhausted', 'Daily limit reached: ' + max + ' banner posts per day (messages and social links combined). It resets at midnight UTC.');
+    const cur = Math.floor(now / W) * W;
+    const qs = await tx.get(pub(appId, 'bannerSlots').where('start', '>=', cur));
+    const taken = new Set(qs.docs.map(x => num(x.data().start)));
+    const wins = S.rkBannerWindows(now, taken);
+    const payload = { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, text, type: isSocial ? 'social' : 'message', linkUrl, postedAt: now };
+    wins.forEach(st => tx.create(pub(appId, 'bannerSlots').doc(String(st)), Object.assign({}, payload, { start: st, end: st + W })));
+    const upd = { bannerPosts: FV().increment(1), bannerDay: day, bannerCountToday: used + 1 };
+    if (p.bannerDay !== day) upd.bannerDays = FV().increment(1);
+    tx.set(ref, upd, { merge: true });
+    const queueAhead = qs.docs.filter(x => { const v = x.data(); return num(v.start) >= now && num(v.start) < wins[0] && v.uid !== uid; }).length;
+    return { ok: true, startsAt: wins[0], endsAt: wins[wins.length - 1] + W, queueAhead, live: wins[0] <= now, used: used + 1, max };
+  });
+};
+
+// A boost: VIP (or launch perks), 3 a day, one of your own posts, the next full hour with a free lane (5 an hour).
+const rkBoost = async (appId, uid, d, cfg) => {
+  if (!cfg.boostsEnabled) fail('failed-precondition', 'Post boosting is temporarily disabled by the admin team.');
+  const itemId = String(d.itemId || '');
+  if (!itemId || itemId.includes('/')) fail('invalid-argument', 'Select one of your posts to boost.');
+  const ref = userRef(appId, uid), itemRef = pub(appId, 'tradeItems').doc(itemId), now = Date.now(), day = S.rkUtcDay(now), H = S.RK_BOOST_MS;
+  return db().runTransaction(async (tx) => {
+    const [s, it] = await tx.getAll(ref, itemRef);
+    if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
+    const p = s.data() || {};
+    if (!S.rkIsVipAt(p, cfg.launchPerks, now)) fail('permission-denied', 'Post boosts are a VIP perk.');
+    const item = it.exists ? (it.data() || {}) : null;
+    if (!item || item.ownerId !== uid) fail('permission-denied', 'You can only boost your own posts.');
+    if (item.isRequest || item.isDIYRequest || item.status === 'request') fail('invalid-argument', "Requests can't be boosted. Pick one of your posts.");
+    const used = S.rkDayUsed(p, 'boost', day), max = S.rkDayMax(p, 'boost');
+    if (used >= max) fail('resource-exhausted', 'Daily limit reached: ' + max + ' boosts per day. It resets at midnight UTC.');
+    let start = Math.ceil(now / H) * H;
+    const qs = await tx.get(pub(appId, 'boostSlots').where('start', '>=', start));
+    const lanes = {};
+    qs.forEach(x => { const v = x.data(); (lanes[v.start] = lanes[v.start] || new Set()).add(num(v.lane)); });
+    const freeLane = (st) => { for (let l = 0; l < S.RK_BOOST_LANES; l++) if (!(lanes[st] && lanes[st].has(l))) return l; return -1; };
+    while (freeLane(start) < 0) start += H;
+    const lane = freeLane(start);
+    tx.create(pub(appId, 'boostSlots').doc(start + '_' + lane), { uid, name: p.displayName || 'VIP Raver', ownerPublicUid: p.publicUid || uid, itemId, itemName: String(item.name || '').slice(0, 120), start, end: start + H, lane, postedAt: now });
+    const upd = { boostDay: day, boostCountToday: used + 1, boostsUsed: FV().increment(1) };
+    if (p.boostDay !== day) upd.boostDays = FV().increment(1);
+    tx.set(ref, upd, { merge: true });
+    const queueAhead = qs.docs.filter(x => { const v = x.data(); return num(v.start) >= now && num(v.start) < start; }).length;
+    return { ok: true, start, end: start + H, lane, queueAhead, used: used + 1, max };
+  });
+};
+
+// A featured festival clip: 4 a day (or the admin's figure for this raver), always a full window, the next free one.
+const rkClip = async (appId, uid, d, cfg) => {
+  const v = S.parseVideoLink(String(d.link || ''));
+  if (!v.ok) fail('invalid-argument', v.reason);
+  const caption = String(d.caption || '').slice(0, 100);
+  await rkWordCheck(appId, caption, 'your caption');
+  const ref = userRef(appId, uid), now = Date.now(), day = S.rkUtcDay(now), W = S.rkVideoWindowMs(cfg.videoWindowMin);
+  return db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
+    const p = s.data() || {};
+    const used = S.rkDayUsed(p, 'video', day), max = S.rkDayMax(p, 'video');
+    if (used >= max) fail('resource-exhausted', 'Daily limit reached: ' + max + ' featured clips per day. It resets at midnight UTC.');
+    const cur = Math.floor(now / W) * W;
+    const qs = await tx.get(pub(appId, 'videoSlots').where('start', '>', cur));
+    const taken = new Set(qs.docs.map(x => num(x.data().start)));
+    let st = cur + W;
+    while (taken.has(st)) st += W;
+    tx.create(pub(appId, 'videoSlots').doc(String(st)), { uid, name: p.displayName || 'Raver', ownerPublicUid: p.publicUid || uid, platform: v.platform, embedUrl: v.embedUrl || null, watchUrl: v.watchUrl, caption, postedAt: now, start: st, end: st + W });
+    tx.set(ref, { videoDay: day, videoCountToday: used + 1, videosPosted: FV().increment(1) }, { merge: true });
+    const queueAhead = qs.docs.filter(x => { const y = x.data(); return num(y.start) >= now && num(y.start) < st && y.uid !== uid; }).length;
+    return { ok: true, startsAt: st, endsAt: st + W, queueAhead, live: st <= now, used: used + 1, max };
+  });
+};
+
+// A VIP gift: one of the giver's passes (earned by referrals, plus any the admin team added), to a raver who isn't VIP.
+const rkVipGift = async (appId, uid, d) => {
+  const target = String(d.target || '').trim();
+  if (!target || target.includes('/')) fail('invalid-argument', 'Pick a raver from the list, or paste their Friend UID.');
+  let tRef = userRef(appId, target);
+  if (!(await tRef.get()).exists) {
+    const q = await db().collection('artifacts/' + appId + '/users').where('publicUid', '==', target).limit(1).get();
+    if (q.empty) fail('not-found', 'No raver found with that ID.');
+    tRef = q.docs[0].ref;
+  }
+  if (tRef.id === uid) fail('invalid-argument', 'You cannot gift yourself — spread the PLUR outward! 💖');
+  const meRef = userRef(appId, uid), now = Date.now();
+  // the passes come from the referral records, as the gifting window counts them (rkVipGiftAllotment)
+  let refs = null;
+  try { const c = await db().collection('artifacts/' + appId + '/users/' + uid + '/myReferrals').count().get(); refs = num(c.data().count); } catch (e) { refs = null; }
+  const res = await db().runTransaction(async (tx) => {
+    const [me, t] = await tx.getAll(meRef, tRef);
+    if (!me.exists || !t.exists) fail('not-found', 'No raver found with that ID.');
+    const m = me.data() || {}, tp = t.data() || {};
+    const left = S.rkVipGiftAllotment(refs === null ? num(m.referrals) : refs) + num(m.vipGiftBonus) - num(m.vipGiftsSent);
+    if (left <= 0) fail('failed-precondition', 'No gift passes left — refer more ravers to earn more!');
+    if (S.rkIsVipAt(tp, false, now)) fail('already-exists', '@' + (tp.displayName || 'That raver') + ' is already VIP — pick someone new to bless!');
+    tx.set(tRef, { isVIP: true, vipPermanent: true, vipGiftedBy: uid, vipGiftedAt: now }, { merge: true });
+    tx.set(meRef, { vipGiftsSent: FV().increment(1) }, { merge: true });
+    return { name: tp.displayName || 'raver', from: m.displayName || 'A raver', left: left - 1 };
+  });
+  await rkTell(appId, tRef.id, 'achievement', '👑💝 @' + res.from + ' gifted you PERMANENT FREE VIP! All VIP perks are yours forever. PLUR!', '@vip', 'vipgift_' + uid);
+  await rkTell(appId, uid, 'achievement', '💝 Your VIP gift landed! @' + res.name + ' is now permanent VIP thanks to you.', '@vipgift', 'vipgiven_' + tRef.id);
+  return { ok: true, uid: tRef.id, name: res.name, left: res.left };
+};
+
+// The VIP checkout, while payments are in test mode (no money moves): what the app's card form wrote itself until 325.
+// It refuses once "Payments LIVE" is on, until real billing verifies a payment here.
+const rkVipBuy = async (appId, uid, d, cfg) => {
+  if (!cfg.checkoutEnabled) fail('failed-precondition', cfg.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
+  if (cfg.paymentsLive) fail('failed-precondition', 'Live payments are not wired into this build yet — keep "Payments LIVE" OFF in remote config until real billing ships.');
+  const plan = d.plan === 'monthly' ? 'monthly' : 'lifetime';
+  const ref = userRef(appId, uid), now = Date.now();
+  return db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
+    const p = s.data() || {};
+    if (p.isVIP && S.rkVipForever(p)) fail('already-exists', 'Your VIP is already permanent.');
+    const vipExpires = plan === 'monthly' ? Math.max(now, num(p.vipExpires)) + 2592000000 : null;   // renewals stack +30 days
+    tx.set(ref, { isVIP: true, vipPlan: plan, vipSince: now, vipExpires }, { merge: true });
+    return { ok: true, plan, vipExpires };
+  });
+};
+
+exports.rkAct = onCall({ timeoutSeconds: 60 }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid) fail('unauthenticated', 'Sign in first.');
+  const prov = req.auth.token && req.auth.token.firebase && req.auth.token.firebase.sign_in_provider;
+  if (prov === 'anonymous') fail('permission-denied', 'Create an account first.');
+  const d = (req.data && typeof req.data === 'object') ? req.data : {};
+  const cfg = await rkCfg(APP);
+  switch (String(d.op || '')) {
+    case 'refresh': return rkRefresh(APP, uid, cfg);
+    case 'banner': return rkBanner(APP, uid, d, cfg);
+    case 'boost': return rkBoost(APP, uid, d, cfg);
+    case 'clip': return rkClip(APP, uid, d, cfg);
+    case 'vipGift': return rkVipGift(APP, uid, d);
+    case 'vipBuy': return rkVipBuy(APP, uid, d, cfg);
+    default: fail('invalid-argument', 'Unknown action.');
+  }
+});
+
+// ================================================================================================================
+// EVERY NIGHT, 03:20 UTC: plans that ended and rating VIP at the turn of the month, then a full recount for everyone
+// active in the last 3 days (network reach moves when a friend's friends do, which no single write shows).
+// ================================================================================================================
+exports.statsDaily = onSchedule({ schedule: '20 3 * * *', timeZone: 'Etc/UTC', timeoutSeconds: 540, memory: '512MiB' }, async () => {
+  const appId = APP, cfg = await rkCfg(appId), now = Date.now(), users = db().collection('artifacts/' + appId + '/users');
+  const touched = new Set();
+  const ended = await users.where('vipExpires', '<=', now).limit(500).get();
+  const late = ended.docs.filter(d => { const x = d.data() || {}; return x.isVIP && (x.vipPlan === 'rating' || S.rkVipLapsed(x, now)); }).map(d => d.id);
+  await rkEach(late, 5, async (u) => { touched.add(u); await rkSettle(appId, u, cfg); });
+  if (!cfg.launchPerks) {
+    const rated = await users.where('ratingCount', '>=', S.RK_RATING_VIP_MIN).limit(500).get();
+    const due = rated.docs.filter(d => { const x = d.data() || {}; return !touched.has(d.id) && S.rkRatingQualifies(x) && x.ratingVipMonth !== S.rkMonthKey(now); }).map(d => d.id);
+    await rkEach(due, 5, (u) => rkSettle(appId, u, cfg));
+  }
+  const act = await users.where('activeSavedAt', '>=', now - 3 * 86400000).limit(1000).get();
+  await rkEach(act.docs.map(d => d.id), 5, (u) => rkRecount(appId, u, ALL, cfg));
+  console.log('statsDaily', { ended: late.length, active: act.size });
+});
+
+// for the build's own test (node) only: never exported when deployed
+if (process.env.RK_STATS_TEST) exports._rkTest = { rkEvaluate, rkCount, rkRecount, rkSettle, rkCreditReferral, rkBanner, rkBoost, rkClip, rkVipGift, rkVipBuy, rkRefresh, rkCfg, resetCfg: () => { cfgCache = { at: 0, v: null }; } };
+RKSTATSEOF
+echo "  functions/rk_stats.js written (script-owned): the stats engine."
+# V90.85.150.325: and the module loads with what it needs: rk_shared.js parses, and the six functions are exported
+if node -e "const S=require('$RK_FN_DIR/rk_shared.js'); if(!S.RK_ACH_DEFS||S.RK_ACH_DEFS.length<90||typeof S.rkAchList!=='function') process.exit(1)" 2>/dev/null; then
+    echo "  functions/rk_shared.js loads: $(node -e "const S=require('$RK_FN_DIR/rk_shared.js'); console.log(S.RK_ACH_DEFS.length+' achievements')" 2>/dev/null)."
+else
+    echo "  ERROR: functions/rk_shared.js doesn't load in Node. Don't deploy functions from this run; send me the build log."
+fi
 # V89.84.150.323: vote reminders and the server-side word check, whichever branch ran above
-for RK_MOD in rk_votes rk_mod; do
+# V90.85.150.325: and the stats engine
+for RK_MOD in rk_votes rk_mod rk_stats; do
     if ! grep -q "$RK_MOD" "$RK_FN_DIR/index.js"; then
         printf '\n// V89.84.150.323: generated by the build script into %s.js.\nmodule.exports = Object.assign(module.exports, require("./%s"));\n' "$RK_MOD" "$RK_MOD" >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: $RK_MOD re-export appended."
     fi
 done
+# V90.85.150.325: which function files this run changed
+RK_FN_AFTER=$(cd "$RK_FN_DIR" 2>/dev/null && md5sum rk_*.js 2>/dev/null)
+RK_FN_CHANGED=$(diff <(echo "$RK_FN_BEFORE") <(echo "$RK_FN_AFTER") 2>/dev/null | grep '^>' | awk '{print $3}' | tr '\n' ' ')
+if [ -n "$RK_FN_CHANGED" ]; then echo "  Function files this build changed: $RK_FN_CHANGED(deploy functions)"; else echo "  No function file changed in this build."; fi
 
 # V65.29: firebase.json is REPAIRED, not commented on. Without a "functions" section,
 # `firebase deploy --only functions` fails with "No targets in firebase.json match" — the
@@ -29155,6 +29671,8 @@ echo "  2. functions/ ownership is now explicit:"
 echo "       rk_push.js    SCRIPT-OWNED. Regenerated every build. Never edit."
 echo "       rk_votes.js   SCRIPT-OWNED (V89.84.150.323): vote reminders, every hour."
 echo "       rk_mod.js     SCRIPT-OWNED (V89.84.150.323): the blocked-word check on the server."
+echo "       rk_stats.js   SCRIPT-OWNED (V90.85.150.325): the stats engine (counts, achievements, VIP, daily limits, referrals)."
+echo "       rk_shared.js  SCRIPT-OWNED (V90.85.150.325): made from src/rkShared.js, what the app and the server both apply."
 echo "       index.js      YOURS. Payment functions live here. Never overwritten."
 echo "       package.json  YOURS. Created only if absent, so deps survive."
 echo ""
@@ -29174,7 +29692,7 @@ echo "   4. Project must be on the Blaze plan for Cloud Functions."
 echo ""
 echo "  ---- DEPLOYING FUNCTIONS ----"
 echo "     cd ~/RaveKandi-Build/functions && npm install"
-echo "     cd ~/RaveKandi-Build && firebase deploy --only functions"
+echo "     cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
 echo ""
 echo "  ---- ONE-TIME: image generation secrets (V72) ----"
 echo "     The Cloudflare token must never sit in the app bundle. Set it as a secret:"
@@ -29413,7 +29931,9 @@ EOF
         STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
         echo "$STAGE_OUT"
         STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
-        [ -n "$STAGE_URL" ] && break
+        # V90.85.150.325: a staging try that went through uploaded every file, so a file named by an earlier try did upload
+        # (with RK_NO_LIVE=1, BUILD RESULT used to name it anyway)
+        [ -n "$STAGE_URL" ] && { RK_FAILED_FILE=""; break; }
         rk_failed_file "$STAGE_OUT"
         if [ "$RK_TRY" -lt 4 ]; then
             echo "  Staging attempt $RK_TRY failed. Waiting for Firebase's upload server, then trying again with $(rk_up_conc $((RK_TRY + 1))) files at a time..."
@@ -29490,6 +30010,57 @@ if RK_T 15 mkdir -p "$RK_GH_DIR" 2>/dev/null && RK_T 20 cp -f "$RK_SELF_PATH" "$
 else
     RK_GH_RESULT="couldn't copy the script to Download/RK_GitHub. Run termux-setup-storage, then run the build again"
 fi
+# ================================================================================================
+# V90.85.150.325: GITHUB FROM THE RUN (the plan at 324: "At 325 the build pushes the script and makes the release itself
+# when gh auth status passes"). The browser's uploader sends the whole 2.5 MB file in one go and stalls at 0% or 80-90%
+# on a phone (Milli, 11 Nov); git sends only what changed. Needs the clone at ~/RaveKandi-GitHub with gh signed in
+# (set up 11 Nov). The commit is made with the clone's own name and GitHub noreply address. RK_NO_GITHUB=1 skips it.
+# ================================================================================================
+RK_GH_REPO="Kn1teMare/RaveKandi-build"
+RK_GH_CLONE="$HOME/RaveKandi-GitHub"
+RK_GH_TAG="v${RK_SEMVER}.${RK_BUILD}"
+RK_GH_MSG="Build $RK_BUILD (md5 ${RK_SELF_MD5:0:8})"
+RK_GH_PUSH=""; RK_GH_REL=""
+if [ "$RK_NO_GITHUB" = "1" ]; then
+    RK_GH_PUSH="skipped (RK_NO_GITHUB=1)"
+elif ! command -v git >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1; then
+    RK_GH_PUSH="skipped: git or gh isn't installed (pkg install -y git gh)"
+elif ! RK_T 40 gh auth status >/dev/null 2>&1; then
+    RK_GH_PUSH="skipped: gh isn't signed in (gh auth login), or GitHub didn't answer"
+elif [ ! -d "$RK_GH_CLONE/.git" ]; then
+    RK_GH_PUSH="skipped: no clone at ~/RaveKandi-GitHub"
+else
+    echo ""
+    echo "GitHub: the script, then the release..."
+    ( cd "$RK_GH_CLONE" && RK_T 120 git pull --ff-only -q ) >/dev/null 2>&1 || echo "  git pull didn't go through (carrying on; the push says whether it matters)"
+    if ! cp -f "$RK_SELF_PATH" "$RK_GH_CLONE/Rk_Code_WithFix.sh" 2>/dev/null; then
+        RK_GH_PUSH="FAILED: couldn't copy the script into ~/RaveKandi-GitHub"
+    elif ( cd "$RK_GH_CLONE" && git diff --quiet -- Rk_Code_WithFix.sh && git diff --cached --quiet -- Rk_Code_WithFix.sh ); then
+        RK_GH_PUSH="already there: the repo has this exact script (build $RK_BUILD)"
+    elif ( cd "$RK_GH_CLONE" && git add Rk_Code_WithFix.sh && git commit -q -m "$RK_GH_MSG" ) >/dev/null 2>&1; then
+        if ( cd "$RK_GH_CLONE" && RK_T 300 git push -q ) >/dev/null 2>&1; then
+            RK_GH_PUSH="pushed: $RK_GH_MSG, commit $(cd "$RK_GH_CLONE" && git rev-parse --short HEAD)"
+        else
+            RK_GH_PUSH="committed but NOT pushed. Push it: cd ~/RaveKandi-GitHub && git push"
+        fi
+    else
+        RK_GH_PUSH="FAILED: git couldn't commit. Check: cd ~/RaveKandi-GitHub && git status"
+    fi
+    echo "  $RK_GH_PUSH"
+    # the release: once per build, with this run's APK only
+    if [ -n "$APK_NAME" ] && [ -f "$OUT_DIR/$APK_NAME" ] && { [ "${RK_APK_RESULT#OK}" != "$RK_APK_RESULT" ] || [ "${RK_APK_RESULT#built}" != "$RK_APK_RESULT" ]; }; then
+        if RK_T 60 gh release view "$RK_GH_TAG" --repo "$RK_GH_REPO" >/dev/null 2>&1; then
+            RK_GH_REL="$RK_GH_TAG is already on GitHub (left as it is)"
+        elif RK_T 900 gh release create "$RK_GH_TAG" "$OUT_DIR/$APK_NAME" --repo "$RK_GH_REPO" --title "RaveKandi $RK_VER" --notes "$RK_GH_MSG" --latest >/dev/null 2>&1; then
+            RK_GH_REL="made: $RK_GH_TAG with $APK_NAME"
+        else
+            RK_GH_REL="FAILED. By hand: gh release create $RK_GH_TAG ~/RaveKandi_Output/$APK_NAME --repo $RK_GH_REPO --title \"RaveKandi $RK_VER\" --notes \"$RK_GH_MSG\" --latest"
+        fi
+    else
+        RK_GH_REL="skipped: no APK from this run"
+    fi
+    echo "  Release: $RK_GH_REL"
+fi
 RK_LIVE_BUILD=$(curl -s --max-time 15 "https://ravekandi.web.app/version.json?t=$(date +%s)" 2>/dev/null | grep -o '"build": *[0-9]*' | grep -o '[0-9]*$')
 mkdir -p "$HOME/RaveKandi_Output"
 {
@@ -29504,15 +30075,24 @@ elif [ -n "$RK_LIVE_BUILD" ]; then echo "  WEB: NOT LIVE - ravekandi.web.app is 
 else echo "  WEB: couldn't read https://ravekandi.web.app/version.json just now. Open it in Chrome: it should say build $RK_BUILD"; fi
 echo "  APK: ${RK_APK_RESULT:-unknown}"
 [ -n "$RK_FAILED_FILE" ] && echo "  The file that didn't upload: $RK_FAILED_FILE"
-echo "  GITHUB: ${RK_GH_RESULT:-not copied}"
-echo "  RELEASE: tag v${RK_SEMVER}.${RK_BUILD}, with only the APK whose name has _B${RK_BUILD}_ in it"
+# V90.85.150.325: whether functions need deploying after this build
+if [ -n "$RK_FN_CHANGED" ]; then echo "  FUNCTIONS: this build changed ${RK_FN_CHANGED% }: deploy functions (step 1 below)"
+else echo "  FUNCTIONS: no change from this build (deploy only if an earlier build's are still waiting)"; fi
+if [ -n "$RK_GH_PUSH" ] && [ "${RK_GH_PUSH#skipped}" = "$RK_GH_PUSH" ]; then
+    echo "  GITHUB: $RK_GH_PUSH"
+    echo "  RELEASE: ${RK_GH_REL:-not made}"
+else
+    [ -n "$RK_GH_PUSH" ] && echo "  GITHUB (from the run): $RK_GH_PUSH"
+    echo "  GITHUB: ${RK_GH_RESULT:-not copied}"
+    echo "  RELEASE: tag v${RK_SEMVER}.${RK_BUILD}, with only the APK whose name has _B${RK_BUILD}_ in it"
+fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  324 changes no functions and no rules. If 323's steps by hand aren't"
-echo "  done yet, do them now, in this order:"
-echo "   1. firebase deploy --only functions       (323: vote reminders, word filter)"
-echo "   2. firebase deploy --only firestore:rules (323's file, AFTER the web build"
-echo "      is live: it tightens, so the app goes first)"
+echo "  325 needs two steps by hand, in this order, once WEB says OK:"
+echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
+echo "      (the stats engine: statsOnUser, statsOnPost, statsOnTrade, statsOnTribe, rkAct, statsDaily)"
+echo "   2. firebase deploy --only firestore:rules, with 325's rules file (RK_VERIFY_325, section 4):"
+echo "      it closes the counts to the app, so the app and the functions go first"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
