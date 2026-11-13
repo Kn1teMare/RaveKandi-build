@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
-RK_MINOR=86
+RK_MINOR=87
 RK_PATCH=151
-RK_BUILD=327
+RK_BUILD=328
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -552,7 +552,7 @@ rm -f src/App.js
 # V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
 # functions step, so the two never disagree)
 cat << 'RKSHAREDEOF' > src/rkShared.js
-// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327). Script-owned.
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327; V90.87.151.328). Script-owned.
 // The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
 // module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
 // achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
@@ -785,6 +785,8 @@ const RK_ACH_DEFS = [
     { id: 'radio_2', name: 'Dancefloor Devotee', tier: 1, metric: 'radioMinutes', threshold: 600, desc: "Listen to Rave Radio for 10 hours." },
     // V90.86.151.327: 327 fixed two Rave Radio reports; the next step up for listeners (the server counts radioMinutes)
     { id: 'radio_3', name: 'Resident Listener', tier: 2, metric: 'radioMinutes', threshold: 3000, desc: "Listen to Rave Radio for 50 hours." },
+    // V90.87.151.328: 328 checked every Rave Radio station; this one is for hearing a lot of them (radioStations, above)
+    { id: 'hop_25', name: 'Station Hopper', tier: 2, metric: 'radioStations', threshold: 25, desc: "Tune into 25 different Rave Radio stations, a minute or more each." },
     // Vibe Tribe — friends
     { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
     { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
@@ -973,6 +975,101 @@ const validateSocialLink = (raw) => {
     } catch (e) { return { ok: false, reason: 'That does not look like a valid link.' } }
 };
 
+// ---- V90.87.151.328: THE RAVE RADIO STATIONS (moved from App.js, so the server can check them: Milli, at 328, "Check all
+// radio stations to ensure they connect correctly"). `soma` is a SomaFM channel (somafm.com/<soma>.pls), `rr` a Radio Record
+// stream name (radiorecord.hostingradio.ru/<rr>96.aacp). Checked against their sources on 12 Nov 2026: the 9 SomaFM channels
+// are live on somafm.com/listen, and the 48 Radio Record names are all in radiorecord.ru/api/stations/ (its 1 Nov copy) at the
+// same address and id. The notes on names and colours are in App.js, above RK_RADIO_GROUPS. ----
+const RK_RADIO_RAW = [
+    // Chill & Leftfield
+    { id: 'ambient',     name: 'Ambient',           genre: 'Ambient · Atmospheric',          g: 'chill',  bpm: 70,  nrg: 5,  rr: 'ambient' },
+    { id: 'lofi',        name: 'Lo-Fi Beats',       genre: 'Lo-Fi Hip-Hop',                  g: 'chill',  bpm: 80,  nrg: 10, rr: 'lofi' },
+    { id: 'lush',        name: 'Lush Lounge',       genre: 'Mellow Vocal Electronica',       g: 'chill',  bpm: 95,  nrg: 14, soma: 'lush' },
+    { id: 'chill',       name: 'Chill Vibes',       genre: 'Ambient & Downtempo Grooves',    g: 'chill',  bpm: 95,  nrg: 17, soma: 'groovesalad' },
+    { id: 'chillout',    name: 'ChillOut',          genre: 'Chillout',                       g: 'chill',  bpm: 95,  nrg: 19, rr: 'chil' },
+    { id: 'edmhh',       name: 'Beat Bodega',       genre: 'Instrumental Hip-Hop · Liquid Trap', g: 'chill', bpm: 85, nrg: 21, soma: 'fluid' },
+    { id: 'space',       name: 'Space Station',     genre: 'Spaced-Out Ambient · Midtempo',  g: 'chill',  bpm: 100, nrg: 24, soma: 'spacestation' },
+    { id: 'edm',         name: 'DEF CON Radio',     genre: 'Hacker Chill-Room Electronica',  g: 'chill',  bpm: 100, nrg: 27, soma: 'defcon' },
+    { id: 'house',       name: 'Beat Blender',      genre: 'Midtempo & Upbeat Electronica',  g: 'chill',  bpm: 105, nrg: 31, soma: 'beatblender' },
+    { id: 'idm',         name: 'Glitch Lab',        genre: 'IDM · Experimental Beats',       g: 'chill',  bpm: 120, nrg: 35, soma: 'cliqhop' },
+    // House
+    { id: 'tropical',    name: 'Tropical House',    genre: 'Tropical House',                 g: 'house',  bpm: 108, nrg: 36, rr: 'trop' },
+    { id: 'chillhouse',  name: 'Chill House',       genre: 'Light Melodic House',            g: 'house',  bpm: 115, nrg: 38, rr: 'chillhouse' },
+    { id: 'lofihouse',   name: 'Lo-Fi House',       genre: 'Lo-Fi House',                    g: 'house',  bpm: 120, nrg: 40, rr: 'lofihouse' },
+    { id: 'organic',     name: 'Organic House',     genre: 'Organic House',                  g: 'house',  bpm: 120, nrg: 42, rr: 'organic' },
+    { id: 'deephouse',   name: 'Deep House',        genre: 'Deep House',                     g: 'house',  bpm: 122, nrg: 44, rr: 'deep' },
+    { id: 'afro',        name: 'Afro House',        genre: 'Afro House',                     g: 'house',  bpm: 122, nrg: 46, rr: 'afro' },
+    { id: 'disco',       name: 'Disco & Funk',      genre: 'Nu-Disco · Funky House',         g: 'house',  bpm: 122, nrg: 47, rr: 'discofunk' },
+    { id: 'techhouse',   name: 'Tech House',        genre: 'Tech House',                     g: 'house',  bpm: 126, nrg: 52, rr: 'techouse' },
+    { id: 'futurehouse', name: 'Future House',      genre: 'Future House',                   g: 'house',  bpm: 126, nrg: 54, rr: 'fut' },
+    { id: 'basshouse',   name: 'Bass House',        genre: "Bass House · Jackin'",           g: 'house',  bpm: 127, nrg: 57, rr: 'jackin' },
+    { id: 'electro',     name: 'Electro House',     genre: 'Electro House',                  g: 'house',  bpm: 128, nrg: 59, rr: 'elect' },
+    // Techno
+    { id: 'melodic',     name: 'Melodic Techno',    genre: 'Melodic Techno',                 g: 'techno', bpm: 124, nrg: 50, rr: 'melodic' },
+    { id: 'minimal',     name: 'Minimal / Tech',    genre: 'Minimal · Tech',                 g: 'techno', bpm: 125, nrg: 53, rr: 'mini' },
+    { id: 'hardtechno',  name: 'Techno',            genre: 'Peak-Time Techno',               g: 'techno', bpm: 135, nrg: 68, rr: 'techno' },
+    // EDM & Mainstage
+    { id: 'moombahton',  name: 'Moombahton',        genre: 'Moombahton',                     g: 'edm',    bpm: 110, nrg: 50, rr: 'mmbt' },
+    { id: 'top100',      name: 'Radio Record',      genre: 'Dance Mainstream',               g: 'edm',    bpm: 124, nrg: 52, rr: 'rr_main' },
+    { id: 'top100edm',   name: 'Top 100 EDM',       genre: 'Current EDM Chart',              g: 'edm',    bpm: 126, nrg: 56, rr: 'top100edm' },
+    { id: 'edmclassics', name: 'EDM Classics',      genre: 'Festival Anthems',               g: 'edm',    bpm: 128, nrg: 58, rr: 'edmhits' },
+    { id: 'mainstage',   name: 'EDM Mainstage',     genre: 'Big Room · Stadium EDM',         g: 'edm',    bpm: 128, nrg: 61, rr: 'club' },
+    { id: 'futurerave',  name: 'Future Rave',       genre: 'Future Rave',                    g: 'edm',    bpm: 130, nrg: 64, rr: 'futurerave' },
+    { id: 'complextro',  name: 'Complextro',        genre: 'Complextro · Electro Bass',      g: 'edm',    bpm: 128, nrg: 67, rr: 'complextro' },
+    // Breaks & Garage
+    { id: 'ukgarage',    name: 'UK Garage',         genre: 'UK Garage',                      g: 'breaks', bpm: 132, nrg: 58, rr: 'ukgarage' },
+    { id: 'twostep',     name: '2-Step',            genre: '2-Step Garage',                  g: 'breaks', bpm: 132, nrg: 59, rr: '2step' },
+    { id: 'breaks',      name: 'Breaks',            genre: 'Breakbeat · Nu Breaks',          g: 'breaks', bpm: 132, nrg: 63, rr: 'brks' },
+    // Trance
+    { id: 'techno',      name: 'The Trip',          genre: 'Progressive House & Trance',     g: 'trance', bpm: 128, nrg: 55, soma: 'thetrip' },
+    { id: 'progressive', name: 'Progressive',       genre: 'Progressive Trance & House',     g: 'trance', bpm: 128, nrg: 57, rr: 'progr' },
+    { id: 'dreamdance',  name: 'Dream Dance',       genre: "'90s–'00s Melodic Trance",       g: 'trance', bpm: 136, nrg: 62, rr: 'dream' },
+    { id: 'trance2',     name: 'Trance Mission',    genre: 'Trance',                         g: 'trance', bpm: 138, nrg: 65, rr: 'tm' },
+    { id: 'tranceclassics', name: 'Trance Classics', genre: 'Classic Trance Anthems',        g: 'trance', bpm: 138, nrg: 66, rr: 'trancehits' },
+    { id: 'asot',        name: 'A State of Trance', genre: "Armin van Buuren's Radio Show",  g: 'trance', bpm: 138, nrg: 67, rr: 'asot' },
+    { id: 'uplifting',   name: 'Uplifting Trance',  genre: 'Uplifting · Euphoric',           g: 'trance', bpm: 140, nrg: 70, rr: 'uplift' },
+    { id: 'psy',         name: 'Psytrance',         genre: 'Psy · Goa Trance',               g: 'trance', bpm: 145, nrg: 76, rr: 'goa' },
+    // Bass Music
+    { id: 'midtempo',    name: 'Midtempo',          genre: 'Midtempo Bass',                  g: 'bass',   bpm: 105, nrg: 60, rr: 'mt' },
+    { id: 'future',      name: 'Future Bass',       genre: 'Future Bass',                    g: 'bass',   bpm: 150, nrg: 66, rr: 'fbass' },
+    { id: 'dnb',         name: 'Dub Step Beyond',   genre: 'Dubstep, Dub & Deep Bass',       g: 'bass',   bpm: 140, nrg: 70, soma: 'dubstep' },
+    { id: 'phonk',       name: 'Phonk',             genre: 'Drift Phonk',                    g: 'bass',   bpm: 140, nrg: 73, rr: 'phonk' },
+    { id: 'trap',        name: 'Trap Temple',       genre: 'EDM Trap',                       g: 'bass',   bpm: 145, nrg: 76, rr: 'trap' },
+    { id: 'dubstep',     name: 'Dubstep',           genre: 'Heavy Dubstep',                  g: 'bass',   bpm: 145, nrg: 82, rr: 'dub' },
+    // Drum & Bass
+    { id: 'liquid',      name: 'Liquid Funk',       genre: 'Liquid Drum & Bass',             g: 'dnb',    bpm: 174, nrg: 72, rr: 'liquidfunk' },
+    { id: 'dnbclassics', name: 'DnB Classics',      genre: 'Classic Drum & Bass',            g: 'dnb',    bpm: 174, nrg: 78, rr: 'drumhits' },
+    { id: 'drumandbass', name: 'Drum & Bass',       genre: 'Drum & Bass',                    g: 'dnb',    bpm: 174, nrg: 82, rr: 'ps' },
+    { id: 'jungle',      name: 'Jungle',            genre: 'Jungle',                         g: 'dnb',    bpm: 168, nrg: 84, rr: 'jungle' },
+    { id: 'neurofunk',   name: 'Neurofunk',         genre: 'Neurofunk',                      g: 'dnb',    bpm: 174, nrg: 89, rr: 'neurofunk' },
+    { id: 'darkside',    name: 'Darkside',          genre: 'Dark Drum & Bass',               g: 'dnb',    bpm: 174, nrg: 92, rr: 'darkside' },
+    // Hard Dance
+    { id: 'dancecore',   name: 'Dancecore',         genre: 'Dancecore',                      g: 'hard',   bpm: 150, nrg: 86, rr: 'dc' },
+    { id: 'hardstyle',   name: 'Hardstyle HQ',      genre: 'Hardstyle',                      g: 'hard',   bpm: 150, nrg: 93, rr: 'teo' },
+    { id: 'hardbass',    name: 'Hard Bass',         genre: 'Hard Bass',                      g: 'hard',   bpm: 155, nrg: 97, rr: 'hbass' },
+];
+const RK_RADIO_IDS = RK_RADIO_RAW.map(r => r.id);
+// Station Hopper: how many of the stations above a raver has heard for a minute or more (users/{uid}.radioHeard: the app adds
+// the station playing each minute and saves the list with the minutes; the rules let it grow by no more than the minutes
+// since the last save). A name that isn't one of the stations doesn't count.
+const rkRadioHeardN = (p) => {
+    const h = p && p.radioHeard;
+    if (!Array.isArray(h)) return 0;
+    const seen = new Set();
+    h.forEach(x => { if (typeof x === 'string' && RK_RADIO_IDS.includes(x)) seen.add(x); });
+    return seen.size;
+};
+// A stream's address, short, for the app's report and the server's check: "ice5 mp3", "ice2 aac64", "rr 96k", "rr hls".
+const rkStreamLabel = (u) => {
+    const s = String(u || '');
+    let m = /^https:\/\/(ice\d+)\.somafm\.com\/[a-z0-9]+-(\d+)-(mp3|aac)$/i.exec(s);
+    if (m) return m[1] + ' ' + (m[3].toLowerCase() === 'mp3' ? (m[2] === '128' ? 'mp3' : 'mp3 ' + m[2]) : (m[2] === '128' ? 'aac' : 'aac' + m[2]));
+    m = /hostingradio\.ru\/[^?#]*?(32|64|96|128|320)\.(aacp|mp3)$/i.exec(s);
+    if (m) return 'rr ' + m[1] + 'k';
+    if (/hostingradio\.ru\/.*\.m3u8/i.test(s)) return 'rr hls';
+    try { return new URL(s).hostname; } catch (e) { return 'address'; }
+};
+
 // V84.152 (310): every notification type ticked for both channels. Shared by the achievement and
 // by the self-heal in App, so the two can never disagree about what "every" means.
 const rkNotifsMaxed = (prefs) => { try { return NOTIFICATION_TYPES.every(t => !!(prefs?.phone?.[t.id] && prefs?.email?.[t.id])); } catch (e) { return false; } };
@@ -1014,7 +1111,9 @@ const rkAchStats = (profile) => {
         // V90.85.150.325: VIP passes gifted, and days with a banner, both counted by the server
         vipGiftsSent: profile?.vipGiftsSent||0, bannerDays: profile?.bannerDays||0, boostDays: profile?.boostDays||0,
         // V90.86.150.326: a Business account opened (businessSince, set by the server)
-        businessOpened: Number(profile?.businessSince) > 0 ? 1 : 0
+        businessOpened: Number(profile?.businessSince) > 0 ? 1 : 0,
+        // V90.87.151.328: different Rave Radio stations heard for a minute or more (Station Hopper)
+        radioStations: rkRadioHeardN(profile)
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -1316,7 +1415,7 @@ const rkBizReady = (p, email) => rkBizReqs(p, email).every(r => r.ok);
 const rkBizOpen = (p, email) => !!(p && (p.isAdmin || Number(p.businessSince) > 0 || p.accountType === 'business')) || rkBizReady(p, email);
 
 // ---- what the app imports (the functions copy ends with module.exports instead) ----
-export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen };
+export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkRadioHeardN, rkStreamLabel };
 RKSHAREDEOF
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -1327,7 +1426,7 @@ import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, 
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 // V90.85.150.325: what the app and the server both apply (achievements, rates, festival dates, link checks)
-import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen } from './rkShared';
+import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkStreamLabel } from './rkShared';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -2107,6 +2206,8 @@ const validateTracking = (raw, carrierId) => {
 // Streams. Radio Record streams are radiorecord.hostingradio.ru/<rr>96.aacp, with <rr> taken from
 // their own station list (captured 2026-10-04). `rr` is also how radioRecordNow knows the station.
 // Hardstyle HQ now uses that list's address (teo96) instead of the older hardstyle96 alias.
+// V90.87.151.328: all 57 checked again on 12 Nov 2026 (the 9 SomaFM channels on somafm.com/listen, the 48 Radio Record names
+// against their station list): every one is there, at the address and id the app has. The table is in src/rkShared.js now.
 //
 // Colour. `bpm` is the genre's typical tempo; `nrg` is intensity from 0 (ambient) to 100 (hard
 // bass), judged from tempo and feel, because tempo alone misleads: dubstep sits at 140 but hits
@@ -2124,75 +2225,10 @@ const RK_RADIO_GROUPS = [
     { k: 'dnb',    label: 'Drum & Bass' },
     { k: 'hard',   label: 'Hard Dance' },
 ];
-const RK_SOMA = (ch) => 'https://ice1.somafm.com/' + ch + '-128-mp3';
-const RK_RADIO_RAW = [
-    // Chill & Leftfield
-    { id: 'ambient',     name: 'Ambient',           genre: 'Ambient · Atmospheric',          g: 'chill',  bpm: 70,  nrg: 5,  rr: 'ambient' },
-    { id: 'lofi',        name: 'Lo-Fi Beats',       genre: 'Lo-Fi Hip-Hop',                  g: 'chill',  bpm: 80,  nrg: 10, rr: 'lofi' },
-    { id: 'lush',        name: 'Lush Lounge',       genre: 'Mellow Vocal Electronica',       g: 'chill',  bpm: 95,  nrg: 14, url: RK_SOMA('lush') },
-    { id: 'chill',       name: 'Chill Vibes',       genre: 'Ambient & Downtempo Grooves',    g: 'chill',  bpm: 95,  nrg: 17, url: RK_SOMA('groovesalad') },
-    { id: 'chillout',    name: 'ChillOut',          genre: 'Chillout',                       g: 'chill',  bpm: 95,  nrg: 19, rr: 'chil' },
-    { id: 'edmhh',       name: 'Beat Bodega',       genre: 'Instrumental Hip-Hop · Liquid Trap', g: 'chill', bpm: 85, nrg: 21, url: RK_SOMA('fluid') },
-    { id: 'space',       name: 'Space Station',     genre: 'Spaced-Out Ambient · Midtempo',  g: 'chill',  bpm: 100, nrg: 24, url: RK_SOMA('spacestation') },
-    { id: 'edm',         name: 'DEF CON Radio',     genre: 'Hacker Chill-Room Electronica',  g: 'chill',  bpm: 100, nrg: 27, url: RK_SOMA('defcon') },
-    { id: 'house',       name: 'Beat Blender',      genre: 'Midtempo & Upbeat Electronica',  g: 'chill',  bpm: 105, nrg: 31, url: RK_SOMA('beatblender') },
-    { id: 'idm',         name: 'Glitch Lab',        genre: 'IDM · Experimental Beats',       g: 'chill',  bpm: 120, nrg: 35, url: RK_SOMA('cliqhop') },
-    // House
-    { id: 'tropical',    name: 'Tropical House',    genre: 'Tropical House',                 g: 'house',  bpm: 108, nrg: 36, rr: 'trop' },
-    { id: 'chillhouse',  name: 'Chill House',       genre: 'Light Melodic House',            g: 'house',  bpm: 115, nrg: 38, rr: 'chillhouse' },
-    { id: 'lofihouse',   name: 'Lo-Fi House',       genre: 'Lo-Fi House',                    g: 'house',  bpm: 120, nrg: 40, rr: 'lofihouse' },
-    { id: 'organic',     name: 'Organic House',     genre: 'Organic House',                  g: 'house',  bpm: 120, nrg: 42, rr: 'organic' },
-    { id: 'deephouse',   name: 'Deep House',        genre: 'Deep House',                     g: 'house',  bpm: 122, nrg: 44, rr: 'deep' },
-    { id: 'afro',        name: 'Afro House',        genre: 'Afro House',                     g: 'house',  bpm: 122, nrg: 46, rr: 'afro' },
-    { id: 'disco',       name: 'Disco & Funk',      genre: 'Nu-Disco · Funky House',         g: 'house',  bpm: 122, nrg: 47, rr: 'discofunk' },
-    { id: 'techhouse',   name: 'Tech House',        genre: 'Tech House',                     g: 'house',  bpm: 126, nrg: 52, rr: 'techouse' },
-    { id: 'futurehouse', name: 'Future House',      genre: 'Future House',                   g: 'house',  bpm: 126, nrg: 54, rr: 'fut' },
-    { id: 'basshouse',   name: 'Bass House',        genre: "Bass House · Jackin'",           g: 'house',  bpm: 127, nrg: 57, rr: 'jackin' },
-    { id: 'electro',     name: 'Electro House',     genre: 'Electro House',                  g: 'house',  bpm: 128, nrg: 59, rr: 'elect' },
-    // Techno
-    { id: 'melodic',     name: 'Melodic Techno',    genre: 'Melodic Techno',                 g: 'techno', bpm: 124, nrg: 50, rr: 'melodic' },
-    { id: 'minimal',     name: 'Minimal / Tech',    genre: 'Minimal · Tech',                 g: 'techno', bpm: 125, nrg: 53, rr: 'mini' },
-    { id: 'hardtechno',  name: 'Techno',            genre: 'Peak-Time Techno',               g: 'techno', bpm: 135, nrg: 68, rr: 'techno' },
-    // EDM & Mainstage
-    { id: 'moombahton',  name: 'Moombahton',        genre: 'Moombahton',                     g: 'edm',    bpm: 110, nrg: 50, rr: 'mmbt' },
-    { id: 'top100',      name: 'Radio Record',      genre: 'Dance Mainstream',               g: 'edm',    bpm: 124, nrg: 52, rr: 'rr_main' },
-    { id: 'top100edm',   name: 'Top 100 EDM',       genre: 'Current EDM Chart',              g: 'edm',    bpm: 126, nrg: 56, rr: 'top100edm' },
-    { id: 'edmclassics', name: 'EDM Classics',      genre: 'Festival Anthems',               g: 'edm',    bpm: 128, nrg: 58, rr: 'edmhits' },
-    { id: 'mainstage',   name: 'EDM Mainstage',     genre: 'Big Room · Stadium EDM',         g: 'edm',    bpm: 128, nrg: 61, rr: 'club' },
-    { id: 'futurerave',  name: 'Future Rave',       genre: 'Future Rave',                    g: 'edm',    bpm: 130, nrg: 64, rr: 'futurerave' },
-    { id: 'complextro',  name: 'Complextro',        genre: 'Complextro · Electro Bass',      g: 'edm',    bpm: 128, nrg: 67, rr: 'complextro' },
-    // Breaks & Garage
-    { id: 'ukgarage',    name: 'UK Garage',         genre: 'UK Garage',                      g: 'breaks', bpm: 132, nrg: 58, rr: 'ukgarage' },
-    { id: 'twostep',     name: '2-Step',            genre: '2-Step Garage',                  g: 'breaks', bpm: 132, nrg: 59, rr: '2step' },
-    { id: 'breaks',      name: 'Breaks',            genre: 'Breakbeat · Nu Breaks',          g: 'breaks', bpm: 132, nrg: 63, rr: 'brks' },
-    // Trance
-    { id: 'techno',      name: 'The Trip',          genre: 'Progressive House & Trance',     g: 'trance', bpm: 128, nrg: 55, url: RK_SOMA('thetrip') },
-    { id: 'progressive', name: 'Progressive',       genre: 'Progressive Trance & House',     g: 'trance', bpm: 128, nrg: 57, rr: 'progr' },
-    { id: 'dreamdance',  name: 'Dream Dance',       genre: "'90s–'00s Melodic Trance",       g: 'trance', bpm: 136, nrg: 62, rr: 'dream' },
-    { id: 'trance2',     name: 'Trance Mission',    genre: 'Trance',                         g: 'trance', bpm: 138, nrg: 65, rr: 'tm' },
-    { id: 'tranceclassics', name: 'Trance Classics', genre: 'Classic Trance Anthems',        g: 'trance', bpm: 138, nrg: 66, rr: 'trancehits' },
-    { id: 'asot',        name: 'A State of Trance', genre: "Armin van Buuren's Radio Show",  g: 'trance', bpm: 138, nrg: 67, rr: 'asot' },
-    { id: 'uplifting',   name: 'Uplifting Trance',  genre: 'Uplifting · Euphoric',           g: 'trance', bpm: 140, nrg: 70, rr: 'uplift' },
-    { id: 'psy',         name: 'Psytrance',         genre: 'Psy · Goa Trance',               g: 'trance', bpm: 145, nrg: 76, rr: 'goa' },
-    // Bass Music
-    { id: 'midtempo',    name: 'Midtempo',          genre: 'Midtempo Bass',                  g: 'bass',   bpm: 105, nrg: 60, rr: 'mt' },
-    { id: 'future',      name: 'Future Bass',       genre: 'Future Bass',                    g: 'bass',   bpm: 150, nrg: 66, rr: 'fbass' },
-    { id: 'dnb',         name: 'Dub Step Beyond',   genre: 'Dubstep, Dub & Deep Bass',       g: 'bass',   bpm: 140, nrg: 70, url: RK_SOMA('dubstep') },
-    { id: 'phonk',       name: 'Phonk',             genre: 'Drift Phonk',                    g: 'bass',   bpm: 140, nrg: 73, rr: 'phonk' },
-    { id: 'trap',        name: 'Trap Temple',       genre: 'EDM Trap',                       g: 'bass',   bpm: 145, nrg: 76, rr: 'trap' },
-    { id: 'dubstep',     name: 'Dubstep',           genre: 'Heavy Dubstep',                  g: 'bass',   bpm: 145, nrg: 82, rr: 'dub' },
-    // Drum & Bass
-    { id: 'liquid',      name: 'Liquid Funk',       genre: 'Liquid Drum & Bass',             g: 'dnb',    bpm: 174, nrg: 72, rr: 'liquidfunk' },
-    { id: 'dnbclassics', name: 'DnB Classics',      genre: 'Classic Drum & Bass',            g: 'dnb',    bpm: 174, nrg: 78, rr: 'drumhits' },
-    { id: 'drumandbass', name: 'Drum & Bass',       genre: 'Drum & Bass',                    g: 'dnb',    bpm: 174, nrg: 82, rr: 'ps' },
-    { id: 'jungle',      name: 'Jungle',            genre: 'Jungle',                         g: 'dnb',    bpm: 168, nrg: 84, rr: 'jungle' },
-    { id: 'neurofunk',   name: 'Neurofunk',         genre: 'Neurofunk',                      g: 'dnb',    bpm: 174, nrg: 89, rr: 'neurofunk' },
-    { id: 'darkside',    name: 'Darkside',          genre: 'Dark Drum & Bass',               g: 'dnb',    bpm: 174, nrg: 92, rr: 'darkside' },
-    // Hard Dance
-    { id: 'dancecore',   name: 'Dancecore',         genre: 'Dancecore',                      g: 'hard',   bpm: 150, nrg: 86, rr: 'dc' },
-    { id: 'hardstyle',   name: 'Hardstyle HQ',      genre: 'Hardstyle',                      g: 'hard',   bpm: 150, nrg: 93, rr: 'teo' },
-    { id: 'hardbass',    name: 'Hard Bass',         genre: 'Hard Bass',                      g: 'hard',   bpm: 155, nrg: 97, rr: 'hbass' },
-];
+const RK_SOMA = (ch) => 'https://ice5.somafm.com/' + ch + '-128-mp3';
+// V90.87.151.328: the stations themselves are in src/rkShared.js (RK_RADIO_RAW, shared with the server, which checks every
+// one of them each hour): `soma` names a SomaFM channel, `rr` a Radio Record stream. A station's addresses are worked out in
+// RadioPlayerModal (streamCandidates); `url` is its first, for what reads one address (now-playing, the EQ path's host).
 // hsl -> #rrggbb, so `color` stays a hex string like every station colour before it.
 const rkHslHex = (h, s, l) => {
     h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
@@ -2210,8 +2246,8 @@ const RADIO_STATIONS = (() => {
             let h = rkNrgHue(r.nrg);
             if (prev !== null && h > prev - 5) h = prev - 5;   // every button steps the hue on a little
             prev = h;
-            out.push({ id: r.id, name: r.name, genre: r.genre, group: g.k, bpm: r.bpm, nrg: r.nrg, rr: r.rr || null,
-                url: r.url || ('https://radiorecord.hostingradio.ru/' + r.rr + '96.aacp'),
+            out.push({ id: r.id, name: r.name, genre: r.genre, group: g.k, bpm: r.bpm, nrg: r.nrg, rr: r.rr || null, soma: r.soma || null,
+                url: r.soma ? RK_SOMA(r.soma) : ('https://radiorecord.hostingradio.ru/' + r.rr + '96.aacp'),
                 hue: ((h % 360) + 360) % 360, pastel: rkHslHex(h, 85, 82), pastel2: rkHslHex(h - 8, 85, 75), color: rkHslHex(h, 95, 68) });
         });
     });
@@ -2262,9 +2298,9 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
-const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'}];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'},{id:'radio',label:'Rave Radio checks'}];
 
 // V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
 
@@ -4134,6 +4170,8 @@ const rkNotifDest = (n) => {
     const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
     // V87.78.150.315: '@achievements:<id>' opens the Achievements window at that achievement.
     if (ref.indexOf('@achievements:') === 0) return { to: 'place', key: 'achievements', focus: ref.slice(14) };
+    // V90.87.151.328: '@radio:<station>' opens the radio at that station (the server's hourly station check)
+    if (ref.indexOf('@radio:') === 0) return { to: 'place', key: 'radio', focus: ref.slice(7) };
     if (ref.charAt(0) === '@') { const key = ref.slice(1); return { to: 'place', key: RK_NOTIF_PLACES.includes(key) ? key : 'profile' }; }
     if (ref.indexOf('dm:') === 0) return { to: 'dm', uid: ref.slice(3) };
     switch (t) {
@@ -4156,6 +4194,8 @@ const rkNotifDest = (n) => {
         // V89.84.150.323: the server's word filter changed something you wrote (functions/rk_mod.js): the post it
         // changed, or the place in refId ('@profile', '@radio', '@creatorhub', handled above)
         case 'mod': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'profile' };
+        // V90.87.151.328: the station check (admins)
+        case 'radio': return { to: 'place', key: 'radio' };
         default: return { to: 'none' };
     }
 };
@@ -7964,7 +8004,34 @@ const EqSlider = ({ label, value, min, max, onChange, suffix }) => (
 // rather than every 25 seconds while the station plays.
 let rkRadioReported = false;
 const rkRadioReportOnce = (why) => { if (rkRadioReported) return; rkRadioReported = true; rkReport('radio record now', new Error(why)); };
-const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying, onViewProfileFromRadio, onResetButton, dockMode, onDockMode }) => {
+// V90.87.151.328: the device a report comes from (the app or the web, the system and the browser engine), short; the hosts a
+// station's address may be on; and when the server last checked the stations (a time today, a date before)
+const rkUaShort = () => {
+    try {
+        const u = String(navigator.userAgent || '');
+        const app = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+        const os = /iPhone|iPad|iPod/.test(u) ? 'iOS' : /Android ([\d.]+)/.test(u) ? 'Android ' + /Android ([\d.]+)/.exec(u)[1] : /Macintosh/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : /Linux/.test(u) ? 'Linux' : 'unknown system';
+        const br = /SamsungBrowser\//.test(u) ? 'Samsung Internet' : /Edg\//.test(u) ? 'Edge' : /Firefox\//.test(u) ? 'Firefox' : /Chrome\/(\d+)/.test(u) ? ((/; wv\)/.test(u) ? 'WebView ' : 'Chrome ') + /Chrome\/(\d+)/.exec(u)[1]) : /Safari\//.test(u) ? 'Safari' : 'browser';
+        return (app ? 'app, ' : 'web, ') + os + ', ' + br;
+    } catch (e) { return 'unknown device'; }
+};
+const rkRadioHostOk = (u) => typeof u === 'string' && /^https:\/\/[a-z0-9.-]+\.(?:somafm\.com|hostingradio\.ru)\//i.test(u);
+const rkRadioWhen = (t) => {
+    try {
+        const d = new Date(t);
+        return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch (e) { return ''; }
+};
+// the line under the station list: the server's last check (a source the server couldn't reach isn't counted, and is named)
+const rkRadioCheckLine = (d) => {
+    if (!d || !(d.at > 0)) return '';
+    const lost = Object.keys(d.unreach && typeof d.unreach === 'object' ? d.unreach : {});
+    const when = 'Station check ' + rkRadioWhen(d.at) + ': ';
+    if (!(d.total > 0)) return lost.length ? when + "the server couldn't reach " + lost.join(' or ') + '. Every station is checked each hour.' : '';
+    return when + d.ok + ' of ' + d.total + ' on air' + (lost.length ? ' (' + lost.join(' and ') + " not checked: the server couldn't reach " + (lost.length > 1 ? 'them' : 'it') + ')' : '') + '. Every station is checked each hour.';
+};
+const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingChange, onNowPlaying, onViewProfileFromRadio, onResetButton, dockMode, onDockMode, focusId, onFocusDone }) => {
     const [consent, setConsent] = useState(() => { try { return localStorage.getItem('rk_audio_consent') === 'true'; } catch(e) { return false; } });
     // V84.77.150.311: the list is now ordered by genre, so the default is named rather than first.
     const [station, setStation] = useState(() => RADIO_STATIONS.find(s => s.id === 'house') || RADIO_STATIONS[0]);
@@ -7984,6 +8051,45 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     const [stScroll, setStScroll] = useState({ thumb: 40, top: 0 }); // station list scroll indicator
     const [bgAudio, setBgAudio] = useState(() => { try { return localStorage.getItem('rk_bg_audio') !== 'off'; } catch (e) { return true; } });
     const stationListRef = useRef(null);
+    // V90.87.151.328: what the player says when a station won't connect, beyond the status line (the server's word on it)
+    const [diag, setDiag] = useState('');
+    // V90.87.151.328: THE SERVER'S HOURLY CHECK OF EVERY STATION (functions/rk_radio.js radioSweep -> global/radio): for each
+    // station the address that answered, the others it found, and `down` once it has failed two checks in a row. Read when the
+    // radio first loads and again when it's opened 20 minutes later, and kept on the phone, so a station started from the dock
+    // has it too. Refused until 328's rules are deployed, which changes nothing: the written-in addresses are used then.
+    const RK_DIR_KEY = 'rk_radio_dir';
+    const [radioDir, setRadioDir] = useState(() => { try { const d = JSON.parse(localStorage.getItem(RK_DIR_KEY) || 'null'); return d && d.stations && typeof d.stations === 'object' ? d : null; } catch (e) { return null; } });
+    const radioDirRef = useRef(null);
+    radioDirRef.current = radioDir && radioDir.stations;
+    const dirReadAt = useRef(0);
+    useEffect(() => {
+        if (!user?.uid || Date.now() - dirReadAt.current < 20 * 60000) return;
+        dirReadAt.current = Date.now();
+        getDoc(doc(db, 'artifacts', appId, 'global', 'radio')).then((s) => {
+            const d = s && s.exists() ? s.data() : null;
+            if (!d || !d.stations || typeof d.stations !== 'object') return;
+            const keep = { at: Number(d.at) || 0, ok: Number(d.ok) || 0, total: Number(d.total) || 0, unreach: d.unreach && typeof d.unreach === 'object' ? d.unreach : {}, stations: d.stations };
+            setRadioDir(keep);
+            try { localStorage.setItem(RK_DIR_KEY, JSON.stringify(keep)); } catch (e) {}
+        }).catch(() => {});
+    }, [user?.uid, isOpen]);
+    // V90.87.151.328: a radio notice ('@radio:<station>', from the hourly check) opens the radio at that station: the list
+    // scrolls to it, and it's outlined for a few seconds
+    const [flashId, setFlashId] = useState(null);
+    const flashT = useRef([]);
+    useEffect(() => () => { flashT.current.forEach(clearTimeout); }, []);
+    useEffect(() => {
+        if (!isOpen || !focusId) return;
+        const id = focusId;
+        if (onFocusDone) onFocusDone();
+        if (!RADIO_STATIONS.some(s => s.id === id)) return;
+        setRadioTab('inapp'); setFlashId(id);
+        flashT.current.forEach(clearTimeout);
+        flashT.current = [
+            setTimeout(() => { try { const box = stationListRef.current, el = box && box.querySelector('[data-st="' + id + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {} }, 150),
+            setTimeout(() => setFlashId(null), 6000),
+        ];
+    }, [isOpen, focusId]);
 
     const audioRef = useRef(null);
     // V82.2 - TWO ELEMENTS. `audioRef` is routed through Web Audio for the EQ, which REQUIRES the
@@ -8118,8 +8224,16 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // activity sync flushes them to the profile alongside active time.
     useEffect(() => {
         if (!playing || !user?.uid || user.isAnonymous) return;
-        const k = 'rk_radio_buf_' + user.uid;
-        const t = setInterval(() => { try { localStorage.setItem(k, String((parseInt(localStorage.getItem(k) || '0') || 0) + 1)); } catch (e) {} }, 60000);
+        const k = 'rk_radio_buf_' + user.uid, hk = 'rk_radio_heard_' + user.uid;
+        const t = setInterval(() => {
+            try { localStorage.setItem(k, String((parseInt(localStorage.getItem(k) || '0') || 0) + 1)); } catch (e) {}
+            // V90.87.151.328: Station Hopper: the station that played this minute (saved with the minutes, in <App/>)
+            try {
+                const id = !connectingRef.current && stationRef.current ? stationRef.current.id : '';
+                const h = JSON.parse(localStorage.getItem(hk) || '[]');
+                if (id && Array.isArray(h) && !h.includes(id) && h.length < 80) { h.push(id); localStorage.setItem(hk, JSON.stringify(h)); }
+            } catch (e) {}
+        }, 60000);
         return () => clearInterval(t);
     }, [playing, user]);
 
@@ -8140,22 +8254,48 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // ice2 first because it is the documented primary for several channels, ice1 fourth because it
     // is the one currently failing. A mirror that works is remembered, so the next play goes
     // straight to it.
-    const RK_SOMA_MIRRORS = ['ice2', 'ice4', 'ice6', 'ice1', 'ice5'];
+    //
+    // V90.87.151.328: EVERY ADDRESS A STATION HAS, BEST FIRST (Milli's log at 328: "radio could not connect edmhh (20 tries
+    // over 14 s; ice2 eq:error 4 plain:error 4, ice4 ..., ice6 ..., ice1 ..., ice5 ...): media error 4"). Beat Bodega's address
+    // was right: SomaFM's page for Fluid lists fluid-128-mp3 on ice5 and ice2, and both were tried. But the app had five
+    // servers and one format written in, and SomaFM moves channels between servers (Groove Salad and Fluid moved on 12 Nov,
+    // Lush on 5 Nov) and says its playlists are the permanent links. In this order:
+    //  1. the address that last played on this phone, while it's still one of the station's (V84.77.150.311: an old address
+    //     stops being tried once the station has moved)
+    //  2. the server's hourly check (global/radio): the address that answered, then the others it read from SomaFM's
+    //     playlists or Radio Record's station list
+    //  3. the written-in ones: SomaFM's two servers for the channel (as their pages listed them on 12 Nov; ice5 and ice6 if not
+    //     known) in 128k MP3, 128k AAC and 64k AAC, then MP3 and AAC on their other three; Radio Record's 96k, its 64k, and its
+    //     HLS stream, which comes from another of their hosts
+    const RK_SOMA_MIRRORS = ['ice5', 'ice6', 'ice2', 'ice4', 'ice1'];
+    const RK_SOMA_LISTED = { fluid: ['ice5', 'ice2'], groovesalad: ['ice5', 'ice6'], lush: ['ice5', 'ice6'] };
     const RK_MIRROR_KEY = 'rk_radio_mirror';
     const mirrorGet = (id) => { try { return JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}')[id] || null; } catch (e) { return null; } };
     const mirrorSet = (id, url) => { try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); m[id] = url; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {} };
-    const streamCandidates = (st) => {
-        const out = [];
-        // V84.77.150.311: a remembered address is reused only if it is the same stream on another
-        // mirror. Hardstyle HQ changed address in this build, and a remembered old address would
-        // otherwise be tried first, forever.
-        const pathOf = (u) => String(u || '').replace(/^https?:\/\/[^/]+/, '');
-        const known = mirrorGet(st.id);
-        if (known && pathOf(known) === pathOf(st.url)) out.push(known);
-        const m = String(st.url).match(/^https:\/\/ice\d\.somafm\.com\/(.+)$/);
-        if (m) RK_SOMA_MIRRORS.forEach(h => { const u = 'https://' + h + '.somafm.com/' + m[1]; if (!out.includes(u)) out.push(u); });
-        if (!out.includes(st.url)) out.push(st.url);
+    const builtInUrls = (st) => {
+        const out = [], add = (u) => { if (u && !out.includes(u)) out.push(u); };
+        if (st.soma) {
+            const two = RK_SOMA_LISTED[st.soma] || ['ice5', 'ice6'], rest = RK_SOMA_MIRRORS.filter(h => !two.includes(h));
+            ['-128-mp3', '-128-aac', '-64-aac'].forEach(f => two.forEach(h => add('https://' + h + '.somafm.com/' + st.soma + f)));
+            ['-128-mp3', '-128-aac'].forEach(f => rest.forEach(h => add('https://' + h + '.somafm.com/' + st.soma + f)));
+        } else if (st.rr) {
+            add('https://radiorecord.hostingradio.ru/' + st.rr + '96.aacp');
+            add('https://radiorecord.hostingradio.ru/' + st.rr + '64.aacp');
+            add('https://hls-01-radiorecord.hostingradio.ru/' + (st.rr === 'rr_main' ? 'record' : 'record-' + st.rr) + '/playlist.m3u8');
+        }
+        add(st.url);
         return out;
+    };
+    const streamCandidates = (st) => {
+        const out = [], add = (u) => { if (rkRadioHostOk(u) && !out.includes(u)) out.push(u); };
+        const own = builtInUrls(st);
+        const sv = radioDirRef.current && radioDirRef.current[st.id];
+        const svUrls = sv ? [sv.ok ? sv.url : '', ...(Array.isArray(sv.urls) ? sv.urls : [])].filter(rkRadioHostOk) : [];
+        const known = mirrorGet(st.id);
+        if (known && (own.includes(known) || svUrls.includes(known))) add(known);
+        svUrls.forEach(add);
+        own.forEach(add);
+        return out.slice(0, 16);
     };
 
     // V84.78.150.312: CONNECTING PATIENTLY, ONE STATION AT A TIME (Milli's report and log at 312).
@@ -8180,7 +8320,6 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     // V87.78.150.315: helpers for the SomaFM plain fallback and the failure report (see playStation).
     const rkIsFormatErr = (e) => !!e && (e.name === 'NotSupportedError' || /media error 4|format error|no supported source/i.test(String(e.message || '')));
     const rkErrCode = (r) => r.slow ? 'silent' : (r.err && /media error (\d)/.exec(String(r.err.message || ''))) ? 'error ' + /media error (\d)/.exec(String(r.err.message))[1] : ((r.err && r.err.name) || 'failed');
-    const rkHostOf = (u) => String(u || '').replace(/^https?:\/\//, '').split('/')[0].replace('.somafm.com', '');
     const waitOnline = (ms) => new Promise(res => {
         try { if (navigator.onLine !== false) { res(true); return; } } catch (e) { res(true); return; }
         let t = null;
@@ -8202,50 +8341,60 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
     });
     const stopStall = () => { if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; } };
 
+    // V90.87.151.328: the connecting above as one pass over a list of addresses (pass), and when a whole pass plays nothing,
+    // the server's word on the station (radioCheck, functions/rk_radio.js), which decides what comes next:
+    //  - it played there: try what it found that this phone hadn't (or its working address once more); if that fails too,
+    //    say the station is fine at its source and this device couldn't play it
+    //  - it didn't play there either: stop (no second pass), and say the station is off air at its source right now
+    //  - it couldn't be asked (offline, or the functions not deployed yet): the second pass, as before 328
+    // The report says what each address answered (server and format), what the server said, and on what device.
+    const rkAskServer = async (id) => {
+        try {
+            const r = await Promise.race([httpsCallable(getFunctions(app), 'radioCheck')({ id }).then(x => x && x.data), rkWait(25000).then(() => null)]);
+            return r && typeof r === 'object' && typeof r.ok === 'boolean' ? r : null;
+        } catch (e) { return null; }
+    };
     const playStation = async (st, opts = {}) => {
         const a = audioRef.current, p = plainRef.current; if (!a || !p) return;
         const gen = ++connGenRef.current;
         const stale = () => gen !== connGenRef.current;
         stationRef.current = st; connectingRef.current = true; stopStall();
         if (!opts.reconnect) reconnectsRef.current = 0;
-        setStation(st); setStatus((opts.reconnect ? 'Reconnecting to ' : 'Connecting to ') + st.name + '…');
+        setStation(st); setDiag(''); setStatus((opts.reconnect ? 'Reconnecting to ' : 'Connecting to ') + st.name + '…');
         try { a.pause(); } catch (e) {}
         try { p.pause(); } catch (e) {}
-        const urls = streamCandidates(st);
+        const all = streamCandidates(st);
         const knownNoCors = noCorsGet().has(st.id);
         const started = Date.now();
         let lastErr = null, tries = 0;
-        const tried = {};   // per server, the answers each path gave (for the report)
-        outer:
-        for (let round = 0; round < 2; round++) {
-            if (round > 0) { setStatus('Still connecting to ' + st.name + '…'); await rkWait(2500); if (stale()) return; }
+        const tried = {};   // per address ("ice5 mp3", "rr 96k"), the answers each path gave (for the report)
+        // One pass: 'ok' (playing), 'quit' (a newer tap took over, or play() needs a tap first) or 'failed'.
+        const pass = async (urls) => {
             for (const url of urls) {
-                if (stale()) return;
-                if (Date.now() - started > RK_CONNECT_BUDGET_MS) break outer;
+                if (stale()) return 'quit';
+                if (Date.now() - started > RK_CONNECT_BUDGET_MS) return 'failed';
                 let online = true; try { online = navigator.onLine !== false; } catch (e) {}
                 if (!online) {
                     setStatus('Waiting for your connection…');
                     const back = await waitOnline(30000);
-                    if (stale()) return;
-                    if (!back) { lastErr = new Error('offline for 30 s'); break outer; }
+                    if (stale()) return 'quit';
+                    if (!back) { lastErr = new Error('offline for 30 s'); return 'failed'; }
                     setStatus('Connecting to ' + st.name + '…');
                 }
                 const cap = eqCapable(url);
                 // V87.78.150.315: SOMAFM GETS THE PLAIN PATH TOO (Milli's log at 315: "radio could not
-                // connect house (20 tries over 44 s): media error 4: Format error"). SomaFM has moved
-                // Beat Blender to ice5 and ice6, the last two mirrors tried, and the EQ path had been
-                // the only one ever tried there. The EQ path needs the server's CORS header; a server
-                // without it refuses that path with exactly this "Format error", as does an address
-                // with no such stream. So a Format error on the EQ path now gets one immediate try on
-                // the plain element: if that plays, the station plays with the EQ off; if it fails
-                // too, the address has no such stream and the next one is tried. Nothing is remembered
-                // against the station, so the next play tries the EQ path first again.
+                // connect house (20 tries over 44 s): media error 4: Format error"). The EQ path needs the
+                // server's CORS header; a server without it refuses that path with exactly this "Format error",
+                // as does an address with no such stream. So a Format error on the EQ path gets one immediate try
+                // on the plain element: if that plays, the station plays with the EQ off; if it fails too, the
+                // address has no such stream and the next one is tried. Nothing is remembered against the
+                // station, so the next play tries the EQ path first again.
                 const paths = cap === true ? ['eq', 'plain'] : cap === false ? ['plain'] : (knownNoCors ? ['plain'] : ['eq', 'plain']);
                 let nextUrl = false;
                 for (const path of paths) {
                     if (nextUrl) break;
                     for (let rep = 0; rep < 2; rep++) {
-                        if (stale()) return;
+                        if (stale()) return 'quit';
                         const el = path === 'eq' ? a : p;
                         if (path === 'eq') {
                             usingPlainRef.current = false; setEqBypassed(false); initEq();
@@ -8258,7 +8407,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                         tries++;
                         const t0 = Date.now();
                         const r = await tryStream(el, url);
-                        if (stale()) return;              // a newer tap took over: say nothing
+                        if (stale()) return 'quit';              // a newer tap took over: say nothing
                         if (r.ok) {
                             if (opts.reconnect) setTimeout(() => { if (gen === connGenRef.current && playingRef.current) reconnectsRef.current = 0; }, 60000);
                             mirrorSet(st.id, url);
@@ -8266,11 +8415,12 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                             connectingRef.current = false;
                             setPlaying(true);
                             setStatus('LIVE: ' + st.name + ' — ' + st.genre + (path === 'plain' ? ' (EQ off for this station)' : ''));
-                            return;
+                            return 'ok';
                         }
                         lastErr = r.err;
-                        (tried[rkHostOf(url)] = tried[rkHostOf(url)] || new Set()).add(path + ':' + rkErrCode(r));
-                        if (r.err && r.err.name === 'NotAllowedError') { connectingRef.current = false; setPlaying(false); setStatus('Tap ▶ to start ' + st.name + '.'); return; }
+                        const lab = rkStreamLabel(url);
+                        (tried[lab] = tried[lab] || new Set()).add(path + ':' + rkErrCode(r));
+                        if (r.err && r.err.name === 'NotAllowedError') { connectingRef.current = false; setPlaying(false); setStatus('Tap ▶ to start ' + st.name + '.'); return 'quit'; }
                         if (cap === true) {
                             if (path === 'eq' && !r.slow && rkIsFormatErr(r.err)) break;   // straight to one plain try
                             if (path === 'plain') { nextUrl = true; break; }                 // the plain try was its last
@@ -8280,20 +8430,51 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                     }
                 }
             }
+            return 'failed';
+        };
+        if (await pass(all) !== 'failed') return;
+        if (stale()) return;
+        setStatus('Checking ' + st.name + ' from the server…');
+        const sv0 = await rkAskServer(st.id);
+        if (stale()) return;
+        // the server couldn't reach the source at all (its best-known station failed too): no word on this station
+        const cantReach = !!(sv0 && !sv0.ok && sv0.reach === false), sv = cantReach ? null : sv0;
+        if (sv && sv.ok) {
+            const more = [sv.url, ...(Array.isArray(sv.urls) ? sv.urls : [])].filter((u, i, x) => rkRadioHostOk(u) && x.indexOf(u) === i && !all.includes(u));
+            setStatus('Connecting to ' + st.name + '…');
+            if (await pass(more.length ? more : [sv.url].filter(rkRadioHostOk)) !== 'failed') return;
+        } else if (!sv) {
+            setStatus('Still connecting to ' + st.name + '…'); await rkWait(2500); if (stale()) return;
+            if (await pass(all) !== 'failed') return;
         }
         if (stale()) return;
         connectingRef.current = false;
-        // Every address refused, twice. Drop the remembered mirror so the next try starts clean.
+        // Nothing played. Drop the remembered address so the next try starts clean.
         try { const m = JSON.parse(localStorage.getItem(RK_MIRROR_KEY) || '{}'); delete m[st.id]; localStorage.setItem(RK_MIRROR_KEY, JSON.stringify(m)); } catch (e) {}
         // The last address may still be loading with play() pending; it must not start later
         // while the screen says the station is not responding. Stop and empty both elements.
         [a, p].forEach(el => { try { el.pause(); el.removeAttribute('src'); el.load(); } catch (e) {} });
         usingPlainRef.current = false; setEqBypassed(false);
         setPlaying(false);
-        setStatus(st.name + ' is not responding right now. Try again, or pick another station.');
+        const src = st.soma ? 'SomaFM' : 'Radio Record';
+        const why = (sv && Array.isArray(sv.tried) ? sv.tried : []).slice(0, 3).map(t => t.u + ': ' + t.code).join(', ');
+        if (sv && !sv.ok) {
+            setStatus(st.name + ' is off air at ' + src + ' right now.');
+            setDiag('The server tried ' + st.name + ' too and got no audio' + (why ? ' (' + why + ')' : '') + '. Rave Radio checks every station each hour. Pick another station for now.');
+        } else if (sv && sv.ok) {
+            setStatus(st.name + " won't play on this device right now.");
+            setDiag(src + ' is sending ' + st.name + ': the server just played it (' + rkStreamLabel(sv.url) + '), but this device couldn\'t. Check your connection, then tap ▶ to try again.');
+        } else {
+            setStatus(st.name + ' is not responding right now. Try again, or pick another station.');
+            if (cantReach) setDiag('The server couldn\'t reach ' + src + ' either just now, so it can\'t tell whether ' + st.name + ' is off air. Try again in a bit.');
+        }
         // V87.78.150.315: the report says what each server answered on each path, so a missing CORS
         // header (eq refused, plain fine) can be told from a missing stream (both refused).
-        rkReport('radio could not connect ' + st.id + ' (' + tries + ' tries over ' + Math.round((Date.now() - started) / 1000) + ' s; ' + Object.keys(tried).map(h => h + ' ' + [...tried[h]].join(' ')).join(', ') + ')', lastErr);
+        // V90.87.151.328: by address (server and format), with the server's word and the device
+        rkReport('radio could not connect ' + st.id + ' (' + tries + ' tries over ' + Math.round((Date.now() - started) / 1000) + ' s; '
+            + Object.keys(tried).map(h => h + ' ' + [...tried[h]].join(' ')).join(', ')
+            + '; server: ' + (sv ? (sv.ok ? 'plays it (' + rkStreamLabel(sv.url) + ')' : 'no audio either' + (why ? ' (' + why + ')' : '')) : cantReach ? 'can\'t reach ' + src + ' (' + (sv0.canary || 'its main station') + ' failed too)' : 'not reached')
+            + '; ' + rkUaShort() + ')', lastErr);
     };
 
     // A stream that errors or stalls while playing gets up to 3 reconnects in a row before stopping.
@@ -8331,7 +8512,7 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
 
     const togglePlay = () => {
         const a = cur(); if (!a) return;
-        if (playing) { connGenRef.current++; connectingRef.current = false; stopStall(); try { a.pause(); } catch (e) {} setPlaying(false); setStatus('Paused: ' + station.name); }
+        if (playing) { connGenRef.current++; connectingRef.current = false; stopStall(); try { a.pause(); } catch (e) {} setPlaying(false); setDiag(''); setStatus('Paused: ' + station.name); }
         else { playStation(station); }
     };
 
@@ -8400,6 +8581,8 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                     {playing && nowSong && nowSong !== 'Live Stream' && (
                                         <p className="text-[13px] font-bold text-white truncate mt-0.5">♪ {nowSong}</p>
                                     )}
+                                    {/* V90.87.151.328: why a station didn't connect, in full (the status line is cut to one line) */}
+                                    {diag && <p data-radio-diag="1" className="text-[12px] font-bold text-white leading-snug mt-1">{diag}</p>}
                                 </div>
                                 <div className="flex gap-1 bg-black/40 rounded-lg p-1">
                                     <button onClick={() => setRadioTab('inapp')} className={`flex-1 text-[10px] font-black uppercase tracking-wide py-1.5 rounded ${radioTab==='inapp' ? 'bg-pink-600 text-white' : 'text-white/50'}`}>📻 In-App Stations</button>
@@ -8433,9 +8616,13 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                                         <div className="grid grid-cols-2 gap-1.5">
                                                             {list.map(st => {
                                                                 const on = station.id === st.id;
+                                                                // V90.87.151.328: off air at the last two hourly checks (still tappable: it may be back), and
+                                                                // the station a radio notice opened at
+                                                                const off = !!(radioDir && radioDir.stations && radioDir.stations[st.id] && radioDir.stations[st.id].down);
+                                                                const flash = flashId === st.id;
                                                                 return (
-                                                                    <button key={st.id} onClick={() => playStation(st)} className="p-2 rounded-lg text-left transition-all active:scale-[0.97]" style={{ backgroundImage: 'linear-gradient(135deg, ' + st.pastel + ', ' + st.pastel2 + ')', color: '#1a0626', border: on ? '2px solid #ffffff' : '2px solid transparent', boxShadow: on ? '0 0 14px ' + st.color : 'none' }}>
-                                                                        <p className="text-[13px] font-black leading-tight">{on && playing ? '▶ ' : ''}{st.name}</p>
+                                                                    <button key={st.id} data-st={st.id} onClick={() => playStation(st)} title={off ? st.name + ' was off air at the last two hourly checks. Tap to try it anyway.' : undefined} className="p-2 rounded-lg text-left transition-all active:scale-[0.97]" style={{ backgroundImage: 'linear-gradient(135deg, ' + st.pastel + ', ' + st.pastel2 + ')', color: '#1a0626', border: (on || flash) ? '2px solid #ffffff' : '2px solid transparent', boxShadow: flash ? '0 0 0 3px #ffffff, 0 0 18px ' + st.color : on ? '0 0 14px ' + st.color : 'none' }}>
+                                                                        <p className="text-[13px] font-black leading-tight">{on && playing ? '▶ ' : ''}{st.name}{off && <span data-offair="1" className="ml-1 inline-block align-middle text-[11px] font-black leading-none px-1.5 py-0.5 rounded bg-red-700 text-white">OFF AIR</span>}</p>
                                                                         <p className="text-[11px] font-bold leading-tight mt-0.5" style={{ color: '#3b1d52' }}>{st.genre} · ~{st.bpm} BPM</p>
                                                                     </button>
                                                                 );
@@ -8489,6 +8676,8 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
                                 {/* Sound (volume + EQ) button opens a popup */}
                                 <button onClick={() => setSoundOpen(true)} className="w-full bg-white/5 border-2 border-purple-400/60 rounded-xl py-2.5 flex items-center justify-center gap-2 text-sm font-bold text-cyan-300 hover:bg-white/10 transition" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.5)' }}><Volume size={18}/> Volume &amp; Sound Controls</button>
                                 <p className="text-[11px] text-center text-white">Live streams from SomaFM.com and Radio Record (radiorecord.ru)</p>
+                                {/* V90.87.151.328: the server's last check of every station */}
+                                {rkRadioCheckLine(radioDir) && <p data-radio-check="1" className="text-[11px] text-center text-white -mt-2">{rkRadioCheckLine(radioDir)}</p>}
                             </div>
                         )}
                     </Card>
@@ -9237,10 +9426,16 @@ function rkEmTrade(t) {
 
 // Rave Radio: lattice tower beaming arcs (Tuned In); disco-ball beacon in waveform rosettes (Dancefloor Devotee)
 // V90.86.151.327: 3 is Resident Listener: the 2 tower in gold, a fourth ring and two sparks (1 and 2 are unchanged)
+// V90.87.151.328: 4 is Station Hopper: the 2 tower in cyan, two rings, and an arc of nine stations over it, like a dial
 function rkEmRadio(t) {
-  var N = t === 3 ? '#ffd24a' : '#a48bff', p = rkEmPal(N), E = rkEmE, e = [], i, cy = t === 1 ? 36 : 44, top = cy + 7, s, br = '';
+  var N = t === 3 ? '#ffd24a' : t === 4 ? '#5ef0ff' : '#a48bff', p = rkEmPal(N), E = rkEmE, e = [], i, cy = t === 1 ? 36 : 44, top = cy + 7, s, br = '';
   var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmRad(['#ffffff', p.l, p.m, N], [0.38, 0.32, 0.8]) };
-  if (t >= 2) {
+  if (t === 4) {
+    for (i = 0; i < 2; i++) e.push(E(rkEmWave(50, cy, 17 + i * 8.5, 1.6, 8 + i * 4), 0, i ? p.m : N, 2.6 - i * 0.4, 1 - i * 0.22, i ? 'd' : 'b'));
+    var dial = E(rkEmArc(50, cy, 35, -112, 112), 0, N, 4.6, 1, 'b');
+    dial.da = '0 ' + rkEmN2(2 * Math.PI * 35 * 224 / 360 / 8); dial.lw = 4.6;
+    e.push(dial, E(rkEmSpark(86, 14, 3.6), '#ffffff', 0, 0, 1, 'h'));
+  } else if (t >= 2) {
     var nw = t === 3 ? 4 : 3, sp = t === 3 ? 7.5 : 8.5;
     for (i = 0; i < nw; i++) e.push(E(rkEmWave(50, cy, 17 + i * sp, 1.6, 8 + i * 4), 0, i ? p.m : N, 2.6 - i * 0.4, 1 - i * 0.22, i ? 'd' : 'b'));
     if (t === 3) e.push(E(rkEmSpark(17, 16, 4.2), '#ffffff', 0, 0, 1, 'h'), E(rkEmSpark(84, 20, 3.4), '#ffffff', 0, 0, 1, 'h'));
@@ -9799,7 +9994,7 @@ function rkEmSpec() {
     ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
-    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2]], t = {};
+    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2], ['hop_25', rkEmRadio, 4, 2]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -10704,7 +10899,7 @@ const PingBar = ({ show }) => {
     );
 };
 
-const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, labcap: Sparkles, creator: Hammer };
+const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, labcap: Sparkles, creator: Hammer, radio: Radio };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
@@ -12153,7 +12348,7 @@ const MainSettingsModal = ({ user, profile, isOpen, onClose, onReplayTutorial, o
         <div className="border-b border-white/10 pb-4">
             <h4 className="font-bold text-xs mb-3 text-purple-400">In-App Notifications</h4>
             <div className="grid grid-cols-2 gap-2">
-                {NOTIF_INAPP_TYPES.filter(t => t.id !== 'admin' || profile?.isAdmin).map(t => (
+                {NOTIF_INAPP_TYPES.filter(t => (t.id !== 'admin' && t.id !== 'radio') || profile?.isAdmin).map(t => (
                     <button key={t.id} onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid), { inAppNotifs: { [t.id]: profile?.inAppNotifs?.[t.id] === false ? true : false } }, { merge: true }); }} className="flex justify-between items-center bg-white/5 p-2 rounded border border-white/10 text-[10px]">
                         <span className="truncate mr-1">{t.label}</span>
                         {profile?.inAppNotifs?.[t.id] !== false ? <CheckSquare size={14} className="text-lime-400 shrink-0"/> : <Square size={14} className="text-white/30 shrink-0"/>}
@@ -24722,6 +24917,7 @@ const App = () => {
     // PHASE 8: Rave Radio State
     const [isRadioPlaying, setIsRadioPlaying] = useState(false);
     const [radioOpen, setRadioOpen] = useState(false);
+    const [radioFocus, setRadioFocus] = useState(null);   // V90.87.151.328: the station a radio notice opens the radio at
     // V42.19 Phase 4: draggable floating radio button. Starts under the banner.
     const [radioBtnPos, setRadioBtnPos] = useState(() => { try { const s = JSON.parse(localStorage.getItem('rk_radio_btn_pos')); if (s && typeof s.x === 'number') { const maxX = window.innerWidth - 64, maxY = window.innerHeight - 120; return { x: Math.max(0, Math.min(s.x, maxX)), y: Math.max(80, Math.min(s.y, maxY)) }; } } catch (e) {} return { x: 8, y: 150 }; });
     const radioDragRef = useRef({ dragging: false, moved: false, offX: 0, offY: 0, holdTimer: null, held: false });
@@ -24880,9 +25076,18 @@ const App = () => {
             const since = Number(p.activeSavedAt) || (Date.now() - 86400000);
             const cap = Math.max(0, Math.floor((Date.now() - since) / 60000));
             const mins = Math.min(num(bufKey), cap), opens = Math.min(num(openKey), cap + 40), rmins = Math.min(num(radioKey), cap);
+            // V90.87.151.328: and the Rave Radio stations heard since (Station Hopper): the new ones, no more of them than the
+            // minutes since the last save, which the rules hold the list to. Any left over go with the next save.
+            const heardKey = 'rk_radio_heard_' + uid;
+            let heard = []; try { const h = JSON.parse(localStorage.getItem(heardKey) || '[]'); if (Array.isArray(h)) heard = h; } catch (e) {}
+            const had = Array.isArray(p.radioHeard) ? p.radioHeard : [];
+            const fresh = heard.filter((x, i) => typeof x === 'string' && RK_RADIO_IDS.includes(x) && !had.includes(x) && heard.indexOf(x) === i);
+            const addH = fresh.slice(0, cap), leftH = fresh.slice(addH.length);
+            const upd = { lastActive: Date.now(), activeSavedAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) };
+            if (addH.length) upd.radioHeard = arrayUnion(...addH);
             const ref = doc(db, 'artifacts', appId, 'users', uid);
-            setDoc(ref, { lastActive: Date.now(), activeSavedAt: Date.now(), activeMinutes: increment(mins), activeOpens: increment(opens), radioMinutes: increment(rmins) }, { merge: true })
-                .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(radioKey, '0'); localStorage.setItem(flushKey, String(Date.now())); })
+            setDoc(ref, upd, { merge: true })
+                .then(() => { localStorage.setItem(bufKey, '0'); localStorage.setItem(openKey, '0'); localStorage.setItem(radioKey, '0'); localStorage.setItem(heardKey, JSON.stringify(leftH)); localStorage.setItem(flushKey, String(Date.now())); })
                 .catch(() => {});
         };
         flush();
@@ -25309,7 +25514,7 @@ const App = () => {
         else if (key === 'lab') { setPage('shop'); setTab('custom'); }
         else if (key === 'diy') { setPage('shop'); setTab('diy'); }
         else if (key === 'messages') setMsgOpen(true);
-        else if (key === 'radio') setRadioOpen(true);
+        else if (key === 'radio') { setRadioFocus(focus || null); setRadioOpen(true); }
         else if (key === 'market') { setFilters(rkItemsView); setPage('feed'); }
         else if (key === 'achievements') rkBus(focus ? 'achievements:' + focus : 'achievements');
         // V90.86.150.326: Business unlocked (and Help, and the marquee's tip) open Settings at Account type
@@ -25995,6 +26200,8 @@ const App = () => {
         (user && !user.isAnonymous && profile && profile.accountType !== 'business') ? { t: '🏪 RUN A LABEL? A BUSINESS ACCOUNT HOLDS SEVERAL BRANDS UNDER ONE LOGIN. TAP TO SEE WHAT UNLOCKS ONE 🏪', kind: 'business', go: () => rkGoPlace('bizinfo') } : null,
         // V90.86.151.327: the nav tucks up as you scroll now; the marquee stays
         { t: '⬆️ SCROLLING DOWN TUCKS THE MENU UP UNDER THE MARQUEE. SCROLL UP, OR TAP ▾ MENU, AND IT\'S BACK ⬆️' },
+        // V90.87.151.328: every station is checked each hour, and one that's off air says so (tap: the radio)
+        { t: '📻 RAVE RADIO CHECKS ALL ' + RADIO_STATIONS.length + ' STATIONS EVERY HOUR. IF ONE GOES OFF AIR, ITS BUTTON SAYS SO. TAP TO TUNE IN 📻', go: () => setRadioOpen(true) },
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
         (user && !user.isAnonymous) ? { t: '🎪 GOING TO A FESTIVAL? POST IT, PICK THE FESTIVAL AND TAP THE DAYS YOU\'RE GOING 🎪', go: () => { setFilters(rkItemsView); setPage('feed'); rkRequestOpen('post'); } } : null,
         topStats.meetup ? { t: '🎪 NEXT MEETUP: ' + topStats.meetup.people.length + ' raver' + (topStats.meetup.people.length === 1 ? '' : 's') + ' going to ' + topStats.meetup.name + (topStats.meetup.from ? ' (' + rkEventDays(topStats.meetup) + ')' : '') + ' 🎪', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: topStats.meetup.name })); } catch (e) {} } } : null,
@@ -26189,7 +26396,7 @@ cat << 'EOF' >> src/App.js
             {installCoach && <RkInstallCoach gk={installCoach} onClose={() => setInstallCoach('')} onPick={setInstallCoach}/>}
             <RkHateNotice/>
             
-            <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} dockMode={radioDockMode} onDockMode={setRadioDockModeP} onResetButton={resetRadioButton} />
+            <RadioPlayerModal user={user} profile={profile} isOpen={radioOpen} onClose={() => setRadioOpen(false)} onGoVip={() => { setRadioOpen(false); setShowVipModal(true); }} onPlayingChange={setIsRadioPlaying} onNowPlaying={setNowPlaying} onViewProfileFromRadio={(uid) => { setRadioOpen(false); setViewingProfileId(uid); }} dockMode={radioDockMode} onDockMode={setRadioDockModeP} onResetButton={resetRadioButton} focusId={radioFocus} onFocusDone={() => setRadioFocus(null)} />
 
             <div className="sticky top-0 z-50 rk-topbar" ref={barRef} data-rk-lift="1" data-nav={navIsTucked ? 'tucked' : 'open'} style={navIsTucked ? { transform: 'translateY(calc(-1 * var(--rk-header-h, 0px)))' } : undefined}>
             <header ref={headerRef} className="bg-black/80 backdrop-blur border-b border-white/10 px-2 py-3 flex items-end justify-between gap-1">
@@ -28044,6 +28251,8 @@ const TITLES = {
   // V89.84.150.323
   tribe:       '🌈 Vibe Tribe',
   mod:         '🕊️ RaveKandi',
+  // V90.87.151.328: the hourly station check (rk_radio.js)
+  radio:       '📻 Rave Radio',
 };
 
 exports.sendPushOnNotification = onDocumentCreated(
@@ -28881,7 +29090,14 @@ cat << 'RADIOEOF' > "$RK_FN_DIR/rk_radio.js"
 // means a cookie set on the first response is expected on the next one. So redirects are followed
 // by hand, carrying cookies forward, with a browser-like User-Agent. If it still refuses, the reply
 // says why, the app keeps showing "Live Stream", and the reason lands in the diagnostic log.
-const { onCall } = require('firebase-functions/v2/https');
+//
+// V90.87.151.328: and the station checks, below radioRecordNow (radioSweep every hour, radioCheck when a phone can't
+// connect). They read the same station list.
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+const S = require('./rk_shared');
 
 const RR_BASES = ['https://www.radiorecord.ru', 'https://radiorecord.ru'];
 // V84.77.150.311: every Radio Record station in the app (48 of them, up from 6), by the name in its
@@ -28907,6 +29123,10 @@ const UA = 'Mozilla/5.0 (Linux; Android 14; SM-A165F) AppleWebKit/537.36 (KHTML,
 const NOW_TTL = 20 * 1000, FAIL_TTL = 60 * 1000, LIST_TTL = 12 * 60 * 60 * 1000;
 let nowCache = { at: 0, data: null };
 let idCache = { at: 0, ids: null };
+// V90.87.151.328: every request goes through rkFetch (the build's test replaces it), and the station list is kept here
+// for both its readers: the ids for now-playing, the stream addresses for the checks
+let rkFetch = (u, o) => fetch(u, o);
+let rrListCache = { at: 0, list: null, err: '' };
 
 // fetch() with redirects followed by hand so cookies survive each hop.
 const getFollowingCookies = async (url) => {
@@ -28916,7 +29136,7 @@ const getFollowingCookies = async (url) => {
         const cookie = Object.keys(jar).map(k => k + '=' + jar[k]).join('; ');
         const headers = { 'User-Agent': UA, 'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9' };
         if (cookie) headers.Cookie = cookie;
-        const r = await fetch(current, { redirect: 'manual', headers, signal: AbortSignal.timeout(8000) });
+        const r = await rkFetch(current, { redirect: 'manual', headers, signal: AbortSignal.timeout(8000) });
         const set = typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [];
         for (const c of set) { const kv = String(c).split(';')[0]; const i = kv.indexOf('='); if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1).trim(); }
         const loc = r.headers.get('location');
@@ -28961,13 +29181,21 @@ const streamMatches = (o, p) => {
     const re = new RegExp('/' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:_?\\d+)?(?:\\.[a-z0-9]+|/|$)', 'i');
     return stringsOf(o).some(s => /hostingradio|\.(?:aacp|mp3|m3u8)(?:$|\?)/i.test(s) && re.test(s));
 };
+// V90.87.151.328: the station list, read at most every 12 hours (a failed read is tried again after 10 minutes)
+const rrList = async () => {
+    if (rrListCache.list && Date.now() - rrListCache.at < LIST_TTL) return rrListCache.list;
+    if (!rrListCache.list && rrListCache.at && Date.now() - rrListCache.at < 10 * FAIL_TTL) return null;
+    const got = await getJson('/api/stations/');
+    const objs = got.json ? objectsWithId(got.json) : [];
+    rrListCache = { at: Date.now(), list: objs.length ? objs : null, err: got.json ? (objs.length ? '' : 'no stations in it') : String(got.error) };
+    return rrListCache.list;
+};
 const stationIds = async () => {
     if (idCache.ids && Date.now() - idCache.at < LIST_TTL) return { ids: idCache.ids, source: 'list (cached)' };
-    const got = await getJson('/api/stations/');
-    if (got.json) {
+    const objs = await rrList();
+    if (objs) {
         // Start from the known ids and let the live list override them, so a station the list does
         // not mention still has an id and a renumbered one gets its new id.
-        const objs = objectsWithId(got.json);
         const ids = Object.assign({}, RR_IDS_FALLBACK);
         let found = 0;
         for (const p of RR_PREFIXES) { const hit = objs.find(o => prefixMatches(o, p)) || objs.find(o => streamMatches(o, p)); if (hit) { ids[p] = String(hit.id); found++; } }
@@ -28975,7 +29203,7 @@ const stationIds = async () => {
         return { ids, source: 'list (' + found + ' of ' + RR_PREFIXES.length + ' matched)' };
     }
     // The list could not be read: use the known ids, and try the list again after the TTL.
-    return { ids: RR_IDS_FALLBACK, source: 'known ids (list unreadable: ' + String(got.error).slice(0, 120) + ')' };
+    return { ids: RR_IDS_FALLBACK, source: 'known ids (list unreadable: ' + String(rrListCache.err || 'not read yet').slice(0, 120) + ')' };
 };
 
 const loadNow = async () => {
@@ -29015,8 +29243,246 @@ exports.radioRecordNow = onCall({ timeoutSeconds: 30, memory: '256MiB' }, async 
     }
     return data;
 });
+
+// ============================================================================================================================
+// V90.87.151.328: STATION CHECKS (Milli, at 328: "Check all radio stations to ensure they connect correctly", after "radio
+// could not connect edmhh (20 tries over 14 s; ice2 eq:error 4 plain:error 4, ice4 ..., ice6 ..., ice1 ..., ice5 ...): media
+// error 4").
+//
+// All 57 stations were checked against their sources' own lists on 12 Nov 2026: the 9 SomaFM channels are live on
+// somafm.com/listen, and the 48 Radio Record names match radiorecord.ru/api/stations/ (name, 96k address and id; its copy of
+// 1 Nov). Beat Bodega's address was right: SomaFM's direct-link page for Fluid, updated that day, lists fluid-128-mp3 on ice5
+// and ice2, and the app had tried both. What the app lacked was SomaFM's own advice (direct server links "can vary based on
+// individual server availability"; the PLS and M3U playlists are the permanent ones), more than one format, and a way to
+// tell a station that is off air from a phone that can't reach it.
+//
+// So the server reads each station's addresses where its source publishes them, SomaFM's playlists (128k MP3, 128k AAC,
+// 64k AAC: two servers each) and Radio Record's station list (96k, 64k, HLS), and plays them for a moment: an address
+// answers when audio starts to arrive. Up to six addresses a station, three at a time, until one answers.
+//  - radioSweep, every hour at :40: all 57, kept in global/radio. The app tries the address that answered first, and a
+//    station that failed two checks in a row (an hour apart) is marked OFF AIR until it answers again. Admins hear when
+//    stations go off air or come back, and once, after the first check, how many answered.
+//  - radioCheck: one station, when a phone has tried every address and none played (cached for 2 minutes a station).
+//    The app then says which it was: off air at the source, or the phone.
+// A source that answers nothing at all (every one of its stations failing at once, or its best-known station failing with
+// the one asked about) is taken as the server's connection to it, not every station off air: no station is marked OFF AIR
+// for it, admins hear it once, and the app doesn't tell a raver a station is off air on the strength of it.
+// ============================================================================================================================
+const RADIO_APP_IDS = ['ravekandi-core-prod'];
+const SOMA_SERVERS = ['ice5', 'ice6', 'ice2', 'ice4', 'ice1'];
+// SomaFM's playlist per format (somafm.com/<channel><pls>.pls), and its stream's name on their servers (<channel><stream>)
+const SOMA_FORMATS = [{ pls: '', stream: '-128-mp3' }, { pls: '130', stream: '-128-aac' }, { pls: '64', stream: '-64-aac' }];
+const PLS_TTL = 60 * 60 * 1000, PLS_FAIL_TTL = 10 * 60 * 1000, PROBE_MS = 7000, CHECK_TTL = 2 * 60 * 1000, PROBE_MAX = 6;
+// each source's best-known stations (Groove Salad, then Lush; Radio Record's own, then its Top 100 EDM): the first that isn't
+// the station in question is asked about when it fails a check
+const RADIO_CANARY = { 'SomaFM': ['chill', 'lush'], 'Radio Record': ['top100', 'top100edm'] };
+let plsCache = {}, checkCache = {};
+
+const rkErrCode = (e) => {
+    const n = String((e && e.name) || ''), c = e && e.cause && (e.cause.code || e.cause.name);
+    if (n === 'TimeoutError' || n === 'AbortError' || c === 'UND_ERR_HEADERS_TIMEOUT') return 'timeout';
+    return String(c || (e && e.code) || n || 'failed').slice(0, 40);
+};
+// GET one address: { ok, status, code, type, text, ms }. Redirects are followed (four at most). A stream is read until its
+// first bytes arrive and then closed; a playlist (opt.text) is read whole, 64 KB at most.
+const rkGet = async (url, opt) => {
+    const t0 = Date.now(), sig = AbortSignal.timeout(opt.ms);
+    let cur = url;
+    for (let hop = 0; hop < 5; hop++) {
+        let r;
+        try { r = await rkFetch(cur, { redirect: 'manual', signal: sig, headers: { 'User-Agent': UA, 'Accept': '*/*', 'Icy-MetaData': '0' } }); }
+        catch (e) { return { ok: false, code: rkErrCode(e), ms: Date.now() - t0 }; }
+        const loc = r.headers.get('location');
+        if (r.status >= 300 && r.status < 400 && loc) {
+            try { if (r.body) await r.body.cancel(); } catch (e) {}
+            try { cur = new URL(loc, cur).toString(); } catch (e) { return { ok: false, code: 'bad redirect', ms: Date.now() - t0 }; }
+            continue;
+        }
+        const type = String(r.headers.get('content-type') || '').toLowerCase();
+        if (r.status !== 200) { try { if (r.body) await r.body.cancel(); } catch (e) {} return { ok: false, status: r.status, code: 'HTTP ' + r.status, type, ms: Date.now() - t0 }; }
+        if (!r.body) return { ok: false, status: 200, code: 'no data', type, ms: Date.now() - t0 };
+        const reader = r.body.getReader(), parts = [];
+        let got = 0, err = null;
+        try {
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value && value.length) { parts.push(Buffer.from(value)); got += value.length; }
+                if (!opt.text || got >= 65536) break;
+            }
+        } catch (e) { err = e; }
+        try { await reader.cancel(); } catch (e) {}
+        if (err && !(opt.text && got)) return { ok: false, status: 200, code: rkErrCode(err), type, ms: Date.now() - t0 };
+        if (!got) return { ok: false, status: 200, code: 'no data', type, ms: Date.now() - t0 };
+        return { ok: true, status: 200, code: 'ok', type, text: opt.text ? Buffer.concat(parts).toString('utf8') : '', ms: Date.now() - t0 };
+    }
+    return { ok: false, code: 'redirect loop', ms: Date.now() - t0 };
+};
+// audio, an HLS playlist, or a server that names no type: anything else (a web page, say) is not the stream
+const rkIsMedia = (type) => !type || /^audio\/|mpegurl|octet-stream|aacp|ogg/.test(type);
+const rkProbe = async (url) => {
+    const r = await rkGet(url, { ms: PROBE_MS });
+    if (r.ok && !rkIsMedia(r.type)) return Object.assign({}, r, { ok: false, code: 'not audio (' + r.type.split(';')[0].trim() + ')' });
+    return r;
+};
+const rkParsePls = (text) => String(text || '').split(/\r?\n/).map((l) => /^\s*File\d+\s*=\s*(\S+)\s*$/i.exec(l)).filter(Boolean).map((m) => m[1]);
+const SOMA_URL = /^https:\/\/ice\d+\.somafm\.com\/[a-z0-9]+-\d+-(?:mp3|aac)$/i;
+// A SomaFM channel's addresses, from its playlists, MP3 first. A playlist that can't be read: that format on every server.
+const rkSomaUrls = async (ch) => {
+    const out = [], add = (u) => { if (u && !out.includes(u)) out.push(u); };
+    // the three playlists are read at once (each from somafm.com, else api.somafm.com), and used in format order
+    const lists = await Promise.all(SOMA_FORMATS.map(async (f) => {
+        const key = ch + '|' + f.pls;
+        let c = plsCache[key];
+        if (!c || Date.now() - c.at > (c.urls.length ? PLS_TTL : PLS_FAIL_TTL)) {
+            let urls = [];
+            for (const base of ['https://somafm.com/', 'https://api.somafm.com/']) {
+                const r = await rkGet(base + ch + f.pls + '.pls', { ms: 6000, text: true });
+                if (r.ok) urls = rkParsePls(r.text).filter((u) => SOMA_URL.test(u));
+                if (urls.length) break;
+            }
+            c = plsCache[key] = { at: Date.now(), urls };
+        }
+        return c.urls;
+    }));
+    let read = 0;
+    SOMA_FORMATS.forEach((f, i) => {
+        if (lists[i].length) { read++; lists[i].forEach(add); }
+        else SOMA_SERVERS.forEach((h) => add('https://' + h + '.somafm.com/' + ch + f.stream));
+    });
+    return { urls: out, from: read === SOMA_FORMATS.length ? 'playlists' : read ? 'playlists (' + read + ' of ' + SOMA_FORMATS.length + ')' : 'built-in servers' };
+};
+// A Radio Record station's addresses, from their station list: 96k, 64k and HLS (another host). Not in the list: the
+// addresses the app has, and the check says so.
+const RR_HOST = /^https:\/\/[a-z0-9.-]+\.hostingradio\.ru\//i;
+const rkRrUrls = async (p) => {
+    const out = [], add = (u) => { if (typeof u === 'string' && RR_HOST.test(u) && !out.includes(u)) out.push(u); };
+    const list = await rrList();
+    const re = new RegExp('/' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:32|64|96|128|320)\\.(?:aacp|mp3)$', 'i');
+    const o = list ? list.find((x) => ['stream_64', 'stream_128', 'stream_320'].some((k) => typeof x[k] === 'string' && re.test(x[k]))) : null;
+    if (o) {
+        // their AAC streams, highest first (the 96k, then 64k, then 32k some stations have), with HLS third
+        const kb = (u) => Number((/(\d+)\.(?:aacp|mp3)$/i.exec(u) || [])[1]) || 0;
+        const aac = [o.stream_320, o.stream_128, o.stream_64].filter((u, i, x) => typeof u === 'string' && RR_HOST.test(u) && x.indexOf(u) === i).sort((a, b) => kb(b) - kb(a));
+        add(aac[0]); add(aac[1]); add(o.stream_hls); aac.slice(2).forEach(add);
+    }
+    add('https://radiorecord.hostingradio.ru/' + p + '96.aacp');
+    add('https://radiorecord.hostingradio.ru/' + p + '64.aacp');
+    return { urls: out, from: o ? 'station list' : list ? 'not in their station list' : 'built-in addresses' };
+};
+const rkSrcOf = (st) => (st.soma ? 'SomaFM' : 'Radio Record');
+// One station: its addresses, then up to six of them played for a moment, three at a time, until one answers.
+const rkCheckStation = async (st) => {
+    let dir;
+    try { dir = st.soma ? await rkSomaUrls(st.soma) : await rkRrUrls(st.rr); }
+    catch (e) { dir = { urls: [], from: 'lookup failed (' + rkErrCode(e) + ')' }; }
+    const urls = dir.urls.slice(0, 8), tried = [];
+    for (let i = 0; i < Math.min(urls.length, PROBE_MAX); i += 3) {
+        const group = urls.slice(i, Math.min(i + 3, PROBE_MAX));
+        const rs = await Promise.all(group.map((u) => rkProbe(u).catch((e) => ({ ok: false, code: rkErrCode(e) }))));
+        rs.forEach((r, j) => tried.push({ u: S.rkStreamLabel(group[j]), code: r.ok ? 'ok' : String(r.code || 'failed') }));
+        const hit = rs.findIndex((r) => r.ok);
+        if (hit >= 0) return { ok: true, id: st.id, name: st.name, source: rkSrcOf(st), from: dir.from, url: group[hit], urls, tried, at: Date.now() };
+    }
+    return { ok: false, id: st.id, name: st.name, source: rkSrcOf(st), from: dir.from, url: '', urls, tried, at: Date.now() };
+};
+// what each address answered, short ("ice5 mp3: HTTP 404, ice2 mp3: timeout")
+const rkWhy = (r) => (r.tried || []).map((t) => t.u + ': ' + t.code).join(', ') + (r.from === 'not in their station list' ? '; it is not in Radio Record\'s station list now' : '') || r.from || 'no address';
+
+// Every station, eight at a time. global/radio keeps the result; admins hear what changed.
+const rkRadioSweep = async (appId) => {
+    const db = admin.firestore();
+    const ref = db.doc('artifacts/' + appId + '/global/radio');
+    const snap = await ref.get();
+    const prev = snap.exists ? (snap.data() || {}) : null;
+    const ps = (prev && prev.stations) || {};
+    const list = S.RK_RADIO_RAW, res = [];
+    for (let i = 0; i < list.length; i += 8) {
+        res.push(...await Promise.all(list.slice(i, i + 8).map((st) => rkCheckStation(st).catch((e) => ({ ok: false, id: st.id, name: st.name, source: rkSrcOf(st), from: 'check failed', url: '', urls: [], tried: [{ u: 'check', code: rkErrCode(e) }], at: Date.now() })))));
+    }
+    // A source with every station failing at once (5 or more of them) is the server's connection to it: those failures
+    // don't count toward OFF AIR, and the check says so.
+    const bySrc = {}, unreach = {};
+    res.forEach((r) => { (bySrc[r.source] = bySrc[r.source] || []).push(r); });
+    Object.keys(bySrc).forEach((src) => { if (bySrc[src].length >= 5 && bySrc[src].every((r) => !r.ok)) unreach[src] = rkWhy(bySrc[src][0]).slice(0, 160); });
+    const now = Date.now(), stations = {}, down = [], back = [];
+    res.forEach((r) => {
+        const p = ps[r.id] || {}, cut = !!unreach[r.source];
+        const fails = r.ok ? 0 : (Number(p.fails) || 0) + (cut ? 0 : 1);
+        const isDown = cut ? !!p.down : fails >= 2;
+        stations[r.id] = { ok: r.ok, url: r.url || '', urls: (r.urls || []).slice(0, 8), why: r.ok ? '' : ((cut ? 'the server couldn\'t reach ' + r.source + ': ' : '') + rkWhy(r)).slice(0, 300), fails, down: isDown, since: (p.since && p.ok === r.ok) ? p.since : now };
+        if (cut) return;
+        if (isDown && !p.down) down.push(r);
+        if (!isDown && p.down) back.push(r);
+    });
+    const checked = res.filter((r) => !unreach[r.source]), okN = checked.filter((r) => r.ok).length;
+    await ref.set({ at: now, ok: okN, total: checked.length, stations, unreach, v: '90.87.151.328' });
+    const names = (rs) => rs.map((r) => r.name).join(', ');
+    const lost = Object.keys(unreach), was = (prev && prev.unreach) || {};
+    const notes = [];
+    if (!prev) {
+        const off = checked.filter((r) => !r.ok);
+        const more = lost.length ? ' The server couldn\'t reach ' + lost.join(' or ') + ' at all (the next notice).' : '';
+        notes.push(!checked.length
+            ? { text: '📻 Rave Radio check: the server couldn\'t reach ' + lost.join(' or ') + ' at all (the next notice).', ref: '@radio' }
+            : off.length
+            ? { text: '📻 Rave Radio check: ' + okN + ' of ' + checked.length + ' stations are on air. Not answering: ' + off.map((r) => r.name + ' (' + r.source + ')').join(', ') + '.' + more + ' Every station is checked again each hour.', ref: '@radio:' + off[0].id }
+            : { text: '📻 Rave Radio check: all ' + checked.length + ' stations are on air.' + more + ' Every station is checked again each hour, and you\'ll hear if one goes off air.', ref: '@radio' });
+    }
+    lost.filter((src) => !was[src]).forEach((src) => notes.push({ text: '📻 Rave Radio check: the server couldn\'t reach any of ' + src + '\'s ' + bySrc[src].length + ' stations (' + unreach[src] + '). That\'s the server\'s connection to ' + src + ', not ' + bySrc[src].length + ' stations off air at once, so none is marked OFF AIR; phones connect on their own. It\'s checked again each hour.', ref: '@radio' }));
+    Object.keys(was).filter((src) => !unreach[src] && bySrc[src]).forEach((src) => notes.push({ text: '📻 Rave Radio check: the server reaches ' + src + ' again.', ref: '@radio' }));
+    if (down.length) {
+        const one = down.length === 1;
+        notes.push({ text: '📻 Rave Radio check: ' + (one ? down[0].name + ' is' : names(down) + ' are') + ' off air. ' + down[0].source + ' didn\'t play ' + down[0].name + ' at the last two checks (' + rkWhy(down[0]).slice(0, 160) + '). ' + (one ? 'Its button says OFF AIR until it\'s back.' : 'Their buttons say OFF AIR until they\'re back.'), ref: '@radio:' + down[0].id });
+    }
+    if (back.length) notes.push({ text: '📻 Rave Radio check: ' + names(back) + (back.length === 1 ? ' is' : ' are') + ' back on air.', ref: '@radio:' + back[0].id });
+    if (notes.length) {
+        const admins = await db.collection('artifacts/' + appId + '/users').where('isAdmin', '==', true).get();
+        for (const a of admins.docs) for (const n of notes) await db.collection('artifacts/' + appId + '/users/' + a.id + '/notifications').add({ type: 'radio', text: n.text, refId: n.ref, read: false, at: now });
+    }
+    return { ok: okN, total: checked.length, unreach: lost, down: down.map((r) => r.id), back: back.map((r) => r.id), notes: notes.length };
+};
+
+// 9 minutes to finish: with every source answering it takes well under one; with a source that hangs, each address waits its 7 s
+exports.radioSweep = onSchedule({ schedule: '40 * * * *', timeZone: 'Etc/UTC', timeoutSeconds: 540, memory: '256MiB' }, async () => {
+    for (const appId of RADIO_APP_IDS) {
+        try { console.log('radioSweep', appId, JSON.stringify(await rkRadioSweep(appId))); }
+        catch (e) { console.error('radioSweep', appId, e && e.message); }
+    }
+});
+
+// One station, for a phone that tried every address and got nothing. Signed-in ravers only (guests sign in anonymously).
+// A raver gets 20 checks in 10 minutes (a phone asks once per failed connect), and at most 5 copies of the function run at
+// once, so no one can run up the bill with it; a station's answer is reused for 2 minutes.
+let askLog = {};
+exports.radioCheck = onCall({ timeoutSeconds: 60, memory: '256MiB', maxInstances: 5 }, async (req) => {
+    if (!req || !req.auth) throw new HttpsError('unauthenticated', 'Sign in to check a station.');
+    const id = String((req.data && req.data.id) || '').slice(0, 40);
+    const st = S.RK_RADIO_RAW.find((r) => r.id === id);
+    if (!st) throw new HttpsError('invalid-argument', 'There is no station "' + id + '".');
+    const c = checkCache[id];
+    if (c && Date.now() - c.at < CHECK_TTL) return Object.assign({}, c.r, { cached: true });
+    const uid = String(req.auth.uid || ''), recent = (askLog[uid] || []).filter((t) => Date.now() - t < 10 * 60 * 1000);
+    if (recent.length >= 20) throw new HttpsError('resource-exhausted', 'That\'s a lot of station checks: try again in a few minutes.');
+    askLog[uid] = recent.concat(Date.now());
+    const r = await rkCheckStation(st);
+    // nothing played: whether the server reaches the source at all (its best-known station), so a raver isn't told a station
+    // is off air when it's the server that can't get through
+    const cid = !r.ok ? (RADIO_CANARY[r.source] || []).find((x) => x !== st.id) : null;
+    const cst = cid ? S.RK_RADIO_RAW.find((x) => x.id === cid) : null;
+    if (cst) { const c = await rkCheckStation(cst).catch(() => ({ ok: false })); r.reach = !!c.ok; r.canary = cst.name; }
+    checkCache[id] = { at: Date.now(), r };
+    return r;
+});
+
+// for the build's own test (node) only: never exported when deployed
+if (process.env.RK_STATS_TEST) exports._rkRadioTest = {
+    rkParsePls, rkSomaUrls, rkRrUrls, rkCheckStation, rkRadioSweep, rkGet, rkWhy, stationIds, loadNow,
+    setFetch: (f) => { rkFetch = f; },
+    reset: () => { plsCache = {}; checkCache = {}; askLog = {}; rrListCache = { at: 0, list: null, err: '' }; idCache = { at: 0, ids: null }; nowCache = { at: 0, data: null }; },
+};
 RADIOEOF
-echo "  functions/rk_radio.js written (script-owned)."
+echo "  functions/rk_radio.js written (script-owned): now-playing, and the station checks (radioSweep, radioCheck)."
 
 # V89.84.150.323: VOTE REMINDERS (Milli, at 323: "add auto notifications for votes a user hasn't voted on once every 12
 # hours. Add a setting to turn this off, or selection tool for user to choose between how many hours or days between
@@ -30119,8 +30585,9 @@ echo "  2. functions/ ownership is now explicit:"
 echo "       rk_push.js    SCRIPT-OWNED. Regenerated every build. Never edit."
 echo "       rk_votes.js   SCRIPT-OWNED (V89.84.150.323): vote reminders, every hour."
 echo "       rk_mod.js     SCRIPT-OWNED (V89.84.150.323): the blocked-word check on the server."
+echo "       rk_radio.js   SCRIPT-OWNED (V84.152, V90.87.151.328): Radio Record now-playing, and the station checks (every hour, and on a failed connect)."
 echo "       rk_stats.js   SCRIPT-OWNED (V90.85.150.325, 326): the stats engine (counts, achievements, VIP, daily limits, referrals, Business)."
-echo "       rk_shared.js  SCRIPT-OWNED (V90.85.150.325): made from src/rkShared.js, what the app and the server both apply."
+echo "       rk_shared.js  SCRIPT-OWNED (V90.85.150.325): made from src/rkShared.js, what the app and the server both apply (328: the radio stations too)."
 echo "       index.js      YOURS. Payment functions live here. Never overwritten."
 echo "       package.json  YOURS. Created only if absent, so deps survive."
 echo ""
@@ -30536,12 +31003,13 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  327 needs two steps by hand, in this order, once WEB says OK:"
+echo "  328 needs two steps by hand, in this order, once WEB says OK:"
 echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (326's server changes and 327's achievement go out together. If it stops at"
+echo "      (rk_radio.js: the hourly check of every station, and the check after a station won't connect;"
+echo "       rk_shared.js: the stations and Station Hopper. If it stops at"
 echo "       \"Error generating the service identity for pubsub.googleapis.com\", run the same command again)"
-echo "   2. firebase deploy --only firestore:rules, with 326's rules file (RK_VERIFY_327, section 4),"
-echo "      once the functions say Deploy complete! (327 doesn't change the rules)"
+echo "   2. firebase deploy --only firestore:rules, with 328's rules file (RK_VERIFY_328, section 4),"
+echo "      once the functions say Deploy complete! (the app reads the station check; Station Hopper's list)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
