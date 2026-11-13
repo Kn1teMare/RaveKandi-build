@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
-RK_MINOR=87
+RK_MINOR=88
 RK_PATCH=151
-RK_BUILD=328
+RK_BUILD=329
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -552,7 +552,7 @@ rm -f src/App.js
 # V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
 # functions step, so the two never disagree)
 cat << 'RKSHAREDEOF' > src/rkShared.js
-// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327; V90.87.151.328). Script-owned.
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327; V90.87.151.328; V90.88.151.329). Script-owned.
 // The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
 // module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
 // achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
@@ -787,6 +787,10 @@ const RK_ACH_DEFS = [
     { id: 'radio_3', name: 'Resident Listener', tier: 2, metric: 'radioMinutes', threshold: 3000, desc: "Listen to Rave Radio for 50 hours." },
     // V90.87.151.328: 328 checked every Rave Radio station; this one is for hearing a lot of them (radioStations, above)
     { id: 'hop_25', name: 'Station Hopper', tier: 2, metric: 'radioStations', threshold: 25, desc: "Tune into 25 different Rave Radio stations, a minute or more each." },
+    // V90.88.151.329: for 329's money on the server, where orders and reviews are written now. Each trims the seller
+    // commission (rkAchBonuses), with its own emblem and a marquee line.
+    { id: 'review_1', name: 'Honest Review', tier: 1, metric: 'reviewsLeft', threshold: 1, desc: "Review something you bought: open its listing and rate it." },
+    { id: 'delivered_5', name: 'Trusted Seller', tier: 2, metric: 'ordersDelivered', threshold: 5, desc: "5 buyers confirm the orders they paid you for arrived." },
     // Vibe Tribe — friends
     { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
     { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
@@ -1113,7 +1117,9 @@ const rkAchStats = (profile) => {
         // V90.86.150.326: a Business account opened (businessSince, set by the server)
         businessOpened: Number(profile?.businessSince) > 0 ? 1 : 0,
         // V90.87.151.328: different Rave Radio stations heard for a minute or more (Station Hopper)
-        radioStations: rkRadioHeardN(profile)
+        radioStations: rkRadioHeardN(profile),
+        // V90.88.151.329: reviews left on things bought, and orders buyers confirmed arrived (both written by the server)
+        reviewsLeft: profile?.reviewsLeft||0, ordersDelivered: profile?.ordersDelivered||0
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -1414,8 +1420,39 @@ const rkBizReqs = (p, email) => {
 const rkBizReady = (p, email) => rkBizReqs(p, email).every(r => r.ok);
 const rkBizOpen = (p, email) => !!(p && (p.isAdmin || Number(p.businessSince) > 0 || p.accountType === 'business')) || rkBizReady(p, email);
 
+// ---- V90.88.151.329: PAYING IN USDC (queue item 22: money on the server). The app shows these and the server
+// (functions/rk_money.js) charges them, so the two can't disagree: where the USDC goes, which USDC on each network, what VIP
+// costs, how long the app waits on a payment, and what a cart line costs at the quantity chosen. ----
+const RK_PAY = {
+    receiver: 'BUadX7d3Z7fVwvdQEd3C4vVA7toZpFeosEnueRiVb3mV',
+    mints: { 'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'devnet': '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' },
+    vipCents: { monthly: 499, lifetime: 2000 },
+    windowMin: 30,
+    maxLines: 25,
+};
+// V42.20 Phase 5 (moved from the cart): the unit price after the best bulk discount reached at this quantity
+const rkBulkUnitPrice = (item, qty) => {
+    const base = Number(item && item.price) || 0;
+    const tiers = (item && Array.isArray(item.bulkTiers) && item.bulkTiers.length) ? item.bulkTiers : ((Number(item && item.bulkDiscountQty) || 0) > 0 ? [{ qty: item.bulkDiscountQty, pct: item.bulkDiscountPct }] : []);
+    let pct = 0;
+    tiers.forEach(t => { const q = Number(t && t.qty) || 0, p = Number(t && t.pct) || 0; if (q > 0 && qty >= q && p > pct) pct = p; });
+    return base * (1 - Math.min(100, pct) / 100);
+};
+// what a cart line costs, in cents: the discounted unit price times the quantity, rounded once
+const rkLineCents = (item, qty) => Math.round(rkBulkUnitPrice(item, qty) * qty * 100);
+// how many of a listing can still be bought: its stock, or for one from before stock was kept, one until it has sold
+const rkStockLeft = (item) => (item && typeof item.stockQty === 'number') ? Math.max(0, item.stockQty) : ((Number(item && item.purchaseCount) || 0) > 0 ? 0 : 1);
+// THE ORDER STAGES (V65.08), moved here at 329: the server moves an order along and the app shows where it is. The seller
+// moves the first two; the buyer says it arrived, which completes it.
+const RK_ORDER_FLOW = {
+    paid_unfinished: { label: 'PAID — being made', next: 'paid_undelivered', by: 'seller' },
+    paid_undelivered: { label: 'PAID — undelivered', next: 'paid_shipped', by: 'seller' },
+    paid_shipped: { label: 'PAID — shipped', next: 'paid_completed', by: 'buyer' },
+    paid_completed: { label: 'PAID — completed', next: null, by: '' },
+};
+
 // ---- what the app imports (the functions copy ends with module.exports instead) ----
-export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkRadioHeardN, rkStreamLabel };
+export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkRadioHeardN, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW };
 RKSHAREDEOF
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -1426,7 +1463,7 @@ import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, 
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 // V90.85.150.325: what the app and the server both apply (achievements, rates, festival dates, link checks)
-import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkStreamLabel } from './rkShared';
+import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW } from './rkShared';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -1519,8 +1556,7 @@ const rkStartScreenshotDetect = async () => { if (!rkIsNative()) return null; tr
 const rkStopScreenshotDetect = async () => { if (!rkIsNative()) return null; try { const p = RaveSecureNative || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.RaveSecure); if (p && p.stopDetection) { await p.stopDetection(); } } catch (e) {} };
 // Subscribe to the native 'screenshot' / 'recording' events. Returns an unsubscribe fn.
 const rkOnScreenshot = (cb) => { if (!rkIsNative()) return () => {}; /* V65.11.01: MUST be a fn — messenger unmount calls it */ try { const p = RaveSecureNative || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.RaveSecure); if (p && p.addListener) { const h = p.addListener('screenshot', cb); return () => { try { h.then ? h.then(x => x.remove && x.remove()) : (h.remove && h.remove()); } catch (e) {} }; } } catch (e) {} return () => {}; };
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+// V90.88.151.329: no Stripe. The card forms were test mode (no money moved); the cart and VIP pay in USDC through the server.
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   AlertTriangle, Award, Bell, Volume1, Volume2, Bot, Box, Briefcase, Calendar, Camera, Check, CheckCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, 
@@ -1664,8 +1700,8 @@ const db = initializeFirestore(app, RK_FORCE_LONG_POLL
     : { experimentalAutoDetectLongPolling: true });
 const storage = getStorage(app);
 
-const stripePromise = loadStripe('pk_test_51TPtnt2MxetxkseOoF7LgE3ZvI8F7txTFexIp8h6gxm1YABwoR7ndJGZxxD3gj9cTEjCAi6zQbBpDnipZHVZxDQy00zbrmzqlU');
-const SOLANA_RECEIVER = 'BUadX7d3Z7fVwvdQEd3C4vVA7toZpFeosEnueRiVb3mV';
+// V90.88.151.329: the platform's wallet is in src/rkShared.js (RK_PAY), which the server charges to as well
+const SOLANA_RECEIVER = RK_PAY.receiver;
 EOF
 
 # Block 4
@@ -2298,9 +2334,9 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio, review_1: Star, delivered_5: Truck };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
-const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'},{id:'radio',label:'Rave Radio checks'}];
+const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'},{id:'radio',label:'Rave Radio checks'},{id:'order',label:'Orders & Payments'}];
 
 // V84.77.150.311: REFERRAL_TIERS and getReferralTier moved above ACHIEVEMENT_TIERS (the ranks need them).
 
@@ -4165,7 +4201,7 @@ export const pushNotif = async (toUid, type, text, refId = null) => {
 //   '<tribeId>#<focus>'        a Vibe Tribe vote, chat or card (type 'tribe')
 //   a plain id                 the item, thread or raver its type implies
 // Older notifications without one fall back to the closest screen for their type.
-const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'radio', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage', 'business', 'bizinfo'];
+const RK_NOTIF_PLACES = ['vip', 'wallet', 'portal', 'refdash', 'orders', 'orders:buying', 'orders:selling', 'vipgift', 'creatorapp', 'creatorhub', 'lab', 'diy', 'achievements', 'analytics', 'banner', 'messages', 'profile', 'market', 'radio', 'admin:tickets', 'admin:apps', 'admin:storage', 'admin:usage', 'business', 'bizinfo', 'admin:payments'];
 const rkNotifDest = (n) => {
     const t = String((n && n.type) || ''), ref = String((n && n.refId) || '');
     // V87.78.150.315: '@achievements:<id>' opens the Achievements window at that achievement.
@@ -4196,6 +4232,8 @@ const rkNotifDest = (n) => {
         case 'mod': return ref ? { to: 'item', id: ref } : { to: 'place', key: 'profile' };
         // V90.87.151.328: the station check (admins)
         case 'radio': return { to: 'place', key: 'radio' };
+        // V90.88.151.329: a payment or an order (functions/rk_money.js): '@orders:buying', '@orders:selling', '@vip' (above)
+        case 'order': return { to: 'place', key: 'orders' };
         default: return { to: 'none' };
     }
 };
@@ -4328,6 +4366,18 @@ const rkAct = async (op, data) => {
     catch (e) {
         const code = String((e && e.code) || '').replace('functions/', ''), m = String((e && e.message) || '');
         const msg = code === 'not-found' ? "This needs RaveKandi's 325 server update, which isn't live yet. Try again later."
+            : (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || !m || /^internal$/i.test(m)) ? "The server didn't answer. Check your connection and try again."
+            : m;
+        const err = new Error(msg); err.code = code; throw err;
+    }
+};
+// V90.88.151.329: THE SERVER'S MONEY ACTIONS (functions/rk_money.js, one callable: rkMoney): paying in USDC (start, check),
+// orders (stage, received) and reviews (review). Same messages as rkAct.
+const rkMoney = async (op, data) => {
+    try { const r = await httpsCallable(getFunctions(app), 'rkMoney')(Object.assign({ op }, data || {})); return (r && r.data) || {}; }
+    catch (e) {
+        const code = String((e && e.code) || '').replace('functions/', ''), m = String((e && e.message) || '');
+        const msg = code === 'not-found' ? "This needs RaveKandi's 329 server update, which isn't live yet. Try again later."
             : (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || !m || /^internal$/i.test(m)) ? "The server didn't answer. Check your connection and try again."
             : m;
         const err = new Error(msg); err.code = code; throw err;
@@ -7483,28 +7533,18 @@ const BioModal = ({ user, currentBio, isOpen, onClose }) => {
     return ( <Modal isOpen={isOpen} onClose={onClose} title="Bio"><div className="relative"><Input type="textarea" value={b} onChange={v => v.length <= BIO_CHAR_LIMIT && setB(v)} maxLength={BIO_CHAR_LIMIT}/><p className="text-right text-[10px] opacity-50 mb-2">{b.length}/{BIO_CHAR_LIMIT}</p><div className="flex items-center gap-2"><Button onClick={sub} color="lime" className="flex-1">Save</Button><div className="relative"><HelpCircle size={20} className="text-white/50 cursor-pointer" onClick={() => setShowTooltip(!showTooltip)}/>{showTooltip && <div className="absolute bottom-full right-0 mb-2 w-48 bg-black border border-white/20 p-2 rounded text-[10px] z-50">Bio can be anything, but no malicious, racist, or hateful content. This is a PLUR platform.</div>}</div></div></div></Modal> );
 };
 
-const VIPCheckoutForm = ({ user, onClose }) => {
-    const stripe = useStripe();
-    const elements = useElements();
-    const [loading, setLoading] = useState(false);
+// V90.88.151.329: VIP IS PAID IN USDC, CHECKED BY THE SERVER (Milli, at 329: "USDC, server-verified"), the same way as the
+// cart (RkUsdcPay; functions/rk_money.js turns VIP on once the payment is found on the chain). Until 329 this was a card form
+// in test mode: no money moved. Monthly is 30 days and doesn't renew by itself; paying again adds 30 days to what's left.
+const RK_VIP_PRICE = (plan) => { const c = RK_PAY.vipCents[plan] || 0; return '$' + (c % 100 ? (c / 100).toFixed(2) : String(c / 100)); };
+const VIPCheckoutForm = ({ user, profile, onClose }) => {
     const [plan, setPlan] = useState('lifetime');
-
-    const handleVIPSuccess = async (e) => {
-        e.preventDefault();
-        if (!stripe || !elements) return;
-        if (!RK_CFG.checkoutEnabled) return alert(RK_CFG.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
-        if (RK_CFG.paymentsLive) return alert('Live payments are not wired into this build yet — keep "Payments LIVE" OFF in remote config until real billing ships.');
-        setLoading(true);
-        setTimeout(async () => {
-            try {
-                // V90.85.150.325: the server sets VIP (rk_stats.js, vipBuy); renewals still stack +30 days on the time left
-                const r = await rkAct('vipBuy', { plan });
-                const vipExpires = r.vipExpires || null;
-                alert(plan === 'monthly' ? "VIP Monthly active until " + new Date(vipExpires).toLocaleDateString() + "! Renewing later stacks +30 days." : "VIP Lifetime unlocked! Enjoy 6 Profile Pins, Themes, Banner Messages, Post Boosts & the Font Selector forever.");
-            } catch(err) { console.error(err); alert(err.message || 'VIP checkout failed. Try again.'); }
-            setLoading(false);
+    const [paying, setPaying] = useState(false);
+    const vipPaid = (r) => {
+        setTimeout(() => {
+            alert(plan === 'monthly' ? "VIP Monthly is on until " + new Date((r && r.vipExpires) || (Date.now() + 2592000000)).toLocaleDateString() + "! It doesn't renew by itself: pay again any time to add 30 more days." : "VIP Lifetime unlocked! Enjoy 6 Profile Pins, Themes, Banner Messages, Post Boosts & the Font Selector forever.");
             onClose();
-        }, 1500);
+        }, 300);
     };
 
     if (RK_CFG.launchPerks) return (
@@ -7520,8 +7560,9 @@ const VIPCheckoutForm = ({ user, onClose }) => {
             <Button type="button" onClick={onClose} color="gold" className="w-full">Awesome — Let's Rave!</Button>
         </div>
     );
+    if (paying) return <RkUsdcPay kind="vip" plan={plan} user={user} profile={profile} onPaid={vipPaid} onCancel={() => setPaying(false)}/>;
     return (
-        <form onSubmit={handleVIPSuccess} className="text-center space-y-4">
+        <div className="text-center space-y-4">
             <Crown size={48} className="mx-auto text-yellow-400 mb-2" />
             <div className="text-left bg-white/5 p-3 rounded border border-white/10 text-[11px] space-y-1">
                 <p className="font-bold text-yellow-400 uppercase text-[10px] tracking-widest mb-1">VIP unlocks:</p>
@@ -7536,33 +7577,28 @@ const VIPCheckoutForm = ({ user, onClose }) => {
             </div>
             <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setPlan('monthly')} className={`p-3 rounded-xl border-2 text-left ${plan === 'monthly' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
-                    <p className="font-black text-sm">$4.99<span className="text-[10px] font-normal opacity-60">/month</span></p>
-                    <p className="text-[10px] opacity-60 uppercase">Subscription</p>
+                    <p className="font-black text-sm">{RK_VIP_PRICE('monthly')}<span className="text-[10px] font-normal text-white"> / 30 days</span></p>
+                    <p className="text-[10px] text-white uppercase">Monthly</p>
                 </button>
                 <button type="button" onClick={() => setPlan('lifetime')} className={`p-3 rounded-xl border-2 text-left relative ${plan === 'lifetime' ? 'border-yellow-400 bg-yellow-500/10 shadow-[0_0_12px_rgba(250,204,21,0.4)]' : 'border-white/15 bg-white/5'}`}>
                     <span className="absolute -top-2 right-1 bg-lime-500 text-black text-[9px] font-black px-1 rounded uppercase">Best Value</span>
-                    <p className="font-black text-sm">$20<span className="text-[10px] font-normal opacity-60"> once</span></p>
-                    <p className="text-[10px] opacity-60 uppercase">Lifetime</p>
+                    <p className="font-black text-sm">{RK_VIP_PRICE('lifetime')}<span className="text-[10px] font-normal text-white"> once</span></p>
+                    <p className="text-[10px] text-white uppercase">Lifetime</p>
                 </button>
             </div>
-            <div className="bg-white/10 p-3 rounded border border-white/20 text-left">
-                <CardElement options={{style:{base:{color:'#fff'}}}}/>
-            </div>
-            <Button type="submit" disabled={!stripe || loading} color="gold" className="w-full">
-                {loading ? "Processing..." : plan === 'monthly' ? "Subscribe — $4.99/month" : "Pay $20 — Lifetime Access"}
+            <Button onClick={() => { if (!RK_CFG.checkoutEnabled) return alert(RK_CFG.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!'); setPaying(true); }} color="gold" className="w-full">
+                {plan === 'monthly' ? "Pay " + RK_VIP_PRICE('monthly') + " USDC — 30 days" : "Pay " + RK_VIP_PRICE('lifetime') + " USDC — Lifetime Access"}
             </Button>
-            <p className="text-[10px] opacity-40">Payments are in TEST MODE during Alpha — no real charge occurs.</p>
-        </form>
+            <p className="text-xs text-white">Paid in USDC on Solana. The server checks the payment on the chain before VIP turns on. Monthly doesn't renew by itself: pay again to add 30 days.</p>
+        </div>
     );
 };
 
-const VIPCheckoutModal = ({ user, isOpen, onClose }) => {
+const VIPCheckoutModal = ({ user, profile, isOpen, onClose }) => {
     if(!isOpen) return null;
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Unlock VIP Ecosystem">
-            <Elements stripe={stripePromise}>
-                <VIPCheckoutForm user={user} onClose={onClose} />
-            </Elements>
+            <VIPCheckoutForm user={user} profile={profile} onClose={onClose} />
         </Modal>
     );
 };
@@ -9967,6 +10003,33 @@ function rkEmShop() {
   return { g: g, e: e, h: N };
 }
 
+// V90.88.151.329: Honest Review: a speech bubble holding a gold star, with the five stars of a rating along its foot
+function rkEmReview() {
+  var N = '#ffd24a', p = rkEmPal(N), E = rkEmE, e = [], i, mini = '';
+  var g = { a: rkEmLin([p.l, p.m, N]), s: rkEmLin(['#fff6d6', '#ffc93c']) };
+  var B = rkEmBub(50, 40, 38, 29, 212, 13, 13);
+  e.push(E(B, 0, 0, 5, 1, 'o'), E(B, 'a', N, 2.4, 1, 'b'));
+  var S = rkEmRound(rkEmStarPts(50, 40, 18, 7.6, 5, 0), 1.2);
+  e.push(E(S, 0, 0, 4, 1, 'o'), E(S, 's', '#ffffff', 1.6, 1, 'b'));
+  for (i = 0; i < 5; i++) mini += rkEmPath(rkEmStarPts(40 + i * 11, 88, 4.6, 2, 5, 0));
+  e.push(E(mini, '#ff6ec7', '#ffffff', 0.6, 1, 'd'));
+  e.push(E(rkEmSpark(86, 12, 5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+// V90.88.151.329: Trusted Seller: a parcel drawn as an isometric box with its tape, and a check where buyers confirmed it arrived
+function rkEmParcel() {
+  var N = '#5ef0a8', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([p.m, N, p.d]), c: rkEmLin(['#fff3c4', '#ffc93c']) };
+  var top = rkEmRound([[50, 12], [86, 29], [50, 46], [14, 29]], 3), lf = rkEmRound([[14, 29], [50, 46], [50, 90], [14, 73]], 3), rt = rkEmRound([[50, 46], [86, 29], [86, 73], [50, 90]], 3);
+  e.push(E(top + lf + rt, 0, 0, 5, 1, 'o'));
+  e.push(E(lf, 'a', N, 2, 1, 'b'), E(rt, 'b', N, 2, 1, 'b'), E(top, '#ffffff', N, 2, 0.95, 'b'));
+  e.push(E(rkEmPath([[32, 20.5], [68, 37.5], [68, 54]], 1), 0, 'c', 4.2, 1, 'd'));
+  var C = rkEmCirc(73, 75, 15);
+  e.push(E(C, 0, 0, 5, 1, 'o'), E(C, '#0a0014', N, 2.2, 1, 'k'), E('M65.5 75.5l5 5 9.5-10.5', 0, '#ffffff', 3.4, 1, 'd'));
+  e.push(E(rkEmSpark(18, 12, 4.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -9994,7 +10057,8 @@ function rkEmSpec() {
     ['vote_5', rkEmBallot, 1, 2], ['vote_50', rkEmBallot, 2, 3], ['fest_1', rkEmFest, 1, 2], ['fest_5', rkEmFest, 2, 3],
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
-    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2], ['hop_25', rkEmRadio, 4, 2]], t = {};
+    ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2], ['hop_25', rkEmRadio, 4, 2],
+    ['review_1', rkEmReview, 1, 2], ['delivered_5', rkEmParcel, 1, 3]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -10574,6 +10638,32 @@ const PayoutQueuePanel = () => {
     );
 };
 
+// V90.88.151.329: PAYMENTS TO CHECK. What the server flagged for a person (functions/rk_money.js): oversold (two buyers paid
+// for the last one), overpaid, underpaid a day on, or VIP that was already permanent. Each needs a refund from the platform
+// wallet, to the wallet that paid (payer, which the server read from the transaction), or a restock. The admin notices for
+// them open this list. Read-only: the refund is sent in Phantom.
+const PaymentsCheckPanel = () => {
+    const [rows, setRows] = useState([]);
+    useEffect(() => {
+        const qy = query(collection(db, 'artifacts', appId, 'payments'), where('flagged', '==', true), limit(50));
+        const unsub = onSnapshot(qy, s => setRows(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))), e => console.log('payments to check', e));
+        return () => unsub();
+    }, []);
+    if (!rows.length) return <p className="text-xs text-white mb-4">Nothing to check. Payments the server flags (oversold, overpaid, underpaid a day on, VIP already permanent) show here, newest first.</p>;
+    return (
+        <div className="space-y-2 mb-4" data-admin-payments="1">
+            {rows.map(p => (
+                <div key={p.id} className="bg-white/5 border border-amber-500/40 rounded p-2">
+                    <p className="text-xs font-black text-amber-200">⚠️ {p.flagNote || 'to check'} · ${(Number(p.totalCents || 0) / 100).toFixed(2)} {p.kind === 'vip' ? 'VIP ' + (p.plan === 'monthly' ? 'Monthly' : 'Lifetime') : 'order'}</p>
+                    <p className="text-xs text-white">@{p.buyerName || 'raver'} · {new Date(p.createdAt || 0).toLocaleString()} · arrived ${(Number(p.receivedMicro || 0) / 1e6).toFixed(2)} · {p.status}{p.cluster === 'devnet' ? ' · devnet' : ''}</p>
+                    {p.payer ? <p className="text-xs font-mono text-cyan-200 break-all select-all mt-1">👛 refund to {p.payer}</p> : null}
+                    <p className="text-xs font-mono text-white break-all">payment {p.id}{p.txSig ? ' · tx ' + p.txSig : ''}</p>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 // ---- RevShare Ledger Panel — the zero-loss money view -----------------------------------------
 // Reads ONLY the immutable revLedger (written atomically with each sale). Accrued = every entry;
 // Paid = entries an admin marked paid; Unpaid = the difference, pulsing until collected.
@@ -10899,7 +10989,7 @@ const PingBar = ({ show }) => {
     );
 };
 
-const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, labcap: Sparkles, creator: Hammer, radio: Radio };
+const NOTIF_ICONS = { message: Mail, friendreq: UserPlus, comment: MessageSquare, like: Heart, cart: ShoppingCart, sold: DollarSign, diy: Hammer, queue: Briefcase, achievement: Award, referral: Users, ticket: HelpCircle, admin: Shield, tribe: Users, trade: RefreshCw, offer: MessageSquare, ailab: Sparkles, labcap: Sparkles, creator: Hammer, radio: Radio, order: Package };
 
 const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initialTarget, onConsumeTarget, onNotifNav, onViewProfile }) => {
     const [msgFontOpen, setMsgFontOpen] = useState(false);
@@ -12388,99 +12478,102 @@ EOF
 
 # Block 10
 cat << 'EOF' >> src/App.js
-const StripeCheckoutForm = ({ total, onComplete, onCancel }) => {
-    const stripe = useStripe();
-    const elements = useElements();
-    const [loading, setLoading] = useState(false);
-    const handlePay = async (e) => {
-        e.preventDefault();
-        if (!stripe || !elements) return;
-        setLoading(true);
-        setTimeout(() => {
-            alert("Payment Processed Successfully (Test Mode)");
-            setLoading(false);
-            onComplete();
-        }, 2000);
-    };
-    return (
-        <form onSubmit={handlePay} className="space-y-4">
-            <div className="bg-white/10 p-3 rounded border border-white/20"><CardElement options={{style:{base:{color:'#fff'}}}}/></div>
-            <Button type="submit" disabled={!stripe || loading} color="lime" className="w-full">{loading ? "Processing..." : `Pay $${total.toFixed(2)}`}</Button>
-            <Button onClick={onCancel} color="accent" className="w-full">Cancel</Button>
-        </form>
-    );
-};
-
-const CryptoCheckoutForm = ({ total, onComplete, onCancel, user, profile }) => {
-    const cluster = rkCluster();
-    const mint = RK_USDC_MINTS[cluster];
-    const amount = (Math.round(total * 100) / 100).toFixed(2);
-    const [reference] = useState(() => rkNewReference());
-    const [status, setStatus] = useState('awaiting'); // awaiting | checking | paid | timeout
-    const [lastCheck, setLastCheck] = useState('');
-    const doneRef = useRef(false);
-    // V84.78.150.312: PHANTOM'S "INVALID LINK — CONTAINS A TOKEN THAT YOU DON'T OWN OR CAN'T IDENTIFY".
-    // The payment link is valid Solana Pay. Phantom shows that error when the wallet paying has no
-    // USDC on the network the link asks for: no USDC at all (SOL is not enough), or a network
-    // mismatch (the app on Devnet with Phantom on Mainnet, or the reverse). Before the raver taps
-    // Pay, read the saved wallet's USDC balance on this network and say plainly which case it is.
+// ================================================================================================
+// V90.88.151.329: PAYING IN USDC, CHECKED BY THE SERVER (queue item 22: money on the server; Milli's choice for VIP at 329,
+// "USDC, server-verified"). The server prices what is being paid for (the cart from the listings as they are now, or the
+// VIP plan), gives the Solana Pay link with a fresh reference key, and is the one that looks the payment up on the chain and
+// writes the order, the sale or VIP (functions/rk_money.js). This window shows the link and asks the server every 5 seconds
+// while it waits. Nothing here writes an order, a sale, a ledger entry or VIP. The cart and VIP both use it.
+// Until 329 the cart verified the payment in the buyer's app and then wrote everything itself, and VIP was a card form in
+// test mode (StripeCheckoutForm, CryptoCheckoutForm: both gone).
+// ================================================================================================
+const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCancel }) => {
+    const [pay, setPay] = useState(null);           // the server's payment: amount, link, reference, window
+    const [err, setErr] = useState('');
+    const [state, setState] = useState('starting'); // starting | awaiting | checking | paid | late | closed | error
+    const [note, setNote] = useState('');
     const [walletCheck, setWalletCheck] = useState({ state: 'checking' });
+    const payRef = useRef(null), doneRef = useRef(false), busyRef = useRef(false);
+    const expect0 = useRef(expectUsd);              // the cart's total when Pay was tapped
+    const linesRef = useRef(lines);
+    const start = async () => {
+        setErr(''); setState('starting');
+        try {
+            const r = await rkMoney('start', kind === 'vip' ? { kind: 'vip', plan } : { kind: 'cart', lines: linesRef.current || [] });
+            payRef.current = r; setPay(r);
+            if (r.status === 'paid') { doneRef.current = true; setState('paid'); onPaid && onPaid(r); }
+            else setState('awaiting');
+        } catch (e) { setErr(e.message || 'Couldn’t start the payment.'); setState('error'); }
+    };
+    useEffect(() => { start(); }, []);
+    const check = async (byHand) => {
+        const p = payRef.current;
+        if (!p || doneRef.current || busyRef.current) return;
+        busyRef.current = true;
+        if (byHand) setState('checking');
+        try {
+            const r = await rkMoney('check', { payId: p.payId });
+            payRef.current = Object.assign({}, p, r); setPay(payRef.current);
+            if (r.status === 'paid') { doneRef.current = true; setNote(''); setState('paid'); onPaid && onPaid(r); }
+            else if (r.status === 'underpaid' || r.status === 'expired') { doneRef.current = true; setState('closed'); }
+            else {
+                setNote(r.note || (r.receivedUsd > 0 ? 'Found $' + Number(r.receivedUsd).toFixed(2) + ' of $' + r.amount + '. Send the rest with the same QR: it adds up.' : (byHand ? 'Nothing on the chain yet. Checked ' + new Date().toLocaleTimeString() + '.' : '')));
+                setState(Date.now() > (r.expiresAt || 0) ? 'late' : 'awaiting');
+            }
+        } catch (e) { setNote(e.message || 'Couldn’t reach the server. Trying again.'); if (byHand) setState('awaiting'); }
+        busyRef.current = false;
+    };
+    // every 5 seconds while this is open, for the payment's window (30 minutes); the server keeps looking for a day after
     useEffect(() => {
+        const iv = setInterval(() => {
+            const p = payRef.current;
+            if (doneRef.current) { clearInterval(iv); return; }
+            if (!p) return;
+            if (Date.now() > (p.expiresAt || 0) + 60000) { clearInterval(iv); setState('late'); return; }
+            check(false);
+        }, 5000);
+        return () => clearInterval(iv);
+    }, []);
+    // V84.78.150.312: Phantom says "invalid link — contains a token that you don't own" when the paying wallet has no USDC on
+    // the link's network. Before the raver taps Pay, read the saved wallet's USDC on this network and say which case it is.
+    useEffect(() => {
+        if (!pay || !pay.mint) return;
         let alive = true;
         (async () => {
             try {
                 const addr = profile?.walletEnc ? await rkDecWallet(user?.uid, profile.walletEnc) : null;
                 if (!addr) { if (alive) setWalletCheck({ state: 'nowallet' }); return; }
-                const r = await rkRpc('getTokenAccountsByOwner', [addr, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }], cluster);
+                const r = await rkRpc('getTokenAccountsByOwner', [addr, { mint: pay.mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }], pay.cluster);
                 const accts = (r && r.value) || [];
                 const bal = accts.reduce((sum, x) => sum + (Number(x?.account?.data?.parsed?.info?.tokenAmount?.uiAmount) || 0), 0);
-                if (alive) setWalletCheck({ state: accts.length === 0 ? 'none' : bal + 1e-9 >= Number(amount) ? 'ok' : 'low', bal, addr });
+                if (alive) setWalletCheck({ state: accts.length === 0 ? 'none' : bal + 1e-9 >= Number(pay.amount) ? 'ok' : 'low', bal, addr });
             } catch (e) { if (alive) setWalletCheck({ state: 'error' }); }
         })();
         return () => { alive = false; };
-    }, []);
-    const solUri = 'solana:' + SOLANA_RECEIVER + '?amount=' + amount + '&spl-token=' + mint + '&reference=' + reference + '&label=' + encodeURIComponent('RaveKandi') + '&message=' + encodeURIComponent('RaveKandi Order ' + reference.slice(0, 8));
-    // Audit intent — written before payment, stamped after. Best-effort; verification is on-chain.
-    useEffect(() => {
-        if (!user?.uid) return;
-        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cryptoIntents', reference), { buyerUid: user.uid, expectedUsd: Number(amount), receiver: SOLANA_RECEIVER, cluster, status: 'awaiting', createdAt: Date.now() }).catch(() => {});
-    }, []);
-    const verifyOnce = async () => {
-        if (doneRef.current) return;
-        setStatus('checking');
-        try {
-            const v = await rkVerifyUsdcPayment({ reference, expectedUi: Number(amount), receiver: SOLANA_RECEIVER, cluster });
-            if (v.found && v.ok) {
-                doneRef.current = true;
-                setStatus('paid');
-                try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cryptoIntents', reference), { status: 'paid', txSig: v.sig, paidUsd: v.delta, paidAt: Date.now() }, { merge: true }); } catch (e) {}
-                onComplete({ method: 'crypto', txSig: v.sig });
-                return;
-            }
-            if (v.found && !v.ok) setLastCheck('Payment found but for $' + (v.delta || 0).toFixed(2) + ' — expected $' + amount + '. If you underpaid, send the difference with the SAME QR.');
-            else setLastCheck('No payment on-chain yet — checked ' + new Date().toLocaleTimeString());
-        } catch (e) { setLastCheck('Network check failed — will retry.'); }
-        if (!doneRef.current) setStatus('awaiting');
-    };
-    // Auto-poll every 6s for up to 5 minutes.
-    useEffect(() => {
-        let tries = 0;
-        const iv = setInterval(() => {
-            if (doneRef.current || tries >= 50) { clearInterval(iv); if (!doneRef.current && tries >= 50) setStatus('timeout'); return; }
-            tries += 1; verifyOnce();
-        }, 6000);
-        return () => clearInterval(iv);
-    }, []);
-    const cancel = () => { try { if (!doneRef.current) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cryptoIntents', reference), { status: 'abandoned' }, { merge: true }); } catch (e) {} onCancel(); };
-    return (
+    }, [pay?.payId]);
+
+    if (state === 'starting' && !pay) return <div className="text-center py-6"><p className="text-sm text-white">Getting your payment ready…</p></div>;
+    if (state === 'error') return (
         <div className="space-y-3 text-center">
+            <p className="text-sm text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-3 text-left" data-pay-error="1">{err}</p>
+            <Button onClick={onCancel} color="accent" className="w-full">Back</Button>
+        </div>
+    );
+    const cluster = pay.cluster === 'devnet' ? 'devnet' : 'mainnet-beta';
+    const amount = pay.amount;
+    const changed = kind === 'cart' && Number.isFinite(Number(expect0.current)) && Math.abs(Number(expect0.current) - Number(pay.totalUsd)) >= 0.01;
+    const what = kind === 'vip' ? (plan === 'monthly' ? 'VIP Monthly: 30 days' : 'VIP Lifetime')
+        : (pay.lines || []).slice(0, 3).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ') + ((pay.lines || []).length > 3 ? ' and ' + ((pay.lines || []).length - 3) + ' more' : '');
+    return (
+        <div className="space-y-3 text-center" data-pay-id={pay.payId}>
             {cluster === 'devnet' && <p className="text-[10px] font-black bg-yellow-500/20 border border-yellow-400/60 text-yellow-200 rounded p-1.5">🧪 DEVNET TEST MODE — fake funds. Phantom must be in Testnet Mode.</p>}
-            <p className="text-2xl font-black text-lime-300">${amount} <span className="text-sm text-white">USDC</span></p>
-            <p className="text-xs text-white -mt-2">USDC is a digital dollar — $1 = 1 USDC, no conversion math.</p>
+            <p className="text-2xl font-black text-lime-300" data-pay-amount="1">${amount} <span className="text-sm text-white">USDC</span></p>
+            <p className="text-xs text-white -mt-2 break-words">{what}</p>
+            {changed && <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2" data-pay-changed="1">The price changed since this was in your cart: ${amount} now, from the seller's listing as it is today.</p>}
+            <p className="text-xs text-white">USDC is a digital dollar — $1 = 1 USDC, no conversion math.</p>
             <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} className="w-full text-xs font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-500/40 rounded py-2 mb-1">💰 Crypto info — wallets, taxes &amp; how paying works</button>
             <div className="flex gap-1.5 mb-1">
                 <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} className="flex-1 text-xs font-bold text-lime-300 bg-lime-500/10 border border-lime-500/40 rounded py-2">👛 Add my wallet</button>
-                {false && <button className="flex-1 text-xs font-bold text-blue-300 bg-blue-500/10 border border-blue-500/40 rounded py-2">💳 Pay with card (Stripe)</button>}{/* V65.10: unhide when Stripe ships */}
             </div>
             {(() => {
                 const net = cluster === 'devnet' ? 'Solana Devnet (test)' : 'Solana Mainnet';
@@ -12492,27 +12585,28 @@ const CryptoCheckoutForm = ({ total, onComplete, onCancel, user, profile }) => {
                     <div className="space-y-1.5">
                         <p className="text-xs text-white">Network: <strong>{net}</strong>. Phantom must be on the same network.</p>
                         {w.state === 'checking' && box('bg-black/40 border-white/20 text-white', 'Checking the USDC in your saved wallet…')}
-                        {w.state === 'ok' && box('bg-lime-900/30 border-lime-400/60 text-lime-100', '✅ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this order.')}
-                        {w.state === 'low' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC. This order needs $' + amount + '. Add at least $' + need.toFixed(2) + ' of USDC in Phantom first (Buy → USDC).' + devnetTip)}
+                        {w.state === 'ok' && box('bg-lime-900/30 border-lime-400/60 text-lime-100', '✅ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this.')}
+                        {w.state === 'low' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC. This needs $' + amount + '. Add at least $' + need.toFixed(2) + ' of USDC in Phantom first (Buy → USDC).' + devnetTip)}
                         {w.state === 'none' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') has no USDC on ' + net + '. Phantom will refuse this payment with "invalid link: contains a token that you don\'t own". In Phantom tap Buy → USDC first; SOL alone is not enough.' + devnetTip)}
                         {(w.state === 'nowallet' || w.state === 'error') && box('bg-black/40 border-cyan-400/40 text-white', (w.state === 'error' ? 'Couldn\'t check your wallet just now. ' : '') + 'Pay from a Phantom wallet that holds USDC on ' + net + '; SOL alone is not enough. If Phantom says "invalid link: contains a token that you don\'t own", that wallet has no USDC yet. Buy USDC in Phantom first.' + devnetTip)}
                     </div>
                 );
             })()}
-            <div className="flex justify-center"><div className="bg-white p-2 rounded"><QRCodeCanvas value={solUri} size={168}/></div></div>
-            <a href={solUri} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }}>👛 Open in Phantom & Pay</a>
-            <p className="text-xs text-white">Scan with Phantom or tap the button. The exact amount, token (USDC), and order code are pre-filled — just confirm.</p>
-            <div className={'rounded-lg p-2 border text-[11px] font-bold ' + (status === 'paid' ? 'bg-lime-500/20 border-lime-400 text-lime-200' : status === 'timeout' ? 'bg-red-900/30 border-red-500/50 text-red-200' : 'bg-black/50 border-cyan-500/40 text-cyan-200')}>
-                {status === 'paid' ? '✅ Payment confirmed on-chain! Finishing your order…'
-                    : status === 'checking' ? '🔎 Checking the blockchain…'
-                    : status === 'timeout' ? 'Still no payment found. If you paid, tap "Check now" — the chain never forgets.'
-                    : '⏳ Waiting for your payment — this checks the blockchain automatically every few seconds.'}
-                {lastCheck && status !== 'paid' && <p className="text-[11px] font-normal mt-1">{lastCheck}</p>}
+            <div className="flex justify-center"><div className="bg-white p-2 rounded"><QRCodeCanvas value={pay.url} size={168}/></div></div>
+            <a href={pay.url} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }} data-pay-link="1">👛 Open in Phantom & Pay</a>
+            <p className="text-xs text-white">Scan with Phantom or tap the button. The exact amount, token (USDC), and payment code are pre-filled — just confirm.</p>
+            <div className={'rounded-lg p-2 border text-[11px] font-bold ' + (state === 'paid' ? 'bg-lime-500/20 border-lime-400 text-lime-200' : (state === 'late' || state === 'closed') ? 'bg-red-900/30 border-red-500/50 text-red-200' : 'bg-black/50 border-cyan-500/40 text-cyan-200')} data-pay-state={state}>
+                {state === 'paid' ? '✅ Paid and checked on the Solana chain! ' + (kind === 'vip' ? 'VIP is on.' : 'Your order is made.')
+                    : state === 'checking' ? '🔎 The server is checking the chain…'
+                    : state === 'late' ? 'This payment’s window has closed. If you already sent USDC with this QR, it still counts: the server keeps checking for a day and tells you when it arrives.'
+                    : state === 'closed' ? (pay.status === 'underpaid' ? 'This payment closed short of the total, so nothing was made. Support will refund what arrived.' : 'This payment’s window closed. Start again to pay.')
+                    : '⏳ Waiting for your payment. The server checks the chain every few seconds.'}
+                {note && state !== 'paid' && <p className="text-[11px] font-normal mt-1">{note}</p>}
             </div>
-            {status !== 'paid' && <button onClick={verifyOnce} className="w-full text-[11px] font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 rounded-lg py-2">🔎 I've paid — check now</button>}
+            {state !== 'paid' && state !== 'closed' && <button onClick={() => check(true)} className="w-full text-[11px] font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 rounded-lg py-2">🔎 I've paid — check now</button>}
             <p className="text-xs text-white">{RK_FEE_NOTE}</p>
             <p className="text-xs text-yellow-300 font-bold">{RK_TAX_NOTE}</p>
-            {status !== 'paid' && <Button onClick={cancel} color="accent" className="w-full">Back</Button>}
+            {state !== 'paid' && <Button onClick={onCancel} color="accent" className="w-full">Back</Button>}
         </div>
     );
 };
@@ -12521,15 +12615,14 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
     const [cartItems, setCartItems] = useState([]);
     const [selectedIds, setSelectedIds] = useState([]);
     const [qtyMap, setQtyMap] = useState({}); // cart-doc id -> chosen quantity
-    // V42.20 Phase 5: effective unit price after bulk-tier discount for a given qty.
-    const bulkUnitPrice = (item, qty) => {
-        const base = item.price || 0;
-        const tiers = (item.bulkTiers && item.bulkTiers.length) ? item.bulkTiers : (item.bulkDiscountQty > 0 ? [{ qty: item.bulkDiscountQty, pct: item.bulkDiscountPct }] : []);
-        let pct = 0;
-        tiers.forEach(t => { if (qty >= t.qty && t.pct > pct) pct = t.pct; });
-        return base * (1 - pct / 100);
-    };
-    const maxStock = (item) => (item.stockQty !== undefined && item.stockQty !== null) ? Math.max(1, item.stockQty) : 99;
+    // V90.88.151.329: each cart line's listing as it is now, which is what the server prices and checks the stock of, so the
+    // cart shows the same. The feed's copy (`items`) is the fallback while one loads; until 329 it was the only one, so a
+    // listing the feed hadn't loaded showed as REMOVED, and a price changed since adding it showed the old price.
+    const [liveMap, setLiveMap] = useState({});
+    const liveKey = cartItems.map(c => c.originalId || '').join(',');
+    // V42.20 Phase 5: the bulk discount. V90.88.151.329: the server's own prices (rkBulkUnitPrice, rkLineCents in
+    // src/rkShared.js), and the stock it checks (rkStockLeft: a listing from before stock was kept is one, not 99).
+    const maxStock = (item) => Math.max(1, rkStockLeft(item));
     const getQty = (item) => Math.min(qtyMap[item.id] || 1, maxStock(item));
     const [checkoutMode, setCheckoutMode] = useState('cart');
     
@@ -12538,17 +12631,23 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
         const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'cart'));
         return onSnapshot(q, s => setCartItems(s.docs.map(d => ({...d.data(), id: d.id}))));
     }, [isOpen, user]);
+    useEffect(() => {
+        if (!isOpen) return;
+        const ids = [...new Set(cartItems.map(c => c.originalId).filter(Boolean))].slice(0, 40);
+        const unsubs = ids.map(id => onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', id), s => setLiveMap(m => ({ ...m, [id]: s.exists() ? { ...s.data(), id: s.id } : null })), () => {}));
+        return () => unsubs.forEach(u => { try { u(); } catch (e) {} });
+    }, [isOpen, liveKey]);
+    const liveOf = (entry) => (entry.originalId in liveMap) ? liveMap[entry.originalId] : (items || []).find(i => i.id === entry.originalId);
 
-    // V37.10: live availability — cross-reference each cart entry against the live tradeItems feed
+    // V37.10: live availability — cross-reference each cart entry against the live listing
     const getStatus = (entry) => {
-        const live = (items || []).find(i => i.id === entry.originalId);
+        const live = liveOf(entry);
         if (!live || live.status === 'dismissed' || live.removed) return 'cancelled';
         if (live.buyers?.includes(user?.uid)) return 'purchased';
-        const stockDefined = live.stockQty !== undefined && live.stockQty !== null;
-        if (stockDefined ? live.stockQty <= 0 : (live.purchaseCount || 0) > 0) return 'sold';
+        if (live.isHidden || rkStockLeft(live) <= 0) return 'sold';
         return 'available';
     };
-    const enriched = cartItems.map(c => ({ ...c, liveStatus: getStatus(c) }));
+    const enriched = cartItems.map(c => { const live = liveOf(c); return { ...c, ...(live ? { name: live.name || c.name, price: live.price, bulkTiers: live.bulkTiers || [], bulkDiscountQty: live.bulkDiscountQty || 0, bulkDiscountPct: live.bulkDiscountPct || 0, stockQty: live.stockQty, purchaseCount: live.purchaseCount || 0 } : {}), liveStatus: getStatus(c) }; });
     const STATUS_LABELS = { sold: 'UNAVAILABLE FOR PURCHASE: SOLD', cancelled: 'UNAVAILABLE FOR PURCHASE: REMOVED', purchased: 'ALREADY PURCHASED' };
     // V84.78.150.312: every available item in the cart is CHECKED for purchase unless the raver
     // unchecked it (Milli, at 312). Unchecking saves `held: true` on that cart entry, so a held item
@@ -12557,7 +12656,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
     // "Checkout (n)" count either.
     useEffect(() => {
         setSelectedIds(enriched.filter(c => c.liveStatus === 'available' && !c.held).map(c => c.id));
-    }, [cartItems, items]);
+    }, [cartItems, items, liveMap]);
     
     const handleRemove = async (id) => { await deleteDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, id)); setSelectedIds(prev => prev.filter(sid => sid !== id)); };
     const bulkRemove = async (filterKey, label) => {
@@ -12576,7 +12675,7 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
         // V84.78.150.312: the hold lives on the cart entry, so it survives closing the app.
         updateDoc(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, entry.id), { held: on }).catch(e => rkReport('cart hold', e));
     };
-    const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => { const q = getQty(item); return sum + bulkUnitPrice(item, q) * q; }, 0);
+    const totalCost = enriched.filter(item => selectedIds.includes(item.id) && item.liveStatus === 'available').reduce((sum, item) => sum + rkLineCents(item, getQty(item)), 0) / 100;
     
     const startCheckout = () => {
         const blocked = enriched.filter(c => selectedIds.includes(c.id) && c.liveStatus !== 'available');
@@ -12588,94 +12687,19 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
         setCheckoutMode('select');
     };
 
-    const handleSuccess = async (payInfo) => {
-        const pay = (payInfo && payInfo.method) ? payInfo : { method: 'record', txSig: '' };
-        if (pay.method !== 'crypto' && !RK_CFG.checkoutEnabled) return alert(RK_CFG.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
-        if (pay.method !== 'crypto' && RK_CFG.cryptoPayLive && !RK_CFG.paymentsLive) return alert('Crypto payments are live — please use 💜 Pay with Crypto. Card payments arrive later.');
-        if (pay.method === 'record' && !profile?.walletReady && !window.__rkWalletNudged && onNeedWallet) { onNeedWallet(); return; }
-        if (RK_CFG.paymentsLive) return alert('Live payments are not wired into this build yet — the admin team should keep "Payments LIVE" OFF in remote config until real billing ships.');
-        try {
-            const batch = writeBatch(db);
-            let total = 0;
-            const buyerRef = doc(db, 'artifacts', appId, 'users', user.uid);
-            const buyerSnap = await getDoc(buyerRef);
-            const referrerUid = buyerSnap.data()?.referredBy;
-            const toBuy = enriched.filter(i => selectedIds.includes(i.id) && i.liveStatus === 'available');
-            const round2 = (n) => Math.round(n * 100) / 100;
-            const sellerOwed = {};      // sellerUid -> { amount, count }
-            let netProfit = 0;          // platform commission minus referrer rev-share
-
-            for (const item of toBuy) {
-                total += item.price;
-                const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.originalId);
-                batch.update(itemRef, { purchaseCount: increment(1), stockQty: increment(-1), buyers: arrayUnion(user.uid) });
-                const sellerRef = doc(db, 'artifacts', appId, 'users', item.ownerId);
-                batch.update(sellerRef, { itemsSold: increment(1), totalSalesValue: increment(item.price) });
-                // V65.08: order record — the status pipeline lives here (paid_unfinished →
-                // paid_undelivered → paid_shipped → paid_completed). Payment method is noted, and
-                // completion later requires the seller's wallet + the ledger entries to verify.
-                const orderRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'));
-                batch.set(orderRef, { itemId: item.originalId, itemName: item.name || 'Item', itemImage: item.mediaUrls?.[0]?.url || item.imageUrl || item.image || '', buyerId: user.uid, buyerName: profile?.displayName || 'Raver', sellerId: item.ownerId, sellerName: item.ownerName || 'Raver', amountUsd: Math.round((item.price || 0) * 100) / 100, payMethod: pay.method === 'crypto' ? 'crypto' : 'card', txSig: pay.txSig || '', status: 'paid_unfinished', trackingNumber: '', createdAt: Date.now(), updatedAt: Date.now(), walletVerified: false, ledgerVerified: false });
-
-                const sellerSnap = await getDoc(sellerRef);
-                // V84.77.150.311: the seller's achievement trim is applied here, capped at 5%. It was
-                // promised from V65.19 on and never charged (queue item 22).
-                const sellerRate = rkSellerRate(sellerSnap.data() || {});
-                const appCommission = item.price * sellerRate;
-                netProfit += appCommission;
-                const g = sellerOwed[item.ownerId] = sellerOwed[item.ownerId] || { amount: 0, count: 0 };
-                g.amount += (item.price - appCommission); g.count += 1;
-
-                if (referrerUid) {
-                    const refRef = doc(db, 'artifacts', appId, 'users', referrerUid);
-                    const refSnap = await getDoc(refRef);
-                    if (refSnap.exists()) {
-                        const refData = refSnap.data();
-                        // V84.77.150.311: the rank rate (or custom rate) plus the referrer's achievement add.
-                        const pct = rkRefSharePct(refData);
-                        const achPct = Math.round((pct - rkRefBasePct(refData)) * 100) / 100;
-                        const revShare = appCommission * (pct / 100);
-                        netProfit -= revShare;
-                        batch.update(refRef, { totalRevShareEarned: increment(revShare) });
-                        const refListRef = doc(db, 'artifacts', appId, 'users', referrerUid, 'myReferrals', user.uid);
-                        batch.set(refListRef, { earnedFromThisUser: increment(revShare) }, { merge: true });
-                        // Immutable ledger entry — committed atomically WITH the sale (zero-loss by design).
-                        const ledgerRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'revLedger'));
-                        batch.set(ledgerRef, { entryType: 'referral', refUid: referrerUid, fromUid: user.uid, fromName: profile?.displayName || 'Raver', saleId: item.id, itemName: item.name || '', amountUsd: round2(revShare), pct, achPct, status: 'accrued', createdAt: Date.now(), paidAt: null, txSig: pay.txSig || '', method: pay.method });
-                    }
-                }
-                batch.delete(doc(db, 'artifacts', appId, `users/${user.uid}/cart`, item.id));
-            }
-            // SELLER earnings — one immutable ledger entry per seller per order, same atomic batch.
-            Object.keys(sellerOwed).forEach(sUid => {
-                const g = sellerOwed[sUid];
-                if (round2(g.amount) <= 0) return;
-                const ledgerRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'revLedger'));
-                batch.set(ledgerRef, { entryType: 'seller', refUid: sUid, fromUid: user.uid, fromName: profile?.displayName || 'Raver', saleId: '', itemName: 'Sale of ' + g.count + ' item' + (g.count > 1 ? 's' : ''), amountUsd: round2(g.amount), pct: 0, status: 'accrued', createdAt: Date.now(), paidAt: null, txSig: pay.txSig || '', method: pay.method });
-            });
-            // PARTNER profit shares — each active partnership gets their % of this order's net profit.
-            if (netProfit > 0) {
-                try {
-                    const partSnap = await getDocs(query(collection(db, 'artifacts', appId, 'users'), where('partnerPct', '>', 0)));
-                    partSnap.forEach(p => {
-                        const ppct = Number(p.data().partnerPct) || 0;
-                        const share = round2(netProfit * (ppct / 100));
-                        if (share <= 0) return;
-                        const ledgerRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'revLedger'));
-                        batch.set(ledgerRef, { entryType: 'partner', refUid: p.id, fromUid: user.uid, fromName: profile?.displayName || 'Raver', saleId: '', itemName: 'Partnership share (' + ppct + '% of profit)', amountUsd: share, pct: ppct, status: 'accrued', createdAt: Date.now(), paidAt: null, txSig: pay.txSig || '', method: pay.method });
-                    });
-                } catch (e) { console.log('partner split', e); }
-            }
-            batch.update(buyerRef, { itemsBought: increment(toBuy.length), totalBoughtValue: increment(total) });
-            await batch.commit();
-            // V88.84.150.322: the platform's sales total for the marquee (the rules allow it only to go up)
-            try { setDoc(doc(db, 'artifacts', appId, 'global', 'stats'), { salesTotal: increment(round2(total)) }, { merge: true }).catch(e => rkReport('sales total', e)); } catch (e) {}
-            toBuy.forEach(it => { if (it.ownerId) pushNotif(it.ownerId, 'sold', '💰 "' + it.name + '" was purchased for $' + (it.price || 0).toFixed(2) + '!', it.originalId); });
-            alert("Order Processed Successfully!");
+    // V90.88.151.329: the order is the server's (functions/rk_money.js), written once the payment is found on the chain: an
+    // order per line with its quantity, the stock, the seller's, buyer's and referrer's figures, the RevShare ledger, the
+    // platform's sales total, and these cart lines go. Until 329 this function wrote all of that from the buyer's phone
+    // (queue item 22): it took one from stock and counted one sold whatever the quantity, at the price saved in the cart.
+    const payLines = enriched.filter(c => selectedIds.includes(c.id) && c.liveStatus === 'available').map(c => ({ cartId: c.id, qty: getQty(c) }));
+    const handlePaid = (r) => {
+        const n = ((r && r.orderIds) || []).length;
+        setTimeout(() => {
+            alert('✅ Paid and checked on the Solana chain! ' + (n > 1 ? 'Your ' + n + ' orders are' : 'Your order is') + ' in My Orders, and the seller has been told.');
             setSelectedIds([]);
             setCheckoutMode('cart');
             onClose();
-        } catch(e) { alert("Checkout Error: " + e.message); }
+        }, 300);
     };
 
     if(!isOpen) return null;
@@ -12693,21 +12717,16 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                     </div>
 
                     <Button onClick={() => setCheckoutMode('crypto')} color="cyan" className="w-full flex items-center justify-center gap-2" style={RK_CFG.cryptoPayLive ? { boxShadow: '0 0 12px rgba(34,211,238,0.6)' } : {}}><Zap size={16}/> Pay with Crypto (USDC){RK_CFG.cryptoPayLive ? ' — LIVE' : ''}</Button>
-                    {RK_CFG.paymentsLive
-                        ? <Button onClick={() => setCheckoutMode('stripe')} color="primary" className="w-full flex items-center justify-center gap-2"><CreditCard size={16}/> Pay with Card (Stripe)</Button>
-                        : <button disabled className="w-full flex items-center justify-center gap-2 bg-white/5 border border-white/15 text-white/40 rounded-lg py-2.5 text-sm font-bold cursor-not-allowed"><CreditCard size={16}/> Pay with Card — coming soon</button>}
+                    {/* V90.88.151.329: cards aren't built (the Stripe form was test mode), so this stays off whatever Payments LIVE says */}
+                    <button disabled className="w-full flex items-center justify-center gap-2 bg-white/5 border border-white/15 text-white rounded-lg py-2.5 text-sm font-bold cursor-not-allowed"><CreditCard size={16}/> Pay with Card — coming soon</button>
                     <Button onClick={() => setCheckoutMode('cart')} color="accent" className="w-full">Back to Cart</Button>
                 </div>
             </Modal>
         )
     }
 
-    if(checkoutMode === 'stripe') {
-        return <Modal isOpen={isOpen} onClose={() => {setCheckoutMode('cart'); onClose();}} title="Card Checkout"><Elements stripe={stripePromise}><StripeCheckoutForm total={totalCost} onComplete={handleSuccess} onCancel={()=>setCheckoutMode('select')}/></Elements></Modal>
-    }
-
     if(checkoutMode === 'crypto') {
-        return <Modal isOpen={isOpen} onClose={() => {setCheckoutMode('cart'); onClose();}} title="Crypto Checkout"><CryptoCheckoutForm total={totalCost} user={user} profile={profile} onComplete={handleSuccess} onCancel={()=>setCheckoutMode('select')}/></Modal>
+        return <Modal isOpen={isOpen} onClose={() => {setCheckoutMode('cart'); onClose();}} title="Crypto Checkout"><RkUsdcPay kind="cart" lines={payLines} expectUsd={totalCost} user={user} profile={profile} onPaid={handlePaid} onCancel={()=>setCheckoutMode('select')}/></Modal>
     }
 
     return ( 
@@ -12737,8 +12756,8 @@ const ShoppingCartModal = ({ user, items, isOpen, onClose, profile, onNeedWallet
                             <img src={item.mediaUrls?.[0]?.url || item.imageUrl || rkPh(50, 50)} className="w-12 h-12 rounded object-cover"/>
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold truncate">{item.name}</p>
-                                {(() => { const q = getQty(item); const unit = bulkUnitPrice(item, q); const saved = (item.price||0) - unit; return (
-                                    <p className="text-xs text-lime-400">${unit.toFixed(2)}{saved > 0.001 && <span className="text-[10px] text-yellow-300 ml-1">({Math.round((saved/(item.price||1))*100)}% bulk)</span>} {q > 1 && <span className="opacity-60">× {q} = ${(unit*q).toFixed(2)}</span>}</p>
+                                {(() => { const q = getQty(item); const unit = rkBulkUnitPrice(item, q); const saved = (item.price||0) - unit; return (
+                                    <p className="text-xs text-lime-400">${unit.toFixed(2)}{saved > 0.001 && <span className="text-[10px] text-yellow-300 ml-1">({Math.round((saved/(item.price||1))*100)}% bulk)</span>} {q > 1 && <span className="text-white">× {q} = ${(rkLineCents(item, q) / 100).toFixed(2)}</span>}</p>
                                 ); })()}
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="text-[10px] opacity-50 uppercase">Qty</span>
@@ -12983,21 +13002,16 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
         } catch (e) { console.log('hide failed', e); alert("Couldn't hide this post: " + (e.message || 'error')); }
     };
 
+    // V90.88.151.329: the server saves the review (functions/rk_money.js): once per buyer per listing, from a buyer whose
+    // order was paid and checked on-chain, with the words checked. It adds the stars to the seller's rating and to every post
+    // of theirs, and tells them. Until 329 the rules refused both writes from here (since 323), so no review was ever saved.
     const submitReview = async () => {
         if(!reviewText.trim()) return;
-        const newReview = { uid: meUid, user: user.displayName || 'Buyer', rating: reviewRating, text: reviewText, timestamp: Date.now() };
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { reviews: arrayUnion(newReview) });
-        // V42.29 Stage A: roll this rating into the SELLER's running average so it can be
-        // shown on their cards/posts/profile. ratingSum/ratingCount -> avg = sum/count.
         try {
-            const sellerId = item.ownerId;
-            if (sellerId) {
-                await setDoc(doc(db, 'artifacts', appId, 'users', sellerId), {
-                    ratingSum: increment(reviewRating), ratingCount: increment(1)
-                }, { merge: true });
-            }
-        } catch (e) { console.log('seller rating update', e); }
-        setReviews([newReview, ...reviews]);
+            const r = await rkMoney('review', { itemId: item.id, rating: reviewRating, text: reviewText.trim() });
+            setReviews([r.review || { uid: meUid, user: 'You', rating: reviewRating, text: reviewText.trim(), timestamp: Date.now() }, ...reviews]);
+            setReviewText('');
+        } catch (e) { alert(e.message || 'Couldn\u2019t save your review.'); }
     };
 
     if (isEditing) {
@@ -13097,7 +13111,7 @@ const ItemDetailModal = ({ item, user, isOpen, onClose, onViewFeed, zClass, invO
                                 {item.shippedAt && <p className="text-[10px] opacity-50">Shipped {new Date(item.shippedAt).toLocaleDateString()}</p>}
                                 {/* Buyer confirms receipt — closes the loop and builds seller trust */}
                                 {isBuyer && !item.deliveryConfirmed && (
-                                    <Button onClick={async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tradeItems', item.id), { deliveryConfirmed: true, deliveryConfirmedAt: Date.now() }); pushNotif(item.ownerId, 'sold', '✅ ' + (item.name || 'Your item') + ' was confirmed delivered by the buyer!', '@orders:selling'); alert('Thanks for confirming! 🌈'); } catch (e) { alert('Couldn\u2019t confirm: ' + e.message); } }} color="lime" className="w-full text-[10px]">✅ Confirm I Received This</Button>
+                                    <Button onClick={async () => { try { await rkMoney('received', { itemId: item.id }); alert('Thanks for confirming! 🌈 Your order is complete.'); } catch (e) { alert(e.message || 'Couldn\u2019t confirm.'); } }} color="lime" className="w-full text-[10px]">✅ Confirm I Received This</Button>
                                 )}
                                 {item.deliveryConfirmed && <p className="text-[10px] text-lime-300 font-bold text-center">✅ Delivery confirmed by buyer</p>}
                             </div>
@@ -14854,7 +14868,7 @@ const SellKandiForm = ({ user, profile }) => {
 
             const cleanTiers = (form.bulkTiers || []).map(t => ({ qty: parseInt(t.qty)||0, pct: parseInt(t.pct)||0 })).filter(t => t.qty > 0 && t.pct > 0).sort((a,b) => a.qty - b.qty);
             const firstTier = cleanTiers[0] || { qty: 0, pct: 0 };
-            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const { eventFrom: _ef, eventTo: _et, eventDays: _ed, ...formFields } = form; const item = { ...formFields, name: String(form.name || '').trim().slice(0, RK_POST_NAME_MAX), ...evf.fields, likeCount: 0, commentCount: 0, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, ownerRatingSum: profile?.ratingSum || 0, ownerRatingCount: profile?.ratingCount || 0, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
+            const tradeOnly = form.isForTrade && !form.wantsToSell; const noSale = form.isShowingOff || tradeOnly; const { eventFrom: _ef, eventTo: _et, eventDays: _ed, ...formFields } = form; const item = { ...formFields, name: String(form.name || '').trim().slice(0, RK_POST_NAME_MAX), ...evf.fields, likeCount: 0, commentCount: 0, videoLink: ((v) => (v && v.ok && v.platform === 'dropbox') ? form.videoLink.trim() : '')(form.videoLink ? parseVideoLink(form.videoLink) : null), price: noSale ? 0 : parseFloat(form.price), type: form.type || 'Other', stockQty: noSale ? 0 : parseInt(form.stockQty), bulkTiers: noSale ? [] : cleanTiers, bulkDiscountQty: noSale ? 0 : firstTier.qty, bulkDiscountPct: noSale ? 0 : firstTier.pct, isTradeOnly: tradeOnly, mediaUrls: uploadedMedia, imageUrl: uploadedMedia[0]?.url, ownerId: user.uid, ownerPublicUid: profile?.publicUid || user.uid, ownerName: profile?.displayName || 'Raver', ownerBadge: profile?.featuredBadge || null, ownerNameStyle: profile?.[RK_NAME_STYLE_FIELD] || null, timestamp: Date.now(), likes: [], comments: [], isAppProduct: form.isOfficial, status: 'approved', purchaseCount: 0, viewCount: 0, isPinned: form.isPinned, isCraftingStock: false, isShowingOff: !!form.isShowingOff, isForTrade: !!form.isForTrade, tradeWants: form.isForTrade ? { categories: form.tradeCategories || [], note: (form.tradeNote || '').slice(0, 200), event: (form.tradeEvent || '').slice(0, 60) } : null,
                 // V65.39: REQUIRED. The feed now reads where('vis','==','public'), and a missing
                 // field does not match an equality query — a post without this would be invisible
                 // to everyone except its author.
@@ -16091,11 +16105,13 @@ const RemoteConfigPanel = () => {
             </div>
 
             <AdminAnalyticsBlock />
-            <p className="text-[10px] opacity-60">⚠ "Payments LIVE" stays OFF until real billing is wired — turning it on blocks checkout with an explanatory notice (it will never silently fake-charge).</p>
+            <p className="text-xs text-white">⚠ "Payments LIVE" is for card payments and music sales, which aren't built yet: keep it OFF. The cart and VIP are paid in USDC, checked on the chain by the server (V90.88.151.329); "Crypto Pay LIVE" only changes how their button looks, and the network is the Crypto network setting.</p>
             <p className="text-[10px] opacity-60">🎉 "Launch Perks" = free VIP for everyone + commission cut 20%→10%. Turn OFF at full release to restore paid plans and normal rates.</p>
             <div className="border-t border-white/10 pt-3 mt-2">
                 <h4 className="text-[11px] font-black uppercase text-yellow-300 mb-2">💸 Payout Queue</h4>
                 <PayoutQueuePanel/>
+                <h4 className="text-[11px] font-black uppercase text-amber-300 mb-2 mt-3" data-admin-payments-head="1">⚠️ Payments to check</h4>
+                <PaymentsCheckPanel/>
                 <p className="text-xs text-white mb-3">💾 The Firestore storage estimate moved to 📊 Usage & Limits, beside the Design Lab AI and Firebase Storage.</p>
                 <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Spotlight Control</h4>
                 <ForceClipPanel cfg={cfg} setCfg={setCfg} />
@@ -16387,7 +16403,11 @@ const AdminDashboard = ({ user, profile, onMessageUser, initial }) => {
     const [adminTab, setAdminTab] = useState('tools');
     const [openSec, setOpenSec] = useState('config');   // V65.24: one Admin Console panel open at a time
     // V85.78.150.313: a notification for admins opens the right tab and section.
-    useEffect(() => { if (initial) { if (initial.tab) setAdminTab(initial.tab); if (initial.sec) setOpenSec(initial.sec); } }, [initial]);
+    useEffect(() => {
+        if (initial) { if (initial.tab) setAdminTab(initial.tab); if (initial.sec) setOpenSec(initial.sec); }
+        // V90.88.151.329: and scrolled to it, for Payments to check
+        if (initial && initial.focus === 'payments') { const t = setTimeout(() => { try { const el = document.querySelector('[data-admin-payments-head]'); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {} }, 600); return () => clearTimeout(t); }
+    }, [initial]);
     const [apps, setApps] = useState([]);
     const [targetUid, setTargetUid] = useState('');
     const [customRate, setCustomRate] = useState('');
@@ -18688,11 +18708,13 @@ cat << 'EOF' >> src/App.js
 // immutable revLedger entries exist (matched by saleId, and by txSig for crypto orders).
 // Payment method (💜 crypto / 💳 card) is stamped on every order.
 // ================================================================================================
+// V90.88.151.329: the stages and who moves each are in src/rkShared.js (RK_ORDER_FLOW), and the server moves orders along
+// (rkMoney 'stage' for the seller, 'received' for the buyer, functions/rk_money.js); only how they look is here.
 const RK_ORDER_STAGES = {
-    paid_unfinished: { label: 'PAID — being made', color: 'text-yellow-300 bg-yellow-500/15 border-yellow-400/50', next: 'paid_undelivered', nextLabel: 'Mark Finished (ready to ship)', by: 'seller' },
-    paid_undelivered: { label: 'PAID — undelivered', color: 'text-orange-300 bg-orange-500/15 border-orange-400/50', next: 'paid_shipped', nextLabel: '📦 Mark Shipped', by: 'seller' },
-    paid_shipped: { label: 'PAID — shipped', color: 'text-cyan-300 bg-cyan-500/15 border-cyan-400/50', next: 'paid_completed', nextLabel: '✅ Confirm Received & Complete', by: 'buyer' },
-    paid_completed: { label: 'PAID — completed', color: 'text-lime-300 bg-lime-500/15 border-lime-400/50', next: null, nextLabel: '', by: '' },
+    paid_unfinished: { label: RK_ORDER_FLOW.paid_unfinished.label, color: 'text-yellow-300 bg-yellow-500/15 border-yellow-400/50', next: 'paid_undelivered', nextLabel: 'Mark Finished (ready to ship)', by: 'seller' },
+    paid_undelivered: { label: RK_ORDER_FLOW.paid_undelivered.label, color: 'text-orange-300 bg-orange-500/15 border-orange-400/50', next: 'paid_shipped', nextLabel: '📦 Mark Shipped', by: 'seller' },
+    paid_shipped: { label: RK_ORDER_FLOW.paid_shipped.label, color: 'text-cyan-300 bg-cyan-500/15 border-cyan-400/50', next: 'paid_completed', nextLabel: '✅ Confirm Received & Complete', by: 'buyer' },
+    paid_completed: { label: RK_ORDER_FLOW.paid_completed.label, color: 'text-lime-300 bg-lime-500/15 border-lime-400/50', next: null, nextLabel: '', by: '' },
 };
 const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
     const [tab, setTab] = useState('buying');
@@ -18707,33 +18729,22 @@ const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
         const unsub = onSnapshot(qy, s => setRows(s.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))), e => console.log('orders', e));
         return () => unsub();
     }, [isOpen, tab, user]);
+    // V90.88.151.329: the server moves the order along and tells the other side (functions/rk_money.js). For the buyer it
+    // completes the order once the seller has a payout wallet (it tells the seller if not), and checks the sale's ledger
+    // entry, which it wrote with the order. Until 329 the app wrote the status itself, and the ledger check never found the
+    // entries (they carried the cart's id, not the listing's).
     const advance = async (o) => {
         const st = RK_ORDER_STAGES[o.status]; if (!st || !st.next) return;
+        let tracking = '';
+        if (st.by === 'seller' && st.next === 'paid_shipped') {
+            const tn = prompt('Tracking number (optional — locks once entered):', o.trackingNumber || '');
+            if (tn === null) return;
+            tracking = tn.trim();
+        }
         setBusy(o.id);
         try {
-            const upd = { status: st.next, updatedAt: Date.now() };
-            if (st.next === 'paid_shipped') {
-                const tn = prompt('Tracking number (optional — locks once entered):', o.trackingNumber || '');
-                if (tn) upd.trackingNumber = tn.trim();
-            }
-            if (st.next === 'paid_completed') {
-                // ---- verification gate: wallet + ledger, both must pass before completion ----
-                let walletOk = false, ledgerOk = false;
-                try { const s = await getDoc(doc(db, 'artifacts', appId, 'users', o.sellerId)); walletOk = !!(s.exists() && s.data().walletReady); } catch (e) {}
-                try {
-                    const ls = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'revLedger'), where('saleId', '==', o.itemId)));
-                    const entries = ls.docs.map(d => d.data());
-                    ledgerOk = entries.length > 0 && (o.payMethod !== 'crypto' || !o.txSig || entries.some(en => en.txSig === o.txSig));
-                } catch (e) {}
-                if (!walletOk || !ledgerOk) {
-                    setBusy('');
-                    return alert('This order can\'t be completed yet:\n' + (!walletOk ? '• The seller has no verified payout wallet on file.\n' : '') + (!ledgerOk ? '• The sale\'s ledger entries couldn\'t be verified' + (o.payMethod === 'crypto' ? ' against the on-chain transaction signature' : '') + '.\n' : '') + 'Ask the seller to add their wallet (Crypto Wallet Center), or contact support if the ledger looks wrong.');
-                }
-                upd.walletVerified = true; upd.ledgerVerified = true; upd.completedAt = Date.now();
-            }
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id), upd);
-            const other = tab === 'buying' ? o.sellerId : o.buyerId;
-            pushNotif(other, 'sold', '🧾 Order "' + o.itemName + '" is now: ' + (RK_ORDER_STAGES[st.next]?.label || st.next), tab === 'buying' ? '@orders:selling' : '@orders:buying');
+            if (st.by === 'buyer') await rkMoney('received', { orderId: o.id });
+            else await rkMoney('stage', { orderId: o.id, tracking });
         } catch (e) { alert(e.message || 'Could not update.'); }
         setBusy('');
     };
@@ -18743,7 +18754,7 @@ const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
             <div className="flex gap-2 mb-3">
                 {['buying', 'selling'].map(t => <button key={t} onClick={() => setTab(t)} className={'flex-1 py-2 rounded-lg text-xs font-black uppercase border ' + (tab === t ? 'bg-lime-500/25 border-lime-400 text-lime-200' : 'bg-white/5 border-white/15 text-white')}>{t === 'buying' ? '🛍️ Buying' : '💰 Selling'}</button>)}
             </div>
-            <p className="text-[11px] text-white mb-3">Every paid order moves through: <span className="text-yellow-300">being made</span> → <span className="text-orange-300">undelivered</span> → <span className="text-cyan-300">shipped</span> → <span className="text-lime-300">completed</span>. The seller advances the first two; the buyer confirms receipt — completion runs a wallet + ledger verification first.</p>
+            <p className="text-[11px] text-white mb-3">Every order here was paid in USDC and checked on the chain by the server. It moves through: <span className="text-yellow-300">being made</span> → <span className="text-orange-300">undelivered</span> → <span className="text-cyan-300">shipped</span> → <span className="text-lime-300">completed</span>. The seller moves the first two; the buyer confirms it arrived, which completes it once the seller has a payout wallet.</p>
             <div className="space-y-2 max-h-[52vh] overflow-y-auto pr-1">
                 {rows.length === 0 && <p className="text-center text-white py-6 text-xs">No orders here yet.</p>}
                 {rows.map(o => { const st = RK_ORDER_STAGES[o.status] || RK_ORDER_STAGES.paid_unfinished; const mine = st.by === (tab === 'buying' ? 'buyer' : 'seller'); return (
@@ -18751,10 +18762,10 @@ const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
                         <div className="flex items-center gap-2">
                             <img src={o.itemImage || rkPh(60, 60, null, null, '•')} className="w-10 h-10 rounded object-cover" onError={(e)=>{ if(e.target.src.indexOf('placehold')<0) e.target.src=rkPh(60, 60, null, null, '•'); }}/>
                             <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold truncate">{o.itemName} <span className="text-lime-300">${(o.amountUsd || 0).toFixed(2)}</span></p>
+                                <p className="text-xs font-bold truncate">{o.itemName}{(o.qty || 1) > 1 ? ' ×' + o.qty : ''} <span className="text-lime-300">${(o.amountUsd || 0).toFixed(2)}</span></p>
                                 <p className="text-[10px] text-white">{tab === 'buying' ? 'from @' + o.sellerName : 'to @' + o.buyerName} · {new Date(o.createdAt || 0).toLocaleDateString()}</p>
                             </div>
-                            <span className={'text-[10px] font-black px-1.5 py-0.5 rounded border ' + (o.payMethod === 'crypto' ? 'text-fuchsia-300 bg-fuchsia-500/15 border-fuchsia-400/50' : 'text-blue-300 bg-blue-500/15 border-blue-400/50')}>{o.payMethod === 'crypto' ? '💜 CRYPTO' : '💳 CARD'}</span>
+                            <span className={'text-[10px] font-black px-1.5 py-0.5 rounded border ' + (o.payMethod === 'crypto' ? 'text-fuchsia-300 bg-fuchsia-500/15 border-fuchsia-400/50' : 'text-blue-300 bg-blue-500/15 border-blue-400/50')}>{o.payMethod === 'crypto' ? (o.chainVerified ? '💜 USDC ✔ ON-CHAIN' : '💜 CRYPTO') : '💳 CARD'}</span>
                         </div>
                         <div className="flex items-center justify-between mt-2 gap-2">
                             <span className={'text-[10px] font-black px-2 py-1 rounded border ' + st.color}>{st.label}{o.status === 'paid_completed' && o.walletVerified ? ' · ✔ verified' : ''}</span>
@@ -18762,6 +18773,7 @@ const OrdersModal = ({ user, profile, isOpen, onClose, initialTab }) => {
                             {st.next && !mine && <span className="text-[10px] text-white">waiting on the {st.by}</span>}
                         </div>
                         {o.trackingNumber && <p className="text-[10px] text-cyan-200 font-mono mt-1.5">📦 Tracking: {o.trackingNumber}</p>}
+                        {o.oversold && tab === 'selling' && o.status !== 'paid_completed' && <p className="text-xs text-amber-100 bg-amber-900/30 border border-amber-400/60 rounded p-1.5 mt-1.5">⚠️ This sold more than your stock showed (another buyer paid first). Restock and ship it, or tell the buyer and ask support to refund.</p>}
                     </div>
                 ); })}
             </div>
@@ -19573,16 +19585,7 @@ const RK_FEE_NOTE = "Fees: the Solana network fee is under $0.01 per payment and
 const RK_USDC_MINTS = { 'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'devnet': '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' };
 const RK_RPC = { 'mainnet-beta': 'https://api.mainnet-beta.solana.com', 'devnet': 'https://api.devnet.solana.com' };
 const rkCluster = () => (RK_CFG.cryptoCluster === 'devnet' ? 'devnet' : 'mainnet-beta');
-// Base58 encoder (Bitcoin alphabet) — enough to mint a random reference public key, no library.
-const rkB58 = (bytes) => {
-    const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    let n = 0n; for (const b of bytes) n = (n << 8n) + BigInt(b);
-    let out = '';
-    while (n > 0n) { out = A[Number(n % 58n)] + out; n = n / 58n; }
-    for (const b of bytes) { if (b === 0) out = '1' + out; else break; }
-    return out || '1';
-};
-const rkNewReference = () => { const b = new Uint8Array(32); crypto.getRandomValues(b); return rkB58(b); };
+// V90.88.151.329: the reference key and the payment check are the server's now (functions/rk_money.js: rkNewRef, rkScan).
 // Minimal Solana JSON-RPC call.
 const rkRpc = async (method, params, cluster) => {
     const res = await fetch(RK_RPC[cluster || rkCluster()], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
@@ -19590,22 +19593,8 @@ const rkRpc = async (method, params, cluster) => {
     if (j.error) throw new Error(j.error.message || 'RPC error');
     return j.result;
 };
-// Verify a payment: find the transaction carrying our reference key, then confirm the receiver's
-// USDC balance rose by at least the expected amount (token-balance deltas are authoritative).
-const rkVerifyUsdcPayment = async ({ reference, expectedUi, receiver, cluster }) => {
-    const cl = cluster || rkCluster();
-    const mint = RK_USDC_MINTS[cl];
-    let sigs = [];
-    try { sigs = await rkRpc('getSignaturesForAddress', [reference, { limit: 5 }], cl) || []; } catch (e) { return { found: false, error: e.message }; }
-    const good = sigs.find(s => !s.err);
-    if (!good) return { found: false };
-    let tx = null;
-    try { tx = await rkRpc('getTransaction', [good.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed', encoding: 'jsonParsed' }], cl); } catch (e) { return { found: false, error: e.message }; }
-    if (!tx || !tx.meta || tx.meta.err) return { found: false };
-    const sumFor = (list) => (list || []).filter(b => b.owner === receiver && b.mint === mint).reduce((a, b) => a + (Number(b.uiTokenAmount && b.uiTokenAmount.uiAmount) || 0), 0);
-    const delta = sumFor(tx.meta.postTokenBalances) - sumFor(tx.meta.preTokenBalances);
-    return { found: true, ok: delta + 0.000001 >= Number(expectedUi), delta: Math.round(delta * 100) / 100, sig: good.signature };
-};
+// V90.88.151.329: rkVerifyUsdcPayment went to the server (rkScan, which adds up every transaction that carries the reference
+// and counts each one toward one payment only). rkRpc stays, for the wallet's USDC balance before paying.
 
 const rkValidSolAddr = (a) => { try { return typeof a === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a.trim()); } catch (e) { return false; } };
 const rkWalletSecret = (uid) => 'rk-wallet-v1|' + uid + '|' + appId;
@@ -23669,7 +23658,8 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
             if (typeof k === 'string' && (k === 'achievements' || k.indexOf('achievements:') === 0)) { setAchSig({ n: Date.now(), focus: k.slice(13) }); return; }
             if (k === 'banner') { setShowBanner(true); return; }
             if (typeof k === 'string' && k.indexOf('admin:') === 0) {
-                if (profile?.isAdmin) { const w = k.slice(6); setAdminInit(w === 'tickets' ? { tab: 'tickets', n: Date.now() } : { tab: 'tools', sec: w === 'storage' ? 'usage' : w, n: Date.now() }); setShowAdminPortal(true); }
+                // V90.88.151.329: 'admin:payments' opens Config at Payments to check (under the Payout Queue)
+                if (profile?.isAdmin) { const w = k.slice(6); setAdminInit(w === 'tickets' ? { tab: 'tickets', n: Date.now() } : w === 'payments' ? { tab: 'tools', sec: 'config', focus: 'payments', n: Date.now() } : { tab: 'tools', sec: w === 'storage' ? 'usage' : w, n: Date.now() }); setShowAdminPortal(true); }
                 return;
             }
             if (['vibeTribe', 'inventory', 'analytics', 'settings', 'referrals', 'socials', 'vip'].includes(k)) setModals(m => ({ ...m, [k]: true }));
@@ -23740,7 +23730,7 @@ const ProfileView = ({ user, onOpenSettings, onViewFeed, onViewProfile, onMessag
                 <ItemDetailModal item={selectedPinned} user={user} isOpen={!!selectedPinned} onClose={() => setSelectedPinned(null)} onViewFeed={onViewFeed} invOwnerUid={user?.uid}/>
                 <PinSelectModal user={user} profile={profile} isOpen={pinModalOpen} onClose={() => setPinModalOpen(false)} />
                 <UserStatsDashboard profile={profile} isOpen={modals.analytics} onClose={() => setModals({...modals, analytics: false})} />
-                <VIPCheckoutModal user={user} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
+                <VIPCheckoutModal user={user} profile={profile} isOpen={modals.vip} onClose={() => setModals({...modals, vip: false})} />
                 <ThemeSelectorModal user={user} profile={profile} isOpen={modals.theme} onClose={() => setModals({...modals, theme: false})} />
                 <VibeTribeModal user={user} profile={profile} isOpen={modals.vibeTribe} initialTab={vibeTab} onClose={() => { setVibeTab(null); setModals(m => ({ ...m, vibeTribe: false })); }} onViewProfile={onViewProfile} onMessageUser={onMessageUser}
                     onEditBio={() => setModals(m => ({ ...m, bio: true }))} onEditUid={() => setUidModalOpen(true)} onUploadPic={uploadPic} />
@@ -25419,6 +25409,8 @@ const App = () => {
                 // line read "@undefined". The top three are read and the first named one is shown.
                 const grab = async (field) => { const s = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy(field, 'desc'), limit(3))); const d = s.docs.find(x => rkMqNamed(x.data())); return d ? { ...d.data(), id: d.id } : null; };
                 const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster, welcomer, quick, planner, regular, spotlit] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed'), grab('tribeInvitesPassed'), grab('tribeVotesFast'), grab('festDaysPicked'), grab('bannerDays'), grab('boostDays')]);
+                // V90.88.151.329: the leaders for 329's achievements (orders buyers confirmed, reviews left; both the server's)
+                const [trusted, reviewer] = await Promise.all([grab('ordersDelivered'), grab('reviewsLeft')]);
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
@@ -25434,7 +25426,7 @@ const App = () => {
                 // V90.86.150.326: the newest Business account (businessSince is the server's), still a Business account
                 let biz = null;
                 try { const bs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('businessSince', 'desc'), limit(5))); const d = bs.docs.find(x => rkMqNamed(x.data()) && x.data().accountType === 'business'); if (d) biz = { ...d.data(), id: d.id }; } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz });
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz, trusted, reviewer });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -26200,6 +26192,10 @@ const App = () => {
         (user && !user.isAnonymous && profile && profile.accountType !== 'business') ? { t: '🏪 RUN A LABEL? A BUSINESS ACCOUNT HOLDS SEVERAL BRANDS UNDER ONE LOGIN. TAP TO SEE WHAT UNLOCKS ONE 🏪', kind: 'business', go: () => rkGoPlace('bizinfo') } : null,
         // V90.86.151.327: the nav tucks up as you scroll now; the marquee stays
         { t: '⬆️ SCROLLING DOWN TUCKS THE MENU UP UNDER THE MARQUEE. SCROLL UP, OR TAP ▾ MENU, AND IT\'S BACK ⬆️' },
+        // V90.88.151.329: the leaders for 329's achievements, and paying with the chain check (tap: My Orders)
+        topStats.trusted && ((topStats.trusted.ordersDelivered || 0) > 0) ? { t: '📦 MOST TRUSTED SELLER: @' + rkMqName(topStats.trusted) + ' (' + topStats.trusted.ordersDelivered + ' order' + (topStats.trusted.ordersDelivered === 1 ? '' : 's') + ' received by buyers)', uid: uref(topStats.trusted) } : null,
+        topStats.reviewer && ((topStats.reviewer.reviewsLeft || 0) > 0) ? { t: '⭐ TOP REVIEWER: @' + rkMqName(topStats.reviewer) + ' (' + topStats.reviewer.reviewsLeft + ' review' + (topStats.reviewer.reviewsLeft === 1 ? '' : 's') + ' of things they bought)', uid: uref(topStats.reviewer) } : null,
+        { t: '⛓️ EVERY USDC PAYMENT IS CHECKED ON THE SOLANA CHAIN BEFORE AN ORDER IS MADE. TAP FOR MY ORDERS ⛓️', go: (user && !user.isAnonymous) ? () => rkGoPlace('orders:buying') : null },
         // V90.87.151.328: every station is checked each hour, and one that's off air says so (tap: the radio)
         { t: '📻 RAVE RADIO CHECKS ALL ' + RADIO_STATIONS.length + ' STATIONS EVERY HOUR. IF ONE GOES OFF AIR, ITS BUTTON SAYS SO. TAP TO TUNE IN 📻', go: () => setRadioOpen(true) },
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
@@ -26267,8 +26263,9 @@ const App = () => {
                     <p className="text-xs font-mono text-white/50 mb-4">{APP_VERSION_FULL}</p>
                     <p className="text-sm text-white leading-relaxed">We are currently in active Alpha Development. Please be aware that functions may break, load slowly, or spontaneously shift as we build the ecosystem.</p>
                     <div className="bg-red-900/30 border border-red-500/50 p-3 rounded text-left">
-                        <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: Test Mode</p>
-                        <p className="text-[10px] text-white/80 leading-relaxed">The payment system is currently in <strong>TEST MODE</strong> and all transactions cannot be processed. If a glitch or bug allows a transaction to be processed, you may not receive the items or may experience issues as a result. The payment system will be removed from test mode after rollout from Alpha to Beta.</p>
+                        {/* V90.88.151.329: payments are USDC, checked on the chain by the server; on Devnet they're test funds */}
+                        <p className="text-[10px] text-red-300 leading-relaxed font-bold uppercase mb-1">⚠ Payments: {rkCluster() === 'devnet' ? 'Test Mode' : 'USDC on Solana'}</p>
+                        <p className="text-[10px] text-white leading-relaxed">{rkCluster() === 'devnet' ? 'Payments run on Solana Devnet with test USDC: no real money moves.' : 'Payments are real USDC on Solana. The server checks each one on the chain before an order is made or VIP turns on. Card payments aren\'t available yet.'} RaveKandi is in Alpha: if something goes wrong with an order, open a ticket in Help.</p>
                     </div>
                     <p className="text-sm font-black text-pink-400 italic py-2">Thank you for being part of our beginnings! 💖</p>
                     <div className="bg-black/60 p-3 rounded text-[10px] italic text-cyan-400 border border-cyan-500/30">Fun Fact: {fact}</div>
@@ -26316,7 +26313,7 @@ cat << 'EOF' >> src/App.js
                 V88.84.150.322: every window, the messenger and a raver's profile page included (rkCloseWindows). */}
             <TutorialOverlay active={tutorialActive} replay={tutReplay} onFinish={() => { rkCloseWindows(); try { localStorage.setItem('rk_tutorial_done', 'true'); localStorage.setItem('rk_tut_reminder_seen', 'true'); } catch (e) {} setTutorialActive(false); setTutReplay(false); }} />
             <TutorialReminderPopIn active={tutorialReminder && !welcomeWinOpen && !showAlphaModal} onClose={() => setTutorialReminder(false)} />
-            <VIPCheckoutModal user={user} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
+            <VIPCheckoutModal user={user} profile={profile} isOpen={showVipModal} onClose={() => setShowVipModal(false)} />
             <WalletNeededModal isOpen={walletNudge.open} onClose={() => setWalletNudge({ open: false, next: null })} onAddWallet={() => { setWalletNudge({ open: false, next: null }); setWalletModalOpen(true); }} onContinue={() => { const n = walletNudge.next; setWalletNudge({ open: false, next: null }); if (n) n(); }} />
             <WalletModal user={user} profile={profile} isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
             {user && <OrdersModal user={user} profile={profile} isOpen={ordersOpen} initialTab={ordersTab} onClose={() => { setOrdersOpen(false); setOrdersTab(null); }} />}
@@ -28253,6 +28250,9 @@ const TITLES = {
   mod:         '🕊️ RaveKandi',
   // V90.87.151.328: the hourly station check (rk_radio.js)
   radio:       '📻 Rave Radio',
+  // V90.88.151.329: a sale (the app's type for one is 'sold'), and RevShare and referrals
+  sold:        '💸 You Made a Sale!',
+  referral:    '💜 RevShare & Referrals',
 };
 
 exports.sendPushOnNotification = onDocumentCreated(
@@ -29880,6 +29880,7 @@ module.exports = Object.assign(module.exports, require('./rk_radio'));
 module.exports = Object.assign(module.exports, require('./rk_votes'));
 module.exports = Object.assign(module.exports, require('./rk_mod'));
 module.exports = Object.assign(module.exports, require('./rk_stats'));
+module.exports = Object.assign(module.exports, require('./rk_money'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -29914,6 +29915,581 @@ else
     printf '\n// V65.28: push delivery, generated by the build script into rk_push.js.\nmodule.exports = Object.assign(module.exports, require("./rk_push"));\n' >> "$RK_FN_DIR/index.js"
     echo "  functions/index.js: rk_push re-export appended, your existing code preserved."
 fi
+# V90.88.151.329: MONEY ON THE SERVER (rk_money.js, queue item 22): paying in USDC (checked on the chain), orders, the ledger,
+# ratings and reviews. Script-owned, regenerated every build.
+cat << 'RKMONEYEOF' > "$RK_FN_DIR/rk_money.js"
+// RaveKandi money, server side (V90.88.151.329). Script-owned: the build regenerates this file.
+//
+// Queue item 22 (raised at 311): checkout ran on the buyer's phone, so the order, the seller's and the referrer's figures,
+// the RevShare ledger and the platform's sales total were only as honest as that phone. From 329 they are written here, and
+// only once the payment is found on the Solana chain. Ratings and reviews (refused by the rules since 323) are written here
+// too, and VIP is paid in USDC the same way (Monthly is renewed by paying again: nothing is ever charged automatically).
+//
+// A payment, start to finish:
+//  1. rkMoney {op:'start'} prices the cart from the listings as they are now (never from the phone), or the VIP plan, and
+//     saves a payment (payments/{id}): the amount in USDC, a fresh reference key, the receiver and the token.
+//  2. The raver pays the Solana Pay link: the platform's wallet, USDC, that amount, that reference.
+//  3. rkMoney {op:'check'} (the app asks every few seconds while it waits) and paySweep (every 5 minutes, for a day) look
+//     the reference up on the chain: every transaction that carries it, and the USDC each one moved into the receiver's
+//     account, added up in millionths. A transaction counts toward one payment only (paySigs/{signature}).
+//  4. Once enough has arrived, one transaction writes the sale: an order per line (with its quantity), the stock, the
+//     seller's, buyer's and referrer's figures, the ledger (seller, RevShare, partners), the sales total, and empties those
+//     cart lines. Then the notices. A second check of the same payment finds it paid and changes nothing.
+// Nothing is held while a payment waits. Two buyers can pay for the last one; the second order is marked oversold, and the
+// seller and the admins are told (restock, or refund).
+// Orders then move along here too (rkMoney 'stage', 'received'), and a buyer with a paid order can review the listing once
+// ('review'), which is what the seller's rating is made of.
+'use strict';
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+const crypto = require('crypto');
+const S = require('./rk_shared');
+// the blocked-word check (rk_mod.js), for review text
+let rkModCleanFor = null;
+try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
+
+const APP = 'ravekandi-core-prod';
+const VER = 'V90.88.151.329';
+const db = () => admin.firestore();
+const FV = () => admin.firestore.FieldValue;
+const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
+const pubCol = (appId, n) => db().collection('artifacts/' + appId + '/public/data/' + n);
+const itemRef = (appId, id) => db().doc('artifacts/' + appId + '/public/data/tradeItems/' + id);
+const orderRef = (appId, id) => db().doc('artifacts/' + appId + '/public/data/orders/' + id);
+const ledgerRef = (appId, id) => db().doc('artifacts/' + appId + '/public/data/revLedger/' + id);
+const cartRef = (appId, uid, id) => db().doc('artifacts/' + appId + '/users/' + uid + '/cart/' + id);
+const payCol = (appId) => db().collection('artifacts/' + appId + '/payments');
+const sigRef = (appId, sig) => db().doc('artifacts/' + appId + '/paySigs/' + sig);
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const round2 = (n) => Math.round(n * 100) / 100;
+const usd = (cents) => (num(cents) / 100).toFixed(2);
+const rkReady = (p) => !!(p && p.displayName && p.publicUid);
+const fail = (code, msg) => { throw new HttpsError(code, msg); };
+// a document id from the app: a string, no slashes
+const rkId = (v) => (typeof v === 'string' && v.length > 0 && v.length <= 150 && !v.includes('/') && v !== '.' && v !== '..' && !v.startsWith('__')) ? v : '';
+const RK_WINDOW = S.RK_PAY.windowMin * 60000;   // how long the app waits on a payment
+const RK_LATE = 24 * 3600000;                     // how long the server keeps looking for it
+const RK_STAGE = (st) => (S.RK_ORDER_FLOW[st] || {}).label || st;
+
+// ---- the live config (global/config), read at most once a minute per instance. Defaults match the app's RK_CFG. ----
+let cfgCache = { at: 0, v: null };
+const rkCfg = async (appId) => {
+  if (cfgCache.v && Date.now() - cfgCache.at < 60000) return cfgCache.v;
+  let d = {};
+  try { const s = await db().doc('artifacts/' + appId + '/global/config').get(); d = s.exists ? (s.data() || {}) : {}; } catch (e) { console.error('rk_money config', e && e.message); }
+  const on = (k, dflt) => (k in d) ? !!d[k] : dflt;
+  const v = {
+    launchPerks: on('launchPerks', true), checkoutEnabled: on('checkoutEnabled', true),
+    maintenanceMessage: typeof d.maintenanceMessage === 'string' ? d.maintenanceMessage : '',
+    cluster: d.cryptoCluster === 'devnet' ? 'devnet' : 'mainnet-beta',
+  };
+  cfgCache = { at: Date.now(), v };
+  return v;
+};
+
+// ---- notices: the shape the app's pushNotif writes, so the push function delivers them and the app's router opens them.
+// `key` makes one once-only: a second check of the same payment can't send it twice. ----
+const rkTell = async (appId, uid, type, text, refId, key) => {
+  if (!uid || !text) return;
+  const col = db().collection('artifacts/' + appId + '/users/' + uid + '/notifications');
+  const data = { type, text: String(text).slice(0, 900), refId: refId || null, read: false, at: Date.now() };
+  try { if (key) await col.doc('srv_' + key).create(data); else await col.add(data); }
+  catch (e) { if (!(e && (e.code === 6 || /already exists/i.test(String(e.message))))) console.error('rk_money notice', uid, e && e.message); }
+};
+const rkTellAdmins = async (appId, text, key) => {
+  let ids = [];
+  try { const qs = await db().collection('artifacts/' + appId + '/users').where('isAdmin', '==', true).limit(20).get(); ids = qs.docs.map(d => d.id); } catch (e) { console.error('rk_money admins', e && e.message); }
+  for (const a of ids) await rkTell(appId, a, 'admin', text, '@admin:payments', key ? key + '_' + a : null);
+};
+const rkDay = (ts) => { try { return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Chicago' }); } catch (e) { return new Date(ts).toISOString().slice(0, 10); } };
+const rkWordCheck = async (appId, text, what) => {
+  if (!rkModCleanFor || !text) return;
+  let r = null;
+  try { r = await rkModCleanFor(appId, text); } catch (e) { console.error('rk_money word check', e && e.message); }
+  if (r && r.hit) fail('invalid-argument', 'A word in ' + what + " isn't allowed on RaveKandi. Slurs and hate speech aren't tolerated here. PLUR: peace, love, unity and respect.");
+};
+
+// ================================================================================================================
+// THE CHAIN. A tiny JSON-RPC client (no SDK). The public RPCs answer by default; functions/.env may name others
+// (RK_SOLANA_RPC_MAINNET, RK_SOLANA_RPC_DEVNET) if the public ones ever refuse the server.
+// ================================================================================================================
+const RK_RPC = { 'mainnet-beta': 'https://api.mainnet-beta.solana.com', 'devnet': 'https://api.devnet.solana.com' };
+const rkRpcUrl = (cl) => (cl === 'devnet' ? process.env.RK_SOLANA_RPC_DEVNET : process.env.RK_SOLANA_RPC_MAINNET) || RK_RPC[cl] || RK_RPC['mainnet-beta'];
+let rkFetch = (url, opts) => fetch(url, opts);
+const rkRpc = async (cl, method, params) => {
+  const res = await rkFetch(rkRpcUrl(cl), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(10000) });
+  if (!res || !res.ok) throw new Error('Solana RPC answered ' + (res ? res.status : 'nothing'));
+  const j = await res.json();
+  if (j && j.error) throw new Error((j.error && j.error.message) || 'Solana RPC error');
+  return j ? j.result : null;
+};
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const rkB58 = (buf) => {
+  let n = 0n; for (const b of buf) n = (n << 8n) + BigInt(b);
+  let s = ''; while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; }
+  for (const b of buf) { if (b === 0) s = '1' + s; else break; }
+  return s || '1';
+};
+const rkNewRef = () => rkB58(crypto.randomBytes(32));
+const rkBig = (b) => { try { return BigInt(String((b && b.uiTokenAmount && b.uiTokenAmount.amount) || '0')); } catch (e) { return 0n; } };
+// What one transaction moved: the USDC (in millionths) the receiver's token accounts gained, and the wallet that paid it
+// (the owner whose USDC fell the most), for a refund.
+const rkDelta = (tx, receiver, mint) => {
+  const m = tx && tx.meta;
+  if (!m) return { micro: 0, payer: '' };
+  const pre = new Map(), drop = new Map();
+  (m.preTokenBalances || []).forEach(b => { if (b && b.mint === mint) pre.set(b.accountIndex, { owner: b.owner, amt: rkBig(b) }); });
+  let d = 0n;
+  (m.postTokenBalances || []).forEach(b => {
+    if (!b || b.mint !== mint) return;
+    const was = pre.get(b.accountIndex), a = rkBig(b), before = was ? was.amt : 0n;
+    pre.delete(b.accountIndex);
+    if (b.owner === receiver) d += a - before;
+    else if (a < before) drop.set(b.owner, (drop.get(b.owner) || 0n) + (before - a));
+  });
+  pre.forEach(v => { if (v.owner === receiver) d -= v.amt; else drop.set(v.owner, (drop.get(v.owner) || 0n) + v.amt); });
+  let payer = '', most = 0n;
+  drop.forEach((v, k) => { if (v > most && typeof k === 'string') { most = v; payer = k; } });
+  return { micro: Number(d), payer };
+};
+// Every transaction carrying the payment's reference, and what each one paid in.
+const rkScan = async (p) => {
+  const sigs = (await rkRpc(p.cluster, 'getSignaturesForAddress', [p.reference, { limit: 20, commitment: 'confirmed' }])) || [];
+  const found = [];
+  for (const s of sigs.slice(0, 20)) {
+    if (!s || s.err || typeof s.signature !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{43,90}$/.test(s.signature)) continue;
+    const tx = await rkRpc(p.cluster, 'getTransaction', [s.signature, { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
+    if (!tx || !tx.meta || tx.meta.err) continue;
+    const r = rkDelta(tx, p.receiver, p.mint);
+    if (r.micro > 0) found.push({ sig: s.signature, micro: r.micro, payer: r.payer });
+  }
+  return found;
+};
+
+// ================================================================================================================
+// START: what is being paid for, priced here
+// ================================================================================================================
+const rkPayUrl = (p) => 'solana:' + p.receiver + '?amount=' + p.amount + '&spl-token=' + p.mint + '&reference=' + p.reference
+  + '&label=' + encodeURIComponent('RaveKandi') + '&message=' + encodeURIComponent(p.kind === 'vip' ? 'RaveKandi VIP ' + (p.plan === 'monthly' ? 'Monthly' : 'Lifetime') : 'RaveKandi order ' + String(p.reference).slice(0, 8));
+const rkPayOut = (id, p, note) => ({
+  ok: true, payId: id, kind: p.kind, plan: p.plan || null, status: p.status, amount: p.amount, totalUsd: num(p.totalCents) / 100,
+  receivedUsd: Math.floor(num(p.receivedMicro) / 10000) / 100, url: rkPayUrl(p), reference: p.reference, receiver: p.receiver,
+  mint: p.mint, cluster: p.cluster, createdAt: p.createdAt, expiresAt: p.expiresAt, orderIds: p.orderIds || [], vipExpires: p.vipExpires || null,
+  lines: (p.lines || []).map(l => ({ cartId: l.cartId, itemId: l.itemId, name: l.name, qty: l.qty, lineUsd: l.lineCents / 100 })),
+  note: note || '',
+});
+const rkImg = (it) => { const u = (it.mediaUrls && it.mediaUrls[0] && it.mediaUrls[0].url) || it.imageUrl || it.image || ''; return (typeof u === 'string' && /^https:\/\//.test(u)) ? u.slice(0, 900) : ''; };
+const rkStart = async (appId, uid, d, cfg) => {
+  if (!cfg.checkoutEnabled) fail('failed-precondition', cfg.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
+  const kind = d.kind === 'vip' ? 'vip' : 'cart', now = Date.now();
+  const ms = await userRef(appId, uid).get();
+  const me = ms.exists ? (ms.data() || {}) : null;
+  if (!me || !rkReady(me)) fail('failed-precondition', 'Set up your profile first.');
+  let lines = [], totalCents = 0, plan = null;
+  if (kind === 'vip') {
+    plan = d.plan === 'monthly' ? 'monthly' : 'lifetime';
+    if (me.isVIP && S.rkVipForever(me)) fail('already-exists', 'Your VIP is already permanent.');
+    totalCents = S.RK_PAY.vipCents[plan];
+  } else {
+    const want = [], seen = new Set();
+    for (const w of (Array.isArray(d.lines) ? d.lines : [])) {
+      const cartId = rkId(w && w.cartId), qty = Math.floor(num(w && w.qty));
+      if (!cartId || seen.has(cartId)) continue;
+      if (!(qty >= 1 && qty <= 999)) fail('invalid-argument', 'Pick a quantity of 1 or more.');
+      seen.add(cartId); want.push({ cartId, qty });
+    }
+    if (!want.length) fail('invalid-argument', 'Pick something in your cart first.');
+    if (want.length > S.RK_PAY.maxLines) fail('invalid-argument', 'Up to ' + S.RK_PAY.maxLines + ' items in one payment. Pay for some, then the rest.');
+    const carts = await db().getAll(...want.map(w => cartRef(appId, uid, w.cartId)));
+    const ids = carts.map(c => (c.exists ? rkId((c.data() || {}).originalId) : ''));
+    if (ids.some(x => !x)) fail('failed-precondition', 'Something in your cart changed. Close the cart and open it again.');
+    const items = await db().getAll(...ids.map(id => itemRef(appId, id)));
+    const asked = {};   // the same listing on two lines adds up against its stock
+    want.forEach((w, i) => {
+      const s = items[i], it = s.exists ? (s.data() || {}) : null, nm = '"' + String((it && it.name) || (carts[i].data() || {}).name || 'An item').slice(0, 60) + '"';
+      if (!it || it.status === 'dismissed' || it.removed) fail('failed-precondition', nm + ' was taken down by the seller. Remove it from your cart.');
+      if (it.ownerId === uid) fail('failed-precondition', nm + ' is your own listing.');
+      if (!(num(it.price) > 0) || it.isShowingOff || it.isTradeOnly || it.notForSale) fail('failed-precondition', nm + " isn't for sale.");
+      asked[ids[i]] = (asked[ids[i]] || 0) + w.qty;
+      const left = it.isHidden ? 0 : S.rkStockLeft(it);
+      if (left <= 0) fail('failed-precondition', nm + ' just sold out. Remove it from your cart.');
+      if (asked[ids[i]] > left) fail('failed-precondition', nm + ': only ' + left + ' left. Lower the quantity.');
+      const lineCents = S.rkLineCents(it, w.qty);
+      lines.push({ cartId: w.cartId, itemId: ids[i], name: String(it.name || 'Item').slice(0, 120), image: rkImg(it), sellerId: String(it.ownerId || ''), sellerName: String(it.ownerName || 'Raver').slice(0, 60), qty: w.qty, lineCents });
+      totalCents += lineCents;
+    });
+  }
+  if (!(totalCents >= 1)) fail('failed-precondition', 'Nothing to pay.');
+  const sig = kind + '|' + (plan || '') + '|' + cfg.cluster + '|' + lines.map(l => l.cartId + 'x' + l.qty + '@' + l.lineCents).join(',');
+  // the same thing, asked for again within the window (the cart closed and opened, the app restarted): the same payment
+  const open = (await payCol(appId).where('uid', '==', uid).where('status', '==', 'pending').limit(50).get()).docs.map(x => ({ id: x.id, p: x.data() || {} }));
+  const again = open.find(x => x.p.sig === sig && now < num(x.p.expiresAt) - 5 * 60000);
+  if (again) return rkPayOut(again.id, again.p);
+  if (open.filter(x => now - num(x.p.createdAt) < RK_WINDOW).length >= 10) fail('resource-exhausted', 'You have 10 payments waiting from the last half hour. Pay one of them, or wait a little.');
+  const p = {
+    uid, buyerName: String(me.displayName || 'Raver').slice(0, 60), kind, plan, lines, totalCents, totalMicro: totalCents * 10000,
+    amount: (totalCents / 100).toFixed(2), reference: rkNewRef(), receiver: S.RK_PAY.receiver, mint: S.RK_PAY.mints[cfg.cluster],
+    cluster: cfg.cluster, status: 'pending', sig, createdAt: now, expiresAt: now + RK_WINDOW, receivedMicro: 0, ver: VER,
+  };
+  const ref = payCol(appId).doc();
+  await ref.set(p);
+  return rkPayOut(ref.id, p);
+};
+
+// ================================================================================================================
+// SETTLE: what has arrived, and once it's enough, the sale (one transaction)
+// ================================================================================================================
+const rkSettle = async (appId, payId, found, cfg, seen) => {
+  const pref = payCol(appId).doc(payId);
+  // partnerships (a share of the platform's profit): read first, they change rarely and aren't part of the sale (and only
+  // when what was found could pay for a cart)
+  let partners = [];
+  if (seen && seen.kind === 'cart' && found.reduce((a, f) => a + f.micro, 0) >= num(seen.totalMicro)) {
+    try {
+      const ps = await db().collection('artifacts/' + appId + '/users').where('partnerPct', '>', 0).limit(20).get();
+      partners = ps.docs.map(x => ({ uid: x.id, pct: num((x.data() || {}).partnerPct) })).filter(x => x.pct > 0 && x.pct <= 100);
+    } catch (e) { console.error('rk_money partners', e && e.message); }
+  }
+  return db().runTransaction(async (tx) => {
+    const ps = await tx.get(pref);
+    if (!ps.exists) return { status: 'missing' };
+    const p = ps.data() || {};
+    if (p.status !== 'pending') return { status: p.status, p };
+    const sigSnaps = found.length ? await tx.getAll(...found.map(f => sigRef(appId, f.sig))) : [];
+    const mine = found.filter((f, i) => !sigSnaps[i].exists || (sigSnaps[i].data() || {}).payId === payId);
+    const micro = mine.reduce((a, f) => a + f.micro, 0), now = Date.now();
+    const payer = (mine.find(f => f.payer) || {}).payer || '';
+    if (micro < num(p.totalMicro)) {
+      if (micro !== num(p.receivedMicro)) tx.update(pref, { receivedMicro: micro, sigs: mine.map(f => f.sig), payer, seenAt: now });
+      return { status: 'pending', micro, p };
+    }
+    const txSig = mine[0].sig, over = micro - num(p.totalMicro);
+    const out = { status: 'paid', fulfilled: true, p, micro, over, payer, overs: [], groups: {}, revTotal: 0, refUid: null, vipExpires: null, vipKept: false };
+    const paid = { status: 'paid', paidAt: now, receivedMicro: micro, overMicro: over, sigs: mine.map(f => f.sig), txSig, payer };
+    if (p.kind === 'vip') {
+      const ur = userRef(appId, p.uid), us = await tx.get(ur);
+      const me = us.exists ? (us.data() || {}) : null;
+      if (me && !(me.isVIP && S.rkVipForever(me))) {
+        const vipExpires = p.plan === 'monthly' ? Math.max(now, num(me.vipExpires)) + 2592000000 : null;   // a renewal stacks 30 days
+        tx.update(ur, { isVIP: true, vipPlan: p.plan, vipSince: (me.isVIP && num(me.vipSince)) || now, vipExpires, vipPaidAt: now, vipPaidTotal: FV().increment(round2(num(p.totalCents) / 100)) });
+        out.vipExpires = vipExpires; paid.vipExpires = vipExpires;
+      } else out.vipKept = true;   // permanent already (it happened while they paid): refund
+    } else {
+      // ---- every document the sale touches is read first ----
+      const lines = Array.isArray(p.lines) ? p.lines : [];
+      const itemIds = [...new Set(lines.map(l => l.itemId))], sellerIds = [...new Set(lines.map(l => l.sellerId).filter(x => rkId(x)))];
+      const reads = await tx.getAll(userRef(appId, p.uid), ...itemIds.map(id => itemRef(appId, id)), ...sellerIds.map(id => userRef(appId, id)));
+      const buyer = reads[0].exists ? (reads[0].data() || {}) : null;
+      const items = {}, sellers = {};
+      itemIds.forEach((id, i) => { items[id] = reads[1 + i].exists ? (reads[1 + i].data() || {}) : null; });
+      sellerIds.forEach((id, i) => { sellers[id] = reads[1 + itemIds.length + i].exists ? (reads[1 + itemIds.length + i].data() || {}) : null; });
+      const refUid = (buyer && rkId(buyer.referredBy) && buyer.referredBy !== p.uid) ? buyer.referredBy : null;
+      let referrer = null;
+      if (refUid) { const rs = await tx.get(userRef(appId, refUid)); referrer = rs.exists ? (rs.data() || {}) : null; }
+      // ---- then written ----
+      const inc = {}, add = (u, f, v) => { if (!u || !v) return; const o = inc[u] = inc[u] || {}; o[f] = (o[f] || 0) + v; };
+      const left = {}; itemIds.forEach(id => { left[id] = items[id] ? (items[id].isHidden ? 0 : S.rkStockLeft(items[id])) : 0; });
+      const base = { fromUid: p.uid, fromName: p.buyerName || 'Raver', paymentId: payId, status: 'accrued', createdAt: now, paidAt: null, txSig, method: 'crypto', verified: true, ver: VER };
+      let netProfit = 0, totalQty = 0;
+      const orderIds = [];
+      lines.forEach((l, i) => {
+        const sel = sellers[l.sellerId] || null, lineUsd = l.lineCents / 100, orderId = payId + '_' + i, had = left[l.itemId] || 0;
+        const oversold = l.qty > had;
+        left[l.itemId] = Math.max(0, had - l.qty);
+        totalQty += l.qty;
+        const rate = S.rkSellerRateAt(sel || {}, cfg.launchPerks), comm = lineUsd * rate, net = round2(lineUsd - comm);
+        netProfit += comm;
+        const ledgerIds = [];
+        if (net > 0 && rkId(l.sellerId)) {
+          tx.set(ledgerRef(appId, payId + '_s' + i), Object.assign({ entryType: 'seller', refUid: l.sellerId, saleId: l.itemId, orderId, itemName: l.name + (l.qty > 1 ? ' ×' + l.qty : ''), amountUsd: net, grossUsd: lineUsd, pct: 0, commissionPct: round2(rate * 100) }, base));
+          ledgerIds.push(payId + '_s' + i);
+        }
+        if (refUid && referrer) {
+          const pct = S.rkRefSharePct(referrer), achPct = round2(pct - S.rkRefBasePct(referrer)), raw = comm * pct / 100, rev = round2(raw);
+          netProfit -= raw;
+          if (rev > 0) {
+            tx.set(ledgerRef(appId, payId + '_r' + i), Object.assign({ entryType: 'referral', refUid, saleId: l.itemId, orderId, itemName: l.name, amountUsd: rev, pct, achPct }, base));
+            ledgerIds.push(payId + '_r' + i);
+            out.revTotal = round2(out.revTotal + rev);
+          }
+        }
+        tx.set(orderRef(appId, orderId), {
+          itemId: l.itemId, itemName: l.name, itemImage: l.image || '', qty: l.qty, amountUsd: lineUsd, buyerId: p.uid, buyerName: p.buyerName || 'Raver',
+          sellerId: l.sellerId, sellerName: l.sellerName || 'Raver', payMethod: 'crypto', txSig, paymentId: payId, reference: p.reference, cluster: p.cluster,
+          chainVerified: true, ledgerIds, status: 'paid_unfinished', trackingNumber: '', createdAt: now, updatedAt: now, walletVerified: false,
+          ledgerVerified: true, oversold, ver: VER,
+        });
+        orderIds.push(orderId);
+        if (sel) { add(l.sellerId, 'itemsSold', l.qty); add(l.sellerId, 'totalSalesValue', lineUsd); }
+        const g = out.groups[l.sellerId] = out.groups[l.sellerId] || { n: 0, qty: 0, cents: 0, names: [] };
+        g.n += 1; g.qty += l.qty; g.cents += l.lineCents; g.names.push(l.name + (l.qty > 1 ? ' ×' + l.qty : ''));
+        if (oversold) out.overs.push({ i, name: l.name, qty: l.qty, had, sellerId: l.sellerId });
+      });
+      itemIds.forEach(id => {
+        const it = items[id]; if (!it) return;
+        const q = lines.filter(l => l.itemId === id).reduce((a, l) => a + l.qty, 0);
+        const upd = { purchaseCount: FV().increment(q), buyers: FV().arrayUnion(p.uid) };
+        if (typeof it.stockQty === 'number') upd.stockQty = Math.max(0, it.stockQty - q);
+        tx.update(itemRef(appId, id), upd);
+      });
+      if (buyer) { add(p.uid, 'itemsBought', totalQty); add(p.uid, 'totalBoughtValue', num(p.totalCents) / 100); }
+      if (refUid && referrer && out.revTotal > 0) {
+        add(refUid, 'totalRevShareEarned', out.revTotal);
+        tx.set(db().doc('artifacts/' + appId + '/users/' + refUid + '/myReferrals/' + p.uid), { earnedFromThisUser: FV().increment(out.revTotal) }, { merge: true });
+        out.refUid = refUid;
+      }
+      // partnerships: their share of what the platform kept from this payment (commission, less RevShare)
+      if (netProfit > 0) partners.forEach(pt => {
+        const share = round2(netProfit * pt.pct / 100);
+        if (share > 0) tx.set(ledgerRef(appId, payId + '_p_' + pt.uid), Object.assign({ entryType: 'partner', refUid: pt.uid, saleId: '', orderId: '', itemName: 'Partnership share (' + pt.pct + '% of profit)', amountUsd: share, pct: pt.pct }, base));
+      });
+      Object.keys(inc).forEach(u => {
+        const o = {};
+        Object.keys(inc[u]).forEach(f => { o[f] = FV().increment(f === 'itemsSold' || f === 'itemsBought' ? inc[u][f] : round2(inc[u][f])); });
+        tx.update(userRef(appId, u), o);
+      });
+      // the platform's sales total (the marquee's TOTAL SALES): counted here, so no cap
+      tx.set(db().doc('artifacts/' + appId + '/global/stats'), { salesTotal: FV().increment(round2(num(p.totalCents) / 100)) }, { merge: true });
+      lines.forEach(l => tx.delete(cartRef(appId, p.uid, l.cartId)));
+      paid.orderIds = orderIds; paid.oversold = out.overs.length > 0;
+      out.orderIds = orderIds;
+    }
+    mine.forEach(f => tx.set(sigRef(appId, f.sig), { payId, uid: p.uid, micro: f.micro, at: now }));
+    const notes = [];
+    if (out.overs.length) notes.push('oversold');
+    if (over >= 10000) notes.push('overpaid $' + (over / 1e6).toFixed(2));
+    if (out.vipKept) notes.push('VIP was already permanent');
+    if (notes.length) { paid.flagged = true; paid.flagNote = notes.join(', '); }
+    tx.update(pref, paid);
+    return out;
+  });
+};
+
+// After a sale: everyone it concerns, each notice once.
+const rkAfterPaid = async (appId, payId, r) => {
+  const p = r.p, total = usd(p.totalCents), who = '@' + (p.buyerName || 'A raver'), id8 = payId.slice(0, 8);
+  if (p.kind === 'vip') {
+    if (r.vipKept) await rkTell(appId, p.uid, 'order', '👑 Your VIP was already permanent when your $' + total + ' USDC arrived, so nothing changed. Support will refund it to the wallet you paid from.', '@vip', 'vipkept_' + payId);
+    else await rkTell(appId, p.uid, 'order', p.plan === 'monthly'
+      ? '👑 VIP Monthly is on until ' + rkDay(r.vipExpires) + '. Paid $' + total + ' USDC, checked on the Solana chain. It doesn\'t renew by itself: pay again any time to add 30 more days.'
+      : '👑 VIP Lifetime unlocked! Paid $' + total + ' USDC, checked on the Solana chain. 6 Profile Pins, Themes, Banners, Boosts and the Font Selector are yours for good.', '@vip', 'vip_' + payId);
+  } else {
+    const n = (r.orderIds || []).length, sellers = Object.keys(r.groups);
+    await rkTell(appId, p.uid, 'order', '✅ Paid $' + total + ' USDC, checked on the Solana chain. ' + (n === 1 ? 'Your order is' : 'Your ' + n + ' orders are') + ' with the seller' + (sellers.length === 1 ? '' : 's') + ' now: follow ' + (n === 1 ? 'it' : 'them') + ' in My Orders.', '@orders:buying', 'paid_' + payId);
+    for (const sid of sellers) {
+      const g = r.groups[sid];
+      await rkTell(appId, sid, 'sold', '💰 ' + who + ' bought ' + (g.n === 1 ? '"' + g.names[0] + '"' : g.qty + ' of your items (' + g.names.slice(0, 3).map(x => '"' + x + '"').join(', ') + (g.n > 3 ? '…' : '') + ')') + ' for $' + usd(g.cents) + ', paid in USDC and checked on-chain. Open My Orders to make and ship it.', '@orders:selling', 'sold_' + payId + '_' + sid);
+    }
+    if (r.refUid && r.revTotal > 0) await rkTell(appId, r.refUid, 'referral', '💜 RevShare +$' + r.revTotal.toFixed(2) + ': ' + who + ', a raver you brought in, just bought on RaveKandi. It\'s on your ledger in the RevShare portal.', '@portal', 'rev_' + payId);
+    for (const o of r.overs) {
+      await rkTell(appId, o.sellerId, 'sold', '⚠️ "' + o.name + '": ' + who + ' bought ' + o.qty + ', but your listing had ' + o.had + ' left (another buyer paid first). Restock it and ship, or tell the buyer and ask support to refund.', '@orders:selling', 'over_' + payId + '_' + o.i);
+      await rkTellAdmins(appId, '⚠️ Oversold: "' + o.name + '" (' + o.qty + ' bought, ' + o.had + ' left) on payment ' + id8 + ' from ' + who + '. Admin → Config → Payments to check.', 'over_' + payId + '_' + o.i);
+    }
+  }
+  if (r.over >= 10000) {
+    const extra = (r.over / 1e6).toFixed(2);
+    await rkTell(appId, p.uid, 'order', '💸 You sent $' + (r.micro / 1e6).toFixed(2) + ' for a $' + total + ' total. Support will refund the $' + extra + ' difference to the wallet you paid from.', p.kind === 'vip' ? '@vip' : '@orders:buying', 'overpaid_' + payId);
+    await rkTellAdmins(appId, '💸 Overpaid by $' + extra + ' on payment ' + id8 + ' from ' + who + ': refund it from the platform wallet. Admin → Config → Payments to check.', 'overpaid_' + payId);
+  }
+  if (r.vipKept) await rkTellAdmins(appId, '👑 Payment ' + id8 + ' from ' + who + ' ($' + total + ') arrived after their VIP became permanent: refund it. Admin → Config → Payments to check.', 'vipkept_' + payId);
+};
+
+// A day on and still short (or nothing at all): the payment closes.
+const rkClose = async (appId, payId, micro, p) => {
+  const ref = payCol(appId).doc(payId);
+  if (micro > 0) {
+    await ref.update({ status: 'underpaid', closedAt: Date.now(), flagged: true, flagNote: 'underpaid: $' + (micro / 1e6).toFixed(2) + ' of $' + usd(p.totalCents) });
+    const got = (micro / 1e6).toFixed(2), who = '@' + (p.buyerName || 'A raver');
+    await rkTell(appId, p.uid, 'order', '⚠️ $' + got + ' of your $' + usd(p.totalCents) + ' payment arrived, which wasn\'t the full amount, so ' + (p.kind === 'vip' ? 'VIP wasn\'t turned on' : 'no order was made') + '. Support will refund the $' + got + ' to the wallet you paid from.', p.kind === 'vip' ? '@vip' : '@orders:buying', 'under_' + payId);
+    await rkTellAdmins(appId, '⚠️ Underpaid: $' + got + ' of $' + usd(p.totalCents) + ' on payment ' + payId.slice(0, 8) + ' from ' + who + ', a day on. Refund it from the platform wallet. Admin → Config → Payments to check.', 'under_' + payId);
+  } else await ref.update({ status: 'expired', closedAt: Date.now() });
+};
+
+// The app asking: has it arrived? (at most every 4 seconds per payment, per server instance)
+const rkSeen = new Map();
+const rkCheck = async (appId, uid, d, cfg) => {
+  const id = rkId(d.payId);
+  if (!id) fail('invalid-argument', 'Which payment?');
+  const ref = payCol(appId).doc(id), s = await ref.get();
+  const p = s.exists ? (s.data() || {}) : null;
+  if (!p || p.uid !== uid) fail('failed-precondition', 'That payment isn\'t yours, or isn\'t there.');
+  if (p.status !== 'pending') return rkPayOut(id, p);
+  const now = Date.now();
+  if (now - (rkSeen.get(id) || 0) < 4000) return rkPayOut(id, p);
+  rkSeen.set(id, now);
+  if (rkSeen.size > 2000) rkSeen.delete(rkSeen.keys().next().value);
+  let found;
+  try { found = await rkScan(p); } catch (e) { console.error('rk_money scan', id, e && e.message); return rkPayOut(id, p, 'The Solana network was slow to answer. Checking again in a moment.'); }
+  if (!found.length && !num(p.receivedMicro)) return rkPayOut(id, p);
+  const r = await rkSettle(appId, id, found, cfg, p);
+  if (r.fulfilled) await rkAfterPaid(appId, id, r);
+  const fresh = await ref.get();
+  return rkPayOut(id, fresh.data() || p);
+};
+
+// ================================================================================================================
+// ORDERS: the seller moves an order along, the buyer says it arrived, and a buyer reviews what they bought
+// ================================================================================================================
+const rkStage = async (appId, uid, d) => {
+  const id = rkId(d.orderId);
+  if (!id) fail('invalid-argument', 'Which order?');
+  const ref = orderRef(appId, id);
+  const res = await db().runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) fail('failed-precondition', 'That order isn\'t there any more.');
+    const o = s.data() || {}, st = S.RK_ORDER_FLOW[o.status] || null;
+    if (o.sellerId !== uid) fail('permission-denied', 'Only the seller moves this order along.');
+    if (!st || !st.next) fail('failed-precondition', 'This order is complete.');
+    if (st.by !== 'seller') fail('failed-precondition', 'This order is waiting on the buyer now.');
+    const upd = { status: st.next, updatedAt: Date.now() };
+    if (st.next === 'paid_shipped') {
+      const tn = String(d.tracking || '').replace(/[^A-Za-z0-9 #._-]/g, '').trim().slice(0, 60);
+      if (tn && !o.trackingNumber) upd.trackingNumber = tn;   // locks once entered
+      upd.shippedAt = Date.now();
+    }
+    tx.update(ref, upd);
+    return { o, next: st.next, tracking: upd.trackingNumber || o.trackingNumber || '' };
+  });
+  await rkTell(appId, res.o.buyerId, 'order', '🧾 Your order "' + res.o.itemName + '" is now: ' + RK_STAGE(res.next) + (res.next === 'paid_shipped' && res.tracking ? '. Tracking: ' + res.tracking : '') + '. Tap to see it in My Orders.', '@orders:buying', 'stage_' + id + '_' + res.next);
+  return { ok: true, status: res.next, trackingNumber: res.tracking };
+};
+
+const rkReceived = async (appId, uid, d) => {
+  let ids = [];
+  if (rkId(d.orderId)) ids = [d.orderId];
+  else if (rkId(d.itemId)) {
+    const qs = await pubCol(appId, 'orders').where('buyerId', '==', uid).where('itemId', '==', d.itemId).limit(10).get();
+    ids = qs.docs.filter(x => (x.data() || {}).status !== 'paid_completed').map(x => x.id);
+  }
+  if (!ids.length) fail('failed-precondition', 'No order of yours is waiting on this.');
+  const done = [];
+  for (const id of ids) {
+    const ref = orderRef(appId, id);
+    const res = await db().runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      if (!s.exists) fail('failed-precondition', 'That order isn\'t there any more.');
+      const o = s.data() || {};
+      if (o.buyerId !== uid) fail('permission-denied', 'Only the buyer confirms an order arrived.');
+      if (o.status === 'paid_completed') return { o, skip: true };
+      if (!S.RK_ORDER_FLOW[o.status]) fail('failed-precondition', 'This order can\'t be completed.');
+      const ss = rkId(o.sellerId) ? await tx.get(userRef(appId, o.sellerId)) : null;
+      const led = (Array.isArray(o.ledgerIds) ? o.ledgerIds : []).filter(x => rkId(x));
+      const ls = led.length ? await tx.get(ledgerRef(appId, led[0])) : null;
+      const its = rkId(o.itemId) ? await tx.get(itemRef(appId, o.itemId)) : null;
+      const sp = ss && ss.exists ? (ss.data() || {}) : null;
+      if (!sp || !sp.walletReady) return { o, noWallet: true };
+      const ledgerOk = !!o.chainVerified && (!led.length || !!(ls && ls.exists));
+      const now = Date.now();
+      tx.update(ref, { status: 'paid_completed', updatedAt: now, completedAt: now, receivedAt: now, walletVerified: true, ledgerVerified: ledgerOk });
+      if (its && its.exists) tx.update(itemRef(appId, o.itemId), { deliveryConfirmed: true, deliveryConfirmedAt: now });
+      if (o.chainVerified) tx.update(userRef(appId, o.sellerId), { ordersDelivered: FV().increment(1) });
+      return { o, ok: true };
+    });
+    if (res.noWallet) {
+      await rkTell(appId, res.o.sellerId, 'order', '👛 @' + (res.o.buyerName || 'Your buyer') + ' says "' + res.o.itemName + '" arrived, but you have no payout wallet yet, so the order can\'t complete. Add one in Crypto Wallet; then they can confirm it.', '@wallet', 'nowallet_' + id);
+      fail('failed-precondition', 'This order can\'t be completed yet: the seller hasn\'t added a payout wallet. We\'ve told them; try again once they have.');
+    }
+    if (res.ok) {
+      done.push(id);
+      await rkTell(appId, res.o.sellerId, 'order', '✅ @' + (res.o.buyerName || 'Your buyer') + ' received "' + res.o.itemName + '". The order is complete.', '@orders:selling', 'done_' + id);
+    }
+  }
+  return { ok: true, completed: done };
+};
+
+const rkStampPosts = async (appId, sellerId, sum, count) => {
+  try {
+    const qs = await pubCol(appId, 'tradeItems').where('ownerId', '==', sellerId).limit(500).get();
+    const stale = qs.docs.filter(x => { const v = x.data() || {}; return num(v.ownerRatingSum) !== sum || num(v.ownerRatingCount) !== count; });
+    for (let i = 0; i < stale.length; i += 400) {
+      const b = db().batch();
+      stale.slice(i, i + 400).forEach(x => b.update(x.ref, { ownerRatingSum: sum, ownerRatingCount: count }));
+      await b.commit();
+    }
+  } catch (e) { console.error('rk_money stamp', sellerId, e && e.message); }
+};
+const rkReview = async (appId, uid, d) => {
+  const itemId = rkId(d.itemId), rating = Math.round(num(d.rating));
+  if (!itemId) fail('invalid-argument', 'Which listing?');
+  if (!(rating >= 1 && rating <= 5)) fail('invalid-argument', 'Pick 1 to 5 stars.');
+  const text = String(d.text || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (text.length < 2) fail('invalid-argument', 'Write a few words about it.');
+  await rkWordCheck(appId, text, 'your review');
+  const qs = await pubCol(appId, 'orders').where('buyerId', '==', uid).where('itemId', '==', itemId).limit(10).get();
+  const mine = qs.docs.filter(x => (x.data() || {}).chainVerified);
+  if (!mine.length) fail('permission-denied', 'Reviews are for things you bought here, paid in USDC and checked on-chain.');
+  const res = await db().runTransaction(async (tx) => {
+    const [is, bs] = await tx.getAll(itemRef(appId, itemId), userRef(appId, uid));
+    if (!is.exists) fail('failed-precondition', 'That listing isn\'t there any more.');
+    const it = is.data() || {}, sellerId = rkId(it.ownerId);
+    if (sellerId === uid) fail('permission-denied', 'You can\'t review your own listing.');
+    if ((Array.isArray(it.reviews) ? it.reviews : []).some(x => x && x.uid === uid)) fail('already-exists', 'You\'ve reviewed this one already.');
+    const ss = sellerId ? await tx.get(userRef(appId, sellerId)) : null;
+    const me = bs.exists ? (bs.data() || {}) : {}, now = Date.now();
+    const review = { uid, user: String(me.displayName || 'Buyer').slice(0, 60), rating, text, timestamp: now, at: now, verified: true };
+    tx.update(itemRef(appId, itemId), { reviews: FV().arrayUnion(review) });
+    if (bs.exists) tx.update(userRef(appId, uid), { reviewsLeft: FV().increment(1) });
+    let sum = null, count = null;
+    if (ss && ss.exists) {
+      const sp = ss.data() || {};
+      sum = num(sp.ratingSum) + rating; count = num(sp.ratingCount) + 1;
+      tx.update(userRef(appId, sellerId), { ratingSum: sum, ratingCount: count, ratingTxns: count, avgRatingX100: Math.round(sum * 100 / count) });
+    }
+    mine.forEach(x => tx.update(x.ref, { reviewedAt: now, rating }));
+    return { sellerId, sum, count, name: String(it.name || 'your listing').slice(0, 60), buyer: review.user, review };
+  });
+  // every post of theirs shows the rating just saved (ownerRatingSum/Count)
+  if (res.sellerId && res.count !== null) await rkStampPosts(appId, res.sellerId, res.sum, res.count);
+  if (res.sellerId) await rkTell(appId, res.sellerId, 'sold', '⭐ @' + res.buyer + ' rated "' + res.name + '" ' + '★'.repeat(rating) + ': "' + text.slice(0, 120) + (text.length > 120 ? '…' : '') + '"', itemId, 'review_' + itemId + '_' + uid);
+  return { ok: true, review: res.review };
+};
+
+// ================================================================================================================
+// WHAT THE APP ASKS FOR (one callable)
+// ================================================================================================================
+exports.rkMoney = onCall({ timeoutSeconds: 60, maxInstances: 20 }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid) fail('unauthenticated', 'Sign in first.');
+  const prov = req.auth.token && req.auth.token.firebase && req.auth.token.firebase.sign_in_provider;
+  if (prov === 'anonymous') fail('permission-denied', 'Create an account first.');
+  const d = (req.data && typeof req.data === 'object') ? req.data : {};
+  const cfg = await rkCfg(APP);
+  switch (String(d.op || '')) {
+    case 'start': return rkStart(APP, uid, d, cfg);
+    case 'check': return rkCheck(APP, uid, d, cfg);
+    case 'stage': return rkStage(APP, uid, d);
+    case 'received': return rkReceived(APP, uid, d);
+    case 'review': return rkReview(APP, uid, d);
+    default: fail('invalid-argument', 'Unknown action.');
+  }
+});
+
+// Every 5 minutes: each payment still waiting, looked up on the chain (a payment's first 2 hours each time, then every
+// half hour), so one paid after the app closed is still credited. A day on, one that's short closes.
+exports.paySweep = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300, memory: '256MiB' }, async () => {
+  const appId = APP, cfg = await rkCfg(appId), now = Date.now();
+  const qs = await payCol(appId).where('status', '==', 'pending').limit(200).get();
+  const half = Math.floor(now / 300000) % 6 === 0;
+  let checked = 0, paid = 0, closed = 0;
+  for (const x of qs.docs) {
+    const p = x.data() || {}, age = now - num(p.createdAt);
+    if (age > 2 * 3600000 && age <= RK_LATE && !half) continue;
+    let found = null;
+    try { found = await rkScan(p); checked++; } catch (e) { console.error('paySweep scan', x.id, e && e.message); continue; }
+    const r = await rkSettle(appId, x.id, found, cfg, p).catch(e => { console.error('paySweep settle', x.id, e && e.message); return null; });
+    if (!r) continue;
+    if (r.fulfilled) { paid++; await rkAfterPaid(appId, x.id, r); continue; }
+    if (age > RK_LATE && r.status === 'pending') { closed++; await rkClose(appId, x.id, r.micro || 0, p); }
+  }
+  console.log('paySweep', { pending: qs.size, checked, paid, closed });
+});
+
+// for the build's own test (node) only: never exported when deployed
+if (process.env.RK_MONEY_TEST) exports._rkTest = { rkDelta, rkScan, rkSettle, rkStart, rkCheck, rkCfg, rkB58, rkNewRef, rkPayUrl, setFetch: (f) => { rkFetch = f; }, reset: () => { cfgCache = { at: 0, v: null }; rkSeen.clear(); } };
+RKMONEYEOF
+echo "  functions/rk_money.js written (script-owned): paying in USDC, orders, the ledger and reviews (rkMoney, paySweep)."
 # V90.85.150.325: THE STATS ENGINE (rk_stats.js) and the definitions it shares with the app (rk_shared.js, made from
 # src/rkShared.js here, so the two can never disagree).
 if [ -f "$HOME/RaveKandi-Build/src/rkShared.js" ]; then
@@ -29928,7 +30504,7 @@ else
     echo "  functions would fail to load, so don't deploy functions from this run. Send me: tail -3 $RK_FN_DIR/rk_shared.js"
 fi
 cat << 'RKSTATSEOF' > "$RK_FN_DIR/rk_stats.js"
-// RaveKandi stats engine, server side (V90.85.150.325; V90.86.150.326). Script-owned: the build regenerates this file.
+// RaveKandi stats engine, server side (V90.85.150.325; V90.86.150.326; V90.88.151.329). Script-owned: the build regenerates this file.
 //
 // Milli, at 323: "ensure all ways users could manually edit stats, analytics, likes, or any other statistic or number
 // is prevented. No user should be able to edit tracked statistics". 323's rules hold what a rule can check. This file
@@ -29956,7 +30532,7 @@ let rkModCleanFor = null;
 try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
 
 const APP = 'ravekandi-core-prod';
-const VER = 'V90.86.150.326';
+const VER = 'V90.88.151.329';
 const db = () => admin.firestore();
 const FV = () => admin.firestore.FieldValue;
 const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
@@ -30248,10 +30824,21 @@ exports.statsOnUser = onDocumentWritten('artifacts/{appId}/users/{uid}', async (
 // A post changed: its owner's post figures (when likes, comments, the festival or what kind of post it is moved, not
 // on a view), and likes given for whoever liked or unliked it.
 const RK_POST_FIELDS = ['ownerId', 'likes', 'comments', 'commentCount', 'event', 'tradeWants', 'isDIYRequest', 'isRequest', 'status', 'isDesignConcept'];
+// V90.88.151.329: a new post shows its owner's rating as the server has it (ownerRatingSum, ownerRatingCount). The app no
+// longer writes them (the rules allow only nothing, or the owner's real figures), and a review updates every post of the
+// seller's (rk_money.js).
+const rkStampRating = async (appId, id, a) => {
+  const s = await userRef(appId, a.ownerId).get();
+  if (!s.exists) return;
+  const u = s.data() || {}, sum = num(u.ratingSum), count = num(u.ratingCount);
+  if (num(a.ownerRatingSum) === sum && num(a.ownerRatingCount) === count) return;
+  await pub(appId, 'tradeItems').doc(id).update({ ownerRatingSum: sum, ownerRatingCount: count });
+};
 exports.statsOnPost = onDocumentWritten('artifacts/{appId}/public/data/tradeItems/{id}', async (event) => {
   const { appId } = event.params;
   if (appId !== APP) return;
   const b = rkData(event.data && event.data.before), a = rkData(event.data && event.data.after);
+  if (a && a.ownerId && typeof a.ownerId === 'string' && !a.ownerId.includes('/') && (!b || b.ownerId !== a.ownerId)) await rkStampRating(appId, event.params.id, a).catch(e => console.error('rating stamp', event.params.id, e && e.message));
   if (b && a && !RK_POST_FIELDS.some(k => JSON.stringify(b[k]) !== JSON.stringify(a[k]))) return;
   const cfg = await rkCfg(appId);
   const owners = rkIds(b && b.ownerId, a && a.ownerId);
@@ -30427,7 +31014,9 @@ const rkVipGift = async (appId, uid, d) => {
   let tRef = userRef(appId, target);
   if (!(await tRef.get()).exists) {
     const q = await db().collection('artifacts/' + appId + '/users').where('publicUid', '==', target).limit(1).get();
-    if (q.empty) fail('not-found', 'No raver found with that ID.');
+    // V90.88.151.329: failed-precondition, not not-found: the app reads not-found as "this server update isn't live yet",
+    // so a Friend UID that matches nobody said that instead of this
+    if (q.empty) fail('failed-precondition', 'No raver found with that ID.');
     tRef = q.docs[0].ref;
   }
   if (tRef.id === uid) fail('invalid-argument', 'You cannot gift yourself — spread the PLUR outward! 💖');
@@ -30437,7 +31026,7 @@ const rkVipGift = async (appId, uid, d) => {
   try { const c = await db().collection('artifacts/' + appId + '/users/' + uid + '/myReferrals').count().get(); refs = num(c.data().count); } catch (e) { refs = null; }
   const res = await db().runTransaction(async (tx) => {
     const [me, t] = await tx.getAll(meRef, tRef);
-    if (!me.exists || !t.exists) fail('not-found', 'No raver found with that ID.');
+    if (!me.exists || !t.exists) fail('failed-precondition', 'No raver found with that ID.');
     const m = me.data() || {}, tp = t.data() || {};
     const left = S.rkVipGiftAllotment(refs === null ? num(m.referrals) : refs) + num(m.vipGiftBonus) - num(m.vipGiftsSent);
     if (left <= 0) fail('failed-precondition', 'No gift passes left — refer more ravers to earn more!');
@@ -30451,23 +31040,9 @@ const rkVipGift = async (appId, uid, d) => {
   return { ok: true, uid: tRef.id, name: res.name, left: res.left };
 };
 
-// The VIP checkout, while payments are in test mode (no money moves): what the app's card form wrote itself until 325.
-// It refuses once "Payments LIVE" is on, until real billing verifies a payment here.
-const rkVipBuy = async (appId, uid, d, cfg) => {
-  if (!cfg.checkoutEnabled) fail('failed-precondition', cfg.maintenanceMessage || 'Checkout is temporarily disabled — try again soon!');
-  if (cfg.paymentsLive) fail('failed-precondition', 'Live payments are not wired into this build yet — keep "Payments LIVE" OFF in remote config until real billing ships.');
-  const plan = d.plan === 'monthly' ? 'monthly' : 'lifetime';
-  const ref = userRef(appId, uid), now = Date.now();
-  return db().runTransaction(async (tx) => {
-    const s = await tx.get(ref);
-    if (!s.exists) fail('failed-precondition', 'Set up your profile first.');
-    const p = s.data() || {};
-    if (p.isVIP && S.rkVipForever(p)) fail('already-exists', 'Your VIP is already permanent.');
-    const vipExpires = plan === 'monthly' ? Math.max(now, num(p.vipExpires)) + 2592000000 : null;   // renewals stack +30 days
-    tx.set(ref, { isVIP: true, vipPlan: plan, vipSince: now, vipExpires }, { merge: true });
-    return { ok: true, plan, vipExpires };
-  });
-};
+// V90.88.151.329: VIP is paid in USDC and turned on by rk_money.js once the payment is found on the chain. The test-mode
+// checkout (rkVipBuy, 325 to 328: VIP with no money moving) is gone; a 328 app asking for it is told to update.
+const rkVipBuy = async () => fail('failed-precondition', 'VIP is paid in USDC now. Update RaveKandi to pay for it.');
 
 exports.rkAct = onCall({ timeoutSeconds: 60 }, async (req) => {
   const uid = req.auth && req.auth.uid;
@@ -30502,9 +31077,17 @@ exports.statsDaily = onSchedule({ schedule: '20 3 * * *', timeZone: 'Etc/UTC', t
     const due = rated.docs.filter(d => { const x = d.data() || {}; return !touched.has(d.id) && S.rkRatingQualifies(x) && x.ratingVipMonth !== S.rkMonthKey(now); }).map(d => d.id);
     await rkEach(due, 5, (u) => rkSettle(appId, u, cfg));
   }
+  // V90.88.151.329: VIP Monthly is paid in USDC and doesn't renew by itself, so a reminder 3 days before it ends
+  const soon = await users.where('vipExpires', '>', now + 2 * 86400000).where('vipExpires', '<=', now + 3 * 86400000).limit(500).get();
+  for (const d of soon.docs) {
+    const x = d.data() || {};
+    if (!x.isVIP || x.vipPlan !== 'monthly') continue;
+    const day = new Date(num(x.vipExpires)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
+    await rkTell(appId, d.id, 'order', '👑 Your VIP Monthly ends ' + day + '. It doesn\'t renew by itself: pay $' + (S.RK_PAY.vipCents.monthly / 100).toFixed(2) + ' in USDC from VIP to add 30 more days.', '@vip', 'vipsoon_' + num(x.vipExpires));
+  }
   const act = await users.where('activeSavedAt', '>=', now - 3 * 86400000).limit(1000).get();
   await rkEach(act.docs.map(d => d.id), 5, (u) => rkRecount(appId, u, ALL, cfg));
-  console.log('statsDaily', { ended: late.length, active: act.size });
+  console.log('statsDaily', { ended: late.length, ending: soon.size, active: act.size });
 });
 
 // for the build's own test (node) only: never exported when deployed
@@ -30512,14 +31095,15 @@ if (process.env.RK_STATS_TEST) exports._rkTest = { rkEvaluate, rkCount, rkRecoun
 RKSTATSEOF
 echo "  functions/rk_stats.js written (script-owned): the stats engine."
 # V90.85.150.325: and the module loads with what it needs: rk_shared.js parses, and the six functions are exported
-if node -e "const S=require('$RK_FN_DIR/rk_shared.js'); if(!S.RK_ACH_DEFS||S.RK_ACH_DEFS.length<90||typeof S.rkAchList!=='function') process.exit(1)" 2>/dev/null; then
+if node -e "const S=require('$RK_FN_DIR/rk_shared.js'); if(!S.RK_ACH_DEFS||S.RK_ACH_DEFS.length<90||typeof S.rkAchList!=='function'||!S.RK_PAY||typeof S.rkLineCents!=='function') process.exit(1)" 2>/dev/null; then
     echo "  functions/rk_shared.js loads: $(node -e "const S=require('$RK_FN_DIR/rk_shared.js'); console.log(S.RK_ACH_DEFS.length+' achievements')" 2>/dev/null)."
 else
     echo "  ERROR: functions/rk_shared.js doesn't load in Node. Don't deploy functions from this run; send me the build log."
 fi
 # V89.84.150.323: vote reminders and the server-side word check, whichever branch ran above
 # V90.85.150.325: and the stats engine
-for RK_MOD in rk_votes rk_mod rk_stats; do
+# V90.88.151.329: and money on the server
+for RK_MOD in rk_votes rk_mod rk_stats rk_money; do
     if ! grep -q "$RK_MOD" "$RK_FN_DIR/index.js"; then
         printf '\n// V89.84.150.323: generated by the build script into %s.js.\nmodule.exports = Object.assign(module.exports, require("./%s"));\n' "$RK_MOD" "$RK_MOD" >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: $RK_MOD re-export appended."
@@ -31003,13 +31587,15 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  328 needs two steps by hand, in this order, once WEB says OK:"
+echo "  329 needs two steps by hand, in this order, once WEB says OK:"
 echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (rk_radio.js: the hourly check of every station, and the check after a station won't connect;"
-echo "       rk_shared.js: the stations and Station Hopper. If it stops at"
-echo "       \"Error generating the service identity for pubsub.googleapis.com\", run the same command again)"
-echo "   2. firebase deploy --only firestore:rules, with 328's rules file (RK_VERIFY_328, section 4),"
-echo "      once the functions say Deploy complete! (the app reads the station check; Station Hopper's list)"
+echo "      (rk_money.js, new: paying in USDC, orders and reviews (rkMoney) and the 5-minute payment check"
+echo "       (paySweep); rk_stats.js and rk_shared.js. Until it says Deploy complete!, checkout says the server"
+echo "       update isn't live. If it stops at \"Error generating the service identity for pubsub.googleapis.com\","
+echo "       run the same command again)"
+echo "   2. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only firestore:rules,"
+echo "      with 329's rules file (RK_VERIFY_329, section 4), once the functions say Deploy complete!"
+echo "      (it closes orders, the ledger, sales, ratings and reviews to the app: only the server writes them)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
