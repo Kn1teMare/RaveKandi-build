@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
 RK_MINOR=88
-RK_PATCH=151
-RK_BUILD=329
+RK_PATCH=152
+RK_BUILD=330
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -552,7 +552,7 @@ rm -f src/App.js
 # V90.85.150.325: the definitions the app and the server share (functions/rk_shared.js is made from it at the
 # functions step, so the two never disagree)
 cat << 'RKSHAREDEOF' > src/rkShared.js
-// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327; V90.87.151.328; V90.88.151.329). Script-owned.
+// RaveKandi: the definitions the app and the server both apply (V90.85.150.325; V90.86.150.326; V90.86.151.327; V90.87.151.328; V90.88.151.329; V90.88.152.330). Script-owned.
 // The build writes this file as src/rkShared.js for the app, and functions/rk_shared.js (the same text, with
 // module.exports for its last line) for the Cloud Functions, so the two can never disagree: what an
 // achievement reads, what it rewards, the commission and referral rates, the festival dates, the link checks.
@@ -791,6 +791,9 @@ const RK_ACH_DEFS = [
     // commission (rkAchBonuses), with its own emblem and a marquee line.
     { id: 'review_1', name: 'Honest Review', tier: 1, metric: 'reviewsLeft', threshold: 1, desc: "Review something you bought: open its listing and rate it." },
     { id: 'delivered_5', name: 'Trusted Seller', tier: 2, metric: 'ordersDelivered', threshold: 5, desc: "5 buyers confirm the orders they paid you for arrived." },
+    // V90.88.152.330: for 330, where a buyer pays with USDC alone (RaveKandi pays the network fee). Counted by the server
+    // (totalBoughtValue, written when a payment is found on the chain); trims the seller commission like the others.
+    { id: 'backer_50', name: 'Scene Backer', tier: 1, metric: 'totalBoughtValue', threshold: 50, desc: "Spend $50 with community sellers." },
     // Vibe Tribe — friends
     { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
     { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
@@ -2334,7 +2337,7 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio, review_1: Star, delivered_5: Truck };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio, review_1: Star, delivered_5: Truck, backer_50: Wallet };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'},{id:'radio',label:'Rave Radio checks'},{id:'order',label:'Orders & Payments'}];
 
@@ -10030,6 +10033,25 @@ function rkEmParcel() {
   return { g: g, e: e, h: N };
 }
 
+// V90.88.152.330: Scene Backer: a wallet with a gold coin rising out of it, a heart stamped on the coin, its clasp, and a
+// strand of kandi beads along its foot
+function rkEmBacker() {
+  var N = '#c084fc', p = rkEmPal(N), E = rkEmE, e = [], beads = '', i;
+  var g = { a: rkEmLin([p.l, p.m, N]), b: rkEmLin([p.m, N, p.d]), c: rkEmLin(['#fff6d6', '#ffc93c']) };
+  var C = rkEmCirc(50, 29, 17);
+  e.push(E(C, 0, 0, 5, 1, 'o'), E(C, 'c', '#c99a2e', 2, 1, 'b'));
+  e.push(E(rkEmHeart(50, 29.5, 9), '#ff6ec7', '#ffffff', 1, 1, 'd'));
+  var W = rkEmRound([[14, 44], [84, 44], [84, 88], [14, 88]], 8);
+  e.push(E(W, 0, 0, 5, 1, 'o'), E(W, 'a', N, 2.4, 1, 'b'));
+  e.push(E('M14 54H84', 0, '#1a0a33', 2.2, 0.55, 'd'));
+  var F = rkEmRound([[60, 58], [90, 58], [90, 76], [60, 76]], 5);
+  e.push(E(F, 0, 0, 4, 1, 'o'), E(F, 'b', N, 2, 1, 'b'), E(rkEmCirc(69, 67, 3.6), '#ffffff', N, 1.2, 1, 'd'));
+  for (i = 0; i < 5; i++) beads += rkEmCirc(23 + i * 7.5, 80, 2.6);
+  e.push(E(beads, '#5ef0a8', '#ffffff', 0.6, 1, 'd'));
+  e.push(E(rkEmSpark(86, 16, 5) + rkEmSpark(14, 24, 3.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -10058,7 +10080,7 @@ function rkEmSpec() {
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
     ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2], ['hop_25', rkEmRadio, 4, 2],
-    ['review_1', rkEmReview, 1, 2], ['delivered_5', rkEmParcel, 1, 3]], t = {};
+    ['review_1', rkEmReview, 1, 2], ['delivered_5', rkEmParcel, 1, 3], ['backer_50', rkEmBacker, 1, 2]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -10642,6 +10664,38 @@ const PayoutQueuePanel = () => {
 // for the last one), overpaid, underpaid a day on, or VIP that was already permanent. Each needs a refund from the platform
 // wallet, to the wallet that paid (payer, which the server read from the transaction), or a restock. The admin notices for
 // them open this list. Read-only: the refund is sent in Phantom.
+// V90.88.152.330: RAVEKANDI'S FEE WALLET (Admin → Config, above Payments to check). It pays Solana's network fee on buyers'
+// USDC payments of $1 or more (functions/rk_money.js, rkPayTx), so a buyer needs only USDC. Its address and what it holds
+// on the network payments use now come from the server (rkMoney 'fee'), which on Devnet also asks the faucet for test SOL
+// when it's under 0.5. Tap the address to copy it, to fund it: Devnet from faucet.solana.com, Mainnet from any wallet.
+const RkFeeWalletPanel = () => {
+    const [f, setF] = useState(null);
+    const [err, setErr] = useState('');
+    const [copied, setCopied] = useState(false);
+    useEffect(() => {
+        let alive = true;
+        rkMoney('fee').then(r => { if (alive) setF(r); }).catch(e => { if (alive) setErr(/unknown action/i.test(String(e.message)) ? "the 330 server update isn't live yet (RK_VERIFY_330, section 4: deploy functions)." : (e.message || "the server didn't answer.")); });
+        return () => { alive = false; };
+    }, []);
+    if (err) return <p className="text-xs text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded p-2 mb-3" data-fee-wallet="error">⛽ Fee wallet: {err}</p>;
+    if (!f) return <p className="text-xs text-white mb-3" data-fee-wallet="loading">⛽ Fee wallet: asking the server…</p>;
+    const net = f.cluster === 'devnet' ? 'Solana Devnet' : 'Solana Mainnet';
+    if (!f.set) return <p className="text-xs text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded p-2 mb-3" data-fee-wallet="unset">⛽ Fee wallet: not set up, or its key can't be read, so buyers pay the network fee in SOL. Set it up once: RK_VERIFY_330, section 3.</p>;
+    const sol = Number(f.lamports || 0) / 1e9;
+    const st = (!f.feeSponsor || f.payLink !== 'tx') ? 'off' : f.low ? 'low' : 'on';
+    const copy = async () => { const ok = await rkCopyLink(f.addr); setCopied(!!ok); };
+    return (
+        <div className={'rounded p-2 mb-3 border ' + (st === 'on' ? 'bg-lime-900/20 border-lime-400/50' : 'bg-amber-900/30 border-amber-400/70')} data-fee-wallet={st}>
+            <p className="text-xs font-black text-white">⛽ Fee wallet: {sol.toFixed(4)} SOL on {net}</p>
+            <p className="text-xs text-white">{st === 'on' ? 'It pays the network fee on USDC payments of $' + f.minUsd + ' or more, so buyers need only USDC.' : st === 'low' ? 'It holds under 0.01 SOL. Fund it, so buyers keep paying with USDC alone.' : 'Turned off in global/config (payLink or feeSponsor), so buyers pay the fee.'}{Number(f.feesCovered) > 0 ? ' Fees it has paid: ' + f.feesCovered + '.' : ''}</p>
+            <button onClick={copy} className="w-full text-left text-xs font-mono text-cyan-200 break-all bg-black/40 border border-cyan-500/40 rounded p-2 mt-1" data-fee-addr="1">{copied ? '✓ Copied: ' : '📋 '}{f.addr}</button>
+            <p className="text-xs text-white mt-1">{f.cluster === 'devnet' ? 'Fund it with free test SOL: faucet.solana.com, paste this address, pick Devnet.' : 'Send it about 0.05 SOL from any wallet; each payment costs it about 0.00001 SOL.'}{f.destReady === false ? ' RaveKandi\'s USDC account isn\'t open on ' + net + ' yet: the first payment opens it, with about 0.002 SOL from this wallet.' : ''}</p>
+            {f.drop && <p className="text-xs text-white mt-1">Devnet faucet, asked by the server at {new Date(f.drop.at).toLocaleTimeString()}: {f.drop.ok ? 'said yes (it can take a minute to show).' : 'said no (' + (f.drop.err || 'refused') + '). Use faucet.solana.com.'}</p>}
+            {f.rpcError && <p className="text-xs text-amber-100 mt-1">The Solana network answered the server: {f.rpcError}</p>}
+        </div>
+    );
+};
+
 const PaymentsCheckPanel = () => {
     const [rows, setRows] = useState([]);
     useEffect(() => {
@@ -12486,7 +12540,25 @@ cat << 'EOF' >> src/App.js
 // while it waits. Nothing here writes an order, a sale, a ledger entry or VIP. The cart and VIP both use it.
 // Until 329 the cart verified the payment in the buyer's app and then wrote everything itself, and VIP was a card form in
 // test mode (StripeCheckoutForm, CryptoCheckoutForm: both gone).
+// V90.88.152.330: Milli, at 330: "when paying with the phantom wallet, it is forcing me to use SOL instead of the devnet
+// credits. Because of this i cannot verify payments process." Solana charges every payment's network fee in SOL, and the
+// first USDC payment on a network also opens RaveKandi's USDC account there (about 0.002 SOL); the 329 link left all of it
+// to the paying wallet. From 330 the link asks the server for the payment (rkPayTx), built exactly: that USDC, that
+// amount, with RaveKandi's fee wallet paying the fee, so the buyer needs only USDC. This window says who pays the fee, and
+// what the wallet asked for: the wallet it was, and why the payment couldn't be built for it (no USDC on this network, not
+// enough, no SOL when the buyer pays the fee, RaveKandi's own wallet).
 // ================================================================================================
+const rkPayProblem = (o, pay, net, devnet) => {
+    const w = o && o.wallet ? rkMaskAddr(o.wallet) : 'your wallet', p = (o && o.problem) || '';
+    const usdc = devnet ? ' Get test USDC at faucet.circle.com (pick Solana Devnet), then scan or tap again.' : ' Buy USDC in Phantom (Buy → USDC), then scan or tap again.';
+    if (p === 'nousdc') return '⚠️ Phantom asked to pay from ' + w + ', which has no USDC on ' + net + '.' + usdc;
+    if (p === 'low') return '⚠️ ' + w + ' holds $' + (Math.floor(Number(o.have || 0) / 10000) / 100).toFixed(2) + ' USDC on ' + net + '. This payment needs $' + pay.amount + '.' + usdc;
+    if (p === 'nosol') return '⚠️ ' + w + ' has ' + (Number(o.have || 0) / 1e9).toFixed(6) + ' SOL on ' + net + ', not enough for Solana\'s network fee, which this payment\'s wallet pays.' + (devnet ? ' Get free test SOL at faucet.solana.com (Devnet), then scan or tap again.' : ' Add a little SOL in Phantom, then scan or tap again.');
+    if (p === 'self') return '⚠️ ' + w + ' is RaveKandi\'s own wallet, the one being paid, so a payment from it can\'t count. Pay from a different wallet account in Phantom.';
+    if (p === 'feewallet') return '⚠️ ' + w + ' is RaveKandi\'s fee wallet. Pay from your own wallet.';
+    if (p === 'expired') return 'This payment\'s 30 minutes were up when Phantom asked for it. Go back and start again.';
+    return '';
+};
 const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCancel }) => {
     const [pay, setPay] = useState(null);           // the server's payment: amount, link, reference, window
     const [err, setErr] = useState('');
@@ -12536,6 +12608,8 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
     }, []);
     // V84.78.150.312: Phantom says "invalid link — contains a token that you don't own" when the paying wallet has no USDC on
     // the link's network. Before the raver taps Pay, read the saved wallet's USDC on this network and say which case it is.
+    // V90.88.152.330: and its SOL, when this payment's wallet pays the network fee; and whether it's RaveKandi's own wallet
+    const feeBy = pay ? pay.feeBy : '';
     useEffect(() => {
         if (!pay || !pay.mint) return;
         let alive = true;
@@ -12543,14 +12617,17 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
             try {
                 const addr = profile?.walletEnc ? await rkDecWallet(user?.uid, profile.walletEnc) : null;
                 if (!addr) { if (alive) setWalletCheck({ state: 'nowallet' }); return; }
+                if (addr === pay.receiver) { if (alive) setWalletCheck({ state: 'self', addr }); return; }
                 const r = await rkRpc('getTokenAccountsByOwner', [addr, { mint: pay.mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }], pay.cluster);
                 const accts = (r && r.value) || [];
                 const bal = accts.reduce((sum, x) => sum + (Number(x?.account?.data?.parsed?.info?.tokenAmount?.uiAmount) || 0), 0);
-                if (alive) setWalletCheck({ state: accts.length === 0 ? 'none' : bal + 1e-9 >= Number(pay.amount) ? 'ok' : 'low', bal, addr });
+                let sol = null;
+                if (feeBy !== 'ravekandi') { try { const b = await rkRpc('getBalance', [addr, { commitment: 'confirmed' }], pay.cluster); sol = Number(b && b.value) || 0; } catch (e) { sol = null; } }
+                if (alive) setWalletCheck({ state: accts.length === 0 ? 'none' : bal + 1e-9 >= Number(pay.amount) ? 'ok' : 'low', bal, addr, sol });
             } catch (e) { if (alive) setWalletCheck({ state: 'error' }); }
         })();
         return () => { alive = false; };
-    }, [pay?.payId]);
+    }, [pay?.payId, feeBy]);
 
     if (state === 'starting' && !pay) return <div className="text-center py-6"><p className="text-sm text-white">Getting your payment ready…</p></div>;
     if (state === 'error') return (
@@ -12560,13 +12637,18 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
         </div>
     );
     const cluster = pay.cluster === 'devnet' ? 'devnet' : 'mainnet-beta';
+    const devnet = cluster === 'devnet';
+    const net = devnet ? 'Solana Devnet (test)' : 'Solana Mainnet';
     const amount = pay.amount;
+    const exact = pay.link === 'tx';   // a 329 server's link is the plain one
     const changed = kind === 'cart' && Number.isFinite(Number(expect0.current)) && Math.abs(Number(expect0.current) - Number(pay.totalUsd)) >= 0.01;
     const what = kind === 'vip' ? (plan === 'monthly' ? 'VIP Monthly: 30 days' : 'VIP Lifetime')
         : (pay.lines || []).slice(0, 3).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join(', ') + ((pay.lines || []).length > 3 ? ' and ' + ((pay.lines || []).length - 3) + ' more' : '');
+    const opened = pay.opened && state !== 'paid' ? pay.opened : null;
+    const problem = opened ? rkPayProblem(opened, pay, net, devnet) : '';
     return (
         <div className="space-y-3 text-center" data-pay-id={pay.payId}>
-            {cluster === 'devnet' && <p className="text-[10px] font-black bg-yellow-500/20 border border-yellow-400/60 text-yellow-200 rounded p-1.5">🧪 DEVNET TEST MODE — fake funds. Phantom must be in Testnet Mode.</p>}
+            {devnet && <p className="text-xs font-black bg-yellow-500/20 border border-yellow-400/60 text-yellow-100 rounded p-1.5" data-pay-devnet="1">🧪 DEVNET TEST MODE: test USDC, no real money. In Phantom: Settings → Developer Settings → Testnet Mode on, network Solana Devnet.</p>}
             <p className="text-2xl font-black text-lime-300" data-pay-amount="1">${amount} <span className="text-sm text-white">USDC</span></p>
             <p className="text-xs text-white -mt-2 break-words">{what}</p>
             {changed && <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2" data-pay-changed="1">The price changed since this was in your cart: ${amount} now, from the seller's listing as it is today.</p>}
@@ -12575,26 +12657,36 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
             <div className="flex gap-1.5 mb-1">
                 <button onClick={() => { try { window.dispatchEvent(new CustomEvent('rk:open', { detail: 'wallet' })); } catch (e) {} }} className="flex-1 text-xs font-bold text-lime-300 bg-lime-500/10 border border-lime-500/40 rounded py-2">👛 Add my wallet</button>
             </div>
+            {feeBy === 'ravekandi'
+                ? <p className="text-xs text-left rounded-lg p-2 border leading-snug bg-lime-900/30 border-lime-400/60 text-lime-100" data-pay-fee="ravekandi">⛽ Network fee: paid by RaveKandi. You need only the USDC, no SOL.</p>
+                : <p className="text-xs text-left rounded-lg p-2 border leading-snug bg-black/40 border-cyan-400/40 text-white" data-pay-fee="you">⛽ Network fee: Solana charges it in SOL, from the wallet that pays: about 0.000005 SOL{pay.destReady === false ? ', plus about 0.002 SOL once, because this is the first payment to RaveKandi on ' + net + ' (it opens RaveKandi\'s USDC account there)' : ''}. Keep at least {pay.destReady === false ? '0.003' : '0.001'} SOL in that wallet.{devnet ? ' Free test SOL: faucet.solana.com (Devnet).' : ''}</p>}
             {(() => {
-                const net = cluster === 'devnet' ? 'Solana Devnet (test)' : 'Solana Mainnet';
                 const w = walletCheck, short = w.addr ? rkMaskAddr(w.addr) : '';
                 const need = Math.max(0, Number(amount) - (Number(w.bal) || 0));
-                const devnetTip = cluster === 'devnet' ? ' On Devnet: in Phantom turn on Settings → Developer Settings → Testnet Mode, and get test USDC at faucet.circle.com.' : '';
-                const box = (cls, text) => <p className={'text-xs text-left rounded-lg p-2 border leading-snug ' + cls}>{text}</p>;
+                const usdcTip = devnet ? ' On Devnet: get test USDC at faucet.circle.com (pick Solana Devnet).' : '';
+                const solNeed = pay.destReady === false ? 2935160 : 895880;
+                const solLow = feeBy !== 'ravekandi' && w.sol !== null && w.sol !== undefined && w.sol < solNeed;
+                const solTip = solLow ? ' It also has ' + (Number(w.sol) / 1e9).toFixed(6) + ' SOL, and this payment\'s network fee needs about ' + (solNeed / 1e9).toFixed(4) + ' SOL.' + (devnet ? ' Free test SOL: faucet.solana.com (Devnet).' : ' Add a little SOL in Phantom.') : '';
+                const box = (cls, text, k) => <p className={'text-xs text-left rounded-lg p-2 border leading-snug ' + cls} data-pay-wallet={k}>{text}</p>;
                 return (
                     <div className="space-y-1.5">
                         <p className="text-xs text-white">Network: <strong>{net}</strong>. Phantom must be on the same network.</p>
-                        {w.state === 'checking' && box('bg-black/40 border-white/20 text-white', 'Checking the USDC in your saved wallet…')}
-                        {w.state === 'ok' && box('bg-lime-900/30 border-lime-400/60 text-lime-100', '✅ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this.')}
-                        {w.state === 'low' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC. This needs $' + amount + '. Add at least $' + need.toFixed(2) + ' of USDC in Phantom first (Buy → USDC).' + devnetTip)}
-                        {w.state === 'none' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') has no USDC on ' + net + '. Phantom will refuse this payment with "invalid link: contains a token that you don\'t own". In Phantom tap Buy → USDC first; SOL alone is not enough.' + devnetTip)}
-                        {(w.state === 'nowallet' || w.state === 'error') && box('bg-black/40 border-cyan-400/40 text-white', (w.state === 'error' ? 'Couldn\'t check your wallet just now. ' : '') + 'Pay from a Phantom wallet that holds USDC on ' + net + '; SOL alone is not enough. If Phantom says "invalid link: contains a token that you don\'t own", that wallet has no USDC yet. Buy USDC in Phantom first.' + devnetTip)}
+                        {w.state === 'checking' && box('bg-black/40 border-white/20 text-white', 'Checking the USDC in your saved wallet…', 'checking')}
+                        {w.state === 'ok' && !solLow && box('bg-lime-900/30 border-lime-400/60 text-lime-100', '✅ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this.', 'ok')}
+                        {w.state === 'ok' && solLow && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC, enough for this.' + solTip, 'nosol')}
+                        {w.state === 'low' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') holds $' + (Number(w.bal) || 0).toFixed(2) + ' USDC. This needs $' + amount + '. Add at least $' + need.toFixed(2) + ' of USDC in Phantom first (Buy → USDC).' + usdcTip + solTip, 'low')}
+                        {w.state === 'none' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') has no USDC on ' + net + '. In Phantom tap Buy → USDC first; SOL alone is not enough.' + usdcTip + solTip, 'none')}
+                        {w.state === 'self' && box('bg-amber-900/30 border-amber-400/70 text-amber-100', '⚠️ Your saved wallet (' + short + ') is RaveKandi\'s own wallet, the one being paid, so a payment from it can\'t count. Pay from a different wallet account in Phantom, with its own test USDC.', 'self')}
+                        {(w.state === 'nowallet' || w.state === 'error') && box('bg-black/40 border-cyan-400/40 text-white', (w.state === 'error' ? 'Couldn\'t check your wallet just now. ' : '') + 'Pay from a Phantom wallet that holds USDC on ' + net + '.' + usdcTip, w.state)}
                     </div>
                 );
             })()}
             <div className="flex justify-center"><div className="bg-white p-2 rounded"><QRCodeCanvas value={pay.url} size={168}/></div></div>
-            <a href={pay.url} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }} data-pay-link="1">👛 Open in Phantom & Pay</a>
-            <p className="text-xs text-white">Scan with Phantom or tap the button. The exact amount, token (USDC), and payment code are pre-filled — just confirm.</p>
+            <a href={pay.url} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }} data-pay-link={exact ? 'tx' : 'transfer'}>👛 Open in Phantom & Pay</a>
+            <p className="text-xs text-white">{exact ? 'Scan with Phantom or tap the button. Phantom asks RaveKandi for this payment and shows it: $' + amount + ' USDC to RaveKandi. Just confirm.' : 'Scan with Phantom or tap the button. The exact amount, token (USDC), and payment code are pre-filled — just confirm.'}</p>
+            {opened && (problem
+                ? <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2 leading-snug" data-pay-opened={opened.problem}>{problem}</p>
+                : <p className="text-xs text-left text-cyan-100 bg-cyan-900/30 border border-cyan-400/60 rounded-lg p-2 leading-snug" data-pay-opened="ok">📲 Phantom loaded this payment for {rkMaskAddr(opened.wallet)} at {new Date(opened.at).toLocaleTimeString()}{opened.sponsor ? ', with RaveKandi paying the network fee' : ''}. Confirm it in Phantom. If Phantom says it failed or expired, check Phantom is on {net}, then scan or tap again: each one Phantom loads is good for about a minute.</p>)}
             <div className={'rounded-lg p-2 border text-[11px] font-bold ' + (state === 'paid' ? 'bg-lime-500/20 border-lime-400 text-lime-200' : (state === 'late' || state === 'closed') ? 'bg-red-900/30 border-red-500/50 text-red-200' : 'bg-black/50 border-cyan-500/40 text-cyan-200')} data-pay-state={state}>
                 {state === 'paid' ? '✅ Paid and checked on the Solana chain! ' + (kind === 'vip' ? 'VIP is on.' : 'Your order is made.')
                     : state === 'checking' ? '🔎 The server is checking the chain…'
@@ -16111,6 +16203,7 @@ const RemoteConfigPanel = () => {
                 <h4 className="text-[11px] font-black uppercase text-yellow-300 mb-2">💸 Payout Queue</h4>
                 <PayoutQueuePanel/>
                 <h4 className="text-[11px] font-black uppercase text-amber-300 mb-2 mt-3" data-admin-payments-head="1">⚠️ Payments to check</h4>
+                <RkFeeWalletPanel/>
                 <PaymentsCheckPanel/>
                 <p className="text-xs text-white mb-3">💾 The Firestore storage estimate moved to 📊 Usage & Limits, beside the Design Lab AI and Firebase Storage.</p>
                 <h4 className="text-[11px] font-black uppercase text-pink-300 mb-2">🎬 Spotlight Control</h4>
@@ -18410,7 +18503,7 @@ const HELP_TOPICS = [
     { cat: 'Getting Started', title: '🆔 Your Friend UID', content: "Every account gets a unique Friend UID. Others use it to find your profile, and it's your referral code. Tap your UID anywhere to copy it. Share it (or your invite link) so friends can find you and you both earn RevShare.", go: { to: 'profile', label: '👤 Open my profile' } },
     { cat: 'Getting Started', title: '📲 Installing the App', content: "RaveKandi runs in your browser at ravekandi.web.app. For an app-like experience, tap the install prompt (or your browser menu → Add to Home Screen). Installed, it launches fullscreen with its own icon. Updates are automatic — just reopen it.", go: { to: 'install', label: '📲 Show me how' } },
     { cat: 'Buying', title: '🛒 How to Buy', content: "Tap any item to view details, then Add to Cart. In your cart, choose a quantity (up to the seller's stock); bulk discounts apply automatically if the seller set them. Check out with 💜 Pay with Crypto (USDC on Solana): card payment is coming soon. After buying, you can leave a review on the item.", go: { to: 'cart', label: '🛒 Open my cart' } },
-    { cat: 'Buying', title: '💜 Paying with Crypto (USDC)', content: "RaveKandi checkout runs on USDC — a digital dollar (1 USDC = $1) on Solana. At checkout, tap Pay with Crypto: a QR + one-tap Phantom button appears with the exact amount pre-filled. Pay, and the app watches the blockchain and confirms your order automatically — usually within seconds. You need: the free Phantom app, USDC for the total, and about $0.25 of SOL for network fees. Your payment carries a unique order code, so it can never be lost or confused — if the app ever misses it, tap 'check now' and the chain answers. Sellers, referrers & partners are credited on the ledger the instant your order confirms. Card payment is coming soon.", go: { to: 'wallet', label: '👛 Open the Crypto Wallet Center' } },
+    { cat: 'Buying', title: '💜 Paying with Crypto (USDC)', content: "RaveKandi checkout runs on USDC — a digital dollar (1 USDC = $1) on Solana. At checkout, tap Pay with Crypto: a QR + one-tap Phantom button appears with the exact amount pre-filled. Pay, and the app watches the blockchain and confirms your order automatically — usually within seconds. You need: the free Phantom app and USDC for the total. RaveKandi pays the Solana network fee on payments of $1 or more (if its fee wallet ever runs low, the payment window says so, and the fee, under $0.01, is paid in SOL from your wallet). Your payment carries a unique order code, so it can never be lost or confused — if the app ever misses it, tap 'check now' and the chain answers. Sellers, referrers & partners are credited on the ledger the instant your order confirms. Card payment is coming soon.", go: { to: 'wallet', label: '👛 Open the Crypto Wallet Center' } },
     { cat: 'Buying', title: '💳 Bulk Discounts', content: "Sellers can set tiered bulk pricing (e.g. buy 5+ for 10% off, 10+ for 20% off). When you raise the quantity in your cart past a tier, the discount applies automatically and the new price shows on the item.", go: { to: 'cart', label: '🛒 Open my cart' } },
     { cat: 'Buying', title: '📦 Your Orders & Delivery', content: "Every purchase becomes an order in 🧾 My Orders, on its Buying tab (sellers see theirs on the Selling tab). It moves through four stages: being made, ready to ship, shipped and completed. The seller marks it finished, then shipped. When they ship, they add a tracking number (checked for a real format) and a photo of the labelled package, and you get a notification with the carrier and tracking. When it arrives, confirm you received it, and the order completes.", go: { to: 'orders:buying', label: '🧾 Open My Orders' } },
     { cat: 'Selling', title: '🏷️ Posting an Item', content: "On the Feed, tap Post Your Kandi. Add up to 3 images, a name, price, item type, and stock quantity. Optionally set bulk discount tiers and mark it as part of a series. Note: post images here — to feature a video, use the homepage Festival Spotlight.", go: { to: 'post', label: '🏷️ Post an item' } },
@@ -18788,7 +18881,7 @@ const RK_LEGAL_DEFAULTS = [
     { id: 'privacy', title: 'Privacy Policy', body: 'We store the account data you give us (display name, email, optional phone), your listings, messages, and transaction records, hosted on Google Firebase. Payout wallet addresses are encrypted before storage. We do not sell your personal data. On-chain USDC payments are public by the nature of blockchains. You can request account deletion via a support ticket. Analytics (profile views, activity counters) are aggregated inside the app for your own dashboards.' },
     { id: 'refunds', title: 'Refunds & Disputes', body: 'Sales are between buyer and seller. If an order never ships or arrives materially different from its listing, open a support ticket within 14 days of purchase — include the order, photos, and messages. Crypto payments are final on-chain; refunds are settled between the parties or through platform-mediated resolution. Both parties MUST rate every completed transaction; ratings and completed-order records are the evidence base for dispute resolution.' },
     { id: 'community', title: 'Community Guidelines', body: 'PLUR is the law: Peace, Love, Unity, Respect. No harassment, hate, doxxing, scams, counterfeit goods, or adult content. No items that are illegal to sell or ship in your jurisdiction. Report problems with the in-app ticket system. Repeat or severe violations end in permanent removal.' },
-    { id: 'disclosures', title: 'Fees, Taxes & Crypto Disclosures', body: 'RaveKandi charges sellers a commission (disclosed at listing; launch users locked at 10%). Payments settle in USDC on Solana; network fees are paid by the sender. Sellers are solely responsible for reporting and paying taxes on their income — crypto earnings are taxable at receipt under US law. Wallets are pseudonymous, not anonymous. Nothing in this app is financial, legal, or tax advice.' },
+    { id: 'disclosures', title: 'Fees, Taxes & Crypto Disclosures', body: 'RaveKandi charges sellers a commission (disclosed at listing; launch users locked at 10%). Payments settle in USDC on Solana; RaveKandi pays the Solana network fee on USDC payments of $1 or more while its fee wallet has funds, and otherwise the sender pays it. Sellers are solely responsible for reporting and paying taxes on their income — crypto earnings are taxable at receipt under US law. Wallets are pseudonymous, not anonymous. Nothing in this app is financial, legal, or tax advice.' },
 ];
 const LegalModal = ({ user, profile, isOpen, onClose }) => {
     const [docs, setDocs] = useState({});
@@ -19574,7 +19667,8 @@ const ContentProfileSection = ({ targ, isSelf, dragHandle, dragStyle }) => {
 // ⚠️ USER-SUPPLIED TAX NOTE PENDING: the exact wording was cut off in the request ("The US (").
 // Swap the string below with the exact text when provided. Current wording is accurate placeholder.
 const RK_TAX_NOTE = "⚠️ Taxes: Sellers and earners are responsible for reporting and paying their own taxes on all income — including crypto (USDC) payments — under US law.";
-const RK_FEE_NOTE = "Fees: the Solana network fee is under $0.01 per payment and is paid in SOL — keep about $0.25 of SOL in your wallet for fees. Buying USDC with a card first: the onramp charges ~2–5%. RaveKandi adds no extra payment fee beyond the seller commission.";
+// V90.88.152.330: RaveKandi pays the network fee (its fee wallet, functions/rk_money.js), so a buyer needs only USDC
+const RK_FEE_NOTE = "Fees: RaveKandi pays the Solana network fee on USDC payments of $1 or more, so you need only USDC. If RaveKandi's fee wallet ever runs low, the fee (under $0.01) is paid in SOL from your wallet, and the payment window says so. Buying USDC with a card first: the onramp charges ~2–5%. RaveKandi adds no extra payment fee beyond the seller commission.";
 
 // ================================================================================================
 // ON-CHAIN PAYMENT LAYER (V64.01) — real USDC on Solana, verified against the public chain before
@@ -25411,6 +25505,8 @@ const App = () => {
                 const [seller, earner, referrer, buyer, active, listener, ach, creator, voter, network, digger, poster, welcomer, quick, planner, regular, spotlit] = await Promise.all([grab('totalSalesValue'), grab('totalRevShareEarned'), grab('referrals'), grab('itemsBought'), grab('activeMinutes'), grab('radioMinutes'), grab('achievementsUnlocked'), grab('creatorPoints'), grab('tribeVotesCast'), grab('networkReach'), grab('tracksPlayed'), grab('itemsListed'), grab('tribeInvitesPassed'), grab('tribeVotesFast'), grab('festDaysPicked'), grab('bannerDays'), grab('boostDays')]);
                 // V90.88.151.329: the leaders for 329's achievements (orders buyers confirmed, reviews left; both the server's)
                 const [trusted, reviewer] = await Promise.all([grab('ordersDelivered'), grab('reviewsLeft')]);
+                // V90.88.152.330: Scene Backer's leader (dollars spent with community sellers, the server's count)
+                const backer = await grab('totalBoughtValue');
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
@@ -25426,7 +25522,7 @@ const App = () => {
                 // V90.86.150.326: the newest Business account (businessSince is the server's), still a Business account
                 let biz = null;
                 try { const bs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('businessSince', 'desc'), limit(5))); const d = bs.docs.find(x => rkMqNamed(x.data()) && x.data().accountType === 'business'); if (d) biz = { ...d.data(), id: d.id }; } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz, trusted, reviewer });
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz, trusted, reviewer, backer });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -26196,6 +26292,10 @@ const App = () => {
         topStats.trusted && ((topStats.trusted.ordersDelivered || 0) > 0) ? { t: '📦 MOST TRUSTED SELLER: @' + rkMqName(topStats.trusted) + ' (' + topStats.trusted.ordersDelivered + ' order' + (topStats.trusted.ordersDelivered === 1 ? '' : 's') + ' received by buyers)', uid: uref(topStats.trusted) } : null,
         topStats.reviewer && ((topStats.reviewer.reviewsLeft || 0) > 0) ? { t: '⭐ TOP REVIEWER: @' + rkMqName(topStats.reviewer) + ' (' + topStats.reviewer.reviewsLeft + ' review' + (topStats.reviewer.reviewsLeft === 1 ? '' : 's') + ' of things they bought)', uid: uref(topStats.reviewer) } : null,
         { t: '⛓️ EVERY USDC PAYMENT IS CHECKED ON THE SOLANA CHAIN BEFORE AN ORDER IS MADE. TAP FOR MY ORDERS ⛓️', go: (user && !user.isAnonymous) ? () => rkGoPlace('orders:buying') : null },
+        // V90.88.152.330: Scene Backer's leader, and the network fee RaveKandi pays, shown while its fee wallet can
+        // (global/stats.feeSponsored, from the server's 5-minute check; the count is feesCovered). Tap: crypto info.
+        topStats.backer && ((topStats.backer.totalBoughtValue || 0) > 0) ? { t: '💜 TOP SUPPORTER: @' + rkMqName(topStats.backer) + ' ($' + Number(topStats.backer.totalBoughtValue || 0).toFixed(0) + ' spent with community sellers)', uid: uref(topStats.backer) } : null,
+        globalStats.feeSponsored === true ? { t: '⛽ PAY WITH USDC ALONE: RAVEKANDI PAYS THE SOLANA NETWORK FEE' + (Number(globalStats.feesCovered) > 0 ? ' (' + Number(globalStats.feesCovered) + ' PAID SO FAR)' : '') + '. TAP FOR CRYPTO INFO ⛽', go: (user && !user.isAnonymous) ? () => rkGoPlace('wallet') : null } : null,
         // V90.87.151.328: every station is checked each hour, and one that's off air says so (tap: the radio)
         { t: '📻 RAVE RADIO CHECKS ALL ' + RADIO_STATIONS.length + ' STATIONS EVERY HOUR. IF ONE GOES OFF AIR, ITS BUTTON SAYS SO. TAP TO TUNE IN 📻', go: () => setRadioOpen(true) },
         mqNextFest ? { t: '📅 NEXT ON THE CALENDAR: ' + mqNextFest.ed.l + ' (' + rkEventDays({ from: mqNextFest.ed.f, to: mqNextFest.ed.t }) + '). Tap to see who\'s going 📅', kind: 'festival', go: () => { try { window.dispatchEvent(new CustomEvent('rk:feed-festival', { detail: mqNextFest.name })); } catch (e) {} } } : null,
@@ -29918,7 +30018,7 @@ fi
 # V90.88.151.329: MONEY ON THE SERVER (rk_money.js, queue item 22): paying in USDC (checked on the chain), orders, the ledger,
 # ratings and reviews. Script-owned, regenerated every build.
 cat << 'RKMONEYEOF' > "$RK_FN_DIR/rk_money.js"
-// RaveKandi money, server side (V90.88.151.329). Script-owned: the build regenerates this file.
+// RaveKandi money, server side (V90.88.151.329; V90.88.152.330). Script-owned: the build regenerates this file.
 //
 // Queue item 22 (raised at 311): checkout ran on the buyer's phone, so the order, the seller's and the referrer's figures,
 // the RevShare ledger and the platform's sales total were only as honest as that phone. From 329 they are written here, and
@@ -29928,7 +30028,10 @@ cat << 'RKMONEYEOF' > "$RK_FN_DIR/rk_money.js"
 // A payment, start to finish:
 //  1. rkMoney {op:'start'} prices the cart from the listings as they are now (never from the phone), or the VIP plan, and
 //     saves a payment (payments/{id}): the amount in USDC, a fresh reference key, the receiver and the token.
-//  2. The raver pays the Solana Pay link: the platform's wallet, USDC, that amount, that reference.
+//  2. The raver pays the Solana Pay link. From 330 the link points at rkPayTx (below), which builds the payment itself:
+//     that USDC, that amount, to the platform's USDC account, carrying the reference, with RaveKandi's fee wallet paying
+//     Solana's network fee (so the buyer needs only USDC). 329's link only named the address, amount and token, and the
+//     wallet built the rest, with the buyer paying the fee in SOL.
 //  3. rkMoney {op:'check'} (the app asks every few seconds while it waits) and paySweep (every 5 minutes, for a day) look
 //     the reference up on the chain: every transaction that carries it, and the USDC each one moved into the receiver's
 //     account, added up in millionths. A transaction counts toward one payment only (paySigs/{signature}).
@@ -29940,8 +30043,12 @@ cat << 'RKMONEYEOF' > "$RK_FN_DIR/rk_money.js"
 // Orders then move along here too (rkMoney 'stage', 'received'), and a buyer with a paid order can review the listing once
 // ('review'), which is what the seller's rating is made of.
 'use strict';
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { defineSecret } = require('firebase-functions/params');
+// V90.88.152.330: RaveKandi's fee wallet, the key that pays Solana's network fee on a buyer's USDC payment. It lives in
+// Secret Manager (set once: RK_VERIFY_330, section 3) and holds only a little SOL. It never receives a buyer's USDC.
+const RK_FEE_PAYER = defineSecret('RK_FEE_PAYER');
 const admin = require('firebase-admin');
 if (!admin.apps.length) admin.initializeApp();
 const crypto = require('crypto');
@@ -29951,7 +30058,7 @@ let rkModCleanFor = null;
 try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
 
 const APP = 'ravekandi-core-prod';
-const VER = 'V90.88.151.329';
+const VER = 'V90.88.152.330';
 const db = () => admin.firestore();
 const FV = () => admin.firestore.FieldValue;
 const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
@@ -29984,6 +30091,11 @@ const rkCfg = async (appId) => {
     launchPerks: on('launchPerks', true), checkoutEnabled: on('checkoutEnabled', true),
     maintenanceMessage: typeof d.maintenanceMessage === 'string' ? d.maintenanceMessage : '',
     cluster: d.cryptoCluster === 'devnet' ? 'devnet' : 'mainnet-beta',
+    // V90.88.152.330: two switches with no button, for the Firebase console if a wallet ever won't take 330's link:
+    // payLink 'transfer' goes back to 329's plain link (the wallet builds the payment, the buyer pays the fee in SOL),
+    // feeSponsor false keeps 330's link but has the buyer's wallet pay the fee.
+    payLink: d.payLink === 'transfer' ? 'transfer' : 'tx',
+    feeSponsor: on('feeSponsor', true),
   };
   cfgCache = { at: Date.now(), v };
   return v;
@@ -30033,6 +30145,173 @@ const rkB58 = (buf) => {
   return s || '1';
 };
 const rkNewRef = () => rkB58(crypto.randomBytes(32));
+
+// ================================================================================================================
+// V90.88.152.330: THE PAYMENT, LAID OUT HERE. Milli, at 330: "when paying with the phantom wallet, it is forcing me to
+// use SOL instead of the devnet credits. Because of this i cannot verify payments process."
+// Solana charges every transaction's network fee in SOL, and the first USDC payment on a network also opens the
+// receiver's USDC account there (about 0.002 SOL, kept by that account). 329's link was a Solana Pay *transfer request*
+// (address, amount, token): the wallet built the payment and the payer paid all of that in SOL, so a test wallet holding
+// only test USDC was stuck. From 330 the link is a *transaction request*: the wallet sends its address to rkPayTx, which
+// answers with the payment itself, ready to sign. RaveKandi's fee wallet is its fee payer and signs first; the buyer's
+// wallet signs the USDC transfer. No SDK: the transaction is written out byte by byte (Solana's "legacy" layout).
+// ================================================================================================================
+const B58I = {}; for (let i = 0; i < B58.length; i++) B58I[B58[i]] = BigInt(i);
+// base58 to bytes (null if it isn't base58)
+const rkB58d = (s) => {
+  if (typeof s !== 'string' || !s || s.length > 128) return null;
+  let n = 0n;
+  for (const c of s) { const v = B58I[c]; if (v === undefined) return null; n = n * 58n + v; }
+  const out = [];
+  while (n > 0n) { out.unshift(Number(n & 255n)); n >>= 8n; }
+  for (const c of s) { if (c === '1') out.unshift(0); else break; }
+  return Buffer.from(out);
+};
+// a Solana address: 32 bytes, or null
+const rkKey = (s) => { const b = rkB58d(s); return b && b.length === 32 ? b : null; };
+// ed25519, for one question: is a 32-byte key a point on the curve? A wallet's address is; an account a program owns
+// (a "program derived address", such as a token account) must not be. Decided as Solana decides it (curve25519-dalek's
+// decompress): y is the low 255 bits, and x² = (y² − 1) / (d·y² + 1) must have a square root mod 2²⁵⁵ − 19.
+const P25519 = (1n << 255n) - 19n;
+const rkMod = (a) => { const r = a % P25519; return r < 0n ? r + P25519 : r; };
+const rkPow = (b, e) => { let r = 1n; b = rkMod(b); while (e > 0n) { if (e & 1n) r = r * b % P25519; b = b * b % P25519; e >>= 1n; } return r; };
+const D25519 = rkMod(-121665n * rkPow(121666n, P25519 - 2n));
+const rkOnCurve = (k) => {
+  let y = 0n;
+  for (let i = 31; i >= 0; i--) y = (y << 8n) + BigInt(i === 31 ? (k[i] & 0x7f) : k[i]);
+  y = rkMod(y);
+  const y2 = y * y % P25519, u = rkMod(y2 - 1n), v = rkMod(D25519 * y2 + 1n);
+  if (u === 0n) return true;
+  const x2 = u * rkPow(v, P25519 - 2n) % P25519;
+  return rkPow(x2, (P25519 - 1n) / 2n) === 1n;
+};
+// a program derived address: sha256(seeds, bump, program, "ProgramDerivedAddress"), the first bump from 255 down that
+// lands off the curve
+const rkPda = (seeds, program) => {
+  for (let bump = 255; bump >= 0; bump--) {
+    const h = crypto.createHash('sha256').update(Buffer.concat([...seeds, Buffer.from([bump]), program, Buffer.from('ProgramDerivedAddress')])).digest();
+    if (!rkOnCurve(h)) return { key: h, bump };
+  }
+  return null;
+};
+const RK_PROG = { system: '11111111111111111111111111111111', token: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', ata: 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL' };
+// a wallet's associated token account for a token (seeds: the wallet, the token program, the token)
+const rkAta = (owner, mint) => rkPda([owner, rkKey(RK_PROG.token), mint], rkKey(RK_PROG.ata)).key;
+// Solana's short length (compact-u16)
+const rkLen = (n) => { const o = []; let v = n; for (;;) { const b = v & 0x7f; v >>= 7; if (v) o.push(b | 0x80); else { o.push(b); break; } } return Buffer.from(o); };
+const rkU64 = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
+// The message: every account once (flags merged), ordered as Solana requires (the fee payer first, then the other
+// signers that are written, the signers only read, the other accounts written, the rest read), then the instructions by
+// index. ixs: [{ p: program, a: [{ k, s, w }], d: data }]
+const rkMessage = (feePayer, ixs, blockhash) => {
+  const map = new Map();
+  const add = (k, s, w) => { const h = k.toString('hex'), o = map.get(h); if (o) { o.s = o.s || s; o.w = o.w || w; } else map.set(h, { k, s, w }); };
+  add(feePayer, true, true);
+  ixs.forEach(ix => { ix.a.forEach(x => add(x.k, x.s, x.w)); add(ix.p, false, false); });
+  const all = [...map.values()], fp = all[0], rest = all.slice(1);
+  const keys = [fp, ...rest.filter(x => x.s && x.w), ...rest.filter(x => x.s && !x.w), ...rest.filter(x => !x.s && x.w), ...rest.filter(x => !x.s && !x.w)];
+  const at = (k) => keys.findIndex(x => x.k.equals(k));
+  const nSig = keys.filter(x => x.s).length, nRoS = keys.filter(x => x.s && !x.w).length, nRoU = keys.filter(x => !x.s && !x.w).length;
+  const parts = [Buffer.from([nSig, nRoS, nRoU]), rkLen(keys.length), ...keys.map(x => x.k), blockhash, rkLen(ixs.length)];
+  ixs.forEach(ix => { parts.push(Buffer.from([at(ix.p)]), rkLen(ix.a.length), Buffer.from(ix.a.map(x => at(x.k))), rkLen(ix.d.length), ix.d); });
+  return { msg: Buffer.concat(parts), signers: keys.filter(x => x.s).map(x => x.k) };
+};
+// the transaction: a 64-byte slot per signer (zeros until signed), then the message
+const rkTxBytes = (m, sigs) => Buffer.concat([rkLen(m.signers.length), ...m.signers.map((k, i) => (sigs && sigs[i]) || Buffer.alloc(64)), m.msg]);
+// open an associated token account if it isn't there (CreateIdempotent: does nothing if it is)
+const rkIxOpen = (payer, acct, owner, mint) => ({ p: rkKey(RK_PROG.ata), d: Buffer.from([1]), a: [
+  { k: payer, s: true, w: true }, { k: acct, s: false, w: true }, { k: owner, s: false, w: false }, { k: mint, s: false, w: false },
+  { k: rkKey(RK_PROG.system), s: false, w: false }, { k: rkKey(RK_PROG.token), s: false, w: false }] });
+// move tokens (TransferChecked: the amount in the token's smallest units and its decimals, which the token program checks),
+// with the reference read-only at the end, as Solana Pay does, so the payment can be found by it
+const rkIxPay = (src, mint, dst, owner, units, decimals, refs) => ({ p: rkKey(RK_PROG.token), d: Buffer.concat([Buffer.from([12]), rkU64(units), Buffer.from([decimals])]), a: [
+  { k: src, s: false, w: true }, { k: mint, s: false, w: false }, { k: dst, s: false, w: true }, { k: owner, s: true, w: false },
+  ...refs.map(r => ({ k: r, s: false, w: false }))] });
+
+// ---- the fee wallet: its key from Secret Manager (a 32-byte seed in hex, or a wallet's exported key: base58 or a
+// solana-keygen JSON list), signed with Node's own ed25519 ----
+const RK_PK8 = Buffer.from('302e020100300506032b657004220420', 'hex');   // PKCS#8 header for a raw ed25519 seed
+let rkFeeCache = { raw: null, v: null };
+const rkFeeKey = () => {
+  let raw = String(process.env.RK_FEE_PAYER || '').trim();
+  if (!raw) { try { raw = String(RK_FEE_PAYER.value() || '').trim(); } catch (e) { raw = ''; } }
+  if (!raw) return null;
+  if (rkFeeCache.raw === raw) return rkFeeCache.v;
+  let v = null;
+  try {
+    let seed = null, want = null;
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) seed = Buffer.from(raw, 'hex');
+    else if (/^\[[\d,\s]+\]$/.test(raw)) { const a = JSON.parse(raw); if (a.length === 64) { seed = Buffer.from(a.slice(0, 32)); want = Buffer.from(a.slice(32)); } }
+    else { const b = rkB58d(raw); if (b && b.length === 64) { seed = b.subarray(0, 32); want = b.subarray(32); } else if (b && b.length === 32) seed = b; }
+    if (seed && seed.length === 32) {
+      const priv = crypto.createPrivateKey({ key: Buffer.concat([RK_PK8, seed]), format: 'der', type: 'pkcs8' });
+      const pub = Buffer.from(crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32));
+      if (!want || pub.equals(want)) v = { priv, pub, addr: rkB58(pub) };
+      else console.error('rk_money fee key: the exported key\'s two halves don\'t match');
+    }
+  } catch (e) { console.error('rk_money fee key', e && e.message); v = null; }
+  rkFeeCache = { raw, v };
+  return v;
+};
+const rkSign = (msg, fk) => crypto.sign(null, msg, fk.priv);
+const RK_SIG_FEE = 5000;          // Solana's fee for each signature, in lamports (1 SOL = 1,000,000,000)
+const RK_OPEN_RENT = 2039280;     // what opening a token account holds (its rent-exempt minimum)
+const RK_FEE_LOW = 10000000;      // 0.01 SOL: the admins are told the fee wallet is low
+const RK_FEE_MIN_CENTS = 100;     // RaveKandi pays the fee on payments of $1 or more
+// a wallet must keep at least this after paying (Solana refuses a payment that leaves it holding less, unless it's 0)
+const RK_KEEP = 890880;
+// what the fee wallet holds on a network (asked at most once a minute per server instance)
+const rkFeeSeen = new Map();
+const rkFeeState = async (cl, fresh) => {
+  const fk = rkFeeKey();
+  if (!fk) return { set: false, addr: '', lamports: 0, err: '' };
+  const c = rkFeeSeen.get(cl);
+  if (!fresh && c && Date.now() - c.at < 60000) return c;
+  let v;
+  try { const r = await rkRpc(cl, 'getBalance', [fk.addr, { commitment: 'confirmed' }]); v = { set: true, addr: fk.addr, lamports: num(r && r.value), at: Date.now(), err: '' }; }
+  catch (e) { v = { set: true, addr: fk.addr, lamports: c ? c.lamports : 0, at: Date.now(), err: String((e && e.message) || 'no answer').slice(0, 200) }; }
+  rkFeeSeen.set(cl, v);
+  return v;
+};
+// RaveKandi's USDC account on a network: its associated account if it's open, else any USDC account of the receiver's;
+// none yet means the first payment opens it (once open it stays open, so that answer is kept an hour)
+const rkDestSeen = new Map();
+const rkDest = async (cl, mint) => {
+  const c = rkDestSeen.get(cl + mint);
+  if (c && (c.acct ? Date.now() - c.at < 3600000 : Date.now() - c.at < 20000)) return c;
+  const ata = rkB58(rkAta(rkKey(S.RK_PAY.receiver), rkKey(mint)));
+  const r = await rkRpc(cl, 'getTokenAccountsByOwner', [S.RK_PAY.receiver, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  const list = ((r && r.value) || []).filter(x => x && typeof x.pubkey === 'string');
+  const pick = list.find(x => x.pubkey === ata) || list[0] || null;
+  const v = { at: Date.now(), acct: pick ? pick.pubkey : '', ata };
+  rkDestSeen.set(cl + mint, v);
+  return v;
+};
+// the payer's USDC account with the most in it (null: no USDC account on this network at all)
+const rkSource = async (cl, owner, mint) => {
+  const r = await rkRpc(cl, 'getTokenAccountsByOwner', [owner, { mint }, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
+  let best = null;
+  ((r && r.value) || []).forEach(x => {
+    const info = x && x.account && x.account.data && x.account.data.parsed && x.account.data.parsed.info;
+    if (!info || typeof x.pubkey !== 'string' || info.state === 'frozen') return;
+    let amt = 0n; try { amt = BigInt(String((info.tokenAmount && info.tokenAmount.amount) || '0')); } catch (e) { amt = 0n; }
+    if (!best || amt > best.amt) best = { acct: x.pubkey, amt, decimals: Number.isInteger(info.tokenAmount && info.tokenAmount.decimals) ? info.tokenAmount.decimals : 6 };
+  });
+  return best;
+};
+// Devnet only: the server asks Devnet's faucet for 1 test SOL for the fee wallet when it's under 0.5 (at most every
+// 30 minutes; the public faucet often says no, and then an admin uses faucet.solana.com)
+const rkDropSeen = new Map();
+const rkTryDrop = async (cl, fs) => {
+  if (cl !== 'devnet' || !fs || !fs.set || fs.lamports >= 500000000) return null;
+  const c = rkDropSeen.get(cl);
+  if (c && Date.now() - c.at < 30 * 60000) return c;
+  let v;
+  try { await rkRpc(cl, 'requestAirdrop', [fs.addr, 1000000000, { commitment: 'confirmed' }]); v = { at: Date.now(), ok: true, err: '' }; }
+  catch (e) { v = { at: Date.now(), ok: false, err: String((e && e.message) || 'refused').slice(0, 160) }; }
+  rkDropSeen.set(cl, v);
+  return v;
+};
 const rkBig = (b) => { try { return BigInt(String((b && b.uiTokenAmount && b.uiTokenAmount.amount) || '0')); } catch (e) { return 0n; } };
 // What one transaction moved: the USDC (in millionths) the receiver's token accounts gained, and the wallet that paid it
 // (the owner whose USDC fell the most), for a refund.
@@ -30063,7 +30342,10 @@ const rkScan = async (p) => {
     const tx = await rkRpc(p.cluster, 'getTransaction', [s.signature, { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
     if (!tx || !tx.meta || tx.meta.err) continue;
     const r = rkDelta(tx, p.receiver, p.mint);
-    if (r.micro > 0) found.push({ sig: s.signature, micro: r.micro, payer: r.payer });
+    // V90.88.152.330: and who paid its network fee (the first account), so a fee RaveKandi covered is counted
+    const k0 = tx.transaction && tx.transaction.message && Array.isArray(tx.transaction.message.accountKeys) ? tx.transaction.message.accountKeys[0] : null;
+    const feePayer = typeof k0 === 'string' ? k0 : (k0 && typeof k0.pubkey === 'string' ? k0.pubkey : '');
+    if (r.micro > 0) found.push({ sig: s.signature, micro: r.micro, payer: r.payer, feePayer, fee: num(tx.meta.fee) });
   }
   return found;
 };
@@ -30073,11 +30355,30 @@ const rkScan = async (p) => {
 // ================================================================================================================
 const rkPayUrl = (p) => 'solana:' + p.receiver + '?amount=' + p.amount + '&spl-token=' + p.mint + '&reference=' + p.reference
   + '&label=' + encodeURIComponent('RaveKandi') + '&message=' + encodeURIComponent(p.kind === 'vip' ? 'RaveKandi VIP ' + (p.plan === 'monthly' ? 'Monthly' : 'Lifetime') : 'RaveKandi order ' + String(p.reference).slice(0, 8));
-const rkPayOut = (id, p, note) => ({
+// V90.88.152.330: the link the app shows from 330: a Solana Pay transaction request ('solana:' and the https link of
+// rkPayTx, encoded because it has a query). The wallet asks it for the payment, so the wallet can't pick the token or
+// the amount, and RaveKandi can pay the fee. payLink 'transfer' (global/config) goes back to 329's plain link.
+const RK_PAYTX = process.env.RK_PAYTX_URL || 'https://us-central1-ravekandi.cloudfunctions.net/rkPayTx';
+const rkTxUrl = (id) => 'solana:' + encodeURIComponent(RK_PAYTX + '?p=' + id);
+// what the wallet last asked rkPayTx for this payment, and what was wrong if it couldn't be built
+const rkOpenedOut = (o) => (o && typeof o === 'object' && o.at) ? { at: num(o.at), wallet: String(o.wallet || '').slice(0, 64), problem: String(o.problem || '').slice(0, 24), have: num(o.have), sponsor: !!o.sponsor } : null;
+// who pays this payment's network fee if the wallet asks now, and whether RaveKandi's USDC account is open on its network
+const rkFeeView = async (cfg, p) => {
+  if (!p || p.status !== 'pending') return null;
+  const cl = p.cluster === 'devnet' ? 'devnet' : 'mainnet-beta';
+  let fs = { set: false, lamports: 0 }, dest = null;
+  try { [fs, dest] = await Promise.all([rkFeeState(cl), rkDest(cl, p.mint)]); } catch (e) { console.error('rk_money fee view', e && e.message); }
+  const need = RK_KEEP + 3 * RK_SIG_FEE + (dest && !dest.acct ? RK_OPEN_RENT : 0);
+  const by = (cfg && cfg.payLink === 'tx' && cfg.feeSponsor && fs.set && num(p.totalCents) >= RK_FEE_MIN_CENTS && fs.lamports >= need) ? 'ravekandi' : 'you';
+  return { by, destReady: dest ? !!dest.acct : null };
+};
+const rkPayOut = (id, p, note, cfg, fee) => ({
   ok: true, payId: id, kind: p.kind, plan: p.plan || null, status: p.status, amount: p.amount, totalUsd: num(p.totalCents) / 100,
-  receivedUsd: Math.floor(num(p.receivedMicro) / 10000) / 100, url: rkPayUrl(p), reference: p.reference, receiver: p.receiver,
+  receivedUsd: Math.floor(num(p.receivedMicro) / 10000) / 100, reference: p.reference, receiver: p.receiver,
+  url: (cfg && cfg.payLink === 'transfer') ? rkPayUrl(p) : rkTxUrl(id), link: (cfg && cfg.payLink === 'transfer') ? 'transfer' : 'tx', transferUrl: rkPayUrl(p),
   mint: p.mint, cluster: p.cluster, createdAt: p.createdAt, expiresAt: p.expiresAt, orderIds: p.orderIds || [], vipExpires: p.vipExpires || null,
   lines: (p.lines || []).map(l => ({ cartId: l.cartId, itemId: l.itemId, name: l.name, qty: l.qty, lineUsd: l.lineCents / 100 })),
+  feeBy: (fee && fee.by) || ((p.feeCovered) ? 'ravekandi' : 'you'), destReady: fee ? fee.destReady : null, opened: rkOpenedOut(p.opened),
   note: note || '',
 });
 const rkImg = (it) => { const u = (it.mediaUrls && it.mediaUrls[0] && it.mediaUrls[0].url) || it.imageUrl || it.image || ''; return (typeof u === 'string' && /^https:\/\//.test(u)) ? u.slice(0, 900) : ''; };
@@ -30126,7 +30427,7 @@ const rkStart = async (appId, uid, d, cfg) => {
   // the same thing, asked for again within the window (the cart closed and opened, the app restarted): the same payment
   const open = (await payCol(appId).where('uid', '==', uid).where('status', '==', 'pending').limit(50).get()).docs.map(x => ({ id: x.id, p: x.data() || {} }));
   const again = open.find(x => x.p.sig === sig && now < num(x.p.expiresAt) - 5 * 60000);
-  if (again) return rkPayOut(again.id, again.p);
+  if (again) return rkPayOut(again.id, again.p, '', cfg, await rkFeeView(cfg, again.p));
   if (open.filter(x => now - num(x.p.createdAt) < RK_WINDOW).length >= 10) fail('resource-exhausted', 'You have 10 payments waiting from the last half hour. Pay one of them, or wait a little.');
   const p = {
     uid, buyerName: String(me.displayName || 'Raver').slice(0, 60), kind, plan, lines, totalCents, totalMicro: totalCents * 10000,
@@ -30135,7 +30436,7 @@ const rkStart = async (appId, uid, d, cfg) => {
   };
   const ref = payCol(appId).doc();
   await ref.set(p);
-  return rkPayOut(ref.id, p);
+  return rkPayOut(ref.id, p, '', cfg, await rkFeeView(cfg, p));
 };
 
 // ================================================================================================================
@@ -30166,8 +30467,12 @@ const rkSettle = async (appId, payId, found, cfg, seen) => {
       return { status: 'pending', micro, p };
     }
     const txSig = mine[0].sig, over = micro - num(p.totalMicro);
-    const out = { status: 'paid', fulfilled: true, p, micro, over, payer, overs: [], groups: {}, revTotal: 0, refUid: null, vipExpires: null, vipKept: false };
-    const paid = { status: 'paid', paidAt: now, receivedMicro: micro, overMicro: over, sigs: mine.map(f => f.sig), txSig, payer };
+    // V90.88.152.330: the payments whose network fee RaveKandi's fee wallet paid (its own address when this instance has
+    // the key, else a fee payer other than the wallet whose USDC it was)
+    const feeAddr = (rkFeeKey() || {}).addr || '';
+    const covered = mine.filter(f => f.feePayer && (feeAddr ? f.feePayer === feeAddr : (!!f.payer && f.feePayer !== f.payer))).length;
+    const out = { status: 'paid', fulfilled: true, p, micro, over, payer, overs: [], groups: {}, revTotal: 0, refUid: null, vipExpires: null, vipKept: false, covered };
+    const paid = { status: 'paid', paidAt: now, receivedMicro: micro, overMicro: over, sigs: mine.map(f => f.sig), txSig, payer, feePayer: mine[0].feePayer || '', feeCovered: covered > 0 };
     if (p.kind === 'vip') {
       const ur = userRef(appId, p.uid), us = await tx.get(ur);
       const me = us.exists ? (us.data() || {}) : null;
@@ -30176,6 +30481,7 @@ const rkSettle = async (appId, payId, found, cfg, seen) => {
         tx.update(ur, { isVIP: true, vipPlan: p.plan, vipSince: (me.isVIP && num(me.vipSince)) || now, vipExpires, vipPaidAt: now, vipPaidTotal: FV().increment(round2(num(p.totalCents) / 100)) });
         out.vipExpires = vipExpires; paid.vipExpires = vipExpires;
       } else out.vipKept = true;   // permanent already (it happened while they paid): refund
+      if (covered) tx.set(db().doc('artifacts/' + appId + '/global/stats'), { feesCovered: FV().increment(covered) }, { merge: true });
     } else {
       // ---- every document the sale touches is read first ----
       const lines = Array.isArray(p.lines) ? p.lines : [];
@@ -30251,7 +30557,8 @@ const rkSettle = async (appId, payId, found, cfg, seen) => {
         tx.update(userRef(appId, u), o);
       });
       // the platform's sales total (the marquee's TOTAL SALES): counted here, so no cap
-      tx.set(db().doc('artifacts/' + appId + '/global/stats'), { salesTotal: FV().increment(round2(num(p.totalCents) / 100)) }, { merge: true });
+      // V90.88.152.330: and the network fees RaveKandi paid (the marquee's fee line)
+      tx.set(db().doc('artifacts/' + appId + '/global/stats'), Object.assign({ salesTotal: FV().increment(round2(num(p.totalCents) / 100)) }, covered ? { feesCovered: FV().increment(covered) } : {}), { merge: true });
       lines.forEach(l => tx.delete(cartRef(appId, p.uid, l.cartId)));
       paid.orderIds = orderIds; paid.oversold = out.overs.length > 0;
       out.orderIds = orderIds;
@@ -30270,14 +30577,16 @@ const rkSettle = async (appId, payId, found, cfg, seen) => {
 // After a sale: everyone it concerns, each notice once.
 const rkAfterPaid = async (appId, payId, r) => {
   const p = r.p, total = usd(p.totalCents), who = '@' + (p.buyerName || 'A raver'), id8 = payId.slice(0, 8);
+  // V90.88.152.330: said when RaveKandi's fee wallet paid the network fee
+  const feeNote = r.covered ? ' RaveKandi paid the network fee.' : '';
   if (p.kind === 'vip') {
     if (r.vipKept) await rkTell(appId, p.uid, 'order', '👑 Your VIP was already permanent when your $' + total + ' USDC arrived, so nothing changed. Support will refund it to the wallet you paid from.', '@vip', 'vipkept_' + payId);
     else await rkTell(appId, p.uid, 'order', p.plan === 'monthly'
-      ? '👑 VIP Monthly is on until ' + rkDay(r.vipExpires) + '. Paid $' + total + ' USDC, checked on the Solana chain. It doesn\'t renew by itself: pay again any time to add 30 more days.'
-      : '👑 VIP Lifetime unlocked! Paid $' + total + ' USDC, checked on the Solana chain. 6 Profile Pins, Themes, Banners, Boosts and the Font Selector are yours for good.', '@vip', 'vip_' + payId);
+      ? '👑 VIP Monthly is on until ' + rkDay(r.vipExpires) + '. Paid $' + total + ' USDC, checked on the Solana chain.' + feeNote + ' It doesn\'t renew by itself: pay again any time to add 30 more days.'
+      : '👑 VIP Lifetime unlocked! Paid $' + total + ' USDC, checked on the Solana chain.' + feeNote + ' 6 Profile Pins, Themes, Banners, Boosts and the Font Selector are yours for good.', '@vip', 'vip_' + payId);
   } else {
     const n = (r.orderIds || []).length, sellers = Object.keys(r.groups);
-    await rkTell(appId, p.uid, 'order', '✅ Paid $' + total + ' USDC, checked on the Solana chain. ' + (n === 1 ? 'Your order is' : 'Your ' + n + ' orders are') + ' with the seller' + (sellers.length === 1 ? '' : 's') + ' now: follow ' + (n === 1 ? 'it' : 'them') + ' in My Orders.', '@orders:buying', 'paid_' + payId);
+    await rkTell(appId, p.uid, 'order', '✅ Paid $' + total + ' USDC, checked on the Solana chain.' + feeNote + ' ' + (n === 1 ? 'Your order is' : 'Your ' + n + ' orders are') + ' with the seller' + (sellers.length === 1 ? '' : 's') + ' now: follow ' + (n === 1 ? 'it' : 'them') + ' in My Orders.', '@orders:buying', 'paid_' + payId);
     for (const sid of sellers) {
       const g = r.groups[sid];
       await rkTell(appId, sid, 'sold', '💰 ' + who + ' bought ' + (g.n === 1 ? '"' + g.names[0] + '"' : g.qty + ' of your items (' + g.names.slice(0, 3).map(x => '"' + x + '"').join(', ') + (g.n > 3 ? '…' : '') + ')') + ' for $' + usd(g.cents) + ', paid in USDC and checked on-chain. Open My Orders to make and ship it.', '@orders:selling', 'sold_' + payId + '_' + sid);
@@ -30315,18 +30624,128 @@ const rkCheck = async (appId, uid, d, cfg) => {
   const ref = payCol(appId).doc(id), s = await ref.get();
   const p = s.exists ? (s.data() || {}) : null;
   if (!p || p.uid !== uid) fail('failed-precondition', 'That payment isn\'t yours, or isn\'t there.');
-  if (p.status !== 'pending') return rkPayOut(id, p);
+  if (p.status !== 'pending') return rkPayOut(id, p, '', cfg, null);
   const now = Date.now();
-  if (now - (rkSeen.get(id) || 0) < 4000) return rkPayOut(id, p);
+  if (now - (rkSeen.get(id) || 0) < 4000) return rkPayOut(id, p, '', cfg, await rkFeeView(cfg, p));
   rkSeen.set(id, now);
   if (rkSeen.size > 2000) rkSeen.delete(rkSeen.keys().next().value);
   let found;
-  try { found = await rkScan(p); } catch (e) { console.error('rk_money scan', id, e && e.message); return rkPayOut(id, p, 'The Solana network was slow to answer. Checking again in a moment.'); }
-  if (!found.length && !num(p.receivedMicro)) return rkPayOut(id, p);
+  try { found = await rkScan(p); } catch (e) { console.error('rk_money scan', id, e && e.message); return rkPayOut(id, p, 'The Solana network was slow to answer. Checking again in a moment.', cfg, await rkFeeView(cfg, p)); }
+  if (!found.length && !num(p.receivedMicro)) return rkPayOut(id, p, '', cfg, await rkFeeView(cfg, p));
   const r = await rkSettle(appId, id, found, cfg, p);
   if (r.fulfilled) await rkAfterPaid(appId, id, r);
-  const fresh = await ref.get();
-  return rkPayOut(id, fresh.data() || p);
+  const fresh = (await ref.get()).data() || p;
+  return rkPayOut(id, fresh, '', cfg, await rkFeeView(cfg, fresh));
+};
+
+// ================================================================================================================
+// V90.88.152.330: rkPayTx, THE LINK'S OTHER END (a Solana Pay transaction request). The wallet asks twice: GET, for who
+// is asking to be paid (RaveKandi and its icon), then POST with the paying wallet's address, and gets back the payment
+// built for that wallet: from its USDC account with the most in it, to RaveKandi's USDC account (opened in the same
+// payment if it isn't there yet), the amount still owed, carrying the reference. RaveKandi's fee wallet pays the network
+// fee and signs first, when it holds enough and the payment is $1 or more; otherwise the paying wallet pays the fee.
+// When the payment can't be built (no USDC on this network, not enough, no SOL for the fee, RaveKandi paying itself),
+// the wallet gets the reason, and so does the payment (opened), so the app's window says it as well.
+// ================================================================================================================
+const RK_ICON = 'https://ravekandi.web.app/apple-touch-icon.png';
+const rkTxAsks = new Map();   // payId -> { n, since }: a payment is built at most 30 times in 10 minutes per instance
+// what the wallet asked, saved on the payment (not again within 15 seconds unless something changed)
+const rkOpenNote = async (ref, id, o, p) => {
+  const prev = p && p.opened;
+  if (prev && prev.wallet === o.wallet && prev.problem === o.problem && !!prev.sponsor === !!o.sponsor && num(prev.have) === num(o.have) && Date.now() - num(prev.at) < 15000) return;
+  try { await ref.update({ opened: Object.assign({ at: Date.now() }, o) }); } catch (e) { console.error('rkPayTx note', id, e && e.message); }
+};
+const rkPayTxRun = async (req, res) => {
+  const send = (code, body) => { res.set('Cache-Control', 'no-store'); return res.status(code).json(body); };
+  if (req.method === 'GET' || req.method === 'HEAD') return send(200, { label: 'RaveKandi', icon: RK_ICON });
+  if (req.method !== 'POST') return send(405, { message: 'Open this link in a Solana wallet.' });
+  const id = rkId(String((req.query && req.query.p) || ''));
+  if (!id) return send(400, { message: 'This link has no payment in it. Open the payment in RaveKandi again.' });
+  let body = req.body;
+  if (!body || typeof body !== 'object') { try { body = JSON.parse(String(body || (req.rawBody ? req.rawBody.toString() : '') || '{}')); } catch (e) { body = {}; } }
+  const account = String((body && body.account) || '').trim();
+  const payer = rkKey(account);
+  if (!payer) return send(400, { message: 'The wallet didn\'t send a Solana address.' });
+  const now = Date.now(), ask = rkTxAsks.get(id) || { n: 0, since: now };
+  if (now - ask.since > 600000) { ask.n = 0; ask.since = now; }
+  ask.n += 1; rkTxAsks.set(id, ask);
+  if (rkTxAsks.size > 2000) rkTxAsks.delete(rkTxAsks.keys().next().value);
+  if (ask.n > 30) return send(429, { message: 'Too many tries for this payment. Wait a few minutes, or start again in RaveKandi.' });
+  const appId = APP, ref = payCol(appId).doc(id);
+  const s = await ref.get(), p = s.exists ? (s.data() || {}) : null;
+  if (!p) return send(400, { message: 'That payment isn\'t there. Start again in RaveKandi.' });
+  if (p.status === 'paid') return send(400, { message: 'This payment is paid already. Nothing more to send.' });
+  if (p.status !== 'pending') return send(400, { message: 'This payment is closed. Start again in RaveKandi.' });
+  const cl = p.cluster === 'devnet' ? 'devnet' : 'mainnet-beta', net = cl === 'devnet' ? 'Solana Devnet' : 'Solana';
+  const refuse = async (problem, message, have) => { await rkOpenNote(ref, id, { wallet: account, problem, have: num(have), sponsor: false }, p); return send(400, { message, error: message }); };
+  if (now > num(p.expiresAt)) return refuse('expired', 'This payment\'s 30 minutes are up. Start again in RaveKandi to pay.');
+  const owed = num(p.totalMicro) - num(p.receivedMicro);
+  if (!(owed > 0)) return send(400, { message: 'The full amount has arrived. RaveKandi is making your order now.' });
+  if (account === p.receiver) return refuse('self', 'This is RaveKandi\'s own wallet, the one being paid: a payment from it to itself can\'t count. Pay from another wallet.');
+  const fk = rkFeeKey();
+  if (fk && account === fk.addr) return refuse('feewallet', 'This is RaveKandi\'s fee wallet. Pay from your own wallet.');
+  const mint = rkKey(p.mint), recv = rkKey(p.receiver), refKey = rkKey(p.reference);
+  if (!mint || !recv || !refKey) return send(500, { message: 'This payment is missing its details. Start again in RaveKandi.' });
+  const cfg = await rkCfg(appId);
+  let src, dest, fs, bh;
+  try {
+    [src, dest, fs, bh] = await Promise.all([rkSource(cl, account, p.mint), rkDest(cl, p.mint), rkFeeState(cl), rkRpc(cl, 'getLatestBlockhash', [{ commitment: 'confirmed' }])]);
+  } catch (e) { console.error('rkPayTx chain', id, e && e.message); return send(503, { message: 'The Solana network didn\'t answer RaveKandi. Try again in a moment.' }); }
+  const hash = rkKey(bh && bh.value && bh.value.blockhash);
+  if (!hash) return send(503, { message: 'The Solana network didn\'t answer RaveKandi. Try again in a moment.' });
+  const usdOf = (m) => '$' + (Number(m) / 1e6).toFixed(2);
+  if (!src) return refuse('nousdc', 'This wallet has no USDC on ' + net + '. ' + (cl === 'devnet' ? 'Get test USDC at faucet.circle.com (pick Solana Devnet), then scan again.' : 'Buy USDC in your wallet, then scan again.'));
+  if (src.amt < BigInt(owed)) return refuse('low', 'This wallet holds ' + usdOf(src.amt) + ' USDC on ' + net + '. This payment needs ' + usdOf(owed) + '.', Number(src.amt));
+  const open = !dest.acct, dst = rkKey(open ? dest.ata : dest.acct);
+  const sponsor = !!(fk && cfg.payLink === 'tx' && cfg.feeSponsor && num(p.totalCents) >= RK_FEE_MIN_CENTS && fs.set && fs.lamports >= RK_KEEP + 3 * RK_SIG_FEE + (open ? RK_OPEN_RENT : 0));
+  if (!sponsor) {
+    let sol = -1;
+    try { sol = num(((await rkRpc(cl, 'getBalance', [account, { commitment: 'confirmed' }])) || {}).value); } catch (e) { sol = -1; }
+    const need = RK_KEEP + RK_SIG_FEE + (open ? RK_OPEN_RENT : 0);
+    if (sol >= 0 && sol < need) return refuse('nosol', 'Solana\'s network fee is paid in SOL, and this wallet has ' + (sol / 1e9).toFixed(6) + ' SOL on ' + net + '. This payment needs about ' + (need / 1e9).toFixed(4) + ' SOL' + (open ? ' (it also opens RaveKandi\'s USDC account there, once)' : '') + '. ' + (cl === 'devnet' ? 'Get free test SOL at faucet.solana.com (Devnet).' : 'Add a little SOL to your wallet.'), sol);
+  }
+  const feePayer = sponsor ? fk.pub : payer, ixs = [];
+  if (open) ixs.push(rkIxOpen(feePayer, dst, recv, mint));
+  ixs.push(rkIxPay(rkKey(src.acct), mint, dst, payer, owed, src.decimals, [refKey]));
+  const m = rkMessage(feePayer, ixs, hash);
+  const tx = rkTxBytes(m, sponsor ? [rkSign(m.msg, fk)] : []);
+  await rkOpenNote(ref, id, { wallet: account, problem: '', have: Number(src.amt), sponsor }, p);
+  const what = p.kind === 'vip' ? 'VIP ' + (p.plan === 'monthly' ? 'Monthly' : 'Lifetime') : 'order ' + id.slice(0, 8);
+  return send(200, { transaction: tx.toString('base64'), message: 'RaveKandi ' + what + ': ' + usdOf(owed) + ' USDC' + (cl === 'devnet' ? ' (Devnet test)' : '') + '. ' + (sponsor ? 'RaveKandi pays the network fee.' : 'Your wallet pays the network fee in SOL.') });
+};
+
+// V90.88.152.330: the fee wallet, for Admin → Config → Payments to check: its address, what it holds on the network
+// payments use now, whether RaveKandi's USDC account is open there, and (Devnet) the faucet's last answer
+const rkFeeInfo = async (appId, uid, cfg) => {
+  const ms = await userRef(appId, uid).get();
+  if (!(ms.exists && (ms.data() || {}).isAdmin === true)) fail('permission-denied', 'Admins only.');
+  const cl = cfg.cluster, fk = rkFeeKey();
+  let dest = null, destErr = '';
+  try { dest = await rkDest(cl, S.RK_PAY.mints[cl]); } catch (e) { destErr = String((e && e.message) || 'no answer').slice(0, 160); }
+  let covered = 0;
+  try { const st = await db().doc('artifacts/' + appId + '/global/stats').get(); covered = num(st.exists && (st.data() || {}).feesCovered); } catch (e) { covered = 0; }
+  const base = { ok: true, cluster: cl, payLink: cfg.payLink, feeSponsor: cfg.feeSponsor, minUsd: RK_FEE_MIN_CENTS / 100, destReady: dest ? !!dest.acct : null, destAcct: dest ? (dest.acct || dest.ata) : '', rpcError: destErr, feesCovered: covered };
+  if (!fk) return Object.assign(base, { set: false });
+  const fs = await rkFeeState(cl, true);
+  const drop = await rkTryDrop(cl, fs);
+  return Object.assign(base, { set: true, addr: fk.addr, lamports: fs.lamports, rpcError: fs.err || destErr, low: fs.lamports < RK_FEE_LOW, drop: drop ? { at: drop.at, ok: drop.ok, err: drop.err } : null });
+};
+// V90.88.152.330: paySweep's look at the fee wallet: global/stats.feeSponsored (the marquee's fee line shows while it's
+// true), and the admins told once a day while it holds under 0.01 SOL (on Devnet the faucet is asked first)
+const rkFeeWatch = async (appId, cfg) => {
+  const fk = rkFeeKey(), cl = cfg.cluster;
+  const fs = fk ? await rkFeeState(cl, true) : { set: false, lamports: 0, err: '' };
+  if (fk && fs.err) return;   // the chain didn't answer: change nothing
+  let dest = null;
+  try { dest = await rkDest(cl, S.RK_PAY.mints[cl]); } catch (e) { return; }
+  const can = !!(fk && cfg.payLink === 'tx' && cfg.feeSponsor && fs.lamports >= RK_KEEP + 3 * RK_SIG_FEE + (dest && !dest.acct ? RK_OPEN_RENT : 0));
+  const sref = db().doc('artifacts/' + appId + '/global/stats'), ss = await sref.get(), cur = ss.exists ? (ss.data() || {}) : {};
+  if (cur.feeSponsored !== can || cur.feeCluster !== cl) await sref.set({ feeSponsored: can, feeCluster: cl }, { merge: true });
+  if (fk && cfg.payLink === 'tx' && cfg.feeSponsor && fs.lamports < RK_FEE_LOW) {
+    const drop = await rkTryDrop(cl, fs);
+    if (drop && drop.ok) return;   // Devnet's faucet said yes: it should be there in a moment
+    await rkTellAdmins(appId, '⛽ RaveKandi\'s fee wallet is low: ' + (fs.lamports / 1e9).toFixed(4) + ' SOL on ' + (cl === 'devnet' ? 'Solana Devnet' : 'Solana') + '. It pays buyers\' network fees, and once it can\'t, buyers need SOL again. Fund it: Admin → Config → Payments to check.', 'feelow_' + cl + '_' + new Date().toISOString().slice(0, 10));
+  }
 };
 
 // ================================================================================================================
@@ -30449,7 +30868,8 @@ const rkReview = async (appId, uid, d) => {
 // ================================================================================================================
 // WHAT THE APP ASKS FOR (one callable)
 // ================================================================================================================
-exports.rkMoney = onCall({ timeoutSeconds: 60, maxInstances: 20 }, async (req) => {
+// V90.88.152.330: with the fee wallet's key (it says who pays a payment's fee; admins see the wallet: 'fee')
+exports.rkMoney = onCall({ timeoutSeconds: 60, maxInstances: 20, secrets: [RK_FEE_PAYER] }, async (req) => {
   const uid = req.auth && req.auth.uid;
   if (!uid) fail('unauthenticated', 'Sign in first.');
   const prov = req.auth.token && req.auth.token.firebase && req.auth.token.firebase.sign_in_provider;
@@ -30462,14 +30882,24 @@ exports.rkMoney = onCall({ timeoutSeconds: 60, maxInstances: 20 }, async (req) =
     case 'stage': return rkStage(APP, uid, d);
     case 'received': return rkReceived(APP, uid, d);
     case 'review': return rkReview(APP, uid, d);
+    case 'fee': return rkFeeInfo(APP, uid, cfg);
     default: fail('invalid-argument', 'Unknown action.');
   }
 });
 
+// V90.88.152.330: the payment link's other end (wallets call it, so no sign-in; it only ever builds a payment to
+// RaveKandi, for a payment the app started)
+exports.rkPayTx = onRequest({ cors: true, invoker: 'public', secrets: [RK_FEE_PAYER], timeoutSeconds: 30, maxInstances: 10, memory: '256MiB' }, async (req, res) => {
+  try { await rkPayTxRun(req, res); }
+  catch (e) { console.error('rkPayTx', e && e.message); try { res.status(500).json({ message: 'RaveKandi couldn\'t build this payment. Try again in a moment.' }); } catch (x) { /* already answered */ } }
+});
+
 // Every 5 minutes: each payment still waiting, looked up on the chain (a payment's first 2 hours each time, then every
 // half hour), so one paid after the app closed is still credited. A day on, one that's short closes.
-exports.paySweep = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300, memory: '256MiB' }, async () => {
+exports.paySweep = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Etc/UTC', timeoutSeconds: 300, memory: '256MiB', secrets: [RK_FEE_PAYER] }, async () => {
   const appId = APP, cfg = await rkCfg(appId), now = Date.now();
+  // V90.88.152.330: the fee wallet first (the marquee's fee line, and the admins told when it's low)
+  try { await rkFeeWatch(appId, cfg); } catch (e) { console.error('paySweep fee wallet', e && e.message); }
   const qs = await payCol(appId).where('status', '==', 'pending').limit(200).get();
   const half = Math.floor(now / 300000) % 6 === 0;
   let checked = 0, paid = 0, closed = 0;
@@ -30487,9 +30917,40 @@ exports.paySweep = onSchedule({ schedule: '*/5 * * * *', timeZone: 'Etc/UTC', ti
 });
 
 // for the build's own test (node) only: never exported when deployed
-if (process.env.RK_MONEY_TEST) exports._rkTest = { rkDelta, rkScan, rkSettle, rkStart, rkCheck, rkCfg, rkB58, rkNewRef, rkPayUrl, setFetch: (f) => { rkFetch = f; }, reset: () => { cfgCache = { at: 0, v: null }; rkSeen.clear(); } };
+if (process.env.RK_MONEY_TEST) exports._rkTest = { rkDelta, rkScan, rkSettle, rkStart, rkCheck, rkCfg, rkB58, rkNewRef, rkPayUrl,
+  rkB58d, rkKey, rkOnCurve, rkPda, rkAta, rkLen, rkMessage, rkTxBytes, rkIxOpen, rkIxPay, rkFeeKey, rkFeeState, rkDest, rkSource, rkTxUrl, rkFeeView,
+  rkPayTxRun, rkFeeInfo, rkFeeWatch, rkPayOut, RK_PROG, RK_KEEP, RK_SIG_FEE, RK_OPEN_RENT,
+  setFetch: (f) => { rkFetch = f; },
+  reset: () => { cfgCache = { at: 0, v: null }; rkSeen.clear(); rkFeeSeen.clear(); rkDestSeen.clear(); rkDropSeen.clear(); rkTxAsks.clear(); rkFeeCache = { raw: null, v: null }; } };
 RKMONEYEOF
-echo "  functions/rk_money.js written (script-owned): paying in USDC, orders, the ledger and reviews (rkMoney, paySweep)."
+echo "  functions/rk_money.js written (script-owned): paying in USDC, orders, the ledger and reviews (rkMoney, paySweep),"
+echo "    and from 330 the exact USDC payment link with RaveKandi paying the network fee (rkPayTx)."
+# V90.88.152.330: RaveKandi's fee wallet, made once by hand (RK_VERIFY_330, section 3). Its key stays in ~/rk-secrets and in
+# Secret Manager (RK_FEE_PAYER); this file only makes it and says its address. It's next to the project, not deployed.
+cat << 'RKFEEWALLETEOF' > "$HOME/RaveKandi-Build/rk_fee_wallet.js"
+// RaveKandi (V90.88.152.330): RaveKandi's fee wallet, made once. Written by the build script; you run it by hand.
+// The fee wallet pays Solana's network fee on buyers' USDC payments (functions/rk_money.js, rkPayTx), so a buyer needs only
+// USDC. This makes its key if there isn't one yet, keeps it in ~/rk-secrets/rk_fee_payer.key (readable by you only), and
+// prints the wallet's address, to fund. That file is what goes into Secret Manager as RK_FEE_PAYER (RK_VERIFY_330,
+// section 3). Run it again any time: the same key, the same address. It never prints the key.
+'use strict';
+const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+const dir = path.join(os.homedir(), 'rk-secrets'), file = path.join(dir, 'rk_fee_payer.key');
+const PK8 = Buffer.from('302e020100300506032b657004220420', 'hex');
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const b58 = (buf) => { let n = 0n; for (const b of buf) n = (n << 8n) + BigInt(b); let s = ''; while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; } for (const b of buf) { if (b === 0) s = '1' + s; else break; } return s || '1'; };
+fs.mkdirSync(dir, { recursive: true });
+let hex = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+if (hex && !/^[0-9a-fA-F]{64}$/.test(hex)) { console.log('STOP: ' + file + " is there but isn't a fee wallet key. Move it somewhere else, then run this again."); process.exit(1); }
+const made = !hex;
+if (made) { hex = crypto.generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(16).toString('hex'); fs.writeFileSync(file, hex, { mode: 0o600 }); }
+try { fs.chmodSync(file, 0o600); } catch (e) { /* the file is still there */ }
+const priv = crypto.createPrivateKey({ key: Buffer.concat([PK8, Buffer.from(hex, 'hex')]), format: 'der', type: 'pkcs8' });
+const addr = b58(crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(-32));
+console.log((made ? "Made RaveKandi's fee wallet." : "RaveKandi's fee wallet was made already.") + ' Its key is in ' + file + ': keep that file, it is the wallet.');
+console.log('Fee wallet address: ' + addr);
+RKFEEWALLETEOF
+echo "  rk_fee_wallet.js written (run it once by hand: RK_VERIFY_330, section 3)."
 # V90.85.150.325: THE STATS ENGINE (rk_stats.js) and the definitions it shares with the app (rk_shared.js, made from
 # src/rkShared.js here, so the two can never disagree).
 if [ -f "$HOME/RaveKandi-Build/src/rkShared.js" ]; then
@@ -31575,7 +32036,7 @@ else echo "  WEB: couldn't read https://ravekandi.web.app/version.json just now.
 echo "  APK: ${RK_APK_RESULT:-unknown}"
 [ -n "$RK_FAILED_FILE" ] && echo "  The file that didn't upload: $RK_FAILED_FILE"
 # V90.85.150.325: whether functions need deploying after this build
-if [ -n "$RK_FN_CHANGED" ]; then echo "  FUNCTIONS: this build changed ${RK_FN_CHANGED% }: deploy functions (step 1 below)"
+if [ -n "$RK_FN_CHANGED" ]; then echo "  FUNCTIONS: this build changed ${RK_FN_CHANGED% }: deploy functions (the steps below)"
 else echo "  FUNCTIONS: no change from this build (deploy only if an earlier build's are still waiting)"; fi
 if [ -n "$RK_GH_PUSH" ] && [ "${RK_GH_PUSH#skipped}" = "$RK_GH_PUSH" ]; then
     echo "  GITHUB: $RK_GH_PUSH"
@@ -31587,15 +32048,13 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  329 needs two steps by hand, in this order, once WEB says OK:"
-echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (rk_money.js, new: paying in USDC, orders and reviews (rkMoney) and the 5-minute payment check"
-echo "       (paySweep); rk_stats.js and rk_shared.js. Until it says Deploy complete!, checkout says the server"
-echo "       update isn't live. If it stops at \"Error generating the service identity for pubsub.googleapis.com\","
-echo "       run the same command again)"
-echo "   2. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only firestore:rules,"
-echo "      with 329's rules file (RK_VERIFY_329, section 4), once the functions say Deploy complete!"
-echo "      (it closes orders, the ledger, sales, ratings and reviews to the app: only the server writes them)"
+echo "  330 needs two steps by hand, in this order, once WEB says OK (no rules this time):"
+echo "   1. Once only, RaveKandi's fee wallet (RK_VERIFY_330, section 3): it pays buyers' network fees."
+echo "      cd ~/RaveKandi-Build && node rk_fee_wallet.js && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase functions:secrets:set RK_FEE_PAYER --data-file ~/rk-secrets/rk_fee_payer.key"
+echo "   2. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
+echo "      (rk_money.js: the exact USDC payment link (rkPayTx, new) with RaveKandi paying the network fee;"
+echo "       rk_shared.js: Scene Backer. Step 1 first: without the fee wallet's key the deploy stops and asks for it."
+echo "       If it stops at \"Error generating the service identity for pubsub.googleapis.com\", run it again)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
