@@ -31,9 +31,9 @@
 #
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
-RK_MINOR=88
+RK_MINOR=89
 RK_PATCH=154
-RK_BUILD=332
+RK_BUILD=333
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -805,6 +805,10 @@ const RK_ACH_DEFS = [
     // V90.88.152.330: for 330, where a buyer pays with USDC alone (RaveKandi pays the network fee). Counted by the server
     // (totalBoughtValue, written when a payment is found on the chain); trims the seller commission like the others.
     { id: 'backer_50', name: 'Scene Backer', tier: 1, metric: 'totalBoughtValue', threshold: 50, desc: "Spend $50 with community sellers." },
+    // V90.89.154.333: for 333, where tribe votes are counted on the server (functions/rk_tribes.js). tribeVotesPassed: votes a
+    // raver called that passed, each with at least 3 members able to vote on it (the server counts them; the rules close the
+    // count to the app). Trims the seller commission like the others (tier 2: 0.2%).
+    { id: 'vote_pass_5', name: 'Consensus Builder', tier: 2, metric: 'tribeVotesPassed', threshold: 5, desc: "Call 5 tribe votes that pass, each in a tribe where at least 3 members can vote on it: removing a member, a mute or time-out, a rename, opening or closing the tribe, a chat purge, or a new founder." },
     // Vibe Tribe — friends
     { id: 'friend_1', name: 'First Connection', tier: 1, metric: 'friendsCount', threshold: 1, desc: "Add your first friend." },
     { id: 'friend_2', name: 'Squad Forming', tier: 1, metric: 'friendsCount', threshold: 5, desc: "Reach 5 friends." },
@@ -1133,7 +1137,9 @@ const rkAchStats = (profile) => {
         // V90.87.151.328: different Rave Radio stations heard for a minute or more (Station Hopper)
         radioStations: rkRadioHeardN(profile),
         // V90.88.151.329: reviews left on things bought, and orders buyers confirmed arrived (both written by the server)
-        reviewsLeft: profile?.reviewsLeft||0, ordersDelivered: profile?.ordersDelivered||0
+        reviewsLeft: profile?.reviewsLeft||0, ordersDelivered: profile?.ordersDelivered||0,
+        // V90.89.154.333: tribe votes the raver called that passed (Consensus Builder), counted by the server
+        tribeVotesPassed: profile?.tribeVotesPassed||0
     };
     // Any metric a future achievement names but this list forgets falls back to the profile field
     // of the same name, instead of silently reading 0 forever.
@@ -1465,8 +1471,277 @@ const RK_ORDER_FLOW = {
     paid_completed: { label: 'PAID — completed', next: null, by: '' },
 };
 
+// ================================================================================================================
+// V90.89.154.333: VIBE TRIBE VOTES, THE RULES THEMSELVES (queue item 23, raised at 312). Moved here from App.js, so the
+// server (functions/rk_tribes.js, the rkTribe callable) counts every vote by exactly the rules the app shows. Until 333 the
+// app counted the votes and wrote the tribe itself, and the rules let any member write the whole tribe document, so a
+// modified app could fake a vote, admit someone, flip the status or make itself the founder. Now only the server writes a
+// tribe (and its vote log), and it counts the votes each raver answers. Pure: no Firestore, and no clock except where `now`
+// isn't given.
+// ================================================================================================================
+const RK_TRIBE_STATUS = ['open', 'closed'];
+const RK_TRIBE_VOTE_TYPES = ['kick', 'status', 'purge', 'rename', 'founder', 'mute', 'timeout', 'repeal'];
+const RK_TRIBE_MUTES = [
+    { k: 'msg', label: '💬 New messages' },
+    { k: 'vote', label: '🗳️ Votes and results' },
+    { k: 'join', label: '🙋 Join requests' },
+    { k: 'member', label: '👥 Members joining and leaving' },
+    { k: 'shot', label: '📸 Screenshot alerts' },
+];
+// V86.78.150.314: the shortest and longest mute or time-out (the app's timer offers lengths in between, RK_TRIBE_TIMES).
+const RK_TRIBE_MIN_RESTRICT = 5 * 60000, RK_TRIBE_MAX_RESTRICT = 30 * 86400000;
+const rkDurTxt = (ms) => {
+    const m = Math.round((Number(ms) || 0) / 60000);
+    if (m < 60) return m + ' min';
+    const h = Math.round(m / 6) / 10;
+    if (h < 24) return h + (h === 1 ? ' hour' : ' hours');
+    const d = Math.round(h / 2.4) / 10;
+    return d + (d === 1 ? ' day' : ' days');
+};
+const rkTribeNeeded = (n) => Math.max(1, Math.ceil(((Number(n) || 0) * 2) / 3));
+const rkTribeStatus = (t) => (t && t.status === 'open') ? 'open' : 'closed';
+const RK_TRIBE_ABOUT = ['kick', 'mute', 'timeout', 'repeal'];   // votes about one member, who doesn't vote on them
+const rkTribeVoteKey = (v) => (v && RK_TRIBE_ABOUT.includes(v.type)) ? v.type + ':' + v.target : ((v && v.type) || '');
+// V86.78.150.314: a member's active mute or time-out, or null.
+const rkTribeRestriction = (t, uid, now) => {
+    const r = t && t.restrictions && t.restrictions[uid];
+    return (r && Number(r.until) > (now || Date.now())) ? r : null;
+};
+// V89.84.150.323: in a time-out now (a mute doesn't count: it only stops posting). An unknown type counts as a
+// time-out, so nothing new can slip through as a mute.
+const rkTribeOutOf = (rs, m, at) => !!(rs && rs[m] && rs[m].type !== 'mute' && Number(rs[m].until) > (at || Date.now()));
+// Who may vote: every member, except the member a vote is about and anyone in a time-out.
+// V89.84.150.323 (Milli, at 323): a mute no longer stops voting (322 made it); only a time-out does.
+const rkTribeVoters = (members, v, rs, now) => {
+    const at = now || Date.now();
+    return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target) && !rkTribeOutOf(rs, m, at));
+};
+// V89.84.150.323: AN INVITE, AND HOW ITS VOTE IS GOING. Progress is measured against what decides the vote: the
+// yes votes needed (2/3) and the no votes that would end it. Returns the milestone reached: 0, 25, 50, 75, or
+// 100 (passes).
+const RK_INVITE_MS = 7 * 86400000;
+const rkInviteMile = (yes, need) => { const p = need > 0 ? (100 * (Number(yes) || 0)) / need : 0; return p >= 100 ? 100 : p >= 75 ? 75 : p >= 50 ? 50 : p >= 25 ? 25 : 0; };
+const rkInviteNoMile = (no, killAt) => (killAt > 0 && (100 * (Number(no) || 0)) / killAt >= 25 ? 25 : 0);
+// An accepted invite is a vote to add them, with the inviter's yes already counted (if they're still a
+// member). Pure; the settle and every vote on adding someone run it first.
+const rkTribeInvitesIn = (t, nowIn) => {
+    const inv = (t && t.invites) || {};
+    const ks = Object.keys(inv).filter(cid => inv[cid] && inv[cid].accepted);
+    if (!ks.length) return t;
+    const now = nowIn || Date.now();
+    const members = t.members || [];
+    const pending = { ...(t.pendingVotes || {}) }, invites = { ...inv };
+    const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
+    ks.forEach(cid => {
+        const iv = invites[cid]; delete invites[cid];
+        if (members.includes(cid) || pending[cid]) return;
+        const by = members.includes(iv.by) ? iv.by : '';
+        pending[cid] = { name: String(iv.name || 'Raver').slice(0, 40), votes: by ? [by] : [], no: [], at: Number(iv.acceptedAt) || now, asked: false,
+            invited: iv.by || '', byName: String(iv.byName || '').slice(0, 40), mile: by ? Math.min(75, rkInviteMile(1, need)) : 0, noMile: 0 };
+    });
+    return { ...t, pendingVotes: pending, invites };
+};
+// V88.84.150.322: a vote that can no longer pass. With `n` voters it needs rkTribeNeeded(n) yeses, so once
+// more than n - needed have said no, it can't get there.
+const rkTribeDead = (voters, noCount) => voters.length > 0 && noCount > voters.length - rkTribeNeeded(voters.length);
+// The no-answers that count: from members who can vote, and not also counted as a yes.
+const rkTribeNoOf = (list, voters, yes) => Array.from(new Set(list || [])).filter(u => voters.includes(u) && !(yes || []).includes(u));
+// Every item vote in a tribe, with 312's statusVote folded in.
+const rkTribeVotesOf = (t) => {
+    const out = { ...((t && t.votes) || {}) };
+    const sv = t && t.statusVote;
+    if (sv && !out.status) out.status = { type: 'status', to: sv.to, yes: sv.votes || [], by: sv.by || '', byName: sv.byName || 'A member', at: sv.at || 0 };
+    return out;
+};
+const rkTribeVoteLabel = (v) => {
+    if (!v) return '';
+    if (v.type === 'kick') return 'Remove @' + (v.targetName || 'a member');
+    if (v.type === 'status') return v.to === 'open' ? 'Open the tribe (listed in Find Tribes)' : 'Close the tribe (hidden from Find Tribes)';
+    if (v.type === 'purge') return 'Purge the group chat';
+    if (v.type === 'rename') return 'Rename the tribe to "' + (v.name || '') + '"';
+    if (v.type === 'founder') return 'Make @' + (v.targetName || 'a member') + ' the founder';
+    if (v.type === 'mute') return 'Mute @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
+    if (v.type === 'timeout') return 'Time-out @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
+    if (v.type === 'repeal') return 'Lift @' + (v.targetName || 'a member') + "'s " + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' (appeal)';
+    return '';
+};
+// Appeals open after each quarter of a mute or time-out is served: at 25%, 50% and 75%, one appeal
+// in each window. `k` is the quarters served; `can` whether an appeal can be made now; `nextAt` when
+// the next one opens (null when none are left).
+const rkTribeAppeal = (r, now) => {
+    const at = now || Date.now(), start = Number(r.start) || 0, until = Number(r.until) || 0;
+    const q = Math.max(1, (until - start) / 4);
+    const k = Math.max(0, Math.min(3, Math.floor((at - start) / q)));
+    const list = r.appeals || [];
+    const used = list.map(a => a.w), open = list.some(a => a.outcome === 'open');
+    const can = k >= 1 && !open && !used.includes(k);
+    let nextAt = null;
+    if (!can) for (let w = Math.max(1, k + 1); w <= 3; w++) { if (!used.includes(w)) { nextAt = start + w * q; break; } }
+    return { k, can, open, nextAt: can ? at : nextAt, q, windows: [1, 2, 3].map(w => ({ w, at: start + w * q, a: list.find(x => x.w === w) || null })) };
+};
+// Settles a tribe's votes against its current members. Pure apart from the clock: returns the new
+// state and what passed, expired, ran out or no longer applied.
+const rkTribeSettle = (tIn, nowIn) => {
+    const now = nowIn || Date.now();
+    // V89.84.150.323: accepted invites become votes; an invite nobody answered lapses after 7 days, or when the
+    // member who sent it has left.
+    const t0 = rkTribeInvitesIn(tIn, now);
+    const invitesStarted = Object.keys(t0.pendingVotes || {}).filter(cid => !((tIn.pendingVotes || {})[cid])).map(cid => ({ uid: cid, name: (t0.pendingVotes[cid] || {}).name || 'Raver', by: (t0.pendingVotes[cid] || {}).invited || '' }));
+    const invites = { ...(t0.invites || {}) }, invitesExpired = [];
+    const before = (t0.members || []).slice();
+    Object.keys(invites).forEach((cid) => {
+        const iv = invites[cid] || {};
+        if (before.includes(cid) || (t0.pendingVotes || {})[cid]) { delete invites[cid]; return; }
+        const left = !before.includes(iv.by);
+        if (left || now - (Number(iv.at) || 0) > RK_INVITE_MS) { delete invites[cid]; invitesExpired.push({ uid: cid, name: iv.name || 'Raver', by: iv.by || '', left }); }
+    });
+    let members = before.slice();
+    const names = { ...(t0.memberNames || {}) };
+    const pending = { ...(t0.pendingVotes || {}) };
+    const requests = { ...(t0.joinRequests || {}) };
+    // Restrictions: those served are cleared (and noted, for the vote log).
+    const restrictions = {}, served = [];
+    Object.entries(t0.restrictions || {}).forEach(([u, r]) => {
+        if (r && Number(r.until) > now) restrictions[u] = { ...r, appeals: (r.appeals || []).slice() };
+        else if (r) served.push({ uid: u, log: r.log || '', type: r.type });
+    });
+    const voterList = (v, list) => rkTribeVoters(list, v, restrictions, now);
+    const admitVoters = voterList({ type: 'admit' }, before);
+    const admitNeed = rkTribeNeeded(admitVoters.length);
+    const admitted = [], rejectedAdmits = [];
+    Object.keys(pending).forEach((cid) => {
+        const e = pending[cid] || {};
+        if (before.includes(cid)) { delete pending[cid]; return; }
+        const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
+        const no = Array.from(new Set(e.no || [])).filter(v => before.includes(v) && !votes.includes(v));
+        if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver', by: e.invited || '' }); delete pending[cid]; }
+        else if (rkTribeDead(admitVoters, no.filter(v => admitVoters.includes(v)).length)) { rejectedAdmits.push({ uid: cid, name: e.name || 'Raver', asked: !!e.asked, by: e.invited || (e.votes || [])[0] || '' }); delete pending[cid]; }
+        else pending[cid] = { ...e, votes, no, needed: admitNeed };
+    });
+    // Item votes. Stale ones are dropped: the target left, or the tribe already has that status,
+    // name, founder or restriction. An appeal that outlives its window expires.
+    let status = rkTribeStatus(t0), name = t0.name || '', creatorUid = t0.creatorUid || '', purgedAt = Number(t0.purgedAt) || 0;
+    const votes = {}, passed = [], expired = [], dropped = [], rejected = [];
+    const all = rkTribeVotesOf(t0);
+    Object.keys(all).forEach((key) => {
+        const v = all[key];
+        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type) || rkTribeVoteKey(v) !== key) { dropped.push(key); return; }
+        const cur = v.target ? restrictions[v.target] : null;
+        const stale = (RK_TRIBE_ABOUT.includes(v.type) && !before.includes(v.target))
+            || (v.type === 'status' && (!RK_TRIBE_STATUS.includes(v.to) || v.to === status))
+            || (v.type === 'founder' && (!before.includes(v.target) || v.target === creatorUid))
+            || (v.type === 'rename' && (!String(v.name || '').trim() || String(v.name).trim() === name))
+            || (v.type === 'mute' && cur)
+            || (v.type === 'timeout' && cur && cur.type === 'timeout')
+            || (v.type === 'repeal' && (!cur || cur.type !== v.rtype));
+        if (stale) { dropped.push(key); return; }
+        if (v.type === 'repeal' && now >= Number(v.exp || 0)) { expired.push(key); return; }
+        const voters = voterList(v, before);
+        const yes = Array.from(new Set(v.yes || [])).filter(u => voters.includes(u));
+        const no = rkTribeNoOf(v.no, voters, yes);
+        if (voters.length && yes.length >= rkTribeNeeded(voters.length)) passed.push([key, { ...v, yes, no }]);
+        else if (rkTribeDead(voters, no.length)) rejected.push(key);
+        else votes[key] = { ...v, yes, no };
+    });
+    // Apply what passed in a fixed order, re-checking each against the members as they stand,
+    // so two removals can never empty a tribe between them.
+    const ORDER = { kick: 0, timeout: 1, mute: 2, repeal: 3, founder: 4, rename: 5, status: 6, purge: 7 };
+    passed.sort((a, b) => ORDER[a[1].type] - ORDER[b[1].type]);
+    const kicked = [], applied = [];
+    passed.forEach(([key, v]) => {
+        const voters = voterList(v, members);
+        const yes = (v.yes || []).filter(u => voters.includes(u));
+        const targetOk = !['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) || members.includes(v.target);
+        // Re-checked against what this settle has already applied: a time-out passing alongside a
+        // mute makes the mute moot, and an appeal lifts only the restriction it was made about.
+        const rNow = v.target ? restrictions[v.target] : null;
+        const moot = (v.type === 'mute' && rNow) || (v.type === 'timeout' && rNow && rNow.type === 'timeout')
+            || (v.type === 'repeal' && (!rNow || rNow.type !== v.rtype || (v.of && rNow.log !== v.of)));
+        if (!targetOk || moot) { dropped.push(key); return; }
+        if (!(voters.length && yes.length >= rkTribeNeeded(voters.length))) { votes[key] = { ...v, yes, no: rkTribeNoOf(v.no, voters, yes) }; return; }
+        if (v.type === 'kick') { members = members.filter(m => m !== v.target); delete names[v.target]; kicked.push({ uid: v.target, name: v.targetName || 'Raver' }); }
+        else if (v.type === 'founder') creatorUid = v.target;
+        else if (v.type === 'rename') name = String(v.name).trim().slice(0, 40);
+        else if (v.type === 'status') status = v.to;
+        else if (v.type === 'purge') purgedAt = now;
+        else if (v.type === 'mute' || v.type === 'timeout') {
+            const dur = Math.max(RK_TRIBE_MIN_RESTRICT, Math.min(RK_TRIBE_MAX_RESTRICT, Number(v.dur) || 3600000));
+            // a time-out replacing a running mute ends the mute, and its log says so
+            if (rNow) served.push({ uid: v.target, log: rNow.log || '', type: rNow.type, ev: 'replaced' });
+            restrictions[v.target] = { type: v.type, start: now, until: now + dur, dur, name: v.targetName || 'Raver', log: rkTribeLogId(key, v.at), appeals: [] };
+        }
+        else if (v.type === 'repeal') {
+            const r = restrictions[v.target];
+            if (r) served.push({ uid: v.target, log: r.log || '', type: r.type, lifted: true });
+            delete restrictions[v.target];
+        }
+        // V90.89.154.333: `ofN`, how many could vote on it when it passed (Consensus Builder counts it only at 3 or more)
+        applied.push({ ...v, yes, ofN: voters.length });
+    });
+    // An appeal that passed, failed or expired is recorded on the restriction it was about.
+    const mark = (v, outcome) => { const r = restrictions[v.target]; if (!r) return; r.appeals = r.appeals.map(a => (a.w === v.w && a.outcome === 'open') ? { ...a, outcome } : a); };
+    expired.forEach(k => mark(all[k], 'failed'));
+    rejected.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'failed'); });
+    dropped.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'closed'); });
+    admitted.forEach(a => { if (!members.includes(a.uid)) members.push(a.uid); names[a.uid] = a.name; });
+    // A founder who is removed or has left hands the role to the longest-standing member, so
+    // someone can still moderate the chat (the rules give the founder message deletion).
+    if (members.length && !members.includes(creatorUid)) creatorUid = members[0];
+    // A removed member's votes stop counting everywhere.
+    if (kicked.length) {
+        const gone = kicked.map(k => k.uid);
+        Object.keys(pending).forEach(cid => { pending[cid] = { ...pending[cid], votes: (pending[cid].votes || []).filter(u => !gone.includes(u)), no: (pending[cid].no || []).filter(u => !gone.includes(u)) }; });
+        Object.keys(votes).forEach(k => {
+            const v = votes[k];
+            if (['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) && gone.includes(v.target)) { delete votes[k]; dropped.push(k); return; }
+            votes[k] = { ...v, yes: (v.yes || []).filter(u => !gone.includes(u)), no: (v.no || []).filter(u => !gone.includes(u)) };
+        });
+    }
+    Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
+    // V89.84.150.323: who brought each member in (Welcome Committee counts them), kept for current members only
+    const invitedBy = { ...(t0.memberInvitedBy || {}) };
+    admitted.forEach(a => { if (a.by) invitedBy[a.uid] = a.by; });
+    Object.keys(invitedBy).forEach(u => { if (!members.includes(u)) delete invitedBy[u]; });
+    return { members, names, pending, requests, admitted, kicked, applied, votes, status, statusChanged: status !== rkTribeStatus(t0), name, creatorUid, purgedAt,
+        restrictions, served, expired, dropped, rejected, rejectedAdmits, rev: (Number(t0.rev) || 0) + 1,
+        invites, invitesStarted, invitesExpired, invitedBy, invitesMoved: invitesStarted.length + invitesExpired.length > 0 };
+};
+// ---- V86.78.150.314: THE VOTE LOG (Milli, at 314: "log all votes made in the tribe ... allow voting
+// users to remain anonymous on these logs and just show %"). One document per vote in
+// tribes/{id}/voteLog, written in the same transaction as the vote itself (by the server from 333: rk_tribes.js). It
+// records counts and percentages over time, never who voted.
+const rkTribeLogId = (key, at) => String(key).replace(/\//g, '_') + '~' + (Number(at) || 0);
+const rkTribeVoteRows = (t, now) => {
+    const members = t.members || [], rs = t.restrictions || {}, out = {};
+    const admitEl = rkTribeVoters(members, { type: 'admit' }, rs, now);
+    Object.entries(t.pendingVotes || {}).forEach(([cid, e]) => {
+        if (members.includes(cid)) return;
+        const yesL = Array.from(new Set((e && e.votes) || [])).filter(u => admitEl.includes(u));
+        const yes = yesL.length, no = rkTribeNoOf(e && e.no, admitEl, yesL).length;
+        out['admit:' + cid] = { type: 'admit', label: 'Add @' + ((e && e.name) || 'Raver') + ' to the tribe', yes, no, of: admitEl.length, at: Number(e && e.at) || 0, target: cid, targetName: (e && e.name) || 'Raver', note: { asked: !!(e && e.asked) } };
+    });
+    Object.entries(rkTribeVotesOf(t)).forEach(([key, v]) => {
+        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type)) return;
+        const el = rkTribeVoters(members, v, rs, now);
+        const yesL = Array.from(new Set(v.yes || [])).filter(u => el.includes(u));
+        const yes = yesL.length, no = rkTribeNoOf(v.no, el, yesL).length;
+        const note = {};
+        if (v.dur) note.dur = v.dur;
+        if (v.type === 'rename') note.name = v.name || '';
+        if (v.type === 'status') note.to = v.to || '';
+        if (v.type === 'repeal') { note.statement = v.statement || ''; note.w = v.w || 0; note.rtype = v.rtype || ''; note.appealOf = v.of || ''; note.exp = v.exp || 0; }
+        out[key] = { type: v.type, label: rkTribeVoteLabel(v), yes, no, of: el.length, at: Number(v.at) || 0, target: v.target || '', targetName: v.targetName || '', note };
+    });
+    return out;
+};
+// V88.84.150.322: after a raver answers a vote, yes or no: their count of votes goes up by one the first time
+// they answer it (Civic Raver, Tribe Council). V89.84.150.323: an answer within 12 hours of the vote starting also counts
+// toward Quick Draw (tribeVotesFast); calling or proposing a vote yourself never counts as quick.
+// V90.89.154.333: counted by the server, in the vote's own transaction (rk_tribes.js); the rules close them to the app.
+const RK_FAST_VOTE_MS = 12 * 3600000;
+
 // ---- what the app imports (the functions copy ends with module.exports instead) ----
-export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkRadioHeardN, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW };
+export { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkRadioHeardN, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW, RK_TRIBE_STATUS, RK_TRIBE_VOTE_TYPES, RK_TRIBE_MUTES, RK_TRIBE_MIN_RESTRICT, RK_TRIBE_MAX_RESTRICT, rkDurTxt, rkTribeNeeded, rkTribeStatus, RK_TRIBE_ABOUT, rkTribeVoteKey, rkTribeRestriction, rkTribeOutOf, rkTribeVoters, RK_INVITE_MS, rkInviteMile, rkInviteNoMile, rkTribeInvitesIn, rkTribeDead, rkTribeNoOf, rkTribeVotesOf, rkTribeVoteLabel, rkTribeAppeal, rkTribeSettle, rkTribeLogId, rkTribeVoteRows, RK_FAST_VOTE_MS };
 RKSHAREDEOF
 cat << 'EOF' > src/App.js
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -1477,7 +1752,7 @@ import { getFirestore, initializeFirestore, doc, collection, query, onSnapshot, 
 // V72: callable functions, for server-side image generation.
 import { getFunctions, httpsCallable } from 'firebase/functions';
 // V90.85.150.325: what the app and the server both apply (achievements, rates, festival dates, link checks)
-import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW } from './rkShared';
+import { rkCommentCount, RK_REF_CAPS, RK_REF_CREATOR_CEILING, RK_REF_PER_FOLLOWERS, rkUtcDay, rkReferralCap, COMMISSION_RATE, rkEffRate, RK_FEST_DATES, NOTIFICATION_TYPES, RK_ACH_COMM_CUT, RK_ACH_REF_ADD, RK_ACH_DIFF_OVERRIDES, rkAchDiff, rkAchIsReferral, rkAchBonuses, REFERRAL_TIERS, getReferralTier, rkRankOf, RK_RANK_DIFF, RK_RANK_ROMAN, RK_RANK_ACHS, RK_ACH_DEFS, SAFE_SOCIAL_HOSTS, BLOCKED_SHORTENERS, parseVideoLink, validateSocialLink, rkNotifsMaxed, rkAchStats, rkAchVal, rkAchList, rkAchFresh, rkAchFreshNote, RK_ACH_CAP, rkCapBonus, rkAchRewards, rkBaseSellerRateAt, rkHasCustom, rkSellerRateAt, rkRefBasePct, rkRefSharePct, rkAchApplied, rkRatePct, rkPctTxt, rkEventKey, rkEventOf, rkDaysBetween, rkParseDay, rkFestAllIn, rkCoversEditionIn, rkFriendsOfFriends, rkVipGiftAllotment, RK_DAILY, rkDayUsed, rkDayMax, RK_BANNER_MS, rkBannerWindows, RK_BOOST_MS, RK_BOOST_LANES, RK_VIDEO_WINDOWS, rkVideoWindowMs, rkCreatorPoints, rkAvgX100, rkPostStats, rkLikesGiven, rkTribeStats, rkNetworkReach, RK_HIGH_WATER, rkVipForever, rkVipLapsed, rkIsVipAt, RK_RATING_VIP_MIN, rkRatingQualifies, rkMonthKey, rkNextMonthStart, RK_FREE_VIP_SHARE, rkFreeVipNeed, RK_BANNER_LANES, RK_BANNER_GAP_MAX, rkBannerGap, rkInterleave, rkLanesTaken, rkFreeLane, rkBook, rkBannerBook, rkBoostBook, rkSlotRuns, RK_BIZ_SALES, rkPhoneOk, rkEmailOk, rkBizReqs, rkBizReady, rkBizOpen, RK_RADIO_RAW, RK_RADIO_IDS, rkStreamLabel, RK_PAY, rkBulkUnitPrice, rkLineCents, rkStockLeft, RK_ORDER_FLOW, RK_TRIBE_VOTE_TYPES, RK_TRIBE_MUTES, RK_TRIBE_MIN_RESTRICT, RK_TRIBE_MAX_RESTRICT, rkDurTxt, rkTribeNeeded, rkTribeStatus, RK_TRIBE_ABOUT, rkTribeVoteKey, rkTribeRestriction, rkTribeOutOf, rkTribeVoters, RK_INVITE_MS, rkTribeNoOf, rkTribeVotesOf, rkTribeVoteLabel, rkTribeAppeal, rkTribeSettle, rkTribeLogId, rkTribeVoteRows } from './rkShared';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { SplashScreen } from '@capacitor/splash-screen';
 // V65.37.01: REQUIRED for the hardware back button. Build 216 assumed Capacitor falls back to
@@ -2349,7 +2624,7 @@ const RK_DIFF_META = [null,
 // V90.85.150.325: moved to src/rkShared.js (shared with the server).
 // V90.85.150.325: the achievements themselves are in src/rkShared.js (RK_ACH_DEFS, shared with the server, which
 // now works them out); the app adds the icon each one shows. A rank shows a crown from rank IX, a bolt from V.
-const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio, review_1: Star, delivered_5: Truck, backer_50: Wallet };
+const RK_ACH_ICONS = { kandi_creator: Hammer, top_creator: Crown, collector_1: Package, collector_2: Package, collector_3: Package, sales_1: DollarSign, sales_2: DollarSign, sales_3: DollarSign, sales_4: DollarSign, sales_5: TrendingUp, sold_1: Tag, sold_2: Tag, sold_3: Tag, buy_1: ShoppingBag, buy_2: ShoppingBag, buy_3: ShoppingBag, spent_1: CreditCard, social_1: MessageSquare, social_2: MessageSquare, likes_1: Heart, likes_2: Heart, comments_1: MessageSquare, ref_1: Users, biolink: Link, ref_2: Users, ref_3: Users, trade_1: Gift, trade_2: Gift, radio_1: Radio, radio_2: Radio, radio_3: Radio, friend_1: UserPlus, friend_2: Users, friend_3: Users, friend_4: Users, tribe_1: Star, tribe_3: Star, tribe_big_5: Users, tribe_big_10: Users, tribe_msg_50: MessageSquare, tribe_msg_500: MessageSquare, active_1: Activity, active_2: Activity, banner_5: Zap, boost_5: TrendingUp, video_1: Video, video_5: Video, listens_1k: Music, listens_10k: Music, listens_100k: Music, listens_1m: Music, dl_1k: Download, dl_10k: Download, dl_100k: Download, dl_1m: Download, views_1k: Eye, views_10k: Eye, views_100k: Eye, views_1m: Eye, links_10: Link, links_50: Link, links_250: Link, links_1000: Link, ach_5: Award, ach_15: Award, contact_full: Smartphone, notif_all: Bell, vote_5: CheckSquare, vote_pass_5: CheckSquare, vote_50: CheckSquare, fest_1: Calendar, fest_5: Calendar, net_25: UserPlus, net_250: Users, dig_25: Music, dig_250: Radio, install_app: Smartphone, vote_fast_10: Zap, invite_1: UserPlus, fest_days_1: Calendar, fest_all_days: Calendar, invite_5: Users, banner_days_5: Calendar, boost_days_5: Zap, business_1: Briefcase, hop_25: Radio, review_1: Star, delivered_5: Truck, backer_50: Wallet };
 const ACHIEVEMENT_TIERS = RK_ACH_DEFS.map(a => ({ ...a, icon: a.rank ? (a.rank >= 9 ? Crown : a.rank >= 5 ? Zap : Award) : (RK_ACH_ICONS[a.id] || Award) }));
 const NOTIF_INAPP_TYPES = [{id:'message',label:'Direct Messages'},{id:'friendreq',label:'Friend Requests'},{id:'comment',label:'Comments'},{id:'like',label:'Likes'},{id:'cart',label:'Cart Adds'},{id:'sold',label:'Item Sold'},{id:'diy',label:'DIY / Requests'},{id:'queue',label:'Creator Queue'},{id:'achievement',label:'Achievements'},{id:'referral',label:'Referrals'},{id:'trade',label:'PLUR Trades'},{id:'ticket',label:'Ticket Replies'},{id:'admin',label:'Admin Alerts'},{id:'tribe',label:'Vibe Tribes'},{id:'event',label:'Festival meetups'},{id:'radio',label:'Rave Radio checks'},{id:'order',label:'Orders & Payments'}];
 
@@ -3158,115 +3433,21 @@ export const performObliterate = async (tid) => {
 //    (voteRemindHours: 6, 12, 24, 48, 72, 120 or 168; 0 is off; unset is 12). The voteReminders Cloud Function
 //    checks every hour, so they arrive with the app closed; the app checks too when it opens (rkVoteNudge).
 //    Whichever goes first stamps voteRemindAt.
-// The votes are still counted by the app; the rules let any member write the tribe document
-// (queue item 23).
-const RK_TRIBE_STATUS = ['open', 'closed'];
-const RK_TRIBE_VOTE_TYPES = ['kick', 'status', 'purge', 'rename', 'founder', 'mute', 'timeout', 'repeal'];
-const RK_TRIBE_MUTES = [
-    { k: 'msg', label: '💬 New messages' },
-    { k: 'vote', label: '🗳️ Votes and results' },
-    { k: 'join', label: '🙋 Join requests' },
-    { k: 'member', label: '👥 Members joining and leaving' },
-    { k: 'shot', label: '📸 Screenshot alerts' },
-];
+// V90.89.154.333: THE VOTES ARE THE SERVER'S (queue item 23, raised at 312). Every tribe action below asks the server
+// (functions/rk_tribes.js, one callable: rkTribe), which runs it in one transaction by the rules in src/rkShared.js
+// (rkTribeSettle and the rest, moved there so the app and the server apply the same ones), writes the vote log, counts the
+// votes each raver answers (tribeVotesCast, tribeVotesFast; tribeVotesPassed for Consensus Builder) and sends the notices,
+// in the same words and to the same places as before. The rules let only the server write a tribe or its vote log, so a
+// modified app can no longer fake a vote, admit someone, lift its own time-out or make itself the founder. The app still
+// works out what it shows (the same rules, imported), and asks the server to settle what it sees has passed.
 // V86.78.150.314: the lengths the timer offers for a mute or time-out (or any length from 5 minutes
 // to 30 days, typed in).
 const RK_TRIBE_TIMES = [
     { ms: 15 * 60000, label: '15 min' }, { ms: 3600000, label: '1 hour' }, { ms: 6 * 3600000, label: '6 hours' },
     { ms: 12 * 3600000, label: '12 hours' }, { ms: 86400000, label: '1 day' }, { ms: 3 * 86400000, label: '3 days' }, { ms: 7 * 86400000, label: '1 week' },
 ];
-const RK_TRIBE_MIN_RESTRICT = 5 * 60000, RK_TRIBE_MAX_RESTRICT = 30 * 86400000;
-const rkDurTxt = (ms) => {
-    const m = Math.round((Number(ms) || 0) / 60000);
-    if (m < 60) return m + ' min';
-    const h = Math.round(m / 6) / 10;
-    if (h < 24) return h + (h === 1 ? ' hour' : ' hours');
-    const d = Math.round(h / 2.4) / 10;
-    return d + (d === 1 ? ' day' : ' days');
-};
 const rkTribeWhen = (t) => { try { return new Date(Number(t) || 0).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
-const rkTribeNeeded = (n) => Math.max(1, Math.ceil(((Number(n) || 0) * 2) / 3));
-const rkTribeStatus = (t) => (t && t.status === 'open') ? 'open' : 'closed';
 const rkTribeRef = (tribeId) => doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId);
-const RK_TRIBE_ABOUT = ['kick', 'mute', 'timeout', 'repeal'];   // votes about one member, who doesn't vote on them
-const rkTribeVoteKey = (v) => (v && RK_TRIBE_ABOUT.includes(v.type)) ? v.type + ':' + v.target : ((v && v.type) || '');
-// V86.78.150.314: a member's active mute or time-out, or null.
-const rkTribeRestriction = (t, uid, now) => {
-    const r = t && t.restrictions && t.restrictions[uid];
-    return (r && Number(r.until) > (now || Date.now())) ? r : null;
-};
-// V89.84.150.323: in a time-out now (a mute doesn't count: it only stops posting). An unknown type counts as a
-// time-out, so nothing new can slip through as a mute.
-const rkTribeOutOf = (rs, m, at) => !!(rs && rs[m] && rs[m].type !== 'mute' && Number(rs[m].until) > (at || Date.now()));
-// Who may vote: every member, except the member a vote is about and anyone in a time-out.
-// V89.84.150.323 (Milli, at 323): a mute no longer stops voting (322 made it); only a time-out does.
-const rkTribeVoters = (members, v, rs, now) => {
-    const at = now || Date.now();
-    return (members || []).filter(m => !(v && RK_TRIBE_ABOUT.includes(v.type) && m === v.target) && !rkTribeOutOf(rs, m, at));
-};
-// V89.84.150.323: AN INVITE, AND HOW ITS VOTE IS GOING. Progress is measured against what decides the vote: the
-// yes votes needed (2/3) and the no votes that would end it. Returns the milestone reached: 0, 25, 50, 75, or
-// 100 (passes).
-const RK_INVITE_MS = 7 * 86400000;
-const rkInviteMile = (yes, need) => { const p = need > 0 ? (100 * (Number(yes) || 0)) / need : 0; return p >= 100 ? 100 : p >= 75 ? 75 : p >= 50 ? 50 : p >= 25 ? 25 : 0; };
-const rkInviteNoMile = (no, killAt) => (killAt > 0 && (100 * (Number(no) || 0)) / killAt >= 25 ? 25 : 0);
-// An accepted invite is a vote to add them, with the inviter's yes already counted (if they're still a
-// member). Pure; the settle and every vote on adding someone run it first.
-const rkTribeInvitesIn = (t, nowIn) => {
-    const inv = (t && t.invites) || {};
-    const ks = Object.keys(inv).filter(cid => inv[cid] && inv[cid].accepted);
-    if (!ks.length) return t;
-    const now = nowIn || Date.now();
-    const members = t.members || [];
-    const pending = { ...(t.pendingVotes || {}) }, invites = { ...inv };
-    const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
-    ks.forEach(cid => {
-        const iv = invites[cid]; delete invites[cid];
-        if (members.includes(cid) || pending[cid]) return;
-        const by = members.includes(iv.by) ? iv.by : '';
-        pending[cid] = { name: String(iv.name || 'Raver').slice(0, 40), votes: by ? [by] : [], no: [], at: Number(iv.acceptedAt) || now, asked: false,
-            invited: iv.by || '', byName: String(iv.byName || '').slice(0, 40), mile: by ? Math.min(75, rkInviteMile(1, need)) : 0, noMile: 0 };
-    });
-    return { ...t, pendingVotes: pending, invites };
-};
-// V88.84.150.322: a vote that can no longer pass. With `n` voters it needs rkTribeNeeded(n) yeses, so once
-// more than n - needed have said no, it can't get there.
-const rkTribeDead = (voters, noCount) => voters.length > 0 && noCount > voters.length - rkTribeNeeded(voters.length);
-// The no-answers that count: from members who can vote, and not also counted as a yes.
-const rkTribeNoOf = (list, voters, yes) => Array.from(new Set(list || [])).filter(u => voters.includes(u) && !(yes || []).includes(u));
-// Every item vote in a tribe, with 312's statusVote folded in.
-const rkTribeVotesOf = (t) => {
-    const out = { ...((t && t.votes) || {}) };
-    const sv = t && t.statusVote;
-    if (sv && !out.status) out.status = { type: 'status', to: sv.to, yes: sv.votes || [], by: sv.by || '', byName: sv.byName || 'A member', at: sv.at || 0 };
-    return out;
-};
-const rkTribeVoteLabel = (v) => {
-    if (!v) return '';
-    if (v.type === 'kick') return 'Remove @' + (v.targetName || 'a member');
-    if (v.type === 'status') return v.to === 'open' ? 'Open the tribe (listed in Find Tribes)' : 'Close the tribe (hidden from Find Tribes)';
-    if (v.type === 'purge') return 'Purge the group chat';
-    if (v.type === 'rename') return 'Rename the tribe to "' + (v.name || '') + '"';
-    if (v.type === 'founder') return 'Make @' + (v.targetName || 'a member') + ' the founder';
-    if (v.type === 'mute') return 'Mute @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
-    if (v.type === 'timeout') return 'Time-out @' + (v.targetName || 'a member') + ' for ' + rkDurTxt(v.dur);
-    if (v.type === 'repeal') return 'Lift @' + (v.targetName || 'a member') + "'s " + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' (appeal)';
-    return '';
-};
-// Appeals open after each quarter of a mute or time-out is served: at 25%, 50% and 75%, one appeal
-// in each window. `k` is the quarters served; `can` whether an appeal can be made now; `nextAt` when
-// the next one opens (null when none are left).
-const rkTribeAppeal = (r, now) => {
-    const at = now || Date.now(), start = Number(r.start) || 0, until = Number(r.until) || 0;
-    const q = Math.max(1, (until - start) / 4);
-    const k = Math.max(0, Math.min(3, Math.floor((at - start) / q)));
-    const list = r.appeals || [];
-    const used = list.map(a => a.w), open = list.some(a => a.outcome === 'open');
-    const can = k >= 1 && !open && !used.includes(k);
-    let nextAt = null;
-    if (!can) for (let w = Math.max(1, k + 1); w <= 3; w++) { if (!used.includes(w)) { nextAt = start + w * q; break; } }
-    return { k, can, open, nextAt: can ? at : nextAt, q, windows: [1, 2, 3].map(w => ({ w, at: start + w * q, a: list.find(x => x.w === w) || null })) };
-};
 // V85.78.150.313: what a raver must finish before using Vibe Tribes (Milli, at 313). `how` is
 // shown under an unticked box; tapping the row opens that editor.
 const rkTribeReqs = (p, uid) => [
@@ -3274,154 +3455,6 @@ const rkTribeReqs = (p, uid) => [
     { key: 'photo', label: 'Add a profile picture', ok: !!(p && p.photoURL && String(p.photoURL).indexOf('placehold') < 0), how: 'Tap here to choose a picture, or tap your picture on your profile.' },
     { key: 'uid', label: 'Set your custom Friend ID', ok: !!(p && (p.publicUidChanged || (p.publicUid && uid && p.publicUid !== uid))), how: 'Tap here, or tap ✎ Change UID under your Friend UID box. It is a one-time change.' },
 ];
-// Settles a tribe's votes against its current members. Pure apart from the clock: returns the new
-// state and what passed, expired, ran out or no longer applied.
-const rkTribeSettle = (tIn, nowIn) => {
-    const now = nowIn || Date.now();
-    // V89.84.150.323: accepted invites become votes; an invite nobody answered lapses after 7 days, or when the
-    // member who sent it has left.
-    const t0 = rkTribeInvitesIn(tIn, now);
-    const invitesStarted = Object.keys(t0.pendingVotes || {}).filter(cid => !((tIn.pendingVotes || {})[cid])).map(cid => ({ uid: cid, name: (t0.pendingVotes[cid] || {}).name || 'Raver', by: (t0.pendingVotes[cid] || {}).invited || '' }));
-    const invites = { ...(t0.invites || {}) }, invitesExpired = [];
-    const before = (t0.members || []).slice();
-    Object.keys(invites).forEach((cid) => {
-        const iv = invites[cid] || {};
-        if (before.includes(cid) || (t0.pendingVotes || {})[cid]) { delete invites[cid]; return; }
-        const left = !before.includes(iv.by);
-        if (left || now - (Number(iv.at) || 0) > RK_INVITE_MS) { delete invites[cid]; invitesExpired.push({ uid: cid, name: iv.name || 'Raver', by: iv.by || '', left }); }
-    });
-    let members = before.slice();
-    const names = { ...(t0.memberNames || {}) };
-    const pending = { ...(t0.pendingVotes || {}) };
-    const requests = { ...(t0.joinRequests || {}) };
-    // Restrictions: those served are cleared (and noted, for the vote log).
-    const restrictions = {}, served = [];
-    Object.entries(t0.restrictions || {}).forEach(([u, r]) => {
-        if (r && Number(r.until) > now) restrictions[u] = { ...r, appeals: (r.appeals || []).slice() };
-        else if (r) served.push({ uid: u, log: r.log || '', type: r.type });
-    });
-    const voterList = (v, list) => rkTribeVoters(list, v, restrictions, now);
-    const admitVoters = voterList({ type: 'admit' }, before);
-    const admitNeed = rkTribeNeeded(admitVoters.length);
-    const admitted = [], rejectedAdmits = [];
-    Object.keys(pending).forEach((cid) => {
-        const e = pending[cid] || {};
-        if (before.includes(cid)) { delete pending[cid]; return; }
-        const votes = Array.from(new Set(e.votes || [])).filter(v => before.includes(v));
-        const no = Array.from(new Set(e.no || [])).filter(v => before.includes(v) && !votes.includes(v));
-        if (admitVoters.length && votes.filter(v => admitVoters.includes(v)).length >= admitNeed) { admitted.push({ uid: cid, name: e.name || 'Raver', by: e.invited || '' }); delete pending[cid]; }
-        else if (rkTribeDead(admitVoters, no.filter(v => admitVoters.includes(v)).length)) { rejectedAdmits.push({ uid: cid, name: e.name || 'Raver', asked: !!e.asked, by: e.invited || (e.votes || [])[0] || '' }); delete pending[cid]; }
-        else pending[cid] = { ...e, votes, no, needed: admitNeed };
-    });
-    // Item votes. Stale ones are dropped: the target left, or the tribe already has that status,
-    // name, founder or restriction. An appeal that outlives its window expires.
-    let status = rkTribeStatus(t0), name = t0.name || '', creatorUid = t0.creatorUid || '', purgedAt = Number(t0.purgedAt) || 0;
-    const votes = {}, passed = [], expired = [], dropped = [], rejected = [];
-    const all = rkTribeVotesOf(t0);
-    Object.keys(all).forEach((key) => {
-        const v = all[key];
-        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type) || rkTribeVoteKey(v) !== key) { dropped.push(key); return; }
-        const cur = v.target ? restrictions[v.target] : null;
-        const stale = (RK_TRIBE_ABOUT.includes(v.type) && !before.includes(v.target))
-            || (v.type === 'status' && (!RK_TRIBE_STATUS.includes(v.to) || v.to === status))
-            || (v.type === 'founder' && (!before.includes(v.target) || v.target === creatorUid))
-            || (v.type === 'rename' && (!String(v.name || '').trim() || String(v.name).trim() === name))
-            || (v.type === 'mute' && cur)
-            || (v.type === 'timeout' && cur && cur.type === 'timeout')
-            || (v.type === 'repeal' && (!cur || cur.type !== v.rtype));
-        if (stale) { dropped.push(key); return; }
-        if (v.type === 'repeal' && now >= Number(v.exp || 0)) { expired.push(key); return; }
-        const voters = voterList(v, before);
-        const yes = Array.from(new Set(v.yes || [])).filter(u => voters.includes(u));
-        const no = rkTribeNoOf(v.no, voters, yes);
-        if (voters.length && yes.length >= rkTribeNeeded(voters.length)) passed.push([key, { ...v, yes, no }]);
-        else if (rkTribeDead(voters, no.length)) rejected.push(key);
-        else votes[key] = { ...v, yes, no };
-    });
-    // Apply what passed in a fixed order, re-checking each against the members as they stand,
-    // so two removals can never empty a tribe between them.
-    const ORDER = { kick: 0, timeout: 1, mute: 2, repeal: 3, founder: 4, rename: 5, status: 6, purge: 7 };
-    passed.sort((a, b) => ORDER[a[1].type] - ORDER[b[1].type]);
-    const kicked = [], applied = [];
-    passed.forEach(([key, v]) => {
-        const voters = voterList(v, members);
-        const yes = (v.yes || []).filter(u => voters.includes(u));
-        const targetOk = !['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) || members.includes(v.target);
-        // Re-checked against what this settle has already applied: a time-out passing alongside a
-        // mute makes the mute moot, and an appeal lifts only the restriction it was made about.
-        const rNow = v.target ? restrictions[v.target] : null;
-        const moot = (v.type === 'mute' && rNow) || (v.type === 'timeout' && rNow && rNow.type === 'timeout')
-            || (v.type === 'repeal' && (!rNow || rNow.type !== v.rtype || (v.of && rNow.log !== v.of)));
-        if (!targetOk || moot) { dropped.push(key); return; }
-        if (!(voters.length && yes.length >= rkTribeNeeded(voters.length))) { votes[key] = { ...v, yes, no: rkTribeNoOf(v.no, voters, yes) }; return; }
-        if (v.type === 'kick') { members = members.filter(m => m !== v.target); delete names[v.target]; kicked.push({ uid: v.target, name: v.targetName || 'Raver' }); }
-        else if (v.type === 'founder') creatorUid = v.target;
-        else if (v.type === 'rename') name = String(v.name).trim().slice(0, 40);
-        else if (v.type === 'status') status = v.to;
-        else if (v.type === 'purge') purgedAt = now;
-        else if (v.type === 'mute' || v.type === 'timeout') {
-            const dur = Math.max(RK_TRIBE_MIN_RESTRICT, Math.min(RK_TRIBE_MAX_RESTRICT, Number(v.dur) || 3600000));
-            // a time-out replacing a running mute ends the mute, and its log says so
-            if (rNow) served.push({ uid: v.target, log: rNow.log || '', type: rNow.type, ev: 'replaced' });
-            restrictions[v.target] = { type: v.type, start: now, until: now + dur, dur, name: v.targetName || 'Raver', log: rkTribeLogId(key, v.at), appeals: [] };
-        }
-        else if (v.type === 'repeal') {
-            const r = restrictions[v.target];
-            if (r) served.push({ uid: v.target, log: r.log || '', type: r.type, lifted: true });
-            delete restrictions[v.target];
-        }
-        applied.push({ ...v, yes });
-    });
-    // An appeal that passed, failed or expired is recorded on the restriction it was about.
-    const mark = (v, outcome) => { const r = restrictions[v.target]; if (!r) return; r.appeals = r.appeals.map(a => (a.w === v.w && a.outcome === 'open') ? { ...a, outcome } : a); };
-    expired.forEach(k => mark(all[k], 'failed'));
-    rejected.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'failed'); });
-    dropped.forEach(k => { if (all[k] && all[k].type === 'repeal') mark(all[k], 'closed'); });
-    admitted.forEach(a => { if (!members.includes(a.uid)) members.push(a.uid); names[a.uid] = a.name; });
-    // A founder who is removed or has left hands the role to the longest-standing member, so
-    // someone can still moderate the chat (the rules give the founder message deletion).
-    if (members.length && !members.includes(creatorUid)) creatorUid = members[0];
-    // A removed member's votes stop counting everywhere.
-    if (kicked.length) {
-        const gone = kicked.map(k => k.uid);
-        Object.keys(pending).forEach(cid => { pending[cid] = { ...pending[cid], votes: (pending[cid].votes || []).filter(u => !gone.includes(u)), no: (pending[cid].no || []).filter(u => !gone.includes(u)) }; });
-        Object.keys(votes).forEach(k => {
-            const v = votes[k];
-            if (['kick', 'founder', 'mute', 'timeout', 'repeal'].includes(v.type) && gone.includes(v.target)) { delete votes[k]; dropped.push(k); return; }
-            votes[k] = { ...v, yes: (v.yes || []).filter(u => !gone.includes(u)), no: (v.no || []).filter(u => !gone.includes(u)) };
-        });
-    }
-    Object.keys(requests).forEach(cid => { if (members.includes(cid)) delete requests[cid]; });
-    // V89.84.150.323: who brought each member in (Welcome Committee counts them), kept for current members only
-    const invitedBy = { ...(t0.memberInvitedBy || {}) };
-    admitted.forEach(a => { if (a.by) invitedBy[a.uid] = a.by; });
-    Object.keys(invitedBy).forEach(u => { if (!members.includes(u)) delete invitedBy[u]; });
-    return { members, names, pending, requests, admitted, kicked, applied, votes, status, statusChanged: status !== rkTribeStatus(t0), name, creatorUid, purgedAt,
-        restrictions, served, expired, dropped, rejected, rejectedAdmits, rev: (Number(t0.rev) || 0) + 1,
-        invites, invitesStarted, invitesExpired, invitedBy, invitesMoved: invitesStarted.length + invitesExpired.length > 0 };
-};
-const rkTribePatch = (st) => {
-    const p = {
-        members: st.members, memberNames: st.names, memberCount: st.members.length,
-        pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
-        votes: st.votes, statusVote: deleteField(), restrictions: st.restrictions, rev: st.rev,
-        invites: st.invites || {}, memberInvitedBy: st.invitedBy || {},
-    };
-    if (st.name) p.name = st.name;
-    if (st.creatorUid) p.creatorUid = st.creatorUid;
-    if (st.purgedAt) p.purgedAt = st.purgedAt;
-    return p;
-};
-// The tribe document as it stands after a settle is written (the transaction read `t` at commit,
-// so this IS the committed state).
-const rkTribeMerged = (t, st) => {
-    const out = { ...t, members: st.members, memberNames: st.names, memberCount: st.members.length, pendingVotes: st.pending, joinRequests: st.requests, status: st.status, votes: st.votes, restrictions: st.restrictions, rev: st.rev, invites: st.invites || {}, memberInvitedBy: st.invitedBy || {} };
-    delete out.statusVote;
-    if (st.name) out.name = st.name;
-    if (st.creatorUid) out.creatorUid = st.creatorUid;
-    if (st.purgedAt) out.purgedAt = st.purgedAt;
-    return out;
-};
 // V86.78.150.314: hands a tribe's committed state straight to the open Vibe Tribe window. Without it
 // the window waited for Firestore's live update, which on a slow phone connection could hold off
 // until another listener opened (Milli, at 314: the vote stayed on screen until she opened the chat).
@@ -3430,83 +3463,10 @@ const rkTribeEmit = (tribeId, docData, gone, fresh) => { try { window.dispatchEv
 const rkTribeFresh = async (tribeId) => {
     try { const s = await getDocFromServer(rkTribeRef(tribeId)); if (s.exists()) rkTribeEmit(tribeId, { ...s.data(), id: s.id }, false, true); } catch (e) {}
 };
-// ---- V86.78.150.314: THE VOTE LOG (Milli, at 314: "log all votes made in the tribe ... allow voting
-// users to remain anonymous on these logs and just show %"). One document per vote in
-// tribes/{id}/voteLog, written in the same transaction as the vote itself. It records counts and
-// percentages over time, never who voted.
-const rkTribeLogId = (key, at) => String(key).replace(/\//g, '_') + '~' + (Number(at) || 0);
-const rkTribeVoteRows = (t, now) => {
-    const members = t.members || [], rs = t.restrictions || {}, out = {};
-    const admitEl = rkTribeVoters(members, { type: 'admit' }, rs, now);
-    Object.entries(t.pendingVotes || {}).forEach(([cid, e]) => {
-        if (members.includes(cid)) return;
-        const yesL = Array.from(new Set((e && e.votes) || [])).filter(u => admitEl.includes(u));
-        const yes = yesL.length, no = rkTribeNoOf(e && e.no, admitEl, yesL).length;
-        out['admit:' + cid] = { type: 'admit', label: 'Add @' + ((e && e.name) || 'Raver') + ' to the tribe', yes, no, of: admitEl.length, at: Number(e && e.at) || 0, target: cid, targetName: (e && e.name) || 'Raver', note: { asked: !!(e && e.asked) } };
-    });
-    Object.entries(rkTribeVotesOf(t)).forEach(([key, v]) => {
-        if (!v || !RK_TRIBE_VOTE_TYPES.includes(v.type)) return;
-        const el = rkTribeVoters(members, v, rs, now);
-        const yesL = Array.from(new Set(v.yes || [])).filter(u => el.includes(u));
-        const yes = yesL.length, no = rkTribeNoOf(v.no, el, yesL).length;
-        const note = {};
-        if (v.dur) note.dur = v.dur;
-        if (v.type === 'rename') note.name = v.name || '';
-        if (v.type === 'status') note.to = v.to || '';
-        if (v.type === 'repeal') { note.statement = v.statement || ''; note.w = v.w || 0; note.rtype = v.rtype || ''; note.appealOf = v.of || ''; note.exp = v.exp || 0; }
-        out[key] = { type: v.type, label: rkTribeVoteLabel(v), yes, no, of: el.length, at: Number(v.at) || 0, target: v.target || '', targetName: v.targetName || '', note };
-    });
-    return out;
-};
-// A vote must never fail because its log entry was refused (rules deployed late, say). If a tribe
-// transaction is refused, it runs once more without the log, and the log stays off until the app
-// restarts. The refusal is reported.
-let rkTribeLogOk = true;
-const rkTribeTx = async (fn) => {
-    try { return await runTransaction(db, fn); }
-    catch (e) {
-        if (!rkTribeLogOk || !e || e.code !== 'permission-denied') throw e;
-        rkTribeLogOk = false;
-        rkReport('tribe vote log refused; voting without it', e);
-        return await runTransaction(db, fn);
-    }
-};
-// Works out what a transaction did to every vote (started, cast, passed, expired, withdrawn or no
-// longer applying) by comparing the tribe before (t0), with the action applied (t1), and after (st).
-const rkTribeLogTx = (tx, tribeId, t0, t1, st, now, hint) => {
-    if (!rkTribeLogOk) return;
-    try {
-        const A = rkTribeVoteRows(t0, now), B = rkTribeVoteRows(t1, now), C = rkTribeVoteRows(rkTribeMerged(t1, st), now);
-        const pct = (r) => r.of ? Math.round(100 * r.yes / r.of) : 0;
-        const acc = {};
-        const put = (id, data, ev) => { const e = acc[id] || (acc[id] = { data: {}, hist: [] }); Object.assign(e.data, data); if (ev) e.hist.push(ev); };
-        // identity fields go on every write, so a vote started before 314 still gets a full entry
-        const who = (k, b) => ({ key: k, type: b.type, label: b.label, startedAt: b.at || now, target: b.target, targetName: b.targetName, note: b.note });
-        Object.keys(B).forEach(k => {
-            const a = A[k], b = B[k], id = rkTribeLogId(k, b.at);
-            if (!a || a.at !== b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'start', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
-            // a vote cast; when the same transaction also ends the vote, its end event carries the count
-            else if ((a.yes !== b.yes || (a.no || 0) !== (b.no || 0) || a.of !== b.of) && C[k] && C[k].at === b.at) put(id, { ...who(k, b), status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of) }, { at: now, ev: 'vote', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
-        });
-        const passed = new Set([...(st.applied || []).map(v => rkTribeVoteKey(v)), ...(st.admitted || []).map(a => 'admit:' + a.uid)]);
-        const expired = new Set(st.expired || []);
-        const downed = new Set([...(st.rejected || []), ...(st.rejectedAdmits || []).map(a => 'admit:' + a.uid)]);
-        Object.keys(B).forEach(k => {
-            const b = B[k];
-            if (C[k] && C[k].at === b.at) { if (C[k].yes !== b.yes || (C[k].no || 0) !== (b.no || 0) || C[k].of !== b.of) put(rkTribeLogId(k, b.at), { ...who(k, b), status: 'open', yes: C[k].yes, no: C[k].no || 0, of: C[k].of, pct: pct(C[k]), need: rkTribeNeeded(C[k].of) }, { at: now, ev: 'vote', pct: pct(C[k]), n: C[k].yes, no: C[k].no || 0, of: C[k].of }); return; }
-            const ev = passed.has(k) ? 'pass' : expired.has(k) ? 'expire' : downed.has(k) ? 'reject' : (hint && hint.withdrawn === k) ? 'withdraw' : 'close';
-            put(rkTribeLogId(k, b.at), { ...who(k, b), yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: rkTribeNeeded(b.of), status: { pass: 'passed', expire: 'expired', reject: 'rejected', withdraw: 'withdrawn', close: 'closed' }[ev], endedAt: now }, { at: now, ev, pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
-        });
-        (st.served || []).forEach(s => { if (s.log) put(s.log, { doneAt: now }, { at: now, ev: s.ev || (s.lifted ? 'lifted' : 'served') }); });
-        Object.keys(acc).slice(0, 12).forEach(id => {
-            const e = acc[id], data = { ...e.data };
-            if (e.hist.length) data.history = arrayUnion(...e.hist);
-            tx.set(doc(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'voteLog', id), data, { merge: true });
-        });
-    } catch (e) { rkReport('tribe vote log', e); }
-};
 // Sends a tribe notification to everyone in `uids` who hasn't muted that kind for this tribe.
 // `cat` null means it is about the recipient personally, and it is always sent.
+// V90.89.154.333: the app sends only its own pings now (a new message, rkTribeMsgPing; a screenshot alert). Every vote's
+// notices are the server's.
 const rkTribeNotify = (tribeId, t, uids, cat, text, frag) => {
     const mutes = (t && t.mutes) || {};
     const ref = tribeId + '#' + (frag || 'card');
@@ -3516,108 +3476,28 @@ const rkTribeNotify = (tribeId, t, uids, cat, text, frag) => {
         pushNotif(u, 'tribe', text, ref);
     });
 };
-// Deletes chat messages from before a purge. Best effort: the app hides them anyway, and the next
-// member to open the chat finishes anything left. One delete per request, ten at a time: the
-// delete rule looks the tribe up for every message, and a batched write may make only 20 such
-// lookups across all its deletes, so a big batch could be refused as a whole.
-const rkTribePurgeMessages = async (tribeId, purgedAt) => {
-    if (!tribeId || !purgedAt) return 0;
-    let n = 0;
-    try {
-        for (let round = 0; round < 20; round++) {
-            const snap = await getDocs(query(collection(db, 'artifacts', appId, 'public', 'data', 'tribes', tribeId, 'messages'), where('at', '<=', purgedAt), limit(100)));
-            if (snap.empty) break;
-            for (let i = 0; i < snap.docs.length; i += 10) {
-                await Promise.all(snap.docs.slice(i, i + 10).map(d => deleteDoc(d.ref).then(() => { n++; })));
-            }
-            if (snap.size < 100) break;
-        }
-    } catch (e) { rkReport('tribe purge', e); }
-    return n;
-};
-// Notifications for what a settle did, and the purge if one passed. `skipUid` acted and saw it.
-const rkTribeAfter = (tribeId, t0, st, skipUid) => {
-    const oldName = (t0 && t0.name) || 'your tribe';
-    const nm = st.name || oldName;
-    const before = (t0 && t0.members) || [];
-    const others = (list, ...ex) => (list || []).filter(m => m && !ex.includes(m));
-    st.admitted.forEach(a => {
-        rkTribeNotify(tribeId, t0, [a.uid], null, '🎉 You were voted into the "' + nm + '" Vibe Tribe! Tap to open the group chat.', 'chat');
-        rkTribeNotify(tribeId, t0, others(before, skipUid, a.uid), 'member', '🎉 @' + a.name + ' passed the vote and joined "' + nm + '".', 'card');
-    });
-    (st.kicked || []).forEach(k => {
-        rkTribeNotify(tribeId, t0, [k.uid], null, '🚪 You were removed from the "' + oldName + '" Vibe Tribe by a member vote.', 'gone');
-        rkTribeNotify(tribeId, t0, others(st.members, skipUid), 'member', '🚪 @' + k.name + ' was removed from "' + nm + '" by a member vote.', 'card');
-    });
-    (st.applied || []).forEach(v => {
-        if (v.type === 'kick') return;
-        if (v.type === 'mute' || v.type === 'timeout') {
-            const r = st.restrictions[v.target]; if (!r) return;
-            const firstAppeal = r.start + (r.until - r.start) / 4;
-            rkTribeNotify(tribeId, t0, [v.target], null, v.type === 'mute'
-                ? '🔇 You were muted in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat and vote, but not post. You can appeal from ' + rkTribeWhen(firstAppeal) + '.'
-                : '⏳ You are in a time-out in "' + nm + '" for ' + rkDurTxt(r.dur) + ', until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post or vote. You can appeal from ' + rkTribeWhen(firstAppeal) + '.', 'appeal');
-            rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', (v.type === 'mute' ? '🔇 @' + (v.targetName || 'A member') + ' was muted for ' : '⏳ @' + (v.targetName || 'A member') + ' was given a time-out of ') + rkDurTxt(r.dur) + ' in "' + nm + '", by a member vote.', 'card');
-            return;
-        }
-        if (v.type === 'repeal') {
-            rkTribeNotify(tribeId, t0, [v.target], null, '✅ Your appeal passed: your ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + nm + '" is lifted.', 'chat');
-            rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.target), 'vote', '✅ @' + (v.targetName || 'A member') + "'s appeal passed in \"" + nm + '": their ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' is lifted.', 'card');
-            return;
-        }
-        const txt = v.type === 'status' ? (v.to === 'open' ? '🔓 "' + nm + '" is now OPEN: it shows in Find Tribes, and ravers can ask to join.' : '🔒 "' + nm + '" is now CLOSED: it no longer shows in Find Tribes.')
-            : v.type === 'purge' ? '🧹 The "' + nm + '" group chat was purged by a member vote.'
-            : v.type === 'rename' ? '✏️ "' + oldName + '" is now called "' + nm + '", by a member vote.'
-            : v.type === 'founder' ? '👑 @' + (v.targetName || 'A member') + ' is now the founder of "' + nm + '", by a member vote.' : '';
-        if (txt) rkTribeNotify(tribeId, t0, others(st.members, skipUid), 'vote', txt, v.type === 'purge' ? 'chat' : 'card');
-    });
-    // An appeal that ran out of time without passing: the member hears when the next window opens.
-    (st.expired || []).forEach(k => {
-        const v = rkTribeVotesOf(t0)[k]; if (!v) return;
-        const r = st.restrictions[v.target];
-        const nx = r ? rkTribeAppeal(r).nextAt : null;
-        rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ Your appeal in "' + nm + '" did not pass in time. ' + (nx ? 'You can appeal again from ' + rkTribeWhen(nx) + '.' : r ? 'There are no appeals left; it ends ' + rkTribeWhen(r.until) + '.' : ''), 'appeal');
-    });
-    // V88.84.150.322: a vote voted down (more than a third of its voters said no, so it couldn't pass). The member
-    // who called it and the member it was about are told personally; everyone else hears it as a vote result.
-    (st.rejected || []).forEach(k => {
-        const v = rkTribeVotesOf(t0)[k]; if (!v) return;
-        const lbl = rkTribeVoteLabel(v);
-        if (v.type === 'repeal') {
-            const r = st.restrictions[v.target];
-            const nx = r ? rkTribeAppeal(r).nextAt : null;
-            rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ Your appeal in "' + nm + '" was voted down: more than a third of the members said no. ' + (nx ? 'You can appeal again from ' + rkTribeWhen(nx) + '.' : r ? 'There are no appeals left; it ends ' + rkTribeWhen(r.until) + '.' : ''), 'appeal');
-        } else {
-            if (v.target && RK_TRIBE_ABOUT.includes(v.type)) rkTribeNotify(tribeId, t0, [v.target], null, '🗳️ The vote to ' + (v.type === 'kick' ? 'remove you from' : v.type === 'mute' ? 'mute you in' : 'give you a time-out in') + ' "' + nm + '" was voted down.', 'card');
-            if (v.by && v.by !== v.target) rkTribeNotify(tribeId, t0, [v.by], null, '🗳️ Your vote in "' + nm + '" was voted down: ' + lbl + '. More than a third of the members said no, so it can\'t pass.', 'card');
-        }
-        rkTribeNotify(tribeId, t0, others(st.members, skipUid, v.by, v.target), 'vote', '🗳️ Voted down in "' + nm + '": ' + lbl + '.', 'card');
-    });
-    (st.rejectedAdmits || []).forEach(a => {
-        rkTribeNotify(tribeId, t0, [a.uid], null, a.asked ? '🗳️ Your request to join "' + nm + '" wasn\'t accepted this time.' : '🗳️ The vote on adding you to the "' + nm + '" Vibe Tribe didn\'t pass.', 'find');
-        if (a.by) rkTribeNotify(tribeId, t0, [a.by], null, '🗳️ The vote to add @' + a.name + ' to "' + nm + '" was voted down.', 'card');
-        rkTribeNotify(tribeId, t0, others(st.members, skipUid, a.by), 'vote', '🗳️ Voted down in "' + nm + '": adding @' + a.name + '.', 'card');
-    });
-    // V89.84.150.323: an invite that lapsed: the member who sent it hears (unless it lapsed because they left)
-    (st.invitesExpired || []).forEach(x => {
-        if (x.by && !x.left) rkTribeNotify(tribeId, t0, [x.by], null, '🎟️ Your invite to @' + x.name + ' for "' + nm + '" ran out after 7 days without an answer. You can invite them again.', 'card');
-    });
-    if ((st.applied || []).some(v => v.type === 'purge')) rkTribePurgeMessages(tribeId, st.purgedAt);
-};
-// V88.84.150.322: after a raver answers a vote, yes or no: their count of votes goes up by one the first time
-// they answer it (Civic Raver, Tribe Council), and their notifications about it are marked read, because it
-// isn't waiting for them any more.
-// V89.84.150.323: `startedAt` is when the vote started: an answer within 12 hours of it also counts toward Quick
-// Draw (tribeVotesFast). Calling or proposing a vote yourself passes 0, so it never counts as quick.
-const RK_FAST_VOTE_MS = 12 * 3600000;
-const rkTribeVoted = (uid, tribeId, key, fresh, startedAt) => {
-    if (!uid || !tribeId) return;
-    if (fresh) {
-        const upd = { tribeVotesCast: increment(1) };
-        if (Number(startedAt) > 0 && Date.now() - Number(startedAt) <= RK_FAST_VOTE_MS) upd.tribeVotesFast = increment(1);
-        try { updateDoc(doc(db, 'artifacts', appId, 'users', uid), upd).catch(e => rkReport('tribe vote count', e)); } catch (e) {}
+// V90.89.154.333: ONE CALLABLE FOR EVERY TRIBE ACTION (functions/rk_tribes.js). The raver's time zone goes with it, for the
+// times in the notices it sends ("until Nov 15, 3:00 PM CST"). A refusal comes back as an Error with the server's own
+// words. The committed tribe comes back too, and goes straight to the open Vibe Tribe window (rkTribeEmit).
+const rkTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
+const rkTribeAct = async (op, data) => {
+    let d;
+    try { const r = await httpsCallable(getFunctions(app), 'rkTribe')(Object.assign({ op, tz: rkTz() }, data || {})); d = (r && r.data) || {}; }
+    catch (e) {
+        const code = String((e && e.code) || '').replace('functions/', ''), m = String((e && e.message) || '');
+        const msg = code === 'not-found' ? "Tribe votes moved to RaveKandi's server at 333, and that update isn't live yet. Try again later."
+            : (code === 'internal' || code === 'unavailable' || code === 'deadline-exceeded' || !m || /^internal$/i.test(m)) ? "The server didn't answer. Check your connection and try again."
+            : m;
+        const err = new Error(msg); err.code = code; throw err;
     }
-    if (!key) return;
+    if (d.tribeId && d.gone) rkTribeEmit(d.tribeId, null, true);
+    else if (d.tribeId && d.doc) rkTribeEmit(d.tribeId, d.doc);
+    return d;
+};
+// V88.84.150.322: after a raver answers a vote, yes or no (or calls one), their notifications about it are marked read,
+// because it isn't waiting for them any more. V90.89.154.333: counting the answer is the server's (rk_tribes.js).
+const rkTribeSeen = (uid, tribeId, key) => {
+    if (!uid || !tribeId || !key) return;
     const refs = [tribeId + '#vote:' + key];
     if (key.indexOf('admit:') === 0) refs.push(tribeId + '#vote:join:' + key.slice(6));
     refs.forEach(ref => {
@@ -3628,209 +3508,55 @@ const rkTribeVoted = (uid, tribeId, key, fresh, startedAt) => {
         } catch (e) {}
     });
 };
-// Refuses votes, calls and invites from a member in a time-out. (The app hides the buttons; this is the
-// backstop.) V89.84.150.323: a mute no longer does (322 made it); a muted member only can't post.
-const rkTribeNotTimedOut = (t, uid, now) => {
-    const r = rkTribeRestriction(t, uid, now);
-    if (r && r.type !== 'mute') throw new Error('You are in a time-out until ' + rkTribeWhen(r.until) + '. You can read the chat, but not post, vote, call votes or invite.');
-};
 export const createTribe = async (creatorUid, creatorName, tribeName, status) => {
     if (!creatorUid || !tribeName || !tribeName.trim()) throw new Error('Name required');
-    const ref = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tribes'), {
-        name: tribeName.trim().slice(0, 40),
-        creatorUid,
-        members: [creatorUid],
-        memberNames: { [creatorUid]: creatorName || 'Raver' },
-        createdAt: Date.now(),
-        memberCount: 1,
-        status: status === 'open' ? 'open' : 'closed',
-        pendingVotes: {} // { candidateUid: { name, votes: [uid,...], needed: N, at, asked } }
-    });
-    return ref.id;
+    const r = await rkTribeAct('create', { name: tribeName.trim().slice(0, 40), status: status === 'open' ? 'open' : 'closed' });
+    return r.tribeId;
 };
-// Propose a raver, or vote in one who asked to join. The proposer's vote counts at once, so in a
-// tribe of one it admits them straight away. Someone already up for a vote is not proposed
-// again: it returns 'exists' with the vote's key, and the app takes the raver to that vote.
-// Returns { result: 'approved' | 'proposed' | 'exists', needed, votes, key }.
+// Propose a raver, or vote in one who asked to join. The proposer's vote counts at once, so in a tribe of one it admits
+// them straight away. Someone already up for a vote is not proposed again: it returns 'exists' with the vote's key, and
+// the app takes the raver to that vote. Returns { result: 'approved' | 'proposed' | 'exists', needed, votes, key }.
 export const proposeToTribe = async (tribeId, candidateUid, candidateName, proposerUid) => {
-    const ref = rkTribeRef(tribeId);
-    const key = 'admit:' + candidateUid;
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        const members = t.members || [];
-        if (!members.includes(proposerUid)) throw new Error('Only members can propose someone.');
-        rkTribeNotTimedOut(t, proposerUid, now);
-        if (members.includes(candidateUid)) throw new Error('Already a member');
-        if ((t.pendingVotes || {})[candidateUid]) return { exists: true };
-        const req = (t.joinRequests || {})[candidateUid];
-        const nm = candidateName || (req && req.name) || 'Raver';
-        const need = rkTribeNeeded(rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: { name: nm, votes: [proposerUid], needed: need, at: now, asked: !!req, mile: Math.min(75, rkInviteMile(1, need)), noMile: 0 } };
-        const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
-        const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, nm, asked: !!req, approved: st.admitted.some(a => a.uid === candidateUid), needed: need };
-    });
-    if (out.exists) return { result: 'exists', key };
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, proposerUid);
-    if (!out.approved) {
-        // V79.6: the candidate is told too, so a stalled vote doesn't look like nothing happened.
-        rkTribeNotify(tribeId, out.t, [candidateUid], null, out.asked
-            ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join: 1 of ' + out.needed + ' yes votes so far.'
-            : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now: 1 of ' + out.needed + ' yes votes so far.', 'invite');
-        // V88.84.150.322: only the members who can vote on it (V89.84.150.323: not anyone in a time-out).
-        rkTribeNotify(tribeId, out.t, rkTribeVoters(out.t.members, { type: 'admit' }, out.t.restrictions, Date.now()).filter(m => m !== proposerUid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote yes or no.', 'vote:' + key);
-    }
-    rkTribeVoted(proposerUid, tribeId, key, true);
-    return { result: out.approved ? 'approved' : 'proposed', needed: out.needed, votes: out.approved ? out.needed : 1, key };
+    const r = await rkTribeAct('propose', { tribeId, candidateUid });
+    if (r.result !== 'exists') rkTribeSeen(proposerUid, tribeId, r.key);
+    return { result: r.result, needed: r.needed, votes: r.votes, key: r.key };
 };
-// Cast a vote; once 2/3 of the current members have said yes, the candidate joins the group chat.
-// V89.84.150.323: an accepted invite is a vote here too (rkTribeInvitesIn), and the candidate hears each
-// milestone toward the yes votes needed (25%, 50%, 75%) once.
+// A yes on adding someone; once 2/3 of the members who can vote have said yes, they join the group chat. 'approved' or
+// 'voted'.
 export const voteForTribeMember = async (tribeId, candidateUid, voterUid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const raw = snap.data(), now = Date.now();
-        const t = rkTribeInvitesIn(raw, now);
-        if (!(t.members || []).includes(voterUid)) throw new Error('Only members can vote.');
-        rkTribeNotTimedOut(t, voterUid, now);
-        if ((t.members || []).includes(candidateUid)) return { done: true };
-        const e = (t.pendingVotes || {})[candidateUid];
-        if (!e) throw new Error('No pending vote for this raver');
-        const fresh = !(e.votes || []).includes(voterUid) && !(e.no || []).includes(voterUid);
-        // V88.84.150.322: a yes replaces a no from the same member.
-        const ent = { ...e, votes: Array.from(new Set([...(e.votes || []), voterUid])), no: (e.no || []).filter(u => u !== voterUid) };
-        const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
-        const need = rkTribeNeeded(voters.length);
-        const yesB = (e.votes || []).filter(u => voters.includes(u)).length, yesA = ent.votes.filter(u => voters.includes(u)).length;
-        const prev = e.mile !== undefined ? Number(e.mile) || 0 : rkInviteMile(yesB, need);
-        const mile = rkInviteMile(yesA, need);
-        let told = 0;
-        if (mile > prev && mile < 100) { ent.mile = mile; told = mile; }
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: ent };
-        const t1 = { ...t, pendingVotes: pending };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, raw, t1, st, now, {});
-        return { t, st, fresh, at: Number(e.at) || 0, told, yesA, need, approved: st.admitted.some(a => a.uid === candidateUid) };
-    });
-    if (out.done) return 'approved';
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, voterUid);
-    if (out.told && out.st.pending[candidateUid]) rkTribeNotify(tribeId, out.t, [candidateUid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.told + '% of the way there, ' + out.yesA + ' of ' + out.need + ' yes votes.', 'invite');
-    rkTribeVoted(voterUid, tribeId, 'admit:' + candidateUid, out.fresh, out.at);
-    return out.approved ? 'approved' : 'voted';
+    const r = await rkTribeAct('voteMember', { tribeId, candidateUid });
+    rkTribeSeen(voterUid, tribeId, 'admit:' + candidateUid);
+    return r.result;
 };
-// V88.84.150.322: VOTE NO on adding someone: a vote that's running, or a join request nobody has voted on yet
-// (the no then starts the vote). A no replaces a yes from the same member. Returns 'rejected' when this no
-// means it can't pass, 'voted', or 'closed' when they're already in.
-// V89.84.150.323: an accepted invite counts as a running vote, and the candidate hears once when a quarter of
-// the no votes that would end it are in.
+// V88.84.150.322: a no on adding someone: a vote that's running, or a join request nobody has voted on yet (the no then
+// starts the vote). 'rejected' when this no means it can't pass, 'voted', or 'closed' when they're already in.
 export const voteNoTribeMember = async (tribeId, candidateUid, candidateName, uid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const raw = snap.data(), now = Date.now();
-        const t = rkTribeInvitesIn(raw, now);
-        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
-        rkTribeNotTimedOut(t, uid, now);
-        if ((t.members || []).includes(candidateUid)) return { done: true };
-        const e = (t.pendingVotes || {})[candidateUid];
-        const req = (t.joinRequests || {})[candidateUid];
-        if (!e && !req) throw new Error('This vote has already closed.');
-        const base = e || { name: String(candidateName || (req && req.name) || 'Raver').slice(0, 40), votes: [], at: now, asked: true, mile: 0, noMile: 0 };
-        const fresh = !(base.votes || []).includes(uid) && !(base.no || []).includes(uid);
-        const ent = { ...base, votes: (base.votes || []).filter(u => u !== uid), no: Array.from(new Set([...(base.no || []), uid])) };
-        const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
-        const need = rkTribeNeeded(voters.length), killAt = Math.max(1, voters.length - need + 1);
-        const noB = (base.no || []).filter(u => voters.includes(u)).length, noA = ent.no.filter(u => voters.includes(u)).length;
-        const prevNo = base.noMile !== undefined ? Number(base.noMile) || 0 : rkInviteNoMile(noB, killAt);
-        let told = 0;
-        if (rkInviteNoMile(noA, killAt) > prevNo) { ent.noMile = 25; told = 25; }
-        const pending = { ...(t.pendingVotes || {}), [candidateUid]: ent };
-        const requests = { ...(t.joinRequests || {}) }; delete requests[candidateUid];
-        const t1 = { ...t, pendingVotes: pending, joinRequests: requests };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, raw, t1, st, now, {});
-        return { t, st, fresh, at: e ? Number(e.at) || 0 : 0, told, noA, killAt, need, yes: ent.votes.filter(u => voters.includes(u)).length };
-    });
-    if (out.done) return 'closed';
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, uid);
-    if (out.told && out.st.pending[candidateUid]) rkTribeNotify(tribeId, out.t, [candidateUid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.noA + ' said no so far. ' + out.killAt + ' no votes would end it; ' + out.need + ' yes votes get you in (' + out.yes + ' so far).', 'invite');
-    rkTribeVoted(uid, tribeId, 'admit:' + candidateUid, out.fresh, out.at);
-    return out.st.rejectedAdmits.some(a => a.uid === candidateUid) ? 'rejected' : 'voted';
+    const r = await rkTribeAct('voteMemberNo', { tribeId, candidateUid });
+    rkTribeSeen(uid, tribeId, 'admit:' + candidateUid);
+    return r.result;
 };
-// V89.84.150.323: INVITING SOMEONE (Milli, at 323: "the invitee must first accept the invite before the vote
-// process begins"). A member's invite goes in `invites.<uid>` and the raver is asked. Someone who already asked
-// to join, or already has a vote running, is simply voted for (proposeToTribe), as before.
-// Returns { result: 'invited', already?, by? } or what proposeToTribe returns.
+// V89.84.150.323: inviting someone: the raver accepts before the vote starts. Someone who already asked to join, or
+// already has a vote running, is simply voted for. Returns { result: 'invited', already?, by? } or what
+// proposeToTribe returns.
 export const inviteToTribe = async (tribeId, candidateUid, candidateName, inviterUid, inviterName) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        const members = t.members || [];
-        if (!members.includes(inviterUid)) throw new Error('Only members can invite someone.');
-        rkTribeNotTimedOut(t, inviterUid, now);
-        if (members.includes(candidateUid)) throw new Error('Already a member');
-        if ((t.pendingVotes || {})[candidateUid] || (t.joinRequests || {})[candidateUid]) return { vote: true };
-        const iv = (t.invites || {})[candidateUid];
-        if (iv && iv.accepted) return { vote: true };
-        if (iv && now - (Number(iv.at) || 0) <= RK_INVITE_MS && members.includes(iv.by)) return { already: true, by: iv.byName || '' };
-        const entry = { name: String(candidateName || 'Raver').slice(0, 40), by: inviterUid, byName: String(inviterName || (t.memberNames || {})[inviterUid] || 'A member').slice(0, 40), at: now };
-        tx.update(ref, { ['invites.' + candidateUid]: entry });
-        return { t: { ...t, invites: { ...(t.invites || {}), [candidateUid]: entry } }, entry };
-    });
-    if (out.vote) return await proposeToTribe(tribeId, candidateUid, candidateName, inviterUid);
-    if (out.already) return { result: 'invited', already: true, by: out.by };
-    rkTribeEmit(tribeId, { ...out.t, id: tribeId });
-    rkTribeNotify(tribeId, out.t, [candidateUid], null, '🎟️ @' + out.entry.byName + ' invited you to join the "' + (out.t.name || 'a') + '" Vibe Tribe. Tap to accept or decline. If you accept, the members vote on adding you.', 'invite');
-    return { result: 'invited' };
+    const r = await rkTribeAct('invite', { tribeId, candidateUid });
+    if (r.result === 'invited') return r.already ? { result: 'invited', already: true, by: r.by || '' } : { result: 'invited' };
+    if (r.result !== 'exists') rkTribeSeen(inviterUid, tribeId, r.key);
+    return { result: r.result, needed: r.needed, votes: r.votes, key: r.key };
 };
-// The raver invited says yes. Only their own invite changes (the rules allow nothing else from outside the
-// tribe); the vote it becomes is told to the members who can vote, and the inviter hears they accepted.
+// The raver invited says yes, and the vote on adding them starts at once (V90.89.154.333; until 332 it waited for the next
+// member to open the tribe). 'accepted', 'joined' (a tribe of one: the inviter's yes is enough) or 'member'.
 export const acceptTribeInvite = async (tribeId, uid, myName) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await runTransaction(db, async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('That tribe no longer exists.');
-        const t = snap.data(), now = Date.now();
-        if ((t.members || []).includes(uid)) return { member: true };
-        const iv = (t.invites || {})[uid];
-        if (!iv) throw new Error('This invite was withdrawn or has run out.');
-        if (now - (Number(iv.at) || 0) > RK_INVITE_MS || !(t.members || []).includes(iv.by)) throw new Error('This invite has run out. Ask a member to invite you again.');
-        if (iv.accepted) return { already: true };
-        tx.update(ref, { ['invites.' + uid + '.accepted']: true, ['invites.' + uid + '.acceptedAt']: now });
-        return { t, iv, now };
-    });
-    if (out.member) return 'member';
-    if (out.already) return 'accepted';
-    const t = out.t, nm = String(myName || out.iv.name || 'Raver').slice(0, 40);
-    const voters = rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, Date.now());
-    const need = rkTribeNeeded(voters.length);
-    rkTribeNotify(tribeId, t, voters.filter(m => m !== out.iv.by), 'vote', '🗳️ Vote: should @' + nm + ' join your "' + (t.name || 'tribe') + '" Vibe Tribe? @' + (out.iv.byName || 'A member') + ' invited them and they accepted. Tap to vote yes or no; ' + need + ' of ' + voters.length + ' needed.', 'vote:admit:' + uid);
-    rkTribeNotify(tribeId, t, [out.iv.by], null, '🎟️ @' + nm + ' accepted your invite to "' + (t.name || 'your tribe') + '". The members are voting now, and your yes is counted.', 'vote:admit:' + uid);
-    rkTribeFresh(tribeId);
-    return 'accepted';
+    const r = await rkTribeAct('acceptInvite', { tribeId });
+    if (r.result === 'accepted' || r.result === 'joined') rkTribeFresh(tribeId);
+    return r.result;
 };
 export const declineTribeInvite = async (tribeId, uid, myName, iv) => {
-    await updateDoc(rkTribeRef(tribeId), { ['invites.' + uid]: deleteField() });
-    if (iv && iv.by) pushNotif(iv.by, 'tribe', '🎟️ @' + String(myName || iv.name || 'Raver').slice(0, 40) + ' said no thanks to your invite to "' + (iv.tribeName || 'your tribe') + '".', tribeId + '#card');
+    await rkTribeAct('declineInvite', { tribeId });
 };
 // A member takes an invite back (the one who sent it, or the founder; the app shows the button to them).
 export const withdrawTribeInvite = async (tribeId, candidateUid) => {
-    await updateDoc(rkTribeRef(tribeId), { ['invites.' + candidateUid]: deleteField() });
+    await rkTribeAct('withdrawInvite', { tribeId, candidateUid });
 };
 // What the app says after a member invites someone, and where it goes.
 const rkInviteRaver = async (tribe, cid, cname, myUid, myName) => {
@@ -3841,231 +3567,59 @@ const rkInviteRaver = async (tribe, cid, cname, myUid, myName) => {
     if (r.result === 'approved') return { text: '🎉 @' + nm + ' joined "' + (tribe.name || 'the tribe') + '".' };
     return { text: '🗳️ @' + nm + ' asked to join, so the vote has started: ' + r.votes + ' of ' + r.needed + ' so far.', key: r.key };
 };
-// Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the
-// last member out removes the tribe. A member in a time-out may still leave.
+// Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the last member out removes the
+// tribe. A member in a time-out may still leave.
 export const leaveTribe = async (tribeId, myUid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return null;
-        const t = snap.data(), now = Date.now();
-        if (!(t.members || []).includes(myUid)) return null;
-        const rest = (t.members || []).filter(m => m !== myUid);
-        if (rest.length === 0) { tx.delete(ref); return { deleted: true }; }
-        const names = { ...(t.memberNames || {}) }; delete names[myUid];
-        const t1 = { ...t, members: rest, memberNames: names };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t: t1, st, who: (t.memberNames || {})[myUid] || 'A member' };
-    });
-    rkTribeEmit(tribeId, null, true);
-    if (out && !out.deleted) {
-        rkTribeAfter(tribeId, out.t, out.st, myUid);
-        rkTribeNotify(tribeId, out.t, out.st.members, 'member', '👋 @' + out.who + ' left "' + (out.st.name || 'your tribe') + '".', 'card');
-    }
+    await rkTribeAct('leave', { tribeId });
 };
-// Settles what has already passed, expired or run out: proposals stuck at 1/1 in a tribe of one, a
-// vote that reached 2/3 when someone left, an appeal past its window, a time-out served. Writes only
-// when something changes.
+// Settles what has already passed, expired or run out: a vote that reached 2/3 when someone left, an appeal past its
+// window, a time-out served, an invite nobody answered. The server writes only when something changes.
 export const settleTribe = async (tribeId, byUid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return null;
-        const t = snap.data(), now = Date.now();
-        if (!(t.members || []).includes(byUid)) return null;
-        const st = rkTribeSettle(t, now);
-        if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length && !st.invitesMoved) return null;
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t, st, now, {});
-        return { t, st };
-    });
-    if (out) { rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st)); rkTribeAfter(tribeId, out.t, out.st, null); }
-    return !!out;
+    const r = await rkTribeAct('settle', { tribeId });
+    return !!r.changed;
 };
-// Calls a vote. spec: { type, target?, targetName?, to?, name?, dur? }. The caller's yes counts at
-// once, so in a tribe of one it passes straight away.
-// Returns { result: 'same' | 'exists' | 'passed' | 'started', key, need }.
+// Calls a vote. spec: { type, target?, to?, name?, dur? }. The caller's yes counts at once, so in a tribe of one it
+// passes straight away. Returns { result: 'same' | 'exists' | 'passed' | 'started', key, need }.
 export const proposeTribeVote = async (tribeId, spec, uid, myName) => {
     if (!spec || !RK_TRIBE_VOTE_TYPES.includes(spec.type) || spec.type === 'repeal') throw new Error('Unknown vote');
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        const members = t.members || [];
-        if (!members.includes(uid)) throw new Error('Only members can call a vote.');
-        rkTribeNotTimedOut(t, uid, now);
-        const v = { type: spec.type, by: uid, byName: String(myName || 'A member').slice(0, 40), at: now, yes: [uid] };
-        if (['kick', 'founder', 'mute', 'timeout'].includes(spec.type)) {
-            if (!members.includes(spec.target)) throw new Error('That raver is not in this tribe.');
-            if (spec.type === 'kick' && spec.target === uid) throw new Error('To go, use Leave tribe instead.');
-            if ((spec.type === 'mute' || spec.type === 'timeout') && spec.target === uid) throw new Error("You can't call this vote on yourself.");
-            if (spec.type === 'founder' && spec.target === t.creatorUid) throw new Error('They are already the founder.');
-            v.target = spec.target;
-            v.targetName = String(spec.targetName || (t.memberNames || {})[spec.target] || 'Raver').slice(0, 40);
-        }
-        if (spec.type === 'mute' || spec.type === 'timeout') {
-            const dur = Math.round(Number(spec.dur) || 0);
-            if (!(dur >= RK_TRIBE_MIN_RESTRICT && dur <= RK_TRIBE_MAX_RESTRICT)) throw new Error('Pick a length from 5 minutes to 30 days.');
-            const cur = rkTribeRestriction(t, spec.target, now);
-            if (cur && (spec.type === 'mute' || cur.type === 'timeout')) throw new Error('@' + v.targetName + ' is already ' + (cur.type === 'mute' ? 'muted' : 'in a time-out') + ' until ' + rkTribeWhen(cur.until) + '.');
-            v.dur = dur;
-        }
-        if (spec.type === 'status') {
-            if (!RK_TRIBE_STATUS.includes(spec.to)) throw new Error('Unknown status');
-            if (spec.to === rkTribeStatus(t)) return { same: true };
-            v.to = spec.to;
-        }
-        if (spec.type === 'rename') {
-            const nm = String(spec.name || '').trim().slice(0, 40);
-            if (!nm) throw new Error('Type the new name first.');
-            if (nm === t.name) return { same: true };
-            v.name = nm;
-        }
-        const key = rkTribeVoteKey(v);
-        const all = rkTribeVotesOf(t);
-        if (all[key]) return { exists: true, key };
-        const t1 = { ...t, votes: { ...all, [key]: v }, statusVote: null };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        const voters = rkTribeVoters(members, v, t.restrictions, now);
-        return { t, st, key, v, voters, need: rkTribeNeeded(voters.length) };
-    });
-    if (out.same) return { result: 'same' };
-    if (out.exists) return { result: 'exists', key: out.key };
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    const passed = out.st.applied.some(a => rkTribeVoteKey(a) === out.key);
-    rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, out.key, true);
-    if (!passed) {
-        rkTribeNotify(tribeId, out.t, out.voters.filter(m => m !== uid), 'vote', '🗳️ @' + out.v.byName + ' called a vote in "' + (out.t.name || 'your tribe') + '": ' + rkTribeVoteLabel(out.v) + '. Tap to vote yes or no; ' + out.need + ' of ' + out.voters.length + ' needed.', 'vote:' + out.key);
-        // V86.78.150.314: the member a vote is about hears about it too, and can watch it.
-        if (out.v.target && RK_TRIBE_ABOUT.includes(out.v.type)) rkTribeNotify(tribeId, out.t, [out.v.target], null, '🗳️ Members of "' + (out.t.name || 'your tribe') + '" are voting to ' + (out.v.type === 'kick' ? 'remove you' : out.v.type === 'mute' ? 'mute you for ' + rkDurTxt(out.v.dur) : 'give you a time-out of ' + rkDurTxt(out.v.dur)) + '.', 'vote:' + out.key);
-    }
-    return { result: passed ? 'passed' : 'started', key: out.key, need: out.need };
+    const s = { type: spec.type };
+    if (spec.target) s.target = String(spec.target);
+    if (spec.to) s.to = String(spec.to);
+    if (spec.name !== undefined && spec.name !== null) s.name = String(spec.name);
+    if (spec.dur !== undefined && spec.dur !== null) s.dur = Number(spec.dur) || 0;
+    const r = await rkTribeAct('call', { tribeId, spec: s });
+    if (r.result === 'passed' || r.result === 'started') rkTribeSeen(uid, tribeId, r.key);
+    return { result: r.result, key: r.key, need: r.need };
 };
+// A yes on a vote that's running: 'passed' or 'voted'.
 export const voteTribeVote = async (tribeId, key, uid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
-        rkTribeNotTimedOut(t, uid, now);
-        const all = rkTribeVotesOf(t);
-        const v = all[key];
-        if (!v) throw new Error('This vote has already closed.');
-        if (v.target === uid && RK_TRIBE_ABOUT.includes(v.type)) throw new Error("This vote is about you, so you don't vote on it.");
-        const fresh = !(v.yes || []).includes(uid) && !(v.no || []).includes(uid);
-        // V88.84.150.322: a yes replaces a no from the same member.
-        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: Array.from(new Set([...(v.yes || []), uid])), no: (v.no || []).filter(u => u !== uid) } }, statusVote: null };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh, at: Number(v.at) || 0 };
-    });
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, key, out.fresh, out.at);
-    return out.st.applied.some(a => rkTribeVoteKey(a) === key) ? 'passed' : 'voted';
+    const r = await rkTribeAct('vote', { tribeId, key });
+    rkTribeSeen(uid, tribeId, key);
+    return r.result;
 };
-// V88.84.150.322: VOTE NO on a vote that's running. A no replaces a yes from the same member; the member who
-// called the vote withdraws it instead. Returns 'rejected' when this no means it can't pass, else 'voted'.
+// V88.84.150.322: a no on a vote that's running. A no replaces a yes from the same member; the member who called the vote
+// withdraws it instead. 'rejected' when this no means it can't pass, else 'voted'.
 export const voteNoTribeVote = async (tribeId, key, uid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        if (!(t.members || []).includes(uid)) throw new Error('Only members can vote.');
-        rkTribeNotTimedOut(t, uid, now);
-        const all = rkTribeVotesOf(t);
-        const v = all[key];
-        if (!v) throw new Error('This vote has already closed.');
-        if (v.target === uid && RK_TRIBE_ABOUT.includes(v.type)) throw new Error("This vote is about you, so you don't vote on it.");
-        if (v.by === uid) throw new Error('You called this vote. To stop it, withdraw it.');
-        const fresh = !(v.yes || []).includes(uid) && !(v.no || []).includes(uid);
-        const t1 = { ...t, votes: { ...all, [key]: { ...v, yes: (v.yes || []).filter(u => u !== uid), no: Array.from(new Set([...(v.no || []), uid])) } }, statusVote: null };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        return { t, st, fresh, at: Number(v.at) || 0 };
-    });
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, uid);
-    rkTribeVoted(uid, tribeId, key, out.fresh, out.at);
-    return out.st.rejected.includes(key) ? 'rejected' : 'voted';
+    const r = await rkTribeAct('voteNo', { tribeId, key });
+    rkTribeSeen(uid, tribeId, key);
+    return r.result;
 };
 // Only the member who called a vote can withdraw it.
 export const withdrawTribeVote = async (tribeId, key, uid) => {
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return null;
-        const t = snap.data(), now = Date.now();
-        const all = rkTribeVotesOf(t);
-        const v = all[key];
-        if (!v) return null;   // already closed: nothing to withdraw
-        if (v.by !== uid) throw new Error('Only the member who called it can withdraw it.');
-        rkTribeNotTimedOut(t, uid, now);
-        delete all[key];
-        const t1 = { ...t, votes: all, statusVote: null };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t, st, now, { withdrawn: key });
-        return { t, st };
-    });
-    if (out) rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
+    await rkTribeAct('withdraw', { tribeId, key });
 };
-// V86.78.150.314: AN APPEAL (Milli, at 314: "the user being punished can make an apology statement
-// and appeal request after that time period 25% has been served"). Opens a vote to lift the mute or
-// time-out, with the statement attached, for the other members. One appeal per quarter served; it
-// stays open until the next quarter begins (or the restriction ends), then expires.
+// V86.78.150.314: AN APPEAL (Milli, at 314: "the user being punished can make an apology statement and appeal request
+// after that time period 25% has been served"). Opens a vote to lift the mute or time-out, with the statement attached,
+// for the other members. One appeal per quarter served. Returns { result: 'started' | 'exists', key, need }.
 export const appealTribeRestriction = async (tribeId, uid, myName, statement) => {
     const text = String(statement || '').trim().slice(0, 500);
     if (text.length < 10) throw new Error('Write a few words first: what you are sorry for, and why it should be lifted.');
-    const ref = rkTribeRef(tribeId);
-    const out = await rkTribeTx(async (tx) => {
-        const snap = await tx.get(ref);
-        if (!snap.exists()) throw new Error('Tribe not found');
-        const t = snap.data(), now = Date.now();
-        if (!(t.members || []).includes(uid)) throw new Error('You are not in this tribe.');
-        const r = rkTribeRestriction(t, uid, now);
-        if (!r) throw new Error('There is nothing to appeal: it has already ended.');
-        const ap = rkTribeAppeal(r, now);
-        if (!ap.can) throw new Error(ap.open ? 'Your appeal is already being voted on.' : ap.nextAt ? 'Your next appeal opens ' + rkTribeWhen(ap.nextAt) + '.' : 'There are no appeals left. It ends ' + rkTribeWhen(r.until) + '.');
-        const key = 'repeal:' + uid;
-        const all = rkTribeVotesOf(t);
-        if (all[key]) return { exists: true, key };
-        const nm = String(myName || (t.memberNames || {})[uid] || 'Raver').slice(0, 40);
-        const v = { type: 'repeal', target: uid, targetName: nm, by: uid, byName: nm, at: now, yes: [], statement: text, w: ap.k, rtype: r.type, of: r.log || '', exp: Math.min(Number(r.until), Number(r.start) + (ap.k + 1) * ap.q) };
-        const restrictions = { ...(t.restrictions || {}), [uid]: { ...r, appeals: [...(r.appeals || []), { w: ap.k, at: now, outcome: 'open' }] } };
-        const t1 = { ...t, votes: { ...all, [key]: v }, statusVote: null, restrictions };
-        const st = rkTribeSettle(t1, now);
-        tx.update(ref, rkTribePatch(st));
-        rkTribeLogTx(tx, tribeId, t, t1, st, now, {});
-        const voters = rkTribeVoters(t.members || [], v, t.restrictions, now);
-        return { t, st, key, v, voters };
-    });
-    if (out.exists) return { result: 'exists', key: out.key };
-    rkTribeEmit(tribeId, rkTribeMerged(out.t, out.st));
-    rkTribeAfter(tribeId, out.t, out.st, uid);
-    const ex = out.v.statement.length > 90 ? out.v.statement.slice(0, 88) + '…' : out.v.statement;
-    rkTribeNotify(tribeId, out.t, out.voters, 'vote', '🙏 @' + out.v.targetName + ' appealed their ' + (out.v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + (out.t.name || 'your tribe') + '": "' + ex + '" Tap to vote; ' + rkTribeNeeded(out.voters.length) + ' of ' + out.voters.length + ' needed to lift it.', 'vote:' + out.key);
-    return { result: 'started', key: out.key, need: rkTribeNeeded(out.voters.length) };
+    const r = await rkTribeAct('appeal', { tribeId, statement: text });
+    return { result: r.result, key: r.key, need: r.need };
 };
-// Asking to join an OPEN tribe. The rules let a non-member write only their own entry in
-// joinRequests, and only while the tribe is open. Withdrawing is always allowed.
+// Asking to join an OPEN tribe (it answers any invite you had to it). The members who can vote are told.
 export const requestToJoinTribe = async (tribe, uid, name) => {
-    const nm = String(name || 'Raver').slice(0, 40);
-    await updateDoc(rkTribeRef(tribe.id), { ['joinRequests.' + uid]: { name: nm, at: Date.now() } });
-    // V88.84.150.322: only the members who can vote on it.
-    rkTribeNotify(tribe.id, tribe, rkTribeVoters(tribe.members, { type: 'admit' }, tribe.restrictions, Date.now()).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + tribe.name + '" Vibe Tribe. Tap to vote yes or no.', 'vote:join:' + uid);
-    // V89.84.150.323: asking to join answers any invite you had to that tribe
-    if ((tribe.invites || {})[uid]) { try { await updateDoc(rkTribeRef(tribe.id), { ['invites.' + uid]: deleteField() }); } catch (e) {} }
+    await rkTribeAct('request', { tribeId: tribe.id });
 };
 // V88.84.150.322: THE VOTES WAITING ON A RAVER, and the nudge about them (Milli, at 322: "If users select
 // no, they are no longer notified of a vote awaiting"). Waiting means: they can vote on it, they haven't said
@@ -4149,14 +3703,20 @@ const RkVoteRemindSetting = ({ user, profile }) => {
     );
 };
 export const withdrawTribeRequest = async (tribeId, uid) => {
-    await updateDoc(rkTribeRef(tribeId), { ['joinRequests.' + uid]: deleteField() });
+    await rkTribeAct('withdrawRequest', { tribeId });
 };
 // Mutes for one member of one tribe. Stored on the tribe so senders can honour them.
 export const setTribeMutes = async (tribeId, uid, mutes) => {
     const clean = {};
     RK_TRIBE_MUTES.forEach(m => { if (mutes && mutes[m.k]) clean[m.k] = true; });
-    await updateDoc(rkTribeRef(tribeId), { ['mutes.' + uid]: Object.keys(clean).length ? clean : deleteField() });
+    await rkTribeAct('mutes', { tribeId, mutes: clean });
     rkTribeEmit(tribeId, { __mutes: { uid, mutes: Object.keys(clean).length ? clean : null } });
+};
+// V85.78.150.313: messages from before a purge that are still there, deleted by the server (V90.89.154.333: the purge that
+// passed deletes them, and this finishes anything left; the app hides them meanwhile).
+const rkTribePurgeRest = async (tribeId) => {
+    try { const r = await rkTribeAct('purge', { tribeId }); return Number(r.deleted) || 0; }
+    catch (e) { rkReport('tribe purge', e); return 0; }
 };
 // A new tribe message pings the other members, at most once every 2 minutes per sender per
 // tribe, so a conversation doesn't become a notification for every line. No message text goes
@@ -4168,6 +3728,7 @@ const rkTribeMsgPing = (tribeId, t, fromUid, fromName) => {
     rkTribeNotify(tribeId, t, (t.members || []).filter(m => m !== fromUid), 'msg', '💬 @' + (fromName || 'A raver') + ' sent a message in "' + (t.name || 'your tribe') + '".', 'chat');
 };
 // Send a message to the tribe group chat (stored as a subcollection).
+// V90.89.154.333: the server counts it for Tribe Chatter and Tribe Voice (rk_tribes.js, tribeMsgCount), once per message.
 export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeObj, extra) => {
     if (!text || !text.trim()) return;
     const encT = await rkEncTribe(text.trim().slice(0, 1000), tribeId);   // AES-GCM (group key)
@@ -4176,8 +3737,6 @@ export const sendTribeMessage = async (tribeId, fromUid, fromName, text, badgeOb
         style: (extra && extra.style) || null, ns: (extra && extra.ns) || null,
         photoURL: (extra && extra.photoURL) || '', publicUid: (extra && extra.publicUid) || fromUid
     });
-    // track for achievements (best-effort)
-    try { await setDoc(doc(db, 'artifacts', appId, 'users', fromUid), { tribeMessages: increment(1) }, { merge: true }); } catch (e) {}
 };
 
 export const removeFriend = async (myUid, otherUid) => {
@@ -10100,6 +9659,26 @@ function rkEmBacker() {
   return { g: g, e: e, h: N };
 }
 
+// V90.89.154.333: Consensus Builder: a ring two-thirds lit (a vote passes at 2/3), three members round it, two of them
+// gold, and the check where it passed
+function rkEmConsensus() {
+  var N = '#ffd166', p = rkEmPal(N), E = rkEmE, e = [];
+  var g = { a: rkEmLin([p.l, p.m, N]), c: rkEmRad(['#fffbe6', '#ffd166'], [0.45, 0.4, 0.72]) };
+  var D = rkEmCirc(50, 52, 34);
+  e.push(E(D, 0, 0, 5, 1, 'o'), E(D, '#1a0a33', p.d, 2, 1, 'b'));
+  var lit = rkEmE(rkEmArc(50, 52, 34, 0, 240), 0, 'a', 7, 1, 'b'); lit.cap = 'round';
+  e.push(lit);
+  var dim = rkEmE(rkEmArc(50, 52, 34, 248, 352), 0, p.d, 5, 0.9, 'd'); dim.cap = 'round';
+  e.push(dim);
+  var s = [rkEmPol(50, 52, 34, 0), rkEmPol(50, 52, 34, 120), rkEmPol(50, 52, 34, 240)];
+  e.push(E(rkEmCirc(s[0][0], s[0][1], 7.5) + rkEmCirc(s[1][0], s[1][1], 7.5), '#ffd166', '#ffffff', 1.6, 1, 'd'));
+  e.push(E(rkEmCirc(s[2][0], s[2][1], 7.5), '#7c5cff', '#ffffff', 1.6, 1, 'd'));
+  var C = rkEmCirc(50, 52, 19);
+  e.push(E(C, 0, 0, 4, 1, 'o'), E(C, 'c', N, 2, 1, 'b'), E('M41.5 52.5L47.5 58.5L59 45.5', 0, '#2bd67b', 4, 1, 'd'));
+  e.push(E(rkEmSpark(84, 16, 5) + rkEmSpark(17, 86, 3.5), '#ffffff', 0, 0, 1, 'h'));
+  return { g: g, e: e, h: N };
+}
+
 // ---------- registry ----------
 function rkEmSpec() {
   if (rkEmSpec.t) return rkEmSpec.t;
@@ -10128,7 +9707,7 @@ function rkEmSpec() {
     ['net_25', rkEmWeb, 1, 2], ['net_250', rkEmWeb, 2, 4], ['dig_25', rkEmCrate, 1, 2], ['dig_250', rkEmCrate, 2, 3],
     ['install_app', rkEmHome, 1, 1], ['vote_fast_10', rkEmQuick, 1, 2], ['invite_1', rkEmTicket, 1, 2], ['invite_5', rkEmTicket, 2, 3],
     ['fest_days_1', rkEmDays, 1, 1], ['fest_all_days', rkEmDays, 2, 2], ['banner_days_5', rkEmRegular, 1, 2], ['boost_days_5', rkEmRegular, 2, 2], ['business_1', rkEmShop, 1, 2], ['hop_25', rkEmRadio, 4, 2],
-    ['review_1', rkEmReview, 1, 2], ['delivered_5', rkEmParcel, 1, 3], ['backer_50', rkEmBacker, 1, 2]], t = {};
+    ['review_1', rkEmReview, 1, 2], ['delivered_5', rkEmParcel, 1, 3], ['backer_50', rkEmBacker, 1, 2], ['vote_pass_5', rkEmConsensus, 1, 3]], t = {};
   for (var i = 0; i < L.length; i++) t[L[i][0]] = { f: L[i][1], t: L[i][2], v: L[i][3], k: i.toString(36) };
   rkEmSpec.ids = L.map(function (r) { return r[0]; });
   rkEmSpec.t = t;
@@ -22720,7 +22299,7 @@ const RkMyTribeInvites = ({ myUid, myName, unlocked, focusN }) => {
         setBusy(t.id);
         try {
             const r = await acceptTribeInvite(t.id, myUid, myName);
-            alert(r === 'member' ? 'You are already in "' + (t.name || 'that tribe') + '".' : '🎟️ Accepted. The members of "' + (t.name || 'the tribe') + '" are voting now; you will hear how it goes.');
+            alert(r === 'member' ? 'You are already in "' + (t.name || 'that tribe') + '".' : r === 'joined' ? '🎉 You joined "' + (t.name || 'the tribe') + '"!' : '🎟️ Accepted. The members of "' + (t.name || 'the tribe') + '" are voting now; you will hear how it goes.');
         } catch (e) { alert(e.message); }
         setBusy('');
     };
@@ -23304,11 +22883,16 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     // at 1/1 for good. One attempt per tribe at a time; the transaction re-checks.
     // V86.78.150.314: also appeals past their window, restrictions served, and votes that no longer
     // apply; the clock re-checks every 30 seconds while the window is open.
+    // V90.89.154.333: the server settles it (rkTribe 'settle'). The same state of a tribe (its rev) is asked about at most
+    // once every 2 minutes, so a phone whose clock runs ahead of the server's doesn't ask every 30 seconds.
     useEffect(() => {
         if (!isOpen || !myUid) return;
         tribes.forEach(t => {
             const st = rkTribeSettle(t);
             if ((!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length && !st.invitesMoved) || settlingRef.current[t.id]) return;
+            const asked = '@' + t.id + '@' + (Number(t.rev) || 0);
+            if (Date.now() - (settlingRef.current[asked] || 0) < 120000) return;
+            settlingRef.current[asked] = Date.now();
             settlingRef.current[t.id] = true;
             settleTribe(t.id, myUid).catch(e => rkReport('tribe settle', e)).finally(() => { delete settlingRef.current[t.id]; });
         });
@@ -23347,14 +22931,15 @@ const VibeTribeModal = ({ user, profile, isOpen, onClose, onViewProfile, onMessa
     }, [activeTribe]);
 
     // V85.78.150.313: messages from before a purge are deleted by whoever opens the chat next, if
-    // the member whose vote passed it didn't finish.
+    // the member whose vote passed it didn't finish. V90.89.154.333: the server deletes them (the purge that passed, then
+    // this for anything left).
     useEffect(() => {
         const lt = activeTribe ? tribes.find(x => x.id === activeTribe.id) : null;
         const pa = Number(lt && lt.purgedAt) || 0;
         if (!lt || !pa || purgeRef.current[lt.id] === pa) return;
         if (!tribeMsgs.some(m => (m.at || 0) <= pa)) return;
         purgeRef.current[lt.id] = pa;
-        rkTribePurgeMessages(lt.id, pa);
+        rkTribePurgeRest(lt.id);
     }, [activeTribe, tribes, tribeMsgs]);
 
     // Load tribe member profiles (for the member-list popup).
@@ -25605,6 +25190,8 @@ const App = () => {
                 const [trusted, reviewer] = await Promise.all([grab('ordersDelivered'), grab('reviewsLeft')]);
                 // V90.88.152.330: Scene Backer's leader (dollars spent with community sellers, the server's count)
                 const backer = await grab('totalBoughtValue');
+                // V90.89.154.333: Consensus Builder's leader (tribe votes called that passed, the server's count)
+                const consensus = await grab('tribeVotesPassed');
                 // Top-rated: highest avg rating among users with at least 3 rated transactions.
                 let rated = null;
                 try { const rs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('avgRatingX100', 'desc'), limit(5))); const cand = rs.docs.map(d => ({ ...d.data(), id: d.id })).filter(u => rkMqNamed(u) && (u.ratingTxns || 0) >= 3 && (u.avgRatingX100 || 0) >= 400); rated = cand[0] || null; } catch (e) {}
@@ -25620,7 +25207,7 @@ const App = () => {
                 // V90.86.150.326: the newest Business account (businessSince is the server's), still a Business account
                 let biz = null;
                 try { const bs = await getDocs(query(collection(db, 'artifacts', appId, 'users'), orderBy('businessSince', 'desc'), limit(5))); const d = bs.docs.find(x => rkMqNamed(x.data()) && x.data().accountType === 'business'); if (d) biz = { ...d.data(), id: d.id }; } catch (e) {}
-                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz, trusted, reviewer, backer });
+                setTopStats({ seller, earner, referrer, buyer, active, listener, ach, creator, rated, voter, network, digger, poster, topTrack, postCount, meetup, welcomer, quick, homeCount, planner, regular, spotlit, biz, trusted, reviewer, backer, consensus });
             } catch (e) { console.log('Marquee stats unavailable', e); }
         };
         pull();
@@ -26373,6 +25960,8 @@ const App = () => {
         // V89.84.150.323: the leaders for 323's achievements, and RaveKandi on home screens
         topStats.welcomer && ((topStats.welcomer.tribeInvitesPassed || 0) > 0) ? { t: '🎟️ MOST WELCOMING RAVER: @' + rkMqName(topStats.welcomer) + ' (' + topStats.welcomer.tribeInvitesPassed + ' raver' + (topStats.welcomer.tribeInvitesPassed === 1 ? '' : 's') + ' brought into tribes)', uid: uref(topStats.welcomer) } : null,
         topStats.quick && ((topStats.quick.tribeVotesFast || 0) > 0) ? { t: '⚡ QUICKEST VOTER: @' + rkMqName(topStats.quick) + ' (' + topStats.quick.tribeVotesFast + ' tribe vote' + (topStats.quick.tribeVotesFast === 1 ? '' : 's') + ' answered within 12 hours)', uid: uref(topStats.quick) } : null,
+        // V90.89.154.333: Consensus Builder's leader (tribe votes called that passed, counted by the server)
+        topStats.consensus && ((topStats.consensus.tribeVotesPassed || 0) > 0) ? { t: '⚖️ CONSENSUS BUILDER: @' + rkMqName(topStats.consensus) + ' (' + topStats.consensus.tribeVotesPassed + ' tribe vote' + (topStats.consensus.tribeVotesPassed === 1 ? '' : 's') + ' called that passed)', uid: uref(topStats.consensus) } : null,
         ((topStats.homeCount || 0) > 0 && !IS_STANDALONE && !rkIsNative()) ? { t: '📲 ' + topStats.homeCount + ' raver' + (topStats.homeCount === 1 ? ' has' : 's have') + ' RaveKandi on their home screen. Tap to add it to yours 📲', kind: 'install', go: () => setIosGuide(true) } : null,
         topStats.digger && ((topStats.digger.tracksPlayed || 0) > 0) ? { t: '📀 TOP CRATE DIGGER: @' + rkMqName(topStats.digger) + ' (' + topStats.digger.tracksPlayed + ' tracks played)', uid: uref(topStats.digger) } : null,
         topStats.topTrack && ((topStats.topTrack.plays || 0) > 0) ? { t: '🎵 MOST PLAYED TRACK: "' + String(topStats.topTrack.title || 'Untitled').slice(0, 40) + '" by @' + (topStats.topTrack.ownerName || 'Artist') + ' (' + topStats.topTrack.plays + ' plays)', uid: topStats.topTrack.publicUid || topStats.topTrack.ownerUid || null } : null,
@@ -30081,6 +29670,7 @@ module.exports = Object.assign(module.exports, require('./rk_votes'));
 module.exports = Object.assign(module.exports, require('./rk_mod'));
 module.exports = Object.assign(module.exports, require('./rk_stats'));
 module.exports = Object.assign(module.exports, require('./rk_money'));
+module.exports = Object.assign(module.exports, require('./rk_tribes'));
 IDXEOF
     echo "  functions/index.js created (new)."
 # V72.1: the guard checked for SINGLE quotes while the line it appends uses DOUBLE quotes, so it
@@ -31125,6 +30715,849 @@ console.log((made ? "Made RaveKandi's fee wallet." : "RaveKandi's fee wallet was
 console.log('Fee wallet address: ' + addr);
 RKFEEWALLETEOF
 echo "  rk_fee_wallet.js written (run it once by hand, only if it never ran: RK_VERIFY_331, section 3)."
+# V90.89.154.333: TRIBE VOTES ON THE SERVER (rk_tribes.js, queue item 23): every tribe action, the vote log, the counts and the
+# notices. Script-owned, regenerated every build.
+cat << 'RKTRIBESEOF' > "$RK_FN_DIR/rk_tribes.js"
+// RaveKandi Vibe Tribes, server side (V90.89.154.333). Script-owned: the build regenerates this file. Never edit it.
+//
+// Queue item 23 (raised at 312): every tribe vote was counted by the app, and the rules let any member write the whole
+// tribe document. A modified app could fake a vote, admit someone, flip the status, lift its own time-out or make itself
+// the founder (and the founder may delete any message). From 333 the app asks this callable instead, and the rules let
+// only the server (and admins) write a tribe or its vote log:
+//   rkTribe {op, tribeId, ...}: create, propose, voteMember, voteMemberNo, invite, acceptInvite, declineInvite,
+//   withdrawInvite, leave, settle, call, vote, voteNo, withdraw, appeal, request, withdrawRequest, mutes, purge.
+// Each runs in one transaction on the tribe as it stands, by the rules in rk_shared.js (made from the app's src/rkShared.js:
+// rkTribeSettle and the rest), so the app shows exactly what the server does. In the same transaction: the vote log (counts
+// and percentages, never who voted) and the counts on the profiles, which the rules now close to the app:
+//   tribeVotesCast   a vote answered, yes or no, the first time (calling or proposing one counts): Civic Raver, Tribe Council
+//   tribeVotesFast   answered within 12 hours of the vote starting: Quick Draw
+//   tribeVotesPassed a vote the raver called that passed, with at least 3 members able to vote on it: Consensus Builder
+// After it: the notices (the words and places the app sent until 332, honouring each member's mutes), and a purge's
+// messages. tribeMessages is counted here too, once per message as it arrives (tribeMsgCount).
+// Names come from the profiles, never from the app. A time in a notice is written in the time zone of the raver who
+// acted (the app sends it), with the zone's name, so it reads right on any phone.
+'use strict';
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const admin = require('firebase-admin');
+if (!admin.apps.length) admin.initializeApp();
+const S = require('./rk_shared');
+// the blocked-word check (rk_mod.js), for a new name and an appeal's words
+let rkModCleanFor = null;
+try { rkModCleanFor = require('./rk_mod').rkModCleanFor || null; } catch (e) { rkModCleanFor = null; }
+
+const APP = 'ravekandi-core-prod';
+const db = () => admin.firestore();
+const FV = () => admin.firestore.FieldValue;
+const fail = (code, msg) => { throw new HttpsError(code, msg); };
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+// a document id or a uid from the app: letters, digits, _ and - only (it goes into field paths like invites.<uid>)
+const rkId = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v)) ? v : '';
+const tribeCol = (appId) => db().collection('artifacts/' + appId + '/public/data/tribes');
+const tribeRef = (appId, id) => db().doc('artifacts/' + appId + '/public/data/tribes/' + id);
+const userRef = (appId, uid) => db().doc('artifacts/' + appId + '/users/' + uid);
+const logRef = (appId, id, lid) => db().doc('artifacts/' + appId + '/public/data/tribes/' + id + '/voteLog/' + lid);
+const msgCol = (appId, id) => db().collection('artifacts/' + appId + '/public/data/tribes/' + id + '/messages');
+const RK_PASS_MIN = 3;   // Consensus Builder: a vote that passed with at least this many members able to vote on it
+
+// ---- times in notices: the acting raver's time zone, named ("Nov 15, 3:00 PM CST") ----
+const RK_TZ = 'America/Chicago';
+const rkTzOk = (tz) => {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return RK_TZ;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0); return tz; } catch (e) { return RK_TZ; }
+};
+const rkWhenIn = (tz) => (t) => {
+  try { return new Date(num(t)).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz, timeZoneName: 'short' }); }
+  catch (e) { return new Date(num(t)).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
+};
+
+// ---- names: the profile's, never the app's ----
+const rkName = (p, fb) => { const n = p && typeof p.displayName === 'string' ? p.displayName.trim() : ''; return String(n || fb || 'Raver').slice(0, 40); };
+const rkProfile = async (appId, uid) => { const s = await userRef(appId, uid).get(); return s.exists ? (s.data() || {}) : null; };
+const rkWordCheck = async (appId, text, what) => {
+  if (!rkModCleanFor || !text) return;
+  let r = null;
+  try { r = await rkModCleanFor(appId, text); } catch (e) { console.error('rk_tribes word check', e && e.message); }
+  if (r && r.hit) fail('invalid-argument', 'A word in ' + what + " isn't allowed on RaveKandi. Slurs and hate speech aren't tolerated here. PLUR: peace, love, unity and respect.");
+};
+
+// ---- the tribe document after a settle (rkTribeSettle's state), as written and as the app is handed it ----
+const rkPatch = (st) => {
+  const p = {
+    members: st.members, memberNames: st.names, memberCount: st.members.length,
+    pendingVotes: st.pending, joinRequests: st.requests, status: st.status,
+    votes: st.votes, statusVote: FV().delete(), restrictions: st.restrictions, rev: st.rev,
+    invites: st.invites || {}, memberInvitedBy: st.invitedBy || {},
+  };
+  if (st.name) p.name = st.name;
+  if (st.creatorUid) p.creatorUid = st.creatorUid;
+  if (st.purgedAt) p.purgedAt = st.purgedAt;
+  return p;
+};
+const rkMerged = (t, st) => {
+  const out = Object.assign({}, t, { members: st.members, memberNames: st.names, memberCount: st.members.length, pendingVotes: st.pending, joinRequests: st.requests, status: st.status, votes: st.votes, restrictions: st.restrictions, rev: st.rev, invites: st.invites || {}, memberInvitedBy: st.invitedBy || {} });
+  delete out.statusVote;
+  if (st.name) out.name = st.name;
+  if (st.creatorUid) out.creatorUid = st.creatorUid;
+  if (st.purgedAt) out.purgedAt = st.purgedAt;
+  return out;
+};
+const rkDoc = (id, t) => Object.assign({}, t, { id });
+
+// ---- the vote log: what a transaction did to every vote (started, cast, passed, expired, voted down, withdrawn or no
+// longer applying), from the tribe before (t0), with the action applied (t1), and after the settle (st). At most 12 a
+// write. Never who voted. ----
+const rkLogEntries = (t0, t1, st, now, hint) => {
+  const A = S.rkTribeVoteRows(t0, now), B = S.rkTribeVoteRows(t1, now), C = S.rkTribeVoteRows(rkMerged(t1, st), now);
+  const pct = (r) => r.of ? Math.round(100 * r.yes / r.of) : 0;
+  const acc = {};
+  const put = (id, data, ev) => { const e = acc[id] || (acc[id] = { data: {}, hist: [] }); Object.assign(e.data, data); if (ev) e.hist.push(ev); };
+  const who = (k, b) => ({ key: k, type: b.type, label: b.label, startedAt: b.at || now, target: b.target, targetName: b.targetName, note: b.note });
+  Object.keys(B).forEach(k => {
+    const a = A[k], b = B[k], id = S.rkTribeLogId(k, b.at);
+    if (!a || a.at !== b.at) put(id, Object.assign(who(k, b), { status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: S.rkTribeNeeded(b.of) }), { at: now, ev: 'start', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
+    else if ((a.yes !== b.yes || (a.no || 0) !== (b.no || 0) || a.of !== b.of) && C[k] && C[k].at === b.at) put(id, Object.assign(who(k, b), { status: 'open', yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: S.rkTribeNeeded(b.of) }), { at: now, ev: 'vote', pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
+  });
+  const passed = new Set([...(st.applied || []).map(v => S.rkTribeVoteKey(v)), ...(st.admitted || []).map(a => 'admit:' + a.uid)]);
+  const expired = new Set(st.expired || []);
+  const downed = new Set([...(st.rejected || []), ...(st.rejectedAdmits || []).map(a => 'admit:' + a.uid)]);
+  Object.keys(B).forEach(k => {
+    const b = B[k];
+    if (C[k] && C[k].at === b.at) {
+      if (C[k].yes !== b.yes || (C[k].no || 0) !== (b.no || 0) || C[k].of !== b.of) put(S.rkTribeLogId(k, b.at), Object.assign(who(k, b), { status: 'open', yes: C[k].yes, no: C[k].no || 0, of: C[k].of, pct: pct(C[k]), need: S.rkTribeNeeded(C[k].of) }), { at: now, ev: 'vote', pct: pct(C[k]), n: C[k].yes, no: C[k].no || 0, of: C[k].of });
+      return;
+    }
+    const ev = passed.has(k) ? 'pass' : expired.has(k) ? 'expire' : downed.has(k) ? 'reject' : (hint && hint.withdrawn === k) ? 'withdraw' : 'close';
+    put(S.rkTribeLogId(k, b.at), Object.assign(who(k, b), { yes: b.yes, no: b.no || 0, of: b.of, pct: pct(b), need: S.rkTribeNeeded(b.of), status: { pass: 'passed', expire: 'expired', reject: 'rejected', withdraw: 'withdrawn', close: 'closed' }[ev], endedAt: now }), { at: now, ev, pct: pct(b), n: b.yes, no: b.no || 0, of: b.of });
+  });
+  (st.served || []).forEach(s => { if (s.log) put(s.log, { doneAt: now }, { at: now, ev: s.ev || (s.lifted ? 'lifted' : 'served') }); });
+  return Object.keys(acc).slice(0, 12).map(id => [id, acc[id]]);
+};
+const rkLogWrite = (tx, appId, tribeId, t0, t1, st, now, hint) => {
+  let list = [];
+  try { list = rkLogEntries(t0, t1, st, now, hint); } catch (e) { console.error('rk_tribes vote log', tribeId, e && e.message); return; }
+  list.forEach(([id, e]) => {
+    const data = Object.assign({}, e.data);
+    if (e.hist.length) data.history = FV().arrayUnion(...e.hist);
+    tx.set(logRef(appId, tribeId, id), data, { merge: true });
+  });
+};
+
+// ---- the counts on the profiles, written in the vote's own transaction ----
+const rkBump = (bump, uid, f) => { if (!uid) return; const b = bump[uid] || (bump[uid] = {}); b[f] = (b[f] || 0) + 1; };
+// an answer, yes or no, the first time (fresh): Civic Raver and Tribe Council; within 12 hours of the vote starting, Quick
+// Draw. Calling or proposing one passes 0 as its start, so it never counts as quick.
+const rkAnswered = (bump, uid, fresh, startedAt, now) => {
+  if (!fresh) return;
+  rkBump(bump, uid, 'tribeVotesCast');
+  if (num(startedAt) > 0 && now - num(startedAt) <= S.RK_FAST_VOTE_MS) rkBump(bump, uid, 'tribeVotesFast');
+};
+// every vote that passed in this settle, for the member who called it (still in the tribe), when at least 3 could vote on
+// it: Consensus Builder. An appeal is the member's own, so it doesn't count.
+const rkPassed = (bump, st) => (st.applied || []).forEach(v => {
+  if (v.type !== 'repeal' && typeof v.by === 'string' && v.by && st.members.includes(v.by) && num(v.ofN) >= RK_PASS_MIN) rkBump(bump, v.by, 'tribeVotesPassed');
+});
+const rkBumpWrite = (tx, appId, bump) => Object.keys(bump).forEach(u => {
+  const d = {};
+  Object.keys(bump[u]).forEach(f => { d[f] = FV().increment(bump[u][f]); });
+  tx.set(userRef(appId, u), d, { merge: true });
+});
+
+// ---- notices: collected during an op, sent once it has committed ----
+const rkNote = (notes, t, uids, cat, text, frag) => notes.push({ uids: uids || [], cat, text, frag, mutes: (t && t.mutes) || {} });
+const rkSend = async (appId, uid, text, refId) => {
+  try { await db().collection('artifacts/' + appId + '/users/' + uid + '/notifications').add({ type: 'tribe', text: String(text).slice(0, 900), refId, read: false, at: Date.now() }); }
+  catch (e) { console.error('rk_tribes notice', uid, e && e.message); }
+};
+// to everyone in uids who hasn't muted that kind for this tribe; `cat` null means it is about them personally, and it is
+// always sent
+const rkDeliver = async (appId, tribeId, notes) => {
+  const jobs = [];
+  notes.forEach(n => {
+    const ref = tribeId + '#' + (n.frag || 'card');
+    Array.from(new Set(n.uids)).forEach(u => {
+      if (!rkId(u) || !n.text) return;
+      if (n.cat && n.mutes[u] && n.mutes[u][n.cat]) return;
+      jobs.push([u, n.text, ref]);
+    });
+  });
+  for (let i = 0; i < jobs.length; i += 25) await Promise.all(jobs.slice(i, i + 25).map(j => rkSend(appId, j[0], j[1], j[2])));
+  return jobs.length;
+};
+// What a settle did, as notices (the app's rkTribeAfter until 332, word for word). `skipUid` acted and saw it.
+const rkAfter = (notes, t0, st, skipUid, when) => {
+  const oldName = (t0 && t0.name) || 'your tribe';
+  const nm = st.name || oldName;
+  const before = (t0 && t0.members) || [];
+  const others = (list, ...ex) => (list || []).filter(m => m && !ex.includes(m));
+  const N = (uids, cat, text, frag) => rkNote(notes, t0, uids, cat, text, frag);
+  st.admitted.forEach(a => {
+    N([a.uid], null, '🎉 You were voted into the "' + nm + '" Vibe Tribe! Tap to open the group chat.', 'chat');
+    N(others(before, skipUid, a.uid), 'member', '🎉 @' + a.name + ' passed the vote and joined "' + nm + '".', 'card');
+  });
+  (st.kicked || []).forEach(k => {
+    N([k.uid], null, '🚪 You were removed from the "' + oldName + '" Vibe Tribe by a member vote.', 'gone');
+    N(others(st.members, skipUid), 'member', '🚪 @' + k.name + ' was removed from "' + nm + '" by a member vote.', 'card');
+  });
+  (st.applied || []).forEach(v => {
+    if (v.type === 'kick') return;
+    if (v.type === 'mute' || v.type === 'timeout') {
+      const r = st.restrictions[v.target]; if (!r) return;
+      const firstAppeal = r.start + (r.until - r.start) / 4;
+      N([v.target], null, v.type === 'mute'
+        ? '🔇 You were muted in "' + nm + '" for ' + S.rkDurTxt(r.dur) + ', until ' + when(r.until) + '. You can read the chat and vote, but not post. You can appeal from ' + when(firstAppeal) + '.'
+        : '⏳ You are in a time-out in "' + nm + '" for ' + S.rkDurTxt(r.dur) + ', until ' + when(r.until) + '. You can read the chat, but not post or vote. You can appeal from ' + when(firstAppeal) + '.', 'appeal');
+      N(others(st.members, skipUid, v.target), 'vote', (v.type === 'mute' ? '🔇 @' + (v.targetName || 'A member') + ' was muted for ' : '⏳ @' + (v.targetName || 'A member') + ' was given a time-out of ') + S.rkDurTxt(r.dur) + ' in "' + nm + '", by a member vote.', 'card');
+      return;
+    }
+    if (v.type === 'repeal') {
+      N([v.target], null, '✅ Your appeal passed: your ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + nm + '" is lifted.', 'chat');
+      N(others(st.members, skipUid, v.target), 'vote', '✅ @' + (v.targetName || 'A member') + "'s appeal passed in \"" + nm + '": their ' + (v.rtype === 'mute' ? 'mute' : 'time-out') + ' is lifted.', 'card');
+      return;
+    }
+    const txt = v.type === 'status' ? (v.to === 'open' ? '🔓 "' + nm + '" is now OPEN: it shows in Find Tribes, and ravers can ask to join.' : '🔒 "' + nm + '" is now CLOSED: it no longer shows in Find Tribes.')
+      : v.type === 'purge' ? '🧹 The "' + nm + '" group chat was purged by a member vote.'
+      : v.type === 'rename' ? '✏️ "' + oldName + '" is now called "' + nm + '", by a member vote.'
+      : v.type === 'founder' ? '👑 @' + (v.targetName || 'A member') + ' is now the founder of "' + nm + '", by a member vote.' : '';
+    if (txt) N(others(st.members, skipUid), 'vote', txt, v.type === 'purge' ? 'chat' : 'card');
+  });
+  // an appeal that ran out of time without passing: the member hears when the next window opens
+  (st.expired || []).forEach(k => {
+    const v = S.rkTribeVotesOf(t0)[k]; if (!v) return;
+    const r = st.restrictions[v.target];
+    const nx = r ? S.rkTribeAppeal(r).nextAt : null;
+    N([v.target], null, '🗳️ Your appeal in "' + nm + '" did not pass in time. ' + (nx ? 'You can appeal again from ' + when(nx) + '.' : r ? 'There are no appeals left; it ends ' + when(r.until) + '.' : ''), 'appeal');
+  });
+  // a vote voted down (more than a third of its voters said no, so it couldn't pass): the member who called it and the
+  // member it was about are told personally; everyone else hears it as a vote result
+  (st.rejected || []).forEach(k => {
+    const v = S.rkTribeVotesOf(t0)[k]; if (!v) return;
+    const lbl = S.rkTribeVoteLabel(v);
+    if (v.type === 'repeal') {
+      const r = st.restrictions[v.target];
+      const nx = r ? S.rkTribeAppeal(r).nextAt : null;
+      N([v.target], null, '🗳️ Your appeal in "' + nm + '" was voted down: more than a third of the members said no. ' + (nx ? 'You can appeal again from ' + when(nx) + '.' : r ? 'There are no appeals left; it ends ' + when(r.until) + '.' : ''), 'appeal');
+    } else {
+      if (v.target && S.RK_TRIBE_ABOUT.includes(v.type)) N([v.target], null, '🗳️ The vote to ' + (v.type === 'kick' ? 'remove you from' : v.type === 'mute' ? 'mute you in' : 'give you a time-out in') + ' "' + nm + '" was voted down.', 'card');
+      if (v.by && v.by !== v.target) N([v.by], null, '🗳️ Your vote in "' + nm + '" was voted down: ' + lbl + '. More than a third of the members said no, so it can\'t pass.', 'card');
+    }
+    N(others(st.members, skipUid, v.by, v.target), 'vote', '🗳️ Voted down in "' + nm + '": ' + lbl + '.', 'card');
+  });
+  (st.rejectedAdmits || []).forEach(a => {
+    N([a.uid], null, a.asked ? '🗳️ Your request to join "' + nm + '" wasn\'t accepted this time.' : '🗳️ The vote on adding you to the "' + nm + '" Vibe Tribe didn\'t pass.', 'find');
+    if (a.by) N([a.by], null, '🗳️ The vote to add @' + a.name + ' to "' + nm + '" was voted down.', 'card');
+    N(others(st.members, skipUid, a.by), 'vote', '🗳️ Voted down in "' + nm + '": adding @' + a.name + '.', 'card');
+  });
+  // an invite that lapsed: the member who sent it hears (unless it lapsed because they left)
+  (st.invitesExpired || []).forEach(x => {
+    if (x.by && !x.left) N([x.by], null, '🎟️ Your invite to @' + x.name + ' for "' + nm + '" ran out after 7 days without an answer. You can invite them again.', 'card');
+  });
+};
+
+// ---- after a commit: the notices, then a purge's messages (from before purgedAt, every one) ----
+const rkPurge = async (appId, tribeId, purgedAt) => {
+  if (!(num(purgedAt) > 0)) return 0;
+  let n = 0;
+  for (let round = 0; round < 25; round++) {
+    const qs = await msgCol(appId, tribeId).where('at', '<=', num(purgedAt)).limit(400).get();
+    if (qs.empty) break;
+    const b = db().batch();
+    qs.docs.forEach(d => b.delete(d.ref));
+    await b.commit();
+    n += qs.size;
+    if (qs.size < 400) break;
+  }
+  return n;
+};
+// a tribe whose last member left: its chat and vote log, which nobody can read any more
+const rkWipe = async (appId, tribeId) => {
+  for (const sub of ['messages', 'voteLog']) {
+    for (let round = 0; round < 10; round++) {
+      const qs = await db().collection('artifacts/' + appId + '/public/data/tribes/' + tribeId + '/' + sub).limit(400).get();
+      if (qs.empty) break;
+      const b = db().batch();
+      qs.docs.forEach(d => b.delete(d.ref));
+      await b.commit();
+      if (qs.size < 400) break;
+    }
+  }
+};
+const rkFinish = async (appId, tribeId, st, notes) => {
+  try { await rkDeliver(appId, tribeId, notes); } catch (e) { console.error('rk_tribes notices', tribeId, e && e.message); }
+  if (st && (st.applied || []).some(v => v.type === 'purge')) {
+    try { await rkPurge(appId, tribeId, st.purgedAt); } catch (e) { console.error('rk_tribes purge', tribeId, e && e.message); }
+  }
+};
+
+// ---- the checks every vote makes ----
+const rkLoad = async (tx, appId, tribeId) => { const s = await tx.get(tribeRef(appId, tribeId)); return s.exists ? (s.data() || {}) : null; };
+const rkGone = () => fail('failed-precondition', 'That tribe no longer exists.');
+// a member in a time-out reads, and does nothing else (a mute only stops posting: 323)
+const rkNotTimedOut = (t, uid, now, when) => {
+  const r = S.rkTribeRestriction(t, uid, now);
+  if (r && r.type !== 'mute') fail('failed-precondition', 'You are in a time-out until ' + when(r.until) + '. You can read the chat, but not post, vote, call votes or invite.');
+};
+const rkTribeIdOf = (d) => { const id = rkId(d.tribeId); if (!id) fail('invalid-argument', 'Which tribe?'); return id; };
+const rkUidOf = (v) => { const id = rkId(v); if (!id) fail('invalid-argument', 'Which raver?'); return id; };
+
+// ================================================================================================================
+// THE OPS
+// ================================================================================================================
+// A new tribe, with its founder as its only member.
+const opCreate = async (appId, uid, d, x) => {
+  const name = String(d.name || '').trim().slice(0, 40);
+  if (!name) fail('invalid-argument', 'Name your tribe first.');
+  await rkWordCheck(appId, name, 'that name');
+  const status = d.status === 'open' ? 'open' : 'closed';
+  const me = await x.me();
+  const t = { name, creatorUid: uid, members: [uid], memberNames: { [uid]: rkName(me) }, createdAt: Date.now(), memberCount: 1, status, pendingVotes: {} };
+  const ref = tribeCol(appId).doc();
+  await ref.set(t);
+  return { tribeId: ref.id, doc: rkDoc(ref.id, t) };
+};
+
+// Put a raver forward, or vote in one who asked to join. The proposer's yes counts at once, so in a tribe of one it admits
+// them straight away. Someone already up for a vote is not proposed again: 'exists', with the vote's key.
+const opPropose = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), cid = rkUidOf(d.candidateUid), key = 'admit:' + cid;
+  const cp = await rkProfile(appId, cid);
+  if (!cp) fail('failed-precondition', "That raver isn't on RaveKandi any more.");
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now(), members = t.members || [];
+    if (!members.includes(uid)) fail('permission-denied', 'Only members can propose someone.');
+    rkNotTimedOut(t, uid, now, x.when);
+    if (members.includes(cid)) fail('failed-precondition', 'Already a member');
+    if ((t.pendingVotes || {})[cid]) return { exists: true };
+    const req = (t.joinRequests || {})[cid];
+    const nm = rkName(cp, req && req.name);
+    const need = S.rkTribeNeeded(S.rkTribeVoters(members, { type: 'admit' }, t.restrictions, now).length);
+    const pending = Object.assign({}, t.pendingVotes || {}, { [cid]: { name: nm, votes: [uid], needed: need, at: now, asked: !!req, mile: Math.min(75, S.rkInviteMile(1, need)), noMile: 0 } });
+    const requests = Object.assign({}, t.joinRequests || {}); delete requests[cid];
+    const t1 = Object.assign({}, t, { pendingVotes: pending, joinRequests: requests });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t1, st, now, {});
+    const bump = {}; rkAnswered(bump, uid, true, 0, now); rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st, nm, now, asked: !!req, need, approved: st.admitted.some(a => a.uid === cid) };
+  });
+  if (out.exists) return { result: 'exists', key, tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  if (!out.approved) {
+    // the candidate is told too, so a stalled vote doesn't look like nothing happened
+    rkNote(notes, out.t, [cid], null, out.asked
+      ? '🗳️ Members of "' + out.t.name + '" are voting on your request to join: 1 of ' + out.need + ' yes votes so far.'
+      : '🗳️ You have been put forward to join the "' + out.t.name + '" Vibe Tribe. Members are voting now: 1 of ' + out.need + ' yes votes so far.', 'invite');
+    // only the members who can vote on it (not anyone in a time-out)
+    rkNote(notes, out.t, S.rkTribeVoters(out.t.members, { type: 'admit' }, out.t.restrictions, out.now).filter(m => m !== uid), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + out.t.name + '" Vibe Tribe? Tap to vote yes or no.', 'vote:' + key);
+  }
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: out.approved ? 'approved' : 'proposed', needed: out.need, votes: out.approved ? out.need : 1, key, tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// Yes to adding someone; at 2/3 of the members who can vote, they join. An accepted invite is a vote here too
+// (rkTribeInvitesIn), and the candidate hears each milestone toward the yes votes needed (25%, 50%, 75%) once.
+const opVoteMember = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), cid = rkUidOf(d.candidateUid);
+  const out = await db().runTransaction(async (tx) => {
+    const raw = await rkLoad(tx, appId, tribeId);
+    if (!raw) rkGone();
+    const now = Date.now(), t = S.rkTribeInvitesIn(raw, now);
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'Only members can vote.');
+    rkNotTimedOut(t, uid, now, x.when);
+    if ((t.members || []).includes(cid)) return { done: true };
+    const e = (t.pendingVotes || {})[cid];
+    if (!e) fail('failed-precondition', 'No pending vote for this raver');
+    const fresh = !(e.votes || []).includes(uid) && !(e.no || []).includes(uid);
+    // a yes replaces a no from the same member
+    const ent = Object.assign({}, e, { votes: Array.from(new Set([...(e.votes || []), uid])), no: (e.no || []).filter(u => u !== uid) });
+    const voters = S.rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
+    const need = S.rkTribeNeeded(voters.length);
+    const yesB = (e.votes || []).filter(u => voters.includes(u)).length, yesA = ent.votes.filter(u => voters.includes(u)).length;
+    const prev = e.mile !== undefined ? num(e.mile) : S.rkInviteMile(yesB, need);
+    const mile = S.rkInviteMile(yesA, need);
+    let told = 0;
+    if (mile > prev && mile < 100) { ent.mile = mile; told = mile; }
+    const t1 = Object.assign({}, t, { pendingVotes: Object.assign({}, t.pendingVotes || {}, { [cid]: ent }) });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, raw, t1, st, now, {});
+    const bump = {}; rkAnswered(bump, uid, fresh, e.at, now); rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st, told, yesA, need, approved: st.admitted.some(a => a.uid === cid) };
+  });
+  if (out.done) return { result: 'approved', tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  if (out.told && out.st.pending[cid]) rkNote(notes, out.t, [cid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.told + '% of the way there, ' + out.yesA + ' of ' + out.need + ' yes votes.', 'invite');
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: out.approved ? 'approved' : 'voted', tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// No to adding someone: a vote that's running, or a join request nobody has voted on yet (the no then starts the vote). A
+// no replaces a yes from the same member. 'rejected' when it can no longer pass, 'closed' when they're already in.
+const opVoteMemberNo = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), cid = rkUidOf(d.candidateUid);
+  const out = await db().runTransaction(async (tx) => {
+    const raw = await rkLoad(tx, appId, tribeId);
+    if (!raw) rkGone();
+    const now = Date.now(), t = S.rkTribeInvitesIn(raw, now);
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'Only members can vote.');
+    rkNotTimedOut(t, uid, now, x.when);
+    if ((t.members || []).includes(cid)) return { done: true };
+    const e = (t.pendingVotes || {})[cid];
+    const req = (t.joinRequests || {})[cid];
+    if (!e && !req) fail('failed-precondition', 'This vote has already closed.');
+    const base = e || { name: String((req && req.name) || 'Raver').slice(0, 40), votes: [], at: now, asked: true, mile: 0, noMile: 0 };
+    const fresh = !(base.votes || []).includes(uid) && !(base.no || []).includes(uid);
+    const ent = Object.assign({}, base, { votes: (base.votes || []).filter(u => u !== uid), no: Array.from(new Set([...(base.no || []), uid])) });
+    const voters = S.rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, now);
+    const need = S.rkTribeNeeded(voters.length), killAt = Math.max(1, voters.length - need + 1);
+    const noB = (base.no || []).filter(u => voters.includes(u)).length, noA = ent.no.filter(u => voters.includes(u)).length;
+    const prevNo = base.noMile !== undefined ? num(base.noMile) : S.rkInviteNoMile(noB, killAt);
+    let told = 0;
+    if (S.rkInviteNoMile(noA, killAt) > prevNo) { ent.noMile = 25; told = 25; }
+    const requests = Object.assign({}, t.joinRequests || {}); delete requests[cid];
+    const t1 = Object.assign({}, t, { pendingVotes: Object.assign({}, t.pendingVotes || {}, { [cid]: ent }), joinRequests: requests });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, raw, t1, st, now, {});
+    const bump = {}; rkAnswered(bump, uid, fresh, e ? e.at : 0, now); rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st, told, noA, killAt, need, yes: ent.votes.filter(u => voters.includes(u)).length };
+  });
+  if (out.done) return { result: 'closed', tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  if (out.told && out.st.pending[cid]) rkNote(notes, out.t, [cid], null, '🗳️ "' + (out.t.name || 'The tribe') + '" is voting on adding you: ' + out.noA + ' said no so far. ' + out.killAt + ' no votes would end it; ' + out.need + ' yes votes get you in (' + out.yes + ' so far).', 'invite');
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: out.st.rejectedAdmits.some(a => a.uid === cid) ? 'rejected' : 'voted', tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// An invite (323: the invitee accepts before the vote starts). Someone who already asked to join, or already has a vote
+// running, is simply voted for (opPropose), as before.
+const opInvite = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), cid = rkUidOf(d.candidateUid);
+  const [cp, me] = await Promise.all([rkProfile(appId, cid), x.me()]);
+  if (!cp) fail('failed-precondition', "That raver isn't on RaveKandi any more.");
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now(), members = t.members || [];
+    if (!members.includes(uid)) fail('permission-denied', 'Only members can invite someone.');
+    rkNotTimedOut(t, uid, now, x.when);
+    if (members.includes(cid)) fail('failed-precondition', 'Already a member');
+    if ((t.pendingVotes || {})[cid] || (t.joinRequests || {})[cid]) return { vote: true };
+    const iv = (t.invites || {})[cid];
+    if (iv && iv.accepted) return { vote: true };
+    if (iv && now - num(iv.at) <= S.RK_INVITE_MS && members.includes(iv.by)) return { already: true, by: iv.byName || '' };
+    const entry = { name: rkName(cp), by: uid, byName: rkName(me, (t.memberNames || {})[uid] || 'A member'), at: now };
+    const rev = num(t.rev) + 1;
+    tx.update(tribeRef(appId, tribeId), { ['invites.' + cid]: entry, rev });
+    return { t: Object.assign({}, t, { invites: Object.assign({}, t.invites || {}, { [cid]: entry }), rev }), entry };
+  });
+  if (out.vote) return opPropose(appId, uid, d, x);
+  if (out.already) return Object.assign({ result: 'invited', already: true, tribeId }, out.by ? { by: out.by } : {});
+  const notes = [];
+  rkNote(notes, out.t, [cid], null, '🎟️ @' + out.entry.byName + ' invited you to join the "' + (out.t.name || 'a') + '" Vibe Tribe. Tap to accept or decline. If you accept, the members vote on adding you.', 'invite');
+  await rkFinish(appId, tribeId, null, notes);
+  return { result: 'invited', tribeId, doc: rkDoc(tribeId, out.t) };
+};
+
+// The raver invited says yes. The invite becomes the vote to add them at once (the inviter's yes counted), and the members
+// who can vote are asked. In a tribe the inviter alone decides (a tribe of one), that yes is enough: they're in.
+const opAcceptInvite = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const me = await x.me();
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now();
+    if ((t.members || []).includes(uid)) return { member: true };
+    const iv = (t.invites || {})[uid];
+    if (!iv) fail('failed-precondition', 'This invite was withdrawn or has run out.');
+    if (now - num(iv.at) > S.RK_INVITE_MS || !(t.members || []).includes(iv.by)) fail('failed-precondition', 'This invite has run out. Ask a member to invite you again.');
+    if (iv.accepted) return { already: true };
+    const nm = rkName(me, iv.name);
+    const tA = S.rkTribeInvitesIn(Object.assign({}, t, { invites: Object.assign({}, t.invites || {}, { [uid]: Object.assign({}, iv, { name: nm, accepted: true, acceptedAt: now }) }) }), now);
+    const st = S.rkTribeSettle(tA, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, tA, st, now, {});
+    const bump = {}; rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t: tA, st, iv, nm, now, joined: st.admitted.some(a => a.uid === uid) };
+  });
+  if (out.member) return { result: 'member', tribeId };
+  if (out.already) return { result: 'accepted', tribeId };
+  const t = out.t, notes = [];
+  rkAfter(notes, t, out.st, null, x.when);
+  if (!out.joined) {
+    const voters = S.rkTribeVoters(t.members || [], { type: 'admit' }, t.restrictions, out.now);
+    const need = S.rkTribeNeeded(voters.length);
+    rkNote(notes, t, voters.filter(m => m !== out.iv.by), 'vote', '🗳️ Vote: should @' + out.nm + ' join your "' + (t.name || 'tribe') + '" Vibe Tribe? @' + (out.iv.byName || 'A member') + ' invited them and they accepted. Tap to vote yes or no; ' + need + ' of ' + voters.length + ' needed.', 'vote:admit:' + uid);
+    rkNote(notes, t, [out.iv.by], null, '🎟️ @' + out.nm + ' accepted your invite to "' + (t.name || 'your tribe') + '". The members are voting now, and your yes is counted.', 'vote:admit:' + uid);
+  }
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: out.joined ? 'joined' : 'accepted', tribeId, doc: rkDoc(tribeId, rkMerged(t, out.st)) };
+};
+
+// No thanks: the invite goes, and the member who sent it hears.
+const opDeclineInvite = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const me = await x.me();
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) return null;
+    const iv = (t.invites || {})[uid];
+    if (!iv) return null;
+    tx.update(tribeRef(appId, tribeId), { ['invites.' + uid]: FV().delete(), rev: num(t.rev) + 1 });
+    return { t, iv };
+  });
+  if (out && out.iv.by) await rkFinish(appId, tribeId, null, [{ uids: [out.iv.by], cat: null, text: '🎟️ @' + rkName(me, out.iv.name) + ' said no thanks to your invite to "' + (out.t.name || 'your tribe') + '".', frag: 'card', mutes: {} }]);
+  return { result: out ? 'declined' : 'gone', tribeId };
+};
+
+// A member takes an invite back: the one who sent it, or the founder (the app shows the button to them).
+const opWithdrawInvite = async (appId, uid, d) => {
+  const tribeId = rkTribeIdOf(d), cid = rkUidOf(d.candidateUid);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'Only members can take an invite back.');
+    const iv = (t.invites || {})[cid];
+    if (!iv) return { t };
+    if (iv.by !== uid && t.creatorUid !== uid) fail('permission-denied', 'Only the member who sent it, or the founder, can take it back.');
+    const rev = num(t.rev) + 1, invites = Object.assign({}, t.invites || {}); delete invites[cid];
+    tx.update(tribeRef(appId, tribeId), { ['invites.' + cid]: FV().delete(), rev });
+    return { t: Object.assign({}, t, { invites, rev }) };
+  });
+  return { result: 'withdrawn', tribeId, doc: rkDoc(tribeId, out.t) };
+};
+
+// Leaving drops your votes. Anything that now has 2/3 of those who stay takes effect, and the last member out removes the
+// tribe (and its chat and vote log). A member in a time-out may still leave.
+const opLeave = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) return null;
+    const now = Date.now();
+    if (!(t.members || []).includes(uid)) return null;
+    const rest = (t.members || []).filter(m => m !== uid);
+    if (rest.length === 0) { tx.delete(tribeRef(appId, tribeId)); return { deleted: true }; }
+    const names = Object.assign({}, t.memberNames || {}); delete names[uid];
+    const t1 = Object.assign({}, t, { members: rest, memberNames: names });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t1, st, now, {});
+    const bump = {}; rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t: t1, st, who: (t.memberNames || {})[uid] || 'A member' };
+  });
+  if (out && out.deleted) { try { await rkWipe(appId, tribeId); } catch (e) { console.error('rk_tribes wipe', tribeId, e && e.message); } }
+  else if (out) {
+    const notes = [];
+    rkAfter(notes, out.t, out.st, uid, x.when);
+    rkNote(notes, out.t, out.st.members, 'member', '👋 @' + out.who + ' left "' + (out.st.name || 'your tribe') + '".', 'card');
+    await rkFinish(appId, tribeId, out.st, notes);
+  }
+  return { result: out ? (out.deleted ? 'deleted' : 'left') : 'gone', tribeId, gone: true };
+};
+
+// What has already passed, expired or run out: a vote that reached 2/3 when someone left, an appeal past its window, a
+// time-out served, an invite nobody answered. A member's app asks when it sees one; it writes only when something changes.
+const opSettle = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) return null;
+    const now = Date.now();
+    if (!(t.members || []).includes(uid)) return null;
+    const st = S.rkTribeSettle(t, now);
+    if (!st.admitted.length && !st.applied.length && !st.expired.length && !st.served.length && !st.dropped.length && !st.rejected.length && !st.rejectedAdmits.length && !st.invitesMoved) return null;
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t, st, now, {});
+    const bump = {}; rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st };
+  });
+  if (!out) return { result: 'same', changed: false, tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, null, x.when);
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: 'settled', changed: true, tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// Calls a vote. spec: { type, target?, to?, name?, dur? }. The caller's yes counts at once, so in a tribe of one it passes
+// straight away. 'same' (nothing to change), 'exists' (that vote is running: the app takes the raver to it), 'passed' or
+// 'started'.
+const opCall = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), spec = (d.spec && typeof d.spec === 'object') ? d.spec : {};
+  if (!S.RK_TRIBE_VOTE_TYPES.includes(spec.type) || spec.type === 'repeal') fail('invalid-argument', 'Unknown vote');
+  const nm0 = spec.type === 'rename' ? String(spec.name || '').trim().slice(0, 40) : '';
+  if (spec.type === 'rename') { if (!nm0) fail('invalid-argument', 'Type the new name first.'); await rkWordCheck(appId, nm0, 'the new name'); }
+  const me = await x.me();
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now(), members = t.members || [];
+    if (!members.includes(uid)) fail('permission-denied', 'Only members can call a vote.');
+    rkNotTimedOut(t, uid, now, x.when);
+    const v = { type: spec.type, by: uid, byName: rkName(me, (t.memberNames || {})[uid] || 'A member'), at: now, yes: [uid] };
+    if (['kick', 'founder', 'mute', 'timeout'].includes(spec.type)) {
+      const target = rkId(spec.target);
+      if (!target || !members.includes(target)) fail('failed-precondition', 'That raver is not in this tribe.');
+      if (spec.type === 'kick' && target === uid) fail('failed-precondition', 'To go, use Leave tribe instead.');
+      if ((spec.type === 'mute' || spec.type === 'timeout') && target === uid) fail('failed-precondition', "You can't call this vote on yourself.");
+      if (spec.type === 'founder' && target === t.creatorUid) fail('failed-precondition', 'They are already the founder.');
+      v.target = target;
+      v.targetName = String((t.memberNames || {})[target] || 'Raver').slice(0, 40);
+    }
+    if (spec.type === 'mute' || spec.type === 'timeout') {
+      const dur = Math.round(num(spec.dur));
+      if (!(dur >= S.RK_TRIBE_MIN_RESTRICT && dur <= S.RK_TRIBE_MAX_RESTRICT)) fail('invalid-argument', 'Pick a length from 5 minutes to 30 days.');
+      const cur = S.rkTribeRestriction(t, v.target, now);
+      if (cur && (spec.type === 'mute' || cur.type === 'timeout')) fail('failed-precondition', '@' + v.targetName + ' is already ' + (cur.type === 'mute' ? 'muted' : 'in a time-out') + ' until ' + x.when(cur.until) + '.');
+      v.dur = dur;
+    }
+    if (spec.type === 'status') {
+      if (!S.RK_TRIBE_STATUS.includes(spec.to)) fail('invalid-argument', 'Unknown status');
+      if (spec.to === S.rkTribeStatus(t)) return { same: true };
+      v.to = spec.to;
+    }
+    if (spec.type === 'rename') {
+      if (nm0 === t.name) return { same: true };
+      v.name = nm0;
+    }
+    const key = S.rkTribeVoteKey(v);
+    const all = S.rkTribeVotesOf(t);
+    if (all[key]) return { exists: true, key };
+    const t1 = Object.assign({}, t, { votes: Object.assign({}, all, { [key]: v }), statusVote: null });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t1, st, now, {});
+    const bump = {}; rkAnswered(bump, uid, true, 0, now); rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    const voters = S.rkTribeVoters(members, v, t.restrictions, now);
+    return { t, st, key, v, voters, need: S.rkTribeNeeded(voters.length) };
+  });
+  if (out.same) return { result: 'same', tribeId };
+  if (out.exists) return { result: 'exists', key: out.key, tribeId };
+  const passed = out.st.applied.some(a => S.rkTribeVoteKey(a) === out.key);
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  if (!passed) {
+    rkNote(notes, out.t, out.voters.filter(m => m !== uid), 'vote', '🗳️ @' + out.v.byName + ' called a vote in "' + (out.t.name || 'your tribe') + '": ' + S.rkTribeVoteLabel(out.v) + '. Tap to vote yes or no; ' + out.need + ' of ' + out.voters.length + ' needed.', 'vote:' + out.key);
+    // the member a vote is about hears about it too, and can watch it
+    if (out.v.target && S.RK_TRIBE_ABOUT.includes(out.v.type)) rkNote(notes, out.t, [out.v.target], null, '🗳️ Members of "' + (out.t.name || 'your tribe') + '" are voting to ' + (out.v.type === 'kick' ? 'remove you' : out.v.type === 'mute' ? 'mute you for ' + S.rkDurTxt(out.v.dur) : 'give you a time-out of ' + S.rkDurTxt(out.v.dur)) + '.', 'vote:' + out.key);
+  }
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: passed ? 'passed' : 'started', key: out.key, need: out.need, tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// Yes, or no, to a vote that's running. A yes replaces a no from the same member, and the other way round. The member who
+// called a vote withdraws it instead of saying no. The member a vote is about doesn't vote on it.
+const opAnswer = (yes) => async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), key = String(d.key || '').slice(0, 200);
+  if (!key) fail('invalid-argument', 'Which vote?');
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now();
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'Only members can vote.');
+    rkNotTimedOut(t, uid, now, x.when);
+    const all = S.rkTribeVotesOf(t);
+    const v = Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
+    if (!v) fail('failed-precondition', 'This vote has already closed.');
+    if (v.target === uid && S.RK_TRIBE_ABOUT.includes(v.type)) fail('failed-precondition', "This vote is about you, so you don't vote on it.");
+    if (!yes && v.by === uid) fail('failed-precondition', 'You called this vote. To stop it, withdraw it.');
+    const fresh = !(v.yes || []).includes(uid) && !(v.no || []).includes(uid);
+    const nv = yes
+      ? Object.assign({}, v, { yes: Array.from(new Set([...(v.yes || []), uid])), no: (v.no || []).filter(u => u !== uid) })
+      : Object.assign({}, v, { yes: (v.yes || []).filter(u => u !== uid), no: Array.from(new Set([...(v.no || []), uid])) });
+    const t1 = Object.assign({}, t, { votes: Object.assign({}, all, { [key]: nv }), statusVote: null });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t1, st, now, {});
+    const bump = {}; rkAnswered(bump, uid, fresh, v.at, now); rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st };
+  });
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  await rkFinish(appId, tribeId, out.st, notes);
+  const result = yes ? (out.st.applied.some(a => S.rkTribeVoteKey(a) === key) ? 'passed' : 'voted') : (out.st.rejected.includes(key) ? 'rejected' : 'voted');
+  return { result, tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// Only the member who called a vote can withdraw it.
+const opWithdraw = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d), key = String(d.key || '').slice(0, 200);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) return null;
+    const now = Date.now();
+    const all = S.rkTribeVotesOf(t);
+    const v = Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
+    if (!v) return null;   // already closed: nothing to withdraw
+    if (v.by !== uid) fail('permission-denied', 'Only the member who called it can withdraw it.');
+    rkNotTimedOut(t, uid, now, x.when);
+    delete all[key];
+    const t1 = Object.assign({}, t, { votes: all, statusVote: null });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t, st, now, { withdrawn: key });
+    const bump = {}; rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    return { t, st };
+  });
+  if (!out) return { result: 'closed', tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: 'withdrawn', tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// An appeal (314): after each quarter of a mute or time-out is served, one apology and appeal, which opens a vote for the
+// other members to lift it. It stays open until the next quarter begins (or the restriction ends), then expires.
+const opAppeal = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const text = String(d.statement || '').trim().slice(0, 500);
+  if (text.length < 10) fail('invalid-argument', 'Write a few words first: what you are sorry for, and why it should be lifted.');
+  await rkWordCheck(appId, text, 'your appeal');
+  const me = await x.me();
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    const now = Date.now();
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'You are not in this tribe.');
+    const r = S.rkTribeRestriction(t, uid, now);
+    if (!r) fail('failed-precondition', 'There is nothing to appeal: it has already ended.');
+    const ap = S.rkTribeAppeal(r, now);
+    if (!ap.can) fail('failed-precondition', ap.open ? 'Your appeal is already being voted on.' : ap.nextAt ? 'Your next appeal opens ' + x.when(ap.nextAt) + '.' : 'There are no appeals left. It ends ' + x.when(r.until) + '.');
+    const key = 'repeal:' + uid;
+    const all = S.rkTribeVotesOf(t);
+    if (all[key]) return { exists: true, key };
+    const nm = rkName(me, (t.memberNames || {})[uid]);
+    const v = { type: 'repeal', target: uid, targetName: nm, by: uid, byName: nm, at: now, yes: [], statement: text, w: ap.k, rtype: r.type, of: r.log || '', exp: Math.min(num(r.until), num(r.start) + (ap.k + 1) * ap.q) };
+    const restrictions = Object.assign({}, t.restrictions || {}, { [uid]: Object.assign({}, r, { appeals: [...(r.appeals || []), { w: ap.k, at: now, outcome: 'open' }] }) });
+    const t1 = Object.assign({}, t, { votes: Object.assign({}, all, { [key]: v }), statusVote: null, restrictions });
+    const st = S.rkTribeSettle(t1, now);
+    tx.update(tribeRef(appId, tribeId), rkPatch(st));
+    rkLogWrite(tx, appId, tribeId, t, t1, st, now, {});
+    const bump = {}; rkPassed(bump, st); rkBumpWrite(tx, appId, bump);
+    const voters = S.rkTribeVoters(t.members || [], v, t.restrictions, now);
+    return { t, st, key, v, voters };
+  });
+  if (out.exists) return { result: 'exists', key: out.key, tribeId };
+  const notes = [];
+  rkAfter(notes, out.t, out.st, uid, x.when);
+  const ex = out.v.statement.length > 90 ? out.v.statement.slice(0, 88) + '…' : out.v.statement;
+  const need = S.rkTribeNeeded(out.voters.length);
+  rkNote(notes, out.t, out.voters, 'vote', '🙏 @' + out.v.targetName + ' appealed their ' + (out.v.rtype === 'mute' ? 'mute' : 'time-out') + ' in "' + (out.t.name || 'your tribe') + '": "' + ex + '" Tap to vote; ' + need + ' of ' + out.voters.length + ' needed to lift it.', 'vote:' + out.key);
+  await rkFinish(appId, tribeId, out.st, notes);
+  return { result: 'started', key: out.key, need, tribeId, doc: rkDoc(tribeId, rkMerged(out.t, out.st)) };
+};
+
+// Asking to join an OPEN tribe. Asking answers any invite you had to it. The members who can vote hear, once.
+const opRequest = async (appId, uid, d, x) => {
+  const tribeId = rkTribeIdOf(d);
+  const me = await x.me();
+  const nm = rkName(me);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    if ((t.members || []).includes(uid)) fail('failed-precondition', 'You are already in this tribe.');
+    if (S.rkTribeStatus(t) !== 'open') fail('failed-precondition', "This tribe is closed, so it isn't taking requests to join.");
+    const now = Date.now(), had = !!((t.joinRequests || {})[uid] || (t.pendingVotes || {})[uid]);
+    const entry = { name: nm, at: now }, rev = num(t.rev) + 1;
+    const upd = { ['joinRequests.' + uid]: entry, rev };
+    const invites = Object.assign({}, t.invites || {});
+    if (invites[uid]) { upd['invites.' + uid] = FV().delete(); delete invites[uid]; }
+    tx.update(tribeRef(appId, tribeId), upd);
+    return { t: Object.assign({}, t, { joinRequests: Object.assign({}, t.joinRequests || {}, { [uid]: entry }), invites, rev }), had, now };
+  });
+  const notes = [];
+  if (!out.had) rkNote(notes, out.t, S.rkTribeVoters(out.t.members, { type: 'admit' }, out.t.restrictions, out.now).slice(0, 50), 'join', '🙋 @' + nm + ' asked to join your "' + out.t.name + '" Vibe Tribe. Tap to vote yes or no.', 'vote:join:' + uid);
+  await rkFinish(appId, tribeId, null, notes);
+  return { result: 'requested', tribeId, doc: rkDoc(tribeId, out.t) };
+};
+
+const opWithdrawRequest = async (appId, uid, d) => {
+  const tribeId = rkTribeIdOf(d);
+  const out = await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t || !(t.joinRequests || {})[uid]) return null;
+    const rev = num(t.rev) + 1, requests = Object.assign({}, t.joinRequests || {}); delete requests[uid];
+    tx.update(tribeRef(appId, tribeId), { ['joinRequests.' + uid]: FV().delete(), rev });
+    return { t: Object.assign({}, t, { joinRequests: requests, rev }) };
+  });
+  return out ? { result: 'withdrawn', tribeId, doc: rkDoc(tribeId, out.t) } : { result: 'gone', tribeId };
+};
+
+// A member's notice mutes for one tribe (stored on the tribe so whoever sends a notice can honour them).
+const opMutes = async (appId, uid, d) => {
+  const tribeId = rkTribeIdOf(d), m = (d.mutes && typeof d.mutes === 'object') ? d.mutes : {};
+  const clean = {};
+  S.RK_TRIBE_MUTES.forEach(x => { if (m[x.k] === true) clean[x.k] = true; });
+  const on = Object.keys(clean).length > 0;
+  await db().runTransaction(async (tx) => {
+    const t = await rkLoad(tx, appId, tribeId);
+    if (!t) rkGone();
+    if (!(t.members || []).includes(uid)) fail('permission-denied', 'Only members can change these.');
+    tx.update(tribeRef(appId, tribeId), { ['mutes.' + uid]: on ? clean : FV().delete() });
+  });
+  return Object.assign({ result: 'saved', tribeId }, on ? { mutes: clean } : {});
+};
+
+// The rest of a purge: messages from before purgedAt that are still there (the app hides them meanwhile).
+const opPurge = async (appId, uid, d) => {
+  const tribeId = rkTribeIdOf(d);
+  const s = await tribeRef(appId, tribeId).get();
+  const t = s.exists ? (s.data() || {}) : null;
+  if (!t || !(t.members || []).includes(uid)) fail('permission-denied', 'Only members can do this.');
+  const n = num(t.purgedAt) > 0 ? await rkPurge(appId, tribeId, t.purgedAt) : 0;
+  return { result: 'purged', deleted: n, tribeId };
+};
+
+const OPS = {
+  create: opCreate, propose: opPropose, voteMember: opVoteMember, voteMemberNo: opVoteMemberNo,
+  invite: opInvite, acceptInvite: opAcceptInvite, declineInvite: opDeclineInvite, withdrawInvite: opWithdrawInvite,
+  leave: opLeave, settle: opSettle, call: opCall, vote: opAnswer(true), voteNo: opAnswer(false), withdraw: opWithdraw,
+  appeal: opAppeal, request: opRequest, withdrawRequest: opWithdrawRequest, mutes: opMutes, purge: opPurge,
+};
+
+// ================================================================================================================
+// WHAT THE APP ASKS FOR (one callable)
+// ================================================================================================================
+exports.rkTribe = onCall({ timeoutSeconds: 60, maxInstances: 20 }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid) fail('unauthenticated', 'Sign in first.');
+  const prov = req.auth.token && req.auth.token.firebase && req.auth.token.firebase.sign_in_provider;
+  if (prov === 'anonymous') fail('permission-denied', 'Create an account first.');
+  const d = (req.data && typeof req.data === 'object') ? req.data : {};
+  const op = Object.prototype.hasOwnProperty.call(OPS, String(d.op || '')) ? OPS[String(d.op)] : null;
+  if (!op) fail('invalid-argument', 'Unknown action.');
+  let meP;
+  const x = { when: rkWhenIn(rkTzOk(d.tz)), me: () => (meP = meP || rkProfile(APP, uid)) };
+  return op(APP, uid, d, x);
+});
+
+// A message arrived in a tribe's chat: its sender's tribeMessages (Tribe Chatter, Tribe Voice), once per message. The rules
+// let only a member post as themselves, so the sender is who it says.
+exports.tribeMsgCount = onDocumentCreated('artifacts/{appId}/public/data/tribes/{tribeId}/messages/{msgId}', async (event) => {
+  const { appId, tribeId, msgId } = event.params;
+  if (appId !== APP) return;
+  const m = event.data && typeof event.data.data === 'function' ? (event.data.data() || {}) : {};
+  const sender = rkId(m.sender);
+  if (!sender) return;
+  const mref = msgCol(appId, tribeId).doc(msgId), uref = userRef(appId, sender);
+  await db().runTransaction(async (tx) => {
+    const [ms, us] = await tx.getAll(mref, uref);
+    if (!ms.exists || (ms.data() || {}).counted) return;
+    tx.update(mref, { counted: true });
+    if (us.exists) tx.set(uref, { tribeMessages: FV().increment(1) }, { merge: true });
+  }).catch(e => console.error('tribeMsgCount', tribeId, msgId, e && e.message));
+});
+
+// for the build's own test (node) only: never exported when deployed
+if (process.env.RK_TRIBES_TEST) exports._rkTest = { rkLogEntries, rkAfter, rkMerged, rkPatch, rkWhenIn, rkTzOk, rkName, rkPurge, RK_PASS_MIN };
+RKTRIBESEOF
+echo "  functions/rk_tribes.js written (script-owned): tribe votes on the server (rkTribe, tribeMsgCount)."
 # V90.85.150.325: THE STATS ENGINE (rk_stats.js) and the definitions it shares with the app (rk_shared.js, made from
 # src/rkShared.js here, so the two can never disagree).
 if [ -f "$HOME/RaveKandi-Build/src/rkShared.js" ]; then
@@ -31730,7 +32163,7 @@ if (process.env.RK_STATS_TEST) exports._rkTest = { rkEvaluate, rkCount, rkRecoun
 RKSTATSEOF
 echo "  functions/rk_stats.js written (script-owned): the stats engine."
 # V90.85.150.325: and the module loads with what it needs: rk_shared.js parses, and the six functions are exported
-if node -e "const S=require('$RK_FN_DIR/rk_shared.js'); if(!S.RK_ACH_DEFS||S.RK_ACH_DEFS.length<90||typeof S.rkAchList!=='function'||!S.RK_PAY||typeof S.rkLineCents!=='function') process.exit(1)" 2>/dev/null; then
+if node -e "const S=require('$RK_FN_DIR/rk_shared.js'); if(!S.RK_ACH_DEFS||S.RK_ACH_DEFS.length<90||typeof S.rkAchList!=='function'||!S.RK_PAY||typeof S.rkLineCents!=='function'||typeof S.rkTribeSettle!=='function') process.exit(1)" 2>/dev/null; then
     echo "  functions/rk_shared.js loads: $(node -e "const S=require('$RK_FN_DIR/rk_shared.js'); console.log(S.RK_ACH_DEFS.length+' achievements')" 2>/dev/null)."
 else
     echo "  ERROR: functions/rk_shared.js doesn't load in Node. Don't deploy functions from this run; send me the build log."
@@ -31738,7 +32171,8 @@ fi
 # V89.84.150.323: vote reminders and the server-side word check, whichever branch ran above
 # V90.85.150.325: and the stats engine
 # V90.88.151.329: and money on the server
-for RK_MOD in rk_votes rk_mod rk_stats rk_money; do
+# V90.89.154.333: and tribe votes on the server
+for RK_MOD in rk_votes rk_mod rk_stats rk_money rk_tribes; do
     if ! grep -q "$RK_MOD" "$RK_FN_DIR/index.js"; then
         printf '\n// V89.84.150.323: generated by the build script into %s.js.\nmodule.exports = Object.assign(module.exports, require("./%s"));\n' "$RK_MOD" "$RK_MOD" >> "$RK_FN_DIR/index.js"
         echo "  functions/index.js: $RK_MOD re-export appended."
@@ -31807,6 +32241,7 @@ echo "       rk_mod.js     SCRIPT-OWNED (V89.84.150.323): the blocked-word check
 echo "       rk_radio.js   SCRIPT-OWNED (V84.152, V90.87.151.328): Radio Record now-playing, and the station checks (every hour, and on a failed connect)."
 echo "       rk_stats.js   SCRIPT-OWNED (V90.85.150.325, 326): the stats engine (counts, achievements, VIP, daily limits, referrals, Business)."
 echo "       rk_shared.js  SCRIPT-OWNED (V90.85.150.325): made from src/rkShared.js, what the app and the server both apply (328: the radio stations too)."
+echo "       rk_tribes.js  SCRIPT-OWNED (V90.89.154.333): tribe votes on the server (rkTribe), and each tribe message counted (tribeMsgCount)."
 echo "       index.js      YOURS. Payment functions live here. Never overwritten."
 echo "       package.json  YOURS. Created only if absent, so deps survive."
 echo ""
@@ -31848,12 +32283,16 @@ echo ""
 echo "=================================================================="
 echo ""
 
-# Block 21 — Web deploy (Firebase Hosting). V65.16: FULLY AUTOMATIC — no prompts, no
-# timeouts. The old 45-second prompt silently defaulted to "no" if you looked away, which
-# meant re-running the entire build just to publish. Now every build deploys staging AND
-# production automatically.
-#   Skip production for one run:  RK_NO_LIVE=1 bash Rk_Code_WithFix.sh   (staging only)
-#   Skip the web deploy entirely: RK_NO_WEB=1 bash Rk_Code_WithFix.sh
+# Block 21 — Web deploy (Firebase Hosting). V65.16: FULLY AUTOMATIC — no prompts. The old 45-second prompt silently
+# defaulted to "no" if you looked away, which meant re-running the entire build just to publish.
+# V90.89.154.333 (Milli, 14 Nov: "Build keeps failing and getting hung on deployment. Staging is not necessary, disable the
+# function for builds."): the build goes straight to production; the private staging preview is off. Every Firebase command
+# here goes through rk_fb: it never waits for an answer from the keyboard (--non-interactive), and it's stopped once its
+# time is up. A try that runs out of time counts as a failed one and is retried; after the last, the build carries on to
+# GitHub and BUILD RESULT, which says what to run. The feed's indexes deploy only when they've changed.
+#   Skip the web deploy entirely:        RK_NO_WEB=1 bash Rk_Code_WithFix.sh
+#   Skip production for one run:         RK_NO_LIVE=1 bash Rk_Code_WithFix.sh
+#   The staging preview too, for one run: RK_STAGING=1 bash Rk_Code_WithFix.sh   (with RK_NO_LIVE=1 as well: the preview only)
 echo ""
 echo "============================================"
 # V88.84.150.322: the composite indexes behind the feed's server-ordered sorts (Most liked, Price, Festival
@@ -31976,7 +32415,14 @@ EOF
     cat << 'EOF' > .firebaserc
 { "projects": { "default": "ravekandi" } }
 EOF
-    command -v firebase >/dev/null 2>&1 || npm install -g firebase-tools
+    command -v firebase >/dev/null 2>&1 || RK_T 900 npm install -g firebase-tools
+    # V90.89.154.333: every Firebase command below runs through rk_fb SECONDS ARGS...: --non-interactive, and stopped after
+    # SECONDS (then 15 more, if it won't stop). It answers 124 when it ran out of time. --foreground keeps Ctrl+C working.
+    RK_TK=""
+    if command -v timeout >/dev/null 2>&1; then
+        if timeout --foreground -k 1 5 true >/dev/null 2>&1; then RK_TK="--foreground -k 15"; elif timeout -k 1 5 true >/dev/null 2>&1; then RK_TK="-k 15"; fi
+    fi
+    rk_fb() { local s="$1"; shift; if command -v timeout >/dev/null 2>&1; then timeout $RK_TK "$s" firebase "$@" --non-interactive; else firebase "$@" --non-interactive; fi; }
 
     # V84.150 (308): pick a connection mode Node can use on THIS network. Node gives each server
     # address 250 ms before abandoning it for the next; on a slow mobile connection every attempt
@@ -31984,7 +32430,8 @@ EOF
     # fine. Seen on the A16. Probe once: if the default fails and IPv4-only works, the Firebase
     # commands below use IPv4-only. If the default works, nothing changes.
     # V89.85.150.324: and Firebase Hosting's upload server, which every web deploy sends its files to.
-    rk_probe() { node $1 -e "Promise.all(['https://firebase.googleapis.com/v1beta1/projects/ravekandi','https://upload-firebasehosting.googleapis.com/'].map(u=>fetch(u))).then(()=>process.exit(0)).catch(()=>process.exit(1))" >/dev/null 2>&1; }
+    # V90.89.154.333: 25 seconds at most
+    rk_probe() { RK_T 25 node $1 -e "Promise.all(['https://firebase.googleapis.com/v1beta1/projects/ravekandi','https://upload-firebasehosting.googleapis.com/'].map(u=>fetch(u))).then(()=>process.exit(0)).catch(()=>process.exit(1))" >/dev/null 2>&1; }
     RK_FB_NODE_OPTS=""
     if rk_probe ""; then
         echo "  Network: Node reaches Google normally."
@@ -31995,25 +32442,39 @@ EOF
         echo "  Network: Google is unreachable from Termux right now. The deploys below retry."
     fi
     export NODE_OPTIONS="$RK_FB_NODE_OPTS"
-    if ! firebase projects:list >/dev/null 2>&1; then
+    # V90.89.154.333: the sign-in check reads this phone's own Firebase sign-in (login:list), no network, so it can't hang.
+    # Only a phone with no sign-in opens the login. A sign-in that has expired shows up in the deploy below, which says so.
+    RK_LOGIN=$(rk_fb 60 login:list 2>&1); RK_LOGIN_RC=$?
+    if printf '%s' "$RK_LOGIN" | grep -q "No authorized accounts"; then
         echo "Firebase not authenticated — opening login (approve in your browser):"
         firebase login || echo "⚠ Login failed. Fix auth, then deploy with: cd ~/RaveKandi-Build && firebase deploy --only hosting"
+    elif [ "$RK_LOGIN_RC" = "124" ]; then
+        echo "  Firebase didn't answer its sign-in check within 60 seconds. Carrying on: the deploy below says if the sign-in is the problem."
     fi
 
     # V88.84.150.322: the feed's indexes (firestore.indexes.json, above). --non-interactive never deletes an
     # index that is in the project but not in the file. They build in the background, a few minutes.
+    # V90.89.154.333: only when the file has changed since they were last deployed (.rk_indexes.md5 remembers it), each try
+    # stopped after 3 minutes, two tries.
     if [ -f firestore.indexes.json ]; then
         echo ""
-        echo "📇 Deploying the feed's Firestore indexes..."
-        RK_IDX_OK=0
-        for RK_TRY in 1 2 3; do
-            if firebase deploy --only firestore:indexes --non-interactive; then RK_IDX_OK=1; break; fi
-            [ "$RK_TRY" -lt 3 ] && { echo "  Index attempt $RK_TRY failed - retrying in 20s..."; sleep 20; }
-        done
-        if [ "$RK_IDX_OK" = "1" ]; then
-            echo "  [OK] Indexes deployed. They finish building in a few minutes; until then the sorts run on the phone."
+        RK_IDX_SUM=$(md5sum firestore.indexes.json 2>/dev/null | cut -d' ' -f1)
+        if [ -n "$RK_IDX_SUM" ] && [ "$(cat .rk_indexes.md5 2>/dev/null)" = "$RK_IDX_SUM" ]; then
+            echo "📇 The feed's Firestore indexes haven't changed since they were deployed: skipped."
+            echo "   (To send them anyway: cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive)"
         else
-            echo "  [WARN] Indexes not deployed. The sorts still work, on the phone. Retry: cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive"
+            echo "📇 Deploying the feed's Firestore indexes (each try stops after 3 minutes)..."
+            RK_IDX_OK=0
+            for RK_TRY in 1 2; do
+                if rk_fb 180 deploy --only firestore:indexes; then RK_IDX_OK=1; break; fi
+                [ "$RK_TRY" -lt 2 ] && { echo "  Index attempt $RK_TRY failed or ran out of time - retrying in 20s..."; sleep 20; }
+            done
+            if [ "$RK_IDX_OK" = "1" ]; then
+                printf '%s' "$RK_IDX_SUM" > .rk_indexes.md5
+                echo "  [OK] Indexes deployed. They finish building in a few minutes; until then the sorts run on the phone."
+            else
+                echo "  [WARN] Indexes not deployed. The sorts still work, on the phone. Retry: cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive"
+            fi
         fi
     fi
 
@@ -32033,7 +32494,7 @@ EOF
         local t=0
         while [ "$t" -lt "$1" ]; do
             curl -s -o /dev/null --max-time 8 https://upload-firebasehosting.googleapis.com/ 2>/dev/null && return 0
-            sleep 5; t=$((t + 13))
+            sleep 5; t=$((t + 13))   # each check is at most 8 seconds of curl and 5 of sleep
         done
         return 1
     }
@@ -32053,61 +32514,70 @@ EOF
     echo "  Biggest files in build/ (a changed file is sent whole):"
     find build -type f -size +400k -exec du -k {} + 2>/dev/null | sort -rn | head -5 | while read -r kb f; do echo "    $kb KB  $f"; done
 
-    # ---- STAGE 1: deploy to a private preview channel ----
-    echo ""
-    echo "🧪 Deploying to STAGING (private test URL)..."
-    # 'staging' channel kept alive 30 days; re-deploys reuse the same URL.
-    # V84.150 (308): retried. A phone's connection drops for seconds at a time, and one dropped
-    # connection used to cost the whole deploy.
-    STAGE_URL=""
-    for RK_TRY in 1 2 3 4; do
-        export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=$(rk_up_conc $RK_TRY)
-        STAGE_OUT=$(firebase hosting:channel:deploy staging --expires 30d 2>&1)
-        echo "$STAGE_OUT"
-        STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
-        # V90.85.150.325: a staging try that went through uploaded every file, so a file named by an earlier try did upload
-        # (with RK_NO_LIVE=1, BUILD RESULT used to name it anyway)
-        [ -n "$STAGE_URL" ] && { RK_FAILED_FILE=""; break; }
-        rk_failed_file "$STAGE_OUT"
-        if [ "$RK_TRY" -lt 4 ]; then
-            echo "  Staging attempt $RK_TRY failed. Waiting for Firebase's upload server, then trying again with $(rk_up_conc $((RK_TRY + 1))) files at a time..."
-            rk_conn_wait 120 || echo "  No answer from the upload server for 2 minutes. Trying anyway."
-            sleep 10
-        fi
-    done
-    if [ -z "$STAGE_URL" ]; then
-        echo "⚠ Couldn't capture the staging URL automatically — look for the 'Channel URL' line above."
-        STAGE_URL="(see the Channel URL printed above)"
-    fi
-    echo ""
-    echo "============================================"
-    echo "🧪 STAGING IS LIVE — TEST IT FIRST:"
-    echo "   $STAGE_URL"
-    echo ""
-    echo "   Open this URL on a REAL iPhone (BrowserStack/LambdaTest free trial,"
-    echo "   or any borrowed device). Check: app loads, sign-up works, messaging,"
-    echo "   the homepage, and the Festival Spotlight. Watch for ANY crash."
-    echo "   This URL is private — your live users do NOT see it."
-    echo "============================================"
-    echo ""
+    # V90.89.154.333: a sign-in that has expired fails every try the same way, so it isn't retried; this says what to do
+    rk_auth_bad() { grep -qiE "credentials are no longer valid|firebase login --reauth|Failed to authenticate|Authentication Error" "$1" 2>/dev/null; }
+    RK_AUTH_BAD=""
+    mkdir -p "$HOME/RaveKandi_Output"
 
-    # ---- STAGE 2: promote to production automatically (V65.16) ----
+    # ---- THE STAGING PREVIEW: off from 333 (Milli: "Staging is not necessary, disable the function for builds") ----
+    # RK_STAGING=1 deploys it first, for one run: the 'staging' channel, kept 30 days, the same private URL each time. Its
+    # output shows as it goes (until 333 it was held back until the try ended, so a slow try looked like a hang).
+    if [ "$RK_STAGING" = "1" ]; then
+        echo ""
+        echo "🧪 RK_STAGING=1: deploying the private staging preview first (each try stops after 8 minutes; 2 tries)..."
+        STAGE_URL=""
+        RK_STAGE_LOG="$HOME/RaveKandi_Output/rk_stage_deploy.log"
+        for RK_TRY in 1 2; do
+            export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=$(rk_up_conc $RK_TRY)
+            rk_fb 480 hosting:channel:deploy staging --expires 30d 2>&1 | tee "$RK_STAGE_LOG"
+            STAGE_OUT=$(cat "$RK_STAGE_LOG" 2>/dev/null)
+            STAGE_URL=$(echo "$STAGE_OUT" | grep -oE 'https://[a-zA-Z0-9.-]*--staging[a-zA-Z0-9.-]*\.web\.app' | head -1)
+            # V90.85.150.325: a staging try that went through uploaded every file, so a file named by an earlier try did upload
+            [ -n "$STAGE_URL" ] && { RK_FAILED_FILE=""; break; }
+            rk_failed_file "$STAGE_OUT"
+            rk_auth_bad "$RK_STAGE_LOG" && { RK_AUTH_BAD=1; break; }
+            if [ "$RK_TRY" -lt 2 ]; then
+                echo "  Staging attempt $RK_TRY failed or ran out of time. Waiting for Firebase's upload server, then trying again..."
+                rk_conn_wait 60 || echo "  No answer from the upload server for a minute. Trying anyway."
+                sleep 10
+            fi
+        done
+        if [ -n "$STAGE_URL" ]; then
+            echo "🧪 STAGING PREVIEW: $STAGE_URL (private: your live users don't see it)"
+        else
+            echo "⚠ The staging preview didn't deploy. It isn't needed: production goes ahead on its own."
+        fi
+        echo ""
+    fi
+
+    # ---- PRODUCTION (V65.16: automatic) ----
     if [ "$RK_NO_LIVE" = "1" ]; then
-        echo "⏸  RK_NO_LIVE=1 — staging deployed, production intentionally skipped."
+        if [ "$RK_STAGING" = "1" ]; then echo "⏸  RK_NO_LIVE=1 — production intentionally skipped (the staging preview only)."
+        else echo "⏸  RK_NO_LIVE=1 — production intentionally skipped. (No staging preview either: it's off from 333; RK_STAGING=1 deploys it.)"; fi
         echo "   Go live anytime: cd ~/RaveKandi-Build && firebase deploy --only hosting"
+    elif [ -n "$RK_AUTH_BAD" ]; then
+        echo "⚠ Firebase's sign-in on this phone has expired, so nothing can deploy. Sign in again, then send the build live:"
+        echo "   firebase login --reauth"
+        echo "   cd ~/RaveKandi-Build && firebase deploy --only hosting"
     else
-        echo "🚀 Publishing to PRODUCTION automatically..."
+        echo "🚀 Publishing to PRODUCTION (each try stops after 7 minutes; 4 tries)..."
         RK_LIVE_OK=0
-        mkdir -p "$HOME/RaveKandi_Output"
         RK_LIVE_LOG="$HOME/RaveKandi_Output/rk_live_deploy.log"
         for RK_TRY in 1 2 3 4; do
             export FIREBASE_HOSTING_UPLOAD_CONCURRENCY=$(rk_up_conc $RK_TRY)
-            firebase deploy --only hosting 2>&1 | tee "$RK_LIVE_LOG"
-            if [ "${PIPESTATUS[0]}" = "0" ]; then RK_LIVE_OK=1; RK_FAILED_FILE=""; break; fi
+            rk_fb 420 deploy --only hosting 2>&1 | tee "$RK_LIVE_LOG"
+            RK_LIVE_RC=${PIPESTATUS[0]}
+            if [ "$RK_LIVE_RC" = "0" ]; then RK_LIVE_OK=1; RK_FAILED_FILE=""; break; fi
+            [ "$RK_LIVE_RC" = "124" ] && echo "  Production attempt $RK_TRY ran out of time (7 minutes) and was stopped."
             rk_failed_file "$(cat "$RK_LIVE_LOG" 2>/dev/null)"
+            if rk_auth_bad "$RK_LIVE_LOG"; then
+                RK_AUTH_BAD=1
+                echo "⚠ Firebase's sign-in on this phone has expired. Sign in again: firebase login --reauth"
+                break
+            fi
             if [ "$RK_TRY" -lt 4 ]; then
                 echo "  Production attempt $RK_TRY failed. Waiting for Firebase's upload server, then trying again with $(rk_up_conc $((RK_TRY + 1))) files at a time..."
-                rk_conn_wait 120 || echo "  No answer from the upload server for 2 minutes. Trying anyway."
+                rk_conn_wait 60 || echo "  No answer from the upload server for a minute. Trying anyway."
                 sleep 10
             fi
         done
@@ -32117,7 +32587,7 @@ EOF
             echo "   (alias: https://ravekandi.firebaseapp.com)"
             echo "   iPhone users: open that link in Safari, then Get RaveKandi (HELP) shows where to tap."
         else
-            echo "⚠ Production deploy failed — check the error above. Staging is unaffected."
+            echo "⚠ Production deploy failed — check the error above. The APK is unaffected."
             echo "   Retry without rebuilding: cd ~/RaveKandi-Build && FIREBASE_HOSTING_UPLOAD_CONCURRENCY=4 firebase deploy --only hosting"
         fi
     fi
@@ -32125,7 +32595,7 @@ EOF
 else
     echo "RK_NO_WEB=1 — web deploy skipped."
     echo "  Indexes:    cd ~/RaveKandi-Build && firebase deploy --only firestore:indexes --non-interactive"
-    echo "  Staging:    cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
+    echo "  Staging (off from 333; only if you want the preview): cd ~/RaveKandi-Build && firebase hosting:channel:deploy staging"
     echo "  Production: cd ~/RaveKandi-Build && firebase deploy --only hosting"
 fi
 
@@ -32209,6 +32679,7 @@ elif [ -n "$RK_LIVE_BUILD" ]; then echo "  WEB: NOT LIVE - ravekandi.web.app is 
 else echo "  WEB: couldn't read https://ravekandi.web.app/version.json just now. Open it in Chrome: it should say build $RK_BUILD"; fi
 echo "  APK: ${RK_APK_RESULT:-unknown}"
 [ -n "$RK_FAILED_FILE" ] && echo "  The file that didn't upload: $RK_FAILED_FILE"
+[ -n "$RK_AUTH_BAD" ] && echo "  Firebase's sign-in on this phone has expired: firebase login --reauth, then the retry above"
 # V90.85.150.325: whether functions need deploying after this build
 if [ -n "$RK_FN_CHANGED" ]; then echo "  FUNCTIONS: this build changed ${RK_FN_CHANGED% }: deploy functions (the steps below)"
 else echo "  FUNCTIONS: no change from this build (deploy only if an earlier build's are still waiting)"; fi
@@ -32222,8 +32693,10 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  332 needs nothing more by hand once WEB says OK: no functions and no rules this time."
-echo "   (If 331's functions were never deployed, they still are needed: RK_VERIFY_331, section 4.)"
+echo "  333 needs two steps by hand, in this order, once WEB says OK:"
+echo "   1. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
+echo "      (rk_tribes.js: tribe votes on the server. Until it's deployed, tribe actions say the update isn't live yet)"
+echo "   2. ... firebase deploy --only firestore:rules, with 333's rules file (RK_VERIFY_333, section 4)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
