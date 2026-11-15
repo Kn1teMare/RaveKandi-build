@@ -32,8 +32,8 @@
 # To release: increment BUILD and exactly ONE of MAJOR / MINOR / PATCH.
 RK_MAJOR=90
 RK_MINOR=88
-RK_PATCH=153
-RK_BUILD=331
+RK_PATCH=154
+RK_BUILD=332
 RK_SEMVER="$RK_MAJOR.$RK_MINOR.$RK_PATCH"
 RK_VER="V$RK_SEMVER.$RK_BUILD"
 
@@ -182,6 +182,17 @@ cat << 'EOF' > public/index.html
       /* V89.84.150.323: the tutorial holds the page still while it points at something (rkTourHold), and a tap
          in the wrong place flashes the ring and the instruction (rk-tour-nudge). */
       html.rk-tour-lock, html.rk-tour-lock body { overflow: hidden !important; overscroll-behavior: none !important; }
+      /* V90.88.154.332 (Milli: pop-in windows "always fit the users screen appropriately and don't scroll the background
+         underneath"): while a window is up (rkWatchWindows), the page can't scroll. Only html is locked: body stays a plain
+         box, so the sticky top bar keeps its place. A window's own scrolling stops at its edges instead of carrying on to
+         whatever is behind it; a list inside a window still hands on to the window when it reaches its end. */
+      html.rk-lock { overflow: hidden !important; overscroll-behavior: none !important; }
+      html.rk-lock body { overscroll-behavior: none !important; }
+      .fixed.inset-0.overflow-y-auto, [data-rk-modal-body] { overscroll-behavior: contain; }
+      /* A window whose whole contents sit in a scroll box of their own (made when the backdrop scrolled; the Crypto Wallet
+         Center's was 65% of the screen): the window's body scrolls them now, in one piece, so there's never a box inside a
+         box that runs past the window. */
+      [data-rk-modal-body] > .overflow-y-auto[class*="max-h-["]:only-child { max-height: none !important; overflow: visible !important; }
       @keyframes rkTourNudge { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.12); } 65% { transform: scale(0.96); } }
       .rk-tour-nudge { animation: rkTourNudge 0.5s ease-in-out 2; }
       /* V89.85.150.324: the moving bar while a saved sign-in waits for the connection (RkAuthWait). */
@@ -2047,7 +2058,8 @@ const RkInstallCoach = ({ gk, onClose, onPick }) => {
     return createPortal(
         <div className="fixed inset-0 z-[2100] bg-black/85" onClick={onClose} data-install-coach={gk} role="dialog" aria-label="Where to tap">
             <div className="absolute left-1/2 -translate-x-1/2 w-[92%] max-w-sm" style={{ top: up ? 'calc(110px + env(safe-area-inset-top))' : 'calc(40px + env(safe-area-inset-top))' }} onClick={e => e.stopPropagation()}>
-                <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)]">
+                {/* V90.88.154.332: never taller than the screen (with room for the arrow); scrolls inside when it would be */}
+                <div className="bg-gradient-to-br from-purple-700 via-fuchsia-700 to-purple-800 border-2 border-pink-300 rounded-2xl p-4 shadow-[0_0_30px_rgba(236,72,153,0.5)] overflow-y-auto overscroll-contain" style={{ maxHeight: up ? 'calc(100dvh - 126px - env(safe-area-inset-top) - env(safe-area-inset-bottom))' : 'calc(100dvh - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom))' }} data-rk-fit="coach">
                     <h3 className="text-xl font-black text-white mb-1">Add RaveKandi to your home screen</h3>
                     <p className="text-sm text-white mb-3">{g.label}. Do these in order; this box stays here while you do.</p>
                     <RkInstallSteps g={g} big/>
@@ -2633,7 +2645,7 @@ const RkHateNotice = () => {
             </div>, document.body)}
         {hit && createPortal(
             <div className="fixed inset-0 z-[2250] bg-black/85 flex items-center justify-center p-4" data-hate-modal="1" onClick={close}>
-                <div onClick={e => e.stopPropagation()} role="alertdialog" aria-label="Not allowed on RaveKandi" className="max-w-sm w-full rounded-2xl border-2 border-pink-300 bg-gradient-to-br from-purple-800 via-fuchsia-800 to-rose-800 p-5 text-center shadow-[0_0_34px_rgba(236,72,153,0.55)]">
+                <div onClick={e => e.stopPropagation()} role="alertdialog" aria-label="Not allowed on RaveKandi" className="max-w-sm w-full rounded-2xl border-2 border-pink-300 bg-gradient-to-br from-purple-800 via-fuchsia-800 to-rose-800 p-5 text-center shadow-[0_0_34px_rgba(236,72,153,0.55)] max-h-full overflow-y-auto overscroll-contain">
                     <div className="text-4xl mb-2" aria-hidden="true">🕊️</div>
                     <h3 className="text-xl font-black text-white mb-2">Not on RaveKandi</h3>
                     <p className="text-sm text-white leading-relaxed">"{hit.masked}" is inappropriate for RaveKandi and won't be tolerated: not in names, messages, posts, comments, bios, tribes or anywhere else. Nothing was sent or saved.</p>
@@ -5616,6 +5628,34 @@ const rkTourHold = () => {
         document.removeEventListener('keydown', stopKeys, true);
     };
 };
+// V90.88.154.332 (Milli: "Do this for all pop in windows the ensure they always fit the users screen appropriately and
+// don't scroll the background underneath"): is a window up? A window is anything fixed over (most of) the whole screen that
+// takes taps: the shared Modal and every window drawn on its own. Backgrounds (behind the app, or pointer-events: none,
+// like the tutorial's layer and the app's background) don't count.
+const rkWindowUp = () => {
+    const els = document.querySelectorAll('.fixed.inset-0, [data-rk-modal]');
+    const W = window.innerWidth || 0, H = window.innerHeight || 0;
+    for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (/^(VIDEO|CANVAS|IMG)$/.test(el.tagName)) continue;
+        let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+        if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden' || cs.pointerEvents === 'none' || parseInt(cs.zIndex, 10) < 0) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width >= W * 0.8 && r.height >= H * 0.6) return true;
+    }
+    return false;
+};
+// Watches the page for windows coming and going, and locks the page behind while one is up (html.rk-lock). Watching
+// rather than having each window lock for itself covers every window, including ones added later. Returns the undo.
+const rkWatchWindows = () => {
+    const html = document.documentElement;
+    let raf = 0;
+    const check = () => { raf = 0; const up = rkWindowUp(); if (up !== html.classList.contains('rk-lock')) html.classList.toggle('rk-lock', up); };
+    const mo = new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(check); });
+    mo.observe(document.body, { childList: true, subtree: true });
+    check();
+    return () => { mo.disconnect(); if (raf) cancelAnimationFrame(raf); html.classList.remove('rk-lock'); };
+};
 // Is anything other than the tour itself drawn over the middle of this element?
 const rkTourCovered = (el) => {
     try {
@@ -5649,20 +5689,25 @@ const Modal = ({ isOpen, onClose, title, children, zClass = 'z-50', wide = false
     useRkBackClose(isOpen, onClose);
     if (!isOpen) return null;
     if (full) return createPortal(
-        <div className={"fixed inset-0 bg-black " + zClass} onClick={(e) => e.stopPropagation()} data-full-modal="1">
+        <div className={"fixed inset-0 bg-black " + zClass} onClick={(e) => e.stopPropagation()} data-full-modal="1" data-rk-modal="1">
             <div className="mx-auto h-full w-full max-w-2xl flex flex-col bg-white/5 border-x-2 border-white/10" style={{ ...getBoxGlowStyle('primaryGlow'), paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <div className="flex justify-between items-center gap-2 px-4 py-3 border-b border-white/20 shrink-0">
                     <h3 className="text-xl font-bold truncate" style={getTextGlowStyle('primaryGlow')}>{title}</h3>
                     <div className="flex items-center gap-2 shrink-0">{headerExtra}<button onClick={onClose} aria-label="Close"><XCircle/></button></div>
                 </div>
-                <div className="flex-1 min-h-0 flex flex-col overflow-y-auto px-4 py-3" data-full-body="1">{children}</div>
+                <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-4 py-3" data-full-body="1" data-rk-modal-body="1">{children}</div>
             </div>
         </div>, document.body);
     // V66: clear the header by its MEASURED height (--rk-topbar-h, published by <App/>), not by a
     // guessed constant. The 96px used in 229 was under the real value, so the modal's top edge
     // still sat behind the ticker. The fallback only applies before the first measurement lands.
     // items-start keeps a tall modal scrolling from its own top rather than from the middle.
-    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-y-auto " + zClass} onClick={(e) => e.stopPropagation()}><div className="flex min-h-full items-start justify-center px-4 pb-4" style={{ paddingTop: 'calc(var(--rk-topbar-h, 140px) + 14px + env(safe-area-inset-top))', paddingBottom: 'calc(72px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full my-4"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><div className="flex items-center gap-2 shrink-0">{headerExtra}<button onClick={onClose}><XCircle/></button></div></div>{children}</Card></div></div>, document.body );
+    // V90.88.154.332 (Milli: "the crypto center window scrolls off screen if you scroll the sides of the pop in window.
+    // Ensure that it fits the users screen size and scrolls within the pop in"): the dark backdrop no longer scrolls (it
+    // carried the whole window up and off the screen). The window sits where it did, is never taller than the space
+    // between the top bar and the bottom bar, keeps its title row in place, and scrolls only what's under it
+    // (data-rk-modal-body). The page behind stays still (rkWatchWindows).
+    return createPortal( <div className={"fixed inset-0 bg-black/90 overflow-hidden " + zClass} onClick={(e) => e.stopPropagation()} data-rk-modal="1"><div className="flex h-full items-start justify-center px-4" style={{ paddingTop: 'calc(var(--rk-topbar-h, 140px) + 30px + env(safe-area-inset-top))', paddingBottom: 'calc(88px + env(safe-area-inset-bottom))' }}><Card className={(wide ? "max-w-2xl" : "max-w-md") + " w-full max-h-full flex flex-col"} glow="primaryGlow"><div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2 shrink-0" data-rk-modal-head="1"><h3 className="text-xl font-bold" style={getTextGlowStyle('primaryGlow')}>{title}</h3><div className="flex items-center gap-2 shrink-0">{headerExtra}<button onClick={onClose}><XCircle/></button></div></div><div className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain -mx-4 px-4 -mb-4 pb-4" data-rk-modal-body="1">{children}</div></Card></div></div>, document.body );
 };
 
 // V47 Vibe Tribe: add-friend / friend-status button usable on cards, profiles, search,
@@ -7001,7 +7046,7 @@ const RkInvGrants = ({ user, profile, asModal, isOpen, onClose }) => {
                 {rows.length === 0 && matches.length === 0 && <p className="text-[10px] text-white/40">Nobody has access to your inventory.</p>}
                 {pendingAll && (
                     <div className="fixed inset-0 z-[1700] bg-black/85 flex items-center justify-center p-4" onClick={() => setPendingAll(null)}>
-                        <div className="bg-[#160a12] border-2 border-red-400 rounded-2xl p-4 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+                        <div className="bg-[#160a12] border-2 border-red-400 rounded-2xl p-4 max-w-sm w-full max-h-full overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
                             <p className="text-sm font-black text-red-300 mb-2">⚠️ Let {pendingAll.name || 'this raver'} delete YOUR items?</p>
                             <p className="text-[11px] text-white leading-snug mb-2">Right now they can only remove items they added themselves. Turning this on lets them permanently delete anything in your inventory — including pieces you logged, photographed and priced.</p>
                             <p className="text-[11px] text-white leading-snug mb-3">There is <strong>no undo and no history</strong>. If they delete it, it is gone.</p>
@@ -7937,7 +7982,7 @@ const RadioChatModal = ({ user, profile, isOpen, onClose, station, stations, onC
 
     return createPortal(
         <div className="fixed inset-0 z-[260] bg-black/90 flex items-end sm:items-center justify-center p-2 sm:p-4">
-            <div className="bg-[#0f001e] border-2 border-pink-500/40 rounded-2xl w-full max-w-lg flex flex-col shadow-[0_0_30px_rgba(236,72,153,0.35)]" style={{ maxHeight: '92vh' }}>
+            <div className="bg-[#0f001e] border-2 border-pink-500/40 rounded-2xl w-full max-w-lg flex flex-col shadow-[0_0_30px_rgba(236,72,153,0.35)]" style={{ maxHeight: 'min(92vh, 100%)' }} data-rk-fit="radiochat">
                 {/* Header: station selector + active count + close */}
                 <div className="p-3 border-b border-white/15 flex items-center gap-2">
                     <div className="flex-1 min-w-0">
@@ -8583,8 +8628,9 @@ const RadioPlayerModal = ({ user, profile, isOpen, onClose, onGoVip, onPlayingCh
             {/* Plain element — no crossOrigin, and never passed to createMediaElementSource. */}
             <audio ref={plainRef} data-rk-quiet="1" playsInline preload="none" onError={() => onStreamError(true)} onWaiting={() => onStreamWaiting(true)} onStalled={() => onStreamWaiting(true)} onPlaying={() => onStreamPlaying(true)} />
             {isOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[200] flex items-start justify-center p-4 overflow-y-auto">
-                    <Card className="max-w-md w-full my-8 bg-[#0f001e]/95" glow="purpleGlow">
+                <div className="fixed inset-0 bg-black/90 z-[200] flex items-start justify-center p-4 overflow-hidden" data-rk-modal="1">
+                    {/* V90.88.154.332: fits the screen and scrolls inside, instead of the backdrop carrying it off the screen */}
+                    <Card className="max-w-md w-full mt-8 max-h-[calc(100%_-_2rem)] overflow-x-hidden overflow-y-auto overscroll-contain bg-[#0f001e]/95" glow="purpleGlow">
                         <div className="flex justify-between items-center mb-4 border-b border-white/20 pb-2">
                             <h3 className="text-xl font-black italic flex items-center gap-2" style={getTextGlowStyle('purpleGlow')}><Radio size={20}/> RAVE RADIO</h3>
                             <button onClick={onClose}><XCircle/></button>
@@ -11420,9 +11466,10 @@ const MessengerModal = ({ user, profile, isOpen, onClose, threads, notifs, initi
     const threadKey = activeOtherUid ? rkKey(myUid, activeOtherUid) : null;
 
     return createPortal(
-        <div className="fixed inset-0 bg-black/90 z-[70] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex min-h-full items-center justify-center p-2 sm:p-4">
-                <Card className="max-w-2xl w-full my-2 flex flex-col min-h-[85vh]" glow="purpleGlow">
+        <div className="fixed inset-0 bg-black/90 z-[70] overflow-hidden" onClick={(e) => e.stopPropagation()} data-rk-modal="1">
+            {/* V90.88.154.332: fits the screen and scrolls inside, instead of the backdrop carrying it off the screen */}
+            <div className="flex h-full items-center justify-center p-2 sm:p-4">
+                <Card className="max-w-2xl w-full flex flex-col min-h-[min(85vh,100%)] max-h-full overflow-x-hidden overflow-y-auto overscroll-contain" glow="purpleGlow">
                     <div className="flex justify-between items-center mb-3 border-b border-white/20 pb-3">
                         <h3 className="text-2xl font-black uppercase italic tracking-widest" style={getTextGlowStyle('purpleGlow')}>Messenger</h3>
                         <button onClick={() => { setActiveThread(null); setActiveOtherUid(null); onClose(); }}><XCircle size={28}/></button>
@@ -12663,7 +12710,7 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
     return (
         <div className="space-y-3 text-center" data-pay-id={pay.payId}>
             {devnet && <p className="text-xs font-black bg-yellow-500/20 border border-yellow-400/60 text-yellow-100 rounded p-1.5" data-pay-devnet="1">🧪 DEVNET TEST MODE: test USDC, no real money. In Phantom: Settings → Developer Settings → Testnet Mode on, network Solana Devnet.</p>}
-            {devTest && state !== 'paid' && <p className="text-xs text-left font-bold bg-yellow-500/15 border-2 border-yellow-300 text-yellow-50 rounded-lg p-2 leading-snug" data-pay-devtest="1">🧪 DEVNET TEST CREDITS ARE ON: this payment counts once Phantom opens it from a wallet holding ${amount} of test USDC. Nothing is sent, so no SOL is needed. Phantom will then show an error, because there's nothing for it to sign: that's expected. Come back here.</p>}
+            {devTest && state !== 'paid' && <p className="text-xs text-left font-bold bg-yellow-500/15 border-2 border-yellow-300 text-yellow-50 rounded-lg p-2 leading-snug" data-pay-devtest="1">🧪 DEVNET TEST CREDITS ARE ON: this payment counts once Phantom opens it from a wallet holding ${amount} of test USDC. Nothing is sent, so no SOL is needed. Phantom will then say "We couldn't load this transaction request", because there's nothing for it to sign: that's expected. Come back here.</p>}
             <p className="text-2xl font-black text-lime-300" data-pay-amount="1">${amount} <span className="text-sm text-white">USDC</span></p>
             <p className="text-xs text-white -mt-2 break-words">{what}</p>
             {changed && <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2" data-pay-changed="1">The price changed since this was in your cart: ${amount} now, from the seller's listing as it is today.</p>}
@@ -12700,11 +12747,11 @@ const RkUsdcPay = ({ kind, plan, lines, expectUsd, user, profile, onPaid, onCanc
             })()}
             <div className="flex justify-center"><div className="bg-white p-2 rounded"><QRCodeCanvas value={pay.url} size={168}/></div></div>
             <a href={pay.url} className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 border border-purple-300/60 rounded-lg py-2.5 text-sm font-black text-white" style={{ boxShadow: '0 0 12px rgba(168,85,247,0.6)' }} data-pay-link={exact ? 'tx' : 'transfer'}>👛 Open in Phantom & Pay</a>
-            <p className="text-xs text-white">{devTest ? 'Scan with Phantom or tap the button. RaveKandi checks the wallet holds $' + amount + ' of test USDC and makes the order. Phantom then shows an error: nothing is sent, so that\'s expected.' : exact ? 'Scan with Phantom or tap the button. Phantom asks RaveKandi for this payment and shows it: $' + amount + ' USDC to RaveKandi. Just confirm.' : 'Scan with Phantom or tap the button. The exact amount, token (USDC), and payment code are pre-filled — just confirm.'}</p>
+            <p className="text-xs text-white">{devTest ? 'Scan with Phantom or tap the button. RaveKandi checks the wallet holds $' + amount + ' of test USDC and makes the order. Phantom then says "We couldn\'t load this transaction request": nothing is sent, so that\'s expected.' : exact ? 'Scan with Phantom or tap the button. Phantom asks RaveKandi for this payment and shows it: $' + amount + ' USDC to RaveKandi. Just confirm.' : 'Scan with Phantom or tap the button. The exact amount, token (USDC), and payment code are pre-filled — just confirm.'}</p>
             {opened && (problem
-                ? <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2 leading-snug" data-pay-opened={opened.problem}>{problem}</p>
+                ? <p className="text-xs text-left text-amber-100 bg-amber-900/30 border border-amber-400/70 rounded-lg p-2 leading-snug" data-pay-opened={opened.problem}>{problem}<span className="block mt-1 font-bold" data-pay-phantom-said="1">That's why Phantom said "We couldn't load this transaction request".</span></p>
                 : opened.test
-                ? <p className="text-xs text-left text-yellow-50 bg-yellow-900/30 border border-yellow-400/60 rounded-lg p-2 leading-snug" data-pay-opened="test">📲 Phantom asked for it from {rkMaskAddr(opened.wallet)}, which holds the test USDC, so the payment counts (test credits). Phantom shows an error because nothing is sent.</p>
+                ? <p className="text-xs text-left text-yellow-50 bg-yellow-900/30 border border-yellow-400/60 rounded-lg p-2 leading-snug" data-pay-opened="test">📲 Phantom asked for it from {rkMaskAddr(opened.wallet)}, which holds the test USDC, so the payment counts (test credits). Phantom says "We couldn't load this transaction request" because nothing is sent.</p>
                 : <p className="text-xs text-left text-cyan-100 bg-cyan-900/30 border border-cyan-400/60 rounded-lg p-2 leading-snug" data-pay-opened="ok">📲 Phantom loaded this payment for {rkMaskAddr(opened.wallet)} at {new Date(opened.at).toLocaleTimeString()}{opened.sponsor ? ', with RaveKandi paying the network fee' : ''}. Confirm it in Phantom. If Phantom says it failed or expired, check Phantom is on {net}, then scan or tap again: each one Phantom loads is good for about a minute.</p>)}
             <div className={'rounded-lg p-2 border text-[11px] font-bold ' + (state === 'paid' ? 'bg-lime-500/20 border-lime-400 text-lime-200' : (state === 'late' || state === 'closed') ? 'bg-red-900/30 border-red-500/50 text-red-200' : 'bg-black/50 border-cyan-500/40 text-cyan-200')} data-pay-state={state}>
                 {state === 'paid' ? (pay.test ? '✅ Test payment accepted (Devnet test credits). ' + (kind === 'vip' ? 'VIP is on for 24 hours.' : 'Your order is made, marked TEST.') + ' Nothing moved on the chain.' : '✅ Paid and checked on the Solana chain! ' + (kind === 'vip' ? 'VIP is on.' : 'Your order is made.'))
@@ -15644,12 +15691,15 @@ const TutorialReminderPopIn = ({ active, onClose }) => {
     if (!active) return null;
     return createPortal(
         <div className="fixed inset-0 z-[1500] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
-                <button onClick={onClose} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+            {/* V90.88.154.332: never taller than the screen: the box stays put and scrolls inside, the ✕ over its corner */}
+            <div className="relative max-w-sm w-full max-h-full flex flex-col" data-rk-fit="reminder">
+            <button onClick={onClose} className="absolute z-10 -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full min-h-0 overflow-y-auto overscroll-contain rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
                 <div className="text-4xl mb-2">🧭</div>
                 <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Need a refresher?</p>
                 <p className="text-white text-sm leading-relaxed">Every tutorial is a tap away: <strong>HELP</strong> at the bottom of the screen → <strong>🎓 Tutorials</strong>, or <strong>⚡ Quick Launch → Tutorials</strong>. Happy raving! 🌈</p>
                 <button onClick={onClose} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Got it!</button>
+            </div>
             </div>
         </div>, document.body);
 };
@@ -15737,8 +15787,10 @@ const AnnouncementPopIn = ({ cfg }) => {
     const close = () => { try { localStorage.setItem('rk_popin_seen', id); } catch (e) {} setDismissed(true); };
     return createPortal(
         <div className="fixed inset-0 z-[300] bg-black/85 flex items-center justify-center p-4" onClick={close}>
-            <div onClick={e => e.stopPropagation()} className={`relative max-w-md w-full rounded-3xl border-4 ${theme.border} bg-gradient-to-br ${theme.grad} shadow-[0_0_40px_rgba(255,255,255,0.3)] p-6 text-center`}>
-                <button onClick={close} className="absolute -top-3 -right-3 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 hover:scale-110 transition"><X size={20}/></button>
+            {/* V90.88.154.332: never taller than the screen: the box stays put and scrolls inside, the ✕ over its corner */}
+            <div className="relative max-w-md w-full max-h-full flex flex-col" data-rk-fit="popin">
+            <button onClick={close} className="absolute z-10 -top-3 -right-3 bg-black/80 text-white rounded-full p-1.5 border-2 border-white/40 hover:scale-110 transition"><X size={20}/></button>
+            <div onClick={e => e.stopPropagation()} className={`relative max-w-md w-full min-h-0 overflow-y-auto overscroll-contain rounded-3xl border-4 ${theme.border} bg-gradient-to-br ${theme.grad} shadow-[0_0_40px_rgba(255,255,255,0.3)] p-6 text-center`}>
                 <div className="text-5xl mb-2">{theme.icon}</div>
                 <p className="text-[10px] uppercase font-black tracking-widest text-white/80 mb-3">{theme.label}</p>
                 {cfg.popInMedia && (cfg.popInMediaType === 'video'
@@ -15746,6 +15798,7 @@ const AnnouncementPopIn = ({ cfg }) => {
                     : <img src={cfg.popInMedia} className="w-full rounded-xl mb-3 max-h-60 object-cover"/>)}
                 <p className="text-white font-bold text-lg leading-relaxed whitespace-pre-wrap break-words drop-shadow">{cfg.popInMessage}</p>
                 <button onClick={close} className="mt-5 bg-white/90 text-black font-black uppercase tracking-wide text-sm px-8 py-2.5 rounded-full hover:bg-white transition active:scale-95">Got it!</button>
+            </div>
             </div>
         </div>, document.body);
 };
@@ -15764,12 +15817,15 @@ const DiscoveryTip = ({ cfg, hold }) => {
     if (!show) return null;
     return createPortal(
         <div className="fixed inset-0 z-[290] bg-black/70 flex items-center justify-center p-4" onClick={() => setShow(false)}>
-            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
-                <button onClick={() => setShow(false)} className="absolute -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+            {/* V90.88.154.332: never taller than the screen: the box stays put and scrolls inside, the ✕ over its corner */}
+            <div className="relative max-w-sm w-full max-h-full flex flex-col" data-rk-fit="tip">
+            <button onClick={() => setShow(false)} className="absolute z-10 -top-2 -right-2 bg-black/80 text-white rounded-full p-1 border border-white/40"><X size={16}/></button>
+            <div onClick={e => e.stopPropagation()} className="relative max-w-sm w-full min-h-0 overflow-y-auto overscroll-contain rounded-2xl border-2 border-cyan-400/60 bg-gradient-to-br from-purple-900 via-indigo-900 to-cyan-900 p-5 text-center shadow-[0_0_30px_rgba(0,255,255,0.3)]">
                 <div className="text-4xl mb-2">💡✨</div>
                 <p className="text-cyan-200 font-black uppercase text-xs tracking-widest mb-2">Pro Tip</p>
                 <p className="text-white text-sm leading-relaxed">Almost <strong>everything</strong> on your screen is clickable and has a purpose! Tap names, badges, stats, icons, and items to discover hidden features. Explore RaveKandi — there's more than meets the eye. 🌈</p>
                 <button onClick={() => setShow(false)} className="mt-4 bg-cyan-500 text-black font-black uppercase text-xs px-6 py-2 rounded-full hover:bg-cyan-400 active:scale-95">Explore!</button>
+            </div>
             </div>
         </div>, document.body);
 };
@@ -24311,7 +24367,7 @@ const WelcomeCarousel = ({ onDone }) => {
     const s = WELCOME_SLIDES[i];
     const finish = () => { try { localStorage.setItem('rk_welcome_seen', '1'); } catch (e) {} onDone(); };
     return (
-        <div className="fixed inset-0 z-[9998] flex flex-col items-center justify-between p-7 text-center overflow-hidden" style={{ background: 'radial-gradient(circle at 50% 30%, ' + s.accent + '22, #0a0014 70%)' }}>
+        <div className="fixed inset-0 z-[9998] flex flex-col items-center justify-between p-7 text-center overflow-x-hidden overflow-y-auto overscroll-contain" style={{ background: 'radial-gradient(circle at 50% 30%, ' + s.accent + '22, #0a0014 70%)' }}>
             {/* ambient floating orbs for the eerie/colorful vibe */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-40">
                 <div className="absolute w-72 h-72 rounded-full blur-3xl animate-pulse" style={{ background: s.accent, top: '8%', left: '-15%' }}/>
@@ -25103,6 +25159,8 @@ const App = () => {
     }, []);
     // a new page, or a tour, starts with the nav out
     useEffect(() => { setNavTucked(false); }, [page, tab, tutorialActive, creatorTour]);
+    // V90.88.154.332: while any window is up, the page behind it can't scroll (rkWatchWindows)
+    useEffect(() => rkWatchWindows(), []);
     // V66: publish the REAL header height so modals can clear it.
     // 229 padded modals by a hard-coded 96px, which was simply too small — the header and the
     // ticker together run past 140px on this device, and neither is a fixed size: the ticker can
@@ -26399,7 +26457,7 @@ const App = () => {
         const fact = facts[Math.floor(Math.random() * facts.length)];
         return (
             <div className="fixed inset-0 bg-black/95 z-[999] flex items-center justify-center p-4">
-                <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full">
+                <div className="bg-yellow-500/10 border-4 border-dashed border-yellow-500 p-6 rounded-xl text-center space-y-4 shadow-[0_0_40px_rgba(234,179,8,0.3)] max-w-sm w-full max-h-full overflow-y-auto overscroll-contain">
                     <AlertTriangle size={48} className="text-yellow-400 mx-auto mb-2 animate-pulse"/>
                     <h2 className="text-xl font-black text-yellow-400 uppercase tracking-widest bg-black/50 p-2 rounded">RaveKandi Alpha</h2>
                     <p className="text-xs font-mono text-white/50 mb-4">{APP_VERSION_FULL}</p>
@@ -26661,7 +26719,7 @@ cat << 'EOF' >> src/App.js
             {bannerMsgActive ? <div className="bg-amber-500 text-black text-center text-xs font-bold px-3 py-2 relative z-40">⚠ {rkConfig.maintenanceMessage}</div> : null}
             {rkConfig.minVersion && cmpVer(APP_VERSION, rkConfig.minVersion) < 0 ? (
                 <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6 text-center">
-                    <div>
+                    <div className="max-h-full overflow-y-auto overscroll-contain">
                         <h2 className="text-2xl font-black text-pink-500 mb-2">UPDATE REQUIRED</h2>
                         <p className="text-sm opacity-80 max-w-xs mx-auto">This build (V{APP_VERSION}) is below the minimum supported version (V{rkConfig.minVersion}). Grab the latest from the official RaveKandi download link to keep raving!</p>
                     </div>
@@ -32164,13 +32222,8 @@ else
 fi
 echo "------------------------------------------------------------------"
 echo "  Install and upload only an APK whose name has _B${RK_BUILD}_ in it."
-echo "  331 needs, in this order, once WEB says OK (no rules this time):"
-echo "   1. Only if 330's fee wallet key was never made (RK_VERIFY_331, section 3). It makes a key and nothing"
-echo "      else: the wallet stays empty, nothing is funded, nothing links to you. The deploy needs the key to exist."
-echo "      cd ~/RaveKandi-Build && node rk_fee_wallet.js && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase functions:secrets:set RK_FEE_PAYER --data-file ~/rk-secrets/rk_fee_payer.key"
-echo "   2. cd ~/RaveKandi-Build && NODE_OPTIONS=\"--dns-result-order=ipv4first --no-network-family-autoselection\" firebase deploy --only functions"
-echo "      (rk_money.js: Devnet test credits, and Devnet's closed faucet. If it stops and asks for RK_FEE_PAYER,"
-echo "       do step 1 first. If it stops at \"Error generating the service identity for pubsub.googleapis.com\", run it again)"
+echo "  332 needs nothing more by hand once WEB says OK: no functions and no rules this time."
+echo "   (If 331's functions were never deployed, they still are needed: RK_VERIFY_331, section 4.)"
 echo "=================================================================="
 } | tee "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt"
 RK_T 15 cp "$HOME/RaveKandi_Output/RK_BUILD_RESULT.txt" "/storage/emulated/0/Download/RK_BUILD_RESULT.txt" 2>/dev/null || true
